@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Software License :
 #
@@ -85,11 +85,11 @@ libdir="Libraries"
 pkglib="$package/Contents/$libdir"
 
 if [ ! -x "$binary" ]; then
-   echo "Error: $binary does not exist or is not an executable"
-   exit 1
+    echo "Error: $binary does not exist or is not an executable"
+    exit 1
 fi
 
-rpath=`otool -l $binary | grep -A 3 LC_RPATH |grep path|awk '{ print $2 }'`
+rpath=$(otool -l $binary | grep -A 3 LC_RPATH |grep path|awk '{ print $2 }')
 if [[ ! ("$rpath" == *"@loader_path/../$libdir"*) ]]; then
     echo "Error:: The runtime search path in $binary does not contain \"@loader_path/../$libdir\". Please set it in your Xcode project, or link the binary with the flags -Xlinker -rpath -Xlinker \"@loader_path/../$libdir\""
     exit 1
@@ -97,7 +97,7 @@ fi
 # Test dirs
 test -d "$pkglib" || mkdir "$pkglib"
 
-LIBADD=
+unset LIBADD
 
 #############################
 # test if ImageMagick is used
@@ -109,10 +109,10 @@ if otool -L "$binary"  | fgrep libMagick > /dev/null; then
     fi
 
     # Update the ImageMagick path in startup script.
-    IMAGEMAGICKVER=`pkg-config --modversion ImageMagick`
+    IMAGEMAGICKVER=$(pkg-config --modversion ImageMagick)
     IMAGEMAGICKMAJ=${IMAGEMAGICKVER%.*.*}
-    IMAGEMAGICKLIB=`pkg-config --variable=libdir ImageMagick`
-    IMAGEMAGICKSHARE=`pkg-config --variable=prefix ImageMagick`/share
+    IMAGEMAGICKLIB=$(pkg-config --variable=libdir ImageMagick)
+    IMAGEMAGICKSHARE=$(pkg-config --variable=prefix ImageMagick)/share
     # if I get this right, sed substitutes in the exe the occurences of IMAGEMAGICKVER
     # into the actual value retrieved from the package.
     # We don't need this because we use MAGICKCORE_PACKAGE_VERSION declared in the <magick/magick-config.h>
@@ -128,23 +128,23 @@ if otool -L "$binary"  | fgrep libMagick > /dev/null; then
 fi
 
 # expand glob patterns in LIBADD
-LIBADD=`echo $LIBADD`
+LIBADD=$(echo $LIBADD)
 
 # Find out the library dependencies
 # (i.e. $LOCAL or $MACPORTS), then loop until no changes.
 a=1
 nfiles=0
-alllibs=""
+unset alllibs
 endl=true
 while $endl; do
     #echo -e "\033[1mLooking for dependencies.\033[0m Round" $a
-    libs="`otool -L $pkglib/* $LIBADD $binary 2>/dev/null | fgrep compatibility | cut -d\( -f1 | grep -e $LOCAL'\\|'$HOMEBREW'\\|'$MACPORTS | sort | uniq`"
+    libs="$(otool -L $pkglib/* $LIBADD $binary 2>/dev/null | fgrep compatibility | cut -d\( -f1 | grep -e $LOCAL'\\|'$HOMEBREW'\\|'$MACPORTS | sort | uniq)"
     if [ -n "$libs" ]; then
         cp -f $libs $pkglib
-        alllibs="`ls $alllibs $libs | sort | uniq`"
+        alllibs="$(ls $alllibs $libs | sort | uniq)"
     fi
     let "a+=1"      
-    nnfiles=`ls $pkglib | wc -l`
+    nnfiles=$(ls $pkglib | wc -l)
     if [ $nnfiles = $nfiles ]; then
         endl=false
     else
@@ -160,9 +160,9 @@ done
 ## or the binary has to be linked with the following flags:
 ## -Wl,-rpath,@loader_path/../Frameworks -Wl,-rpath,@loader_path/../Libraries
 if [ -n "$alllibs" ]; then
-    changes=""
+    unset changes
     for l in $alllibs; do
-        changes="$changes -change $l @rpath/`basename $l`"
+        changes="$changes -change $l @rpath/$(basename $l)"
     done
 
     for f in  $pkglib/* $LIBADD "$binary"; do
@@ -173,9 +173,9 @@ if [ -n "$alllibs" ]; then
                 echo "Error: 'install_name_tool $changes $f' failed"
                 exit 1
             fi
-            install_name_tool -id @rpath/`basename $f` "$f"
-            if ! install_name_tool -id @rpath/`basename $f` "$f"; then
-                echo "Error: 'install_name_tool -id @rpath/`basename $f` $f' failed"
+            install_name_tool -id @rpath/$(basename $f) "$f"
+            if ! install_name_tool -id @rpath/$(basename $f) "$f"; then
+                echo "Error: 'install_name_tool -id @rpath/$(basename $f) $f' failed"
                 exit 1
             fi
         fi
