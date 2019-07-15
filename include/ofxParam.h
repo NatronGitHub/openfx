@@ -181,7 +181,7 @@ Hosts that do not support paged parameter layout should set this to zero.
 */
 #define kOfxParamHostPropMaxPages "OfxParamHostPropMaxPages"
 
-/** @brief This indicates the number of parameter rows and coloumns on a page.
+/** @brief This indicates the number of parameter rows and columns on a page.
 
     - Type - int X 2
     - Property Set - host descriptor (read only)
@@ -352,7 +352,7 @@ Note the spelling error in the string value.
 */
 #define kOfxParamPropPersistent "OfxParamPropPersistant"
 
-/** @brief Flags whether changing a parameter's value forces an evalution (ie: render),
+/** @brief Flags whether changing a parameter's value forces an evaluation (ie: render),
 
     - Type - int x 1
     - Property Set - plugin parameter descriptor (read/write) and instance (read/write only)
@@ -454,8 +454,8 @@ The exact type and dimension is dependant on the type of the parameter. These ar
    - Property Set - 1D, 2D and 3D float plugin parameter descriptor (read/write) and instance (read only),
    - Valid Values -This must be one of
       - ::kOfxParamDoubleTypePlain - parameter has no special interpretation,
-      - ::kOfxParamDoubleTypeAngle - parameter is to be interpretted as an angle,
-      - ::kOfxParamDoubleTypeScale - parameter is to be interpretted as a scale factor,
+      - ::kOfxParamDoubleTypeAngle - parameter is to be interpreted as an angle,
+      - ::kOfxParamDoubleTypeScale - parameter is to be interpreted as a scale factor,
       - ::kOfxParamDoubleTypeTime  - parameter represents a time value (1D only),
       - ::kOfxParamDoubleTypeAbsoluteTime  - parameter represents an absolute time value (1D only),
 
@@ -471,7 +471,7 @@ as to the interface of the parameter.
 */
 #define kOfxParamPropDoubleType "OfxParamPropDoubleType"
 
-/** @brief value for the ::kOfxParamPropDoubleType property, indicating the parameter has no special interpretation and should be interpretted as a raw numeric value. */
+/** @brief value for the ::kOfxParamPropDoubleType property, indicating the parameter has no special interpretation and should be interpreted as a raw numeric value. */
 #define kOfxParamDoubleTypePlain "OfxParamDoubleTypePlain"
 
 /** @brief value for the ::kOfxParamPropDoubleType property, indicating the parameter is to be interpreted as a scale factor. See \ref ::kOfxParamPropDoubleType. */
@@ -699,7 +699,7 @@ Setting this will also reset :;kOfxParamPropDisplayMax.
     - Property Set - plugin parameter descriptor (read/write) and instance (read/write),
     - Default - the smallest possible value corresponding to the parameter type (eg: INT_MIN for an integer, -DBL_MAX for a double parameter)
 
-If a user interface represents a parameter with a slider or similar, this should be the minumum bound on that slider.
+If a user interface represents a parameter with a slider or similar, this should be the minimum bound on that slider.
 */
 #define kOfxParamPropDisplayMin "OfxParamPropDisplayMin"
 
@@ -1172,7 +1172,7 @@ changes a keyframe.  The keyframe indices will not change within a single action
   /** @brief Deletes all keyframes from a parameter.
 
   \arg paramHandle parameter handle to delete the keys from
-  \arg name      parameter to delete the keyframes frome is
+  \arg name      parameter to delete the keyframes from is
 
   V1.3: This function can be called the ::kOfxActionInstanceChanged action and during image effect analysis render passes.
   V1.4: This function can be called the ::kOfxActionInstanceChanged action 

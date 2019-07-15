@@ -47,7 +47,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     if (host) {                                                         \
       try {                                                             \
         (host)->message(kOfxMessageError, "",                           \
-                        "%s: Memory allocation error occured in plugin %s (%s)", \
+                        "%s: Memory allocation error occurred in plugin %s (%s)", \
                         (msg), (plugin)->pluginIdentifier, ba.what());  \
       } catch (...) {                                                   \
       }                                                                 \
@@ -57,7 +57,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     if (host) {                                                         \
       try {                                                             \
         (host)->message(kOfxMessageError, "",                           \
-                        "%s: Exception occured in plugin %s (%s)",      \
+                        "%s: Exception occurred in plugin %s (%s)",      \
                         (msg), (plugin)->pluginIdentifier, e.what());   \
       } catch (...) {                                                   \
       }                                                                 \
@@ -67,7 +67,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     if (host) {                                                         \
       try {                                                             \
         (host)->message(kOfxMessageError, "",                           \
-                        "%s:Exception occured in plugin %s",            \
+                        "%s:Exception occurred in plugin %s",            \
                         (msg), (plugin)->pluginIdentifier);             \
       } catch (...) {                                                   \
       }                                                                 \

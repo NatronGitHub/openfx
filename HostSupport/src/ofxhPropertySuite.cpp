@@ -380,7 +380,7 @@ namespace OFX {
         }
       }
 
-      // explicit instanciations (required by ofxhPluginAPICache.cpp)
+      // explicit instantiations (required by ofxhPluginAPICache.cpp)
       template class PropertyTemplate<IntValue>;
       template class PropertyTemplate<DoubleValue>;
       template class PropertyTemplate<PointerValue>;

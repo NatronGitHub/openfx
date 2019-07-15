@@ -329,7 +329,7 @@ namespace OFX {
       PropertyDescription(kOfxImageEffectPropSupportedComponents,        OFX::eString, -1, eDescFinished),
       PropertyDescription(kOfxImageEffectPropSupportedContexts,          OFX::eString, -1, eDescFinished),
 
-      // multi dimensional int properities
+      // multi dimensional int properties
       PropertyDescription(kOfxParamHostPropPageRowColumnCount,           OFX::eInt, 2, eDescFinished),
     };
 

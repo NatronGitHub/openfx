@@ -58,7 +58,7 @@ namespace OFX {
     
     class Host;
 
-    // forward delcarations
+    // forward declarations
     class PluginDesc;   
     class Plugin;
     class PluginBinary;
@@ -495,7 +495,7 @@ namespace OFX {
       }
 #endif
 
-      /// specify which subdirectory of /usr/OFX or equivilant
+      /// specify which subdirectory of /usr/OFX or equivalent
       /// (as well as 'Plugins') to look in for plugins.
       void setPluginHostPath(const std::string &hostId);
 

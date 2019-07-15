@@ -8,7 +8,7 @@
  It indicates whether the host is Natron as another mean than just the host name.
  This was added because it may be required to activate certain plug-ins by changing the host-name 
  (since some plug-ins don't allow to be loaded on any host)
- but to keep some other functionnalities specific to the Natron extensions working.
+ but to keep some other functionalities specific to the Natron extensions working.
  
 Valid values:
  - 0: Indicates that the host is not Natron
@@ -390,7 +390,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  - Default - 0
  - Valid Values - 0 or 1
  When set to 1, the parameter is specific to an effect instance of the plug-in and should have a
- unique representation for each instance. See descripton of kNatronOfxImageEffectContextTracker for more details
+ unique representation for each instance. See description of kNatronOfxImageEffectContextTracker for more details
  on multiple instances and difference between shared and specific parameters.
  */
 #define kNatronOfxParamPropIsInstanceSpecific "NatronOfxParamPropIsInstanceSpecific"
@@ -544,7 +544,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
          2 meaning that the selection is finilized by the user (i.e: during pen up)
     The property kNatronOfxImageEffectSelectionRectangle will be updated prior to calling the kOfxActionInstanceChanged action for this parameter by the host, indicating the region covered by the selection rectangle. 
 
- 8) The host application cursor can be controled by the plug-in via a secret String parameter with the name kNatronOfxParamCursorName. If this parameter is found, the host should display a cursor depending on the value of this parameter.  The value of the parameter should be the name of the cursor. Several default cursor can be made available by the host as advertised by the kNatronOfxImageEffectPropDefaultCursors property. The plug-in may also embed custom cursors as PNG files located in the Resources directory of the plug-in bundle. To specify one the image in the plug-in bundle as an icon, you may set the value of this parameter to the filename of the image without any leading path. This is up to the host to figure out the path to the plug-in bundle Resources directory.
+ 8) The host application cursor can be controlled by the plug-in via a secret String parameter with the name kNatronOfxParamCursorName. If this parameter is found, the host should display a cursor depending on the value of this parameter.  The value of the parameter should be the name of the cursor. Several default cursor can be made available by the host as advertised by the kNatronOfxImageEffectPropDefaultCursors property. The plug-in may also embed custom cursors as PNG files located in the Resources directory of the plug-in bundle. To specify one the image in the plug-in bundle as an icon, you may set the value of this parameter to the filename of the image without any leading path. This is up to the host to figure out the path to the plug-in bundle Resources directory.
      Whenever an event is sent to overlay interacts (PenDown, PenMotion, PenUp, KeyDown, KeyUp, KeyRepeat, GainFocus, LoseFocus, the OFX Host should set the cursor to the one of the first interact which catches the event by returning kOfxStatOK to the corresponding action. If no overlay interact returns kOfxStatOK, the cursor should be set to the default cursor.
  
  9) It may be useful to show a dialog to a user to request a little information before doing a task such as an analysis.
@@ -999,7 +999,7 @@ says:
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 // Extensions for image effects that can return a distortion function rather
-// than an image. A distortion function gost from a 2D distorted position in
+// than an image. A distortion function ghost from a 2D distorted position in
 // canonical coordinates in the output distorted image to the undistorted
 // position in canonical coordinates in the source image.
 
@@ -1045,7 +1045,7 @@ says:
  - The Render Action
  - The Begin Sequence Render Action
  - The End Sequence Render Action
- The effect only needs a single image frome the clip named in the out args of this action
+ The effect only needs a single image from the clip named in the out args of this action
 
 
  For maximum flexibility, a plug-in must be allowed to fetch images inside this action, so as to be
@@ -1082,23 +1082,23 @@ host may optimize the concatenation of 3x3 matrix into a single matrix. This is 
  -  kOfxPropInverseDistortionFunction (pointer x1): A pointer to the distortion function itself that the host should call. 
  The function has the signature described below (OfxDistortionFunctionV1)
 
- -  kOfxPropInverseDistortionFunctionData (pointer x1) : Pointer to datas owned by the plug-in that should be passed back as customData
+ -  kOfxPropInverseDistortionFunctionData (pointer x1) : Pointer to data owned by the plug-in that should be passed back as customData
  to the OfxDistortionFunctionV1 function. This can contain parameter values or STMaps or anything custom to the plug-in.
- These datas will be freed by the kOfxPropInverseDistortionFunctionFreeData speficied below once the host does not need them anymore.
- Note that the host may cache these datas away and it is important to hint the host about the size these datas holds in the host cache.
+ This data will be freed by the kOfxPropInverseDistortionFunctionFreeData specified below once the host does not need them anymore.
+ Note that the host may cache this data away and it is important to hint the host about the size this data holds in the host cache.
 
- - kOfxPropInverseDistortionFunctionDataSize (int x1): An estimated size in bytes of the memory held by the datas pointed to by kOfxPropInverseDistortionFunctionData.
- The host may cache these datas away and it is important to hint the host about the size these datas holds in the host cache.
+ - kOfxPropInverseDistortionFunctionDataSize (int x1): An estimated size in bytes of the memory held by the data pointed to by kOfxPropInverseDistortionFunctionData.
+ The host may cache this data away and it is important to hint the host about the size this data holds in the host cache.
  This should not overflow an integer size.
 
  -  kOfxPropInverseDistortionDataFreeFunction (pointer x1): Pointer to a function called by the host when the concatenation is done to free
-the datas pointed to by kOfxPropInverseDistortionFunctionData
+the data pointed to by kOfxPropInverseDistortionFunctionData
  
 
 
  @returns
  - ::kOfxStatDefault - don't attempt to any of the out args, but render the image as per normal,
- - ::kOfxStatOK - the transfrom and clip name were set and can be used to modify the named image appropriately,
+ - ::kOfxStatOK - the transform and clip name were set and can be used to modify the named image appropriately,
 
  */
 
@@ -1130,9 +1130,9 @@ the datas pointed to by kOfxPropInverseDistortionFunctionData
 
 
 /*
-@brief Property that hints the host about the total size of the datas pointed to by kOfxPropInverseDistortionFunctionData. If these datas contain buffers or images
+@brief Property that hints the host about the total size of the data pointed to by kOfxPropInverseDistortionFunctionData. If this data contains buffers or images
  they should be summed up.
- The host may cache these datas away and it is important to hint the host about the size these datas holds in the host cache.
+ The host may cache this data away and it is important to hint the host about the size this data holds in the host cache.
  This should not overflow an integer size.
  
  - Type - Int x1
@@ -1154,8 +1154,8 @@ the datas pointed to by kOfxPropInverseDistortionFunctionData
 
 /**
  @brief Prototype of the distortion passed to the kOfxPropInverseDistortionFunction property. It takes in input the distorted position and should output the
- undistorted position, both in canonical coordinates. Optionnally the Jacobian may be output.
- @param customData These are custom datas that were returned by the plug-in in the kOfxImageEffectActionGetInverseDistortion action in kOfxPropInverseDistortionFunctionData
+ undistorted position, both in canonical coordinates. Optionally the Jacobian may be output.
+ @param customData These are custom data that were returned by the plug-in in the kOfxImageEffectActionGetInverseDistortion action in kOfxPropInverseDistortionFunctionData
  @param wantsJacobian True if the caller would like the function to return a Jacobian, if possible. Note that the function may not return a Jacobian
  even if it was asked for, in which case the caller will have to compute it using for example finite differences.
  @param gotJaboian True if the jacobian was computed and set in output. If wantsJacobian is set to false, this parameter may be NULL.

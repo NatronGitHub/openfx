@@ -115,7 +115,7 @@ typedef struct OfxPropertySuiteV1 {
 
       \arg properties is the handle of the thing holding the property
       \arg property is the string labelling the property
-      \arg count is the number of values we are setting in that property (ie: indicies 0..count-1)
+      \arg count is the number of values we are setting in that property (ie: indices 0..count-1)
       \arg value is a pointer to an array of property values
 
       @returns
@@ -131,7 +131,7 @@ typedef struct OfxPropertySuiteV1 {
 
       \arg properties is the handle of the thing holding the property
       \arg property is the string labelling the property
-      \arg count is the number of values we are setting in that property (ie: indicies 0..count-1)
+      \arg count is the number of values we are setting in that property (ie: indices 0..count-1)
       \arg value is a pointer to an array of property values
 
       @returns
@@ -147,7 +147,7 @@ typedef struct OfxPropertySuiteV1 {
 
       \arg properties is the handle of the thing holding the property
       \arg property is the string labelling the property
-      \arg count is the number of values we are setting in that property (ie: indicies 0..count-1)
+      \arg count is the number of values we are setting in that property (ie: indices 0..count-1)
       \arg value is a pointer to an array of property values
 
       @returns
@@ -164,7 +164,7 @@ typedef struct OfxPropertySuiteV1 {
 
       \arg properties is the handle of the thing holding the property
       \arg property is the string labelling the property
-      \arg count is the number of values we are setting in that property (ie: indicies 0..count-1)
+      \arg count is the number of values we are setting in that property (ie: indices 0..count-1)
       \arg value is a pointer to an array of property values
 
       @returns
@@ -243,7 +243,7 @@ typedef struct OfxPropertySuiteV1 {
 
       \arg properties is the handle of the thing holding the property
       \arg property is the string labelling the property
-      \arg count is the number of values we are getting of that property (ie: indicies 0..count-1)
+      \arg count is the number of values we are getting of that property (ie: indices 0..count-1)
       \arg value is a pointer to an array of where we will return the property values
 
       @returns
@@ -258,7 +258,7 @@ typedef struct OfxPropertySuiteV1 {
 
       \arg properties is the handle of the thing holding the property
       \arg property is the string labelling the property
-      \arg count is the number of values we are getting of that property (ie: indicies 0..count-1)
+      \arg count is the number of values we are getting of that property (ie: indices 0..count-1)
       \arg value is a pointer to an array of where we will return the property values
 
       See the note \ref ArchitectureStrings for how to deal with strings.
@@ -275,7 +275,7 @@ typedef struct OfxPropertySuiteV1 {
 
       \arg properties is the handle of the thing holding the property
       \arg property is the string labelling the property
-      \arg count is the number of values we are getting of that property (ie: indicies 0..count-1)
+      \arg count is the number of values we are getting of that property (ie: indices 0..count-1)
       \arg value is a pointer to an array of where we will return the property values
 
       @returns
@@ -290,7 +290,7 @@ typedef struct OfxPropertySuiteV1 {
 
       \arg properties is the handle of the thing holding the property
       \arg property is the string labelling the property
-      \arg count is the number of values we are getting of that property (ie: indicies 0..count-1)
+      \arg count is the number of values we are getting of that property (ie: indices 0..count-1)
       \arg value is a pointer to an array of where we will return the property values
 
       @returns

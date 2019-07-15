@@ -87,7 +87,7 @@ This indicates the dimension of the parametric param.
     - Property Set - parametric param descriptor (read/write) and instance (read only)
     - default - unset, 
     - Value Values - three values for each dimension (see ::kOfxParamPropParametricDimension)
-      being interpretted as R, G and B of the colour for each curve drawn in the UI.
+      being interpreted as R, G and B of the colour for each curve drawn in the UI.
 
 This sets the colour of a parametric param curve drawn a host user interface. A colour triple
 is needed for each dimension of the oparametric param. 
@@ -305,7 +305,7 @@ typedef struct OfxParametricParameterSuiteV1 {
  has a left and right derivative which are computed by the host given an interpolation mode set on the control point.
  The interpolation mode is valid for a control point up to another. The first control point left derivative
  and the last control point right derivative cannot have a specific interpolation mode.
- The interpolation mode can be controled by the function parametricParamSetNthControlPoint and parametricParamAddControlPoint.
+ The interpolation mode can be controlled by the function parametricParamSetNthControlPoint and parametricParamAddControlPoint.
  In return the host will set the derivatives in the function parametricParamGetNControlPoints.
  A host can advertise the types of interpolation it supports among default interpolation modes.
  A plug-in is then free to give the host any interpolation that it recognizes. Failure to provide a known interpolation
@@ -392,19 +392,19 @@ typedef OfxStatus (OfxParametricParamCustomInterpFuncV1)(OfxParamSetHandle insta
                                                          OfxPropertySetHandle inArgs,
                                                          OfxPropertySetHandle outArgs);
 
-/** @brief A double 2D indicating the time of the previous and next control points surrounding the parametric time at which the interpolation is occuring.
+/** @brief A double 2D indicating the time of the previous and next control points surrounding the parametric time at which the interpolation is occurring.
   - Type - Double X 2
   - Property Set - inArgs of the OfxParametricParamCustomInterpFuncV1 function
  */
 #define kOfxParametricParamCustomInterpInterpolationTime "OfxParametricParamCustomInterpInterpolationTime"
 
-/** @brief A double 2D indicating the value of the previous and next control points surrounding the parametric time at which the interpolation is occuring.
+/** @brief A double 2D indicating the value of the previous and next control points surrounding the parametric time at which the interpolation is occurring.
    - Type - Double X 2
    - Property Set - inArgs of the OfxParametricParamCustomInterpFuncV1 function
 */
 #define kOfxParametricParamCustomInterpInterpolationValue "OfxParametricParamCustomInterpInterpolationValue"
 
-/** @brief A int 1D indicating the index of the previous control point relative to the parametric time at which the interpolation is occuring.
+/** @brief A int 1D indicating the index of the previous control point relative to the parametric time at which the interpolation is occurring.
   - Type - int X 1
   - Property Set - inArgs of the OfxParametricParamCustomInterpFuncV1 function
 */

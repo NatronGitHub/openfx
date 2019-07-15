@@ -2081,8 +2081,8 @@ namespace OFX {
      This let a chance to the host to concatenate distortion effects together filter only once.
      @param distortionFunctionDataSizeHintInBytes This should indicate the size in bytes of the data held by distortionFunctionData.
      Since distortionFunctionData may contain the result of heavy computations (such as a STMap), the host will attempt to cache these data.
-     However the void* does not indicate much to the host as to "how heavy" these datas are in its cache, so this parameter should hint
-     the host of the size of these datas in bytes.
+     However the void* does not indicate much to the host as to "how heavy" this data is in its cache, so this parameter should hint
+     the host of the size of this data in bytes.
 
      If the effect distortion can be represented as a 3x3 matrix, then leave the function pointer to NULL and fill the transform matrix.
      This will enable the host to better concatenate the distortion in such cases where 3x3 matrices can be multiplied together instead

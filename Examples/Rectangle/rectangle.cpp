@@ -98,7 +98,7 @@ struct MyInstanceData {
 /* mandatory function to set up the host structures */
 
 
-// Convinience wrapper to get private data 
+// Convenience wrapper to get private data 
 static MyInstanceData *
 getMyInstanceData(OfxImageEffectHandle effect)
 {
@@ -730,7 +730,7 @@ static OfxStatus render(OfxImageEffectHandle effect,
   }
   catch(OfxuNoImageException &ex) {
     // if we were interrupted, the failed fetch is fine, just return kOfxStatOK
-    // otherwise, something wierd happened
+    // otherwise, something weird happened
     if(!gEffectHost->abort(effect)) {
       status = kOfxStatFailed;
     }

@@ -45,7 +45,7 @@
     - Default - 0
     - Valid Values - 0,1 or 2
         0 - for a new line after the parameter
-        1 - for a seperator between this parameter and the one to follow
+        1 - for a separator between this parameter and the one to follow
         2 - for no new line, continue the next parameter on the same horizontal level
 
    This is a property on parameters of type ::kOfxParamPropLayoutHint, and tells the group whether it should be open or closed by default.

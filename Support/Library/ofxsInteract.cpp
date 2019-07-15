@@ -98,7 +98,7 @@ namespace OFX {
     throwSuiteStatusException(stat);
     _interactProperties.propSetHandle(propHandle);
 
-    // set othe instance data on the property handle to point to this interact
+    // set other instance data on the property handle to point to this interact
     _interactProperties.propSetPointer(kOfxPropInstanceData, (void *)this);
 
     // get the effect handle from this handle        
@@ -158,7 +158,7 @@ namespace OFX {
   }
 
 #ifdef OFX_EXTENSIONS_NATRON
-  /** @brief Sets wether the interact uses an additional colour picking value in the inArgs of its actions. */
+  /** @brief Sets whether the interact uses an additional colour picking value in the inArgs of its actions. */
   void
     Interact::setColourPicking(bool useColourPicking)
   {
@@ -420,7 +420,7 @@ namespace OFX {
   }
 
 #ifdef OFX_EXTENSIONS_NATRON
-  /** @brief Sets wether the interact uses an additional colour picking value in the inArgs of its actions. */
+  /** @brief Sets whether the interact uses an additional colour picking value in the inArgs of its actions. */
   void InteractDescriptor::setColourPicking(bool useColourPicking)
   {
     _props->propSetInt(kNatronOfxInteractColourPicking, (int)useColourPicking, 0, false);

@@ -57,7 +57,7 @@ namespace OFX
   {
     namespace APICache {
 
-      /// this acts as an interface for the Plugin Cache, handling api-specific cacheing
+      /// this acts as an interface for the Plugin Cache, handling api-specific caching
       class PluginAPICacheI
       {
       protected:

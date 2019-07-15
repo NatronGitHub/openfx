@@ -188,7 +188,7 @@ namespace OFX {
 
       Instance::~Instance()
       {
-        /// call it directly incase CI failed and we should always tidy up after create instance
+        /// call it directly in case CI failed and we should always tidy up after create instance
         callEntry(kOfxActionDestroyInstance,  NULL);
       }
 

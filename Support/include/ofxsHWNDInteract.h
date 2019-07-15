@@ -61,7 +61,7 @@ namespace OFX {
   /** @brief forward declaration */
   class ImageEffect;
 
-  /// all image effect interacts have these argumens
+  /// all image effect interacts have these arguments
   struct HWNDInteractArgs {
     /// ctor
     HWNDInteractArgs(const PropertySet &props);

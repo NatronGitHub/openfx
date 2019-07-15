@@ -128,7 +128,7 @@ This has only one dimension.
 
 /** @brief Name of the camera position parameter 
 
-This represents a homogenous 4x4 transform matrix
+This represents a homogeneous 4x4 transform matrix
 that places the camera in 3D space. As such it has 16 values.
 */
 #define kNukeOfxCameraParamPositionMatrix "position_matrix"
@@ -153,7 +153,7 @@ Instance property sets have all the descriptor properties (as read only) and the
 typedef struct NukeOfxCameraSuiteV1 {
   /** @brief Define a camera input to an effect.
 
-   \arg pluginHandle - the decriptor handle passed into the 'describeInContext' action
+   \arg pluginHandle - the descriptor handle passed into the 'describeInContext' action
    \arg name - unique name of the camera to define
    \arg propertySet - a property handle for the camera descriptor will be returned here
 
@@ -191,7 +191,7 @@ typedef struct NukeOfxCameraSuiteV1 {
   \arg returnSize   - the number of doubles at the baseReturnAddress
 
   @returns
-  - ::kOfxStatOK         - if the parameter was fetched succesfully
+  - ::kOfxStatOK         - if the parameter was fetched successfully
   - ::kOfxStatFailed     - if the camera was not connected
   - ::kOfxStatErrUnknown - if the named parameter could not be found
   */

@@ -57,7 +57,7 @@ namespace OFX {
       break;
 
     case kOfxStatErrUnknown :
-    case kOfxStatErrUnsupported : // unsupported implies unknow here
+    case kOfxStatErrUnsupported : // unsupported implies unknown here
       if(OFX::PropertySet::getThrowOnUnsupportedProperties()) // are we suppressing this?
         throw OFX::Exception::PropertyUnknownToHost(propName.c_str());
       break;
@@ -87,7 +87,7 @@ namespace OFX {
   /** @brief Virtual destructor */
   PropertySet::~PropertySet() {}
 
-  /** @brief, returns wether the given property exists in this property set */
+  /** @brief, returns whether the given property exists in this property set */
   bool PropertySet::propExists(const char* property, bool throwOnFailure) const OFX_THROW3(std::bad_alloc,
     OFX::Exception::PropertyValueIllegalToHost,
     OFX::Exception::Suite)
@@ -132,7 +132,7 @@ namespace OFX {
   {
     assert(_propHandle != 0);
     OfxStatus stat = gPropSuite->propReset(_propHandle, property);
-    Log::error(stat != kOfxStatOK, "Failed on reseting property %s to its defaults, host returned status %s.", property, mapStatusToString(stat));
+    Log::error(stat != kOfxStatOK, "Failed on resetting property %s to its defaults, host returned status %s.", property, mapStatusToString(stat));
     throwPropertyException(stat, property); 
 
     if(_gPropLogging > 0) Log::print("Reset property %s.",  property);

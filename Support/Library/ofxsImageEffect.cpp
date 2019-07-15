@@ -107,7 +107,7 @@ static const int charXMLCompatiblity[] =
 // Check the effect descriptor for potentially bad XML in the OFX Plugin cache.
 //
 // The function that wrote string properties to the OFX plugin cache used to
-// escape only que quote (") character. As a result, if one of the string
+// escape only the quote (") character. As a result, if one of the string
 // properties in the Image Effect descriptor contains special characters,
 // the host may be unable to read the plugin cache, giving an "xml error 4"
 // (error 4 is XML_ERROR_INVALID_TOKEN).
@@ -603,7 +603,7 @@ namespace OFX {
 
     const std::size_t planeNameStartIdx = foundPlane + foundPlaneLen;
 
-    // Find the optionnal plane label
+    // Find the optional plane label
     // If planeLabelStartIdx = 0, there's no plane label.
     std::size_t planeLabelStartIdx = 0;
 
@@ -616,7 +616,7 @@ namespace OFX {
 
 
 
-    // Find the optionnal channels label
+    // Find the optional channels label
     // If channelsLabelStartIdx = 0, there's no channels label.
     std::size_t channelsLabelStartIdx = 0;
 
@@ -2976,7 +2976,7 @@ namespace OFX {
         return rgb;
     }
 
-    /// wierd, must be some custom bit , if only one, choose that, otherwise no idea
+    /// weird, must be some custom bit , if only one, choose that, otherwise no idea
     /// how to map, you need to derive to do so.
     return none;
   }
@@ -4829,7 +4829,7 @@ namespace OFX {
       if(v && transformClip) {
         outArgs.propSetString(kOfxPropName, transformClip->name());
         outArgs.propSetDoubleN(kFnOfxPropMatrix2D, transformMatrix, 9);
-        return true; // the transfrom and clip name were set and can be used to modify the named image appropriately
+        return true; // the transform and clip name were set and can be used to modify the named image appropriately
       }
       return false; // don't attempt to use the transform matrix, but render the image as per normal
     }
@@ -4886,7 +4886,7 @@ namespace OFX {
             outArgs.propSetInt(kOfxPropInverseDistortionFunctionDataSize, distortionFunctionDataSize);
             outArgs.propSetPointer(kOfxPropInverseDistortionDataFreeFunction, (void*)freeDataFunction);
           }
-          return true; // the transfrom and clip name were set and can be used to modify the named image appropriately
+          return true; // the transform and clip name were set and can be used to modify the named image appropriately
         }
       } else {
         // effect can not distort, maybe it can transform?
@@ -4927,7 +4927,7 @@ namespace OFX {
           //transformMatrix[8] *= 1.;
 
           outArgs.propSetDoubleN(kOfxPropMatrix3x3, transformMatrix, 9);
-          return true; // the transfrom and clip name were set and can be used to modify the named image appropriately
+          return true; // the transform and clip name were set and can be used to modify the named image appropriately
         }
       }
       return false; // don't attempt to use the distortion function, but render the image as per normal

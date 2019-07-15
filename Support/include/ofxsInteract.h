@@ -58,7 +58,7 @@ namespace OFX {
   /** @brief forward declaration */
   class ImageEffect;
 
-  /// all image effect interacts have these argumens
+  /// all image effect interacts have these arguments
   struct InteractArgs {
     /// ctor
     InteractArgs(const PropertySet &props);
@@ -232,7 +232,7 @@ namespace OFX {
     void swapBuffers(void) const;
 
 #ifdef OFX_EXTENSIONS_NATRON
-    /** @brief Sets wether the interact uses an additional colour picking value in the inArgs of its actions. */
+    /** @brief Sets whether the interact uses an additional colour picking value in the inArgs of its actions. */
     void setColourPicking(bool useColourPicking);
 #endif
 
@@ -468,7 +468,7 @@ namespace OFX {
     bool getHasAlpha() const;
     int getBitDepth() const;
 #ifdef OFX_EXTENSIONS_NATRON
-    /** @brief Sets wether the interact uses an additional colour picking value in the inArgs of its actions. */
+    /** @brief Sets whether the interact uses an additional colour picking value in the inArgs of its actions. */
     void setColourPicking(bool useColourPicking);
 #endif
     virtual OfxPluginEntryPoint* getMainEntry() = 0;

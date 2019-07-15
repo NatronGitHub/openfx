@@ -391,7 +391,7 @@ namespace OFX {
   
         if (isDoubleParam(type) || isIntParam(type) || isColourParam(type)
 #         ifdef OFX_SUPPORTS_PARAMETRIC
-            || type == kOfxParamTypeParametric // although not explicitely stated in the OFX 1.4 spec, it seems logical
+            || type == kOfxParamTypeParametric // although not explicitly stated in the OFX 1.4 spec, it seems logical
 #         endif
             ) {
           addNumericParamProps(type, propType, propDim);

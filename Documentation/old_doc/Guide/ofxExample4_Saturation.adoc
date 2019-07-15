@@ -67,7 +67,7 @@ Both of these have rules associated as to how the plugin behaves in that context
 simple, most of the default behaviour just works and you don't have to trap many other actions.
 
 In the case of the general context, the default behaviour might not work the way you want, and you 
-may have to trap other actions. Fortunately the defaults work for us as wll.
+may have to trap other actions. Fortunately the defaults work for us as well.
 
 [source, c++]
 .saturation.cpp

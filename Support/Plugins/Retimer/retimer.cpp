@@ -307,7 +307,7 @@ mRegisterPluginFactoryInstance(p)
 
 void RetimerExamplePluginFactory::load()
 {
-  // we can't be used on hosts that don't perfrom temporal clip access
+  // we can't be used on hosts that don't perform temporal clip access
   if(!gHostDescription.temporalClipAccess) {
     throw OFX::Exception::HostInadequate("Need random temporal image access to work");
   }

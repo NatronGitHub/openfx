@@ -319,7 +319,7 @@ namespace OFX {
       public:
         IntegerInstance(Descriptor& descriptor, Param::SetInstance* instance = 0) : Instance(descriptor,instance) {}
 
-        // Deriving implementatation needs to overide these 
+        // Deriving implementation needs to override these 
         virtual OfxStatus get(int&) = 0;
         virtual OfxStatus get(OfxTime time, int&) = 0;
         virtual OfxStatus set(int) = 0;
@@ -355,7 +355,7 @@ namespace OFX {
         // callback which should set option as appropriate
         virtual void setOption(int num);
 
-        // Deriving implementatation needs to overide these 
+        // Deriving implementation needs to override these 
         virtual OfxStatus get(int&) = 0;
         virtual OfxStatus get(OfxTime time, int&) = 0;
         virtual OfxStatus set(int) = 0;
@@ -381,7 +381,7 @@ namespace OFX {
       public:
         DoubleInstance(Descriptor& descriptor, Param::SetInstance* instance = 0) : Instance(descriptor,instance) {}
 
-        // Deriving implementatation needs to overide these 
+        // Deriving implementation needs to override these 
         virtual OfxStatus get(double&) = 0;
         virtual OfxStatus get(OfxTime time, double&) = 0;
         virtual OfxStatus set(double) = 0;
@@ -412,7 +412,7 @@ namespace OFX {
       public:
         BooleanInstance(Descriptor& descriptor, Param::SetInstance* instance = 0) : Instance(descriptor,instance) {}
 
-        // Deriving implementatation needs to overide these
+        // Deriving implementation needs to override these
         virtual OfxStatus get(bool&) = 0;
         virtual OfxStatus get(OfxTime time, bool&) = 0;
         virtual OfxStatus set(bool) = 0;
@@ -435,7 +435,7 @@ namespace OFX {
       public:
         RGBAInstance(Descriptor& descriptor, Param::SetInstance* instance = 0) : Instance(descriptor,instance) {}
 
-        // Deriving implementatation needs to overide these
+        // Deriving implementation needs to override these
         virtual OfxStatus get(double&,double&,double&,double&) = 0;
         virtual OfxStatus get(OfxTime time, double&,double&,double&,double&) = 0;
         virtual OfxStatus set(double,double,double,double) = 0;
@@ -468,7 +468,7 @@ namespace OFX {
       public:
         RGBInstance(Descriptor& descriptor, Param::SetInstance* instance = 0) : Instance(descriptor,instance) {}
 
-        // Deriving implementatation needs to overide these
+        // Deriving implementation needs to override these
         virtual OfxStatus get(double&,double&,double&) = 0;
         virtual OfxStatus get(OfxTime time, double&,double&,double&) = 0;
         virtual OfxStatus set(double,double,double) = 0;
@@ -501,7 +501,7 @@ namespace OFX {
       public:
         Double2DInstance(Descriptor& descriptor, Param::SetInstance* instance = 0) : Instance(descriptor,instance) {}
 
-        // Deriving implementatation needs to overide these
+        // Deriving implementation needs to override these
         virtual OfxStatus get(double&,double&) = 0;
         virtual OfxStatus get(OfxTime time, double&,double&) = 0;
         virtual OfxStatus set(double,double) = 0;
@@ -534,7 +534,7 @@ namespace OFX {
       public:
         Integer2DInstance(Descriptor& descriptor, Param::SetInstance* instance = 0) : Instance(descriptor,instance) {}
 
-        // Deriving implementatation needs to overide these
+        // Deriving implementation needs to override these
         virtual OfxStatus get(int&,int&) = 0;
         virtual OfxStatus get(OfxTime time, int&,int&) = 0;
         virtual OfxStatus set(int,int) = 0;
@@ -567,7 +567,7 @@ namespace OFX {
       public:
         Double3DInstance(Descriptor& descriptor, Param::SetInstance* instance = 0) : Instance(descriptor,instance) {}
 
-        // Deriving implementatation needs to overide these
+        // Deriving implementation needs to override these
         virtual OfxStatus get(double&,double&,double&)  = 0;
         virtual OfxStatus get(OfxTime time, double&,double&,double&)  = 0;
         virtual OfxStatus set(double,double,double)  = 0;
@@ -678,7 +678,7 @@ namespace OFX {
       public :
         /// ctor
         ///
-        /// The propery set being passed in belongs to the owning 
+        /// The property set being passed in belongs to the owning 
         /// plugin instance.
         explicit SetInstance();
 

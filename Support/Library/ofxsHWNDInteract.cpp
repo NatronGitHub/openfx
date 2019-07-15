@@ -93,7 +93,7 @@ namespace OFX {
     throwSuiteStatusException(stat);
     _interactProperties.propSetHandle(propHandle);
 
-    // set othe instance data on the property handle to point to this interact
+    // set other instance data on the property handle to point to this interact
     _interactProperties.propSetPointer(kOfxPropInstanceData, (void *)this);
 
     // get the effect handle from this handle        

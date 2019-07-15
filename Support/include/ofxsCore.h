@@ -216,7 +216,7 @@ namespace OFX {
   /** @brief Enumerates the reasons a plug-in instance may have had one of its values changed */
   enum InstanceChangeReason {
     eChangeUserEdit,    /**< @brief A user actively editted something in the plugin, eg: changed the value of an integer param on an interface */
-    eChangePluginEdit,  /**< @brief The plugin's own code changed something in the instance, eg: a callback on on param settting the value of another */
+    eChangePluginEdit,  /**< @brief The plugin's own code changed something in the instance, eg: a callback on on param setting the value of another */
     eChangeTime         /**< @brief The current value of a parameter has changed because the param animates and the current time has changed */
   };
 
@@ -417,7 +417,7 @@ namespace OFX {
       OFX::Exception::PropertyValueIllegalToHost,
       OFX::Exception::Suite);
 
-    // values is before count to avoid an easy confusion with propSetInt, whet the pointer to values would be cast to bool
+    // values is before count to avoid an easy confusion with propSetInt, when the pointer to values would be cast to bool
     void propSetIntN(const char* property, const int *values, int count, bool throwOnFailure = true) OFX_THROW4(std::bad_alloc,
       OFX::Exception::PropertyUnknownToHost,
       OFX::Exception::PropertyValueIllegalToHost,
@@ -519,7 +519,7 @@ namespace OFX {
       OFX::Exception::PropertyValueIllegalToHost,
       OFX::Exception::Suite);
 
-    // values is before count to avoid an easy confusion with propGetDouble, whet the pointer to values would be cast to bool
+    // values is before count to avoid an easy confusion with propGetDouble, when the pointer to values would be cast to bool
     void propGetDoubleN(const char* property, double* values, int count, bool throwOnFailure = true) const OFX_THROW4(std::bad_alloc,
       OFX::Exception::PropertyUnknownToHost,
       OFX::Exception::PropertyValueIllegalToHost,

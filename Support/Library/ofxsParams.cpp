@@ -266,9 +266,9 @@ namespace OFX {
     , _paramType(type)
     , _paramProps(props)
   {
-    // validate the properities on this descriptor
+    // validate the properties on this descriptor
     if(type != eDummyParam)
-      OFX::Validation::validateParameterProperties(type, props, true); 
+      OFX::Validation::validateParameterProperties(type, props, true);
   }
 
   ParamDescriptor::~ParamDescriptor()
@@ -346,10 +346,10 @@ namespace OFX {
     }
   }
 #endif
-    
+
 #ifdef OFX_EXTENSIONS_NATRON
     /** @brief When set to true, the parameter is specific to an effect instance of the plug-in and should have a
-     unique representation for each instance. See descripton of kNatronOfxImageEffectContextTracker for more details
+     unique representation for each instance. See description of kNatronOfxImageEffectContextTracker for more details
      on multiple instances and difference between shared and specific parameters.*/
   void
     ParamDescriptor::setInstanceSpecific(bool isSpecific)
@@ -1998,14 +1998,14 @@ namespace OFX {
     return _paramProps.propGetInt(kOfxParamPropPersistent) != 0;
   }
 
-  /** @brief Get's whether the value of the param is significant (ie: affects the rendered image) */
+  /** @brief Gets whether the value of the param is significant (ie: affects the rendered image) */
   bool 
     ValueParam::getEvaluateOnChange(void) const
   {
     return _paramProps.propGetInt(kOfxParamPropEvaluateOnChange) != 0;
   }
 
-  /** @brief Get's whether the value of the param is significant (ie: affects the rendered image) */
+  /** @brief Gets whether the value of the param is significant (ie: affects the rendered image) */
   CacheInvalidationEnum 
     ValueParam::getCacheInvalidation(void) const
   {
@@ -3669,7 +3669,7 @@ namespace OFX {
   /** @brief set the hard min/max range, default is -DBL_MAX, DBL_MAX */
   void ParametricParam::setDimensionRange(int curveIndex, double min, double max)
   {
-    // don't throw: the OFX 1.4 spec is not clear wether these properties exist
+    // don't throw: the OFX 1.4 spec is not clear whether these properties exist
     _paramProps.propSetDouble(kOfxParamPropMin, min, curveIndex, false);
     _paramProps.propSetDouble(kOfxParamPropMax, max, curveIndex, false);
   }
@@ -3677,7 +3677,7 @@ namespace OFX {
   /** @brief set the display min and max, default is to be the same as the range param */
   void ParametricParam::setDimensionDisplayRange(int curveIndex, double min, double max)
   {
-    // don't throw: the OFX 1.4 spec is not clear wether these properties exist
+    // don't throw: the OFX 1.4 spec is not clear whether these properties exist
     _paramProps.propSetDouble(kOfxParamPropDisplayMin, min, curveIndex, false);
     _paramProps.propSetDouble(kOfxParamPropDisplayMax, max, curveIndex, false);
   }

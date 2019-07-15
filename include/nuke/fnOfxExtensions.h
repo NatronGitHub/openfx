@@ -35,7 +35,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /*******************************************************************************
  * I don't  like the confusion between 'components' and 'planes', but there
  * was no real way around it. The general idea is that 'component' strings 
- * are useable in the places where the standard component strings are in OFX.
+ * are usable in the places where the standard component strings are in OFX.
  * eg: kOfxImageComponentRGBA. These are basically used to indicate the
  * kind of an image.
  *
@@ -122,7 +122,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  all planes will be transformed with minimalist changes to the plug-in code. Note that with this value the plug-in must NOT have
  flagged kFnOfxImageEffectPropMultiPlanar to true.
 
-The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tghe 
+The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so then
 */
 #define kFnOfxImageEffectPropPassThroughComponents "uk.co.thefoundry.OfxImageEffectPropPassThroughComponents"
 
@@ -130,7 +130,7 @@ The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tgh
 
    - Type - string X N
    - Property Set - image effect clip instance (read only)
-   - Default - all the planes specifed as supported on the given clip that exist on the clip
+   - Default - all the planes specified as supported on the given clip that exist on the clip
    - Valid Values - one or more of the following...
         - kFnOfxImagePlaneColour
         - kFnOfxImagePlaneBackwardMotionVector
@@ -143,7 +143,7 @@ The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tgh
 #define kFnOfxImageEffectPropComponentsPresent "uk.co.thefoundry.OfxImageEffectClipPropPlanesPresent"
 
 /** @brief Property indicating whether the planes listed for the output clip in the kFnOfxImageEffectActionGetClipComponents
- action should preferably be all rendered in a single render call rather than being separatly rendered.
+ action should preferably be all rendered in a single render call rather than being separately rendered.
  For example, an motion estimation effect may have in output both the backward and forward warp available as a result of a render call
  which would be more efficient to produce than just call the render action twice.
 
@@ -276,7 +276,7 @@ This property includes pass-throughs.
    - Property Set - image effect descriptor passed to kOfxActionDescribe (read/write)
    - Default - 0
    - Valid Values
-      - 0 - plugin will produce different output images depenedent on the view being rendered
+      - 0 - plugin will produce different output images dependent on the view being rendered
       - 1 - plugin will produced exactly the same image for all output views only on the rendered planes, pass through are view variant
       - 2 - plugin will produced exactly the same image for all output views for all planes (even pass through)
 */
@@ -478,7 +478,7 @@ This is a property on the descriptor.
           - The End Sequence Render Action
        - the RoD and RoI of the effect are implicitly determined by the transform returned
          by this action,
-       - the effect only needs a single image frome the clip named in the out args of this action,
+       - the effect only needs a single image from the clip named in the out args of this action,
        - for view aware effects, it would have transformed the image from the view as passed into the action,
        - the effect instance must have set kFnOfxImageEffectCanTransform to 1.
   
@@ -503,14 +503,14 @@ This is a property on the descriptor.
 
 @returns
 - ::kOfxStatDefault - don't attempt to use the transform matrix, but render the image as per normal,
-- ::kOfxStatOK - the transfrom and clip name were set and can be used to modify the named image appropriately,
+- ::kOfxStatOK - the transform and clip name were set and can be used to modify the named image appropriately,
                                                     
 */
 
 #define kFnOfxImageEffectActionGetTransform "uk.co.thefoundry.FnOfxImageEffectActionGetTransform"
 
 /** @brief Property that represents a 2D matrix
-this was originally a 4 by 4 matrix but as Phil said, we cant guess the depth z therefore we can't produce a correct 3D matrix, the host has to do it
+this was originally a 4 by 4 matrix but as Phil said, we can't guess the depth z therefore we can't produce a correct 3D matrix, the host has to do it
 
 - Type - double X 9
 - Property Set - varies, but on the out args of kFnOfxImageEffectActionGetTransform, or on an image instance (read only)

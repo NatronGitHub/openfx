@@ -68,7 +68,7 @@ The arguments to the action are...
   \arg outArgs - is redundant and set to null
 
    When the plugin receives this action it is thus safe to popup a dialog, or any other
-   taks that should be executed by the plugin in the UI thread.
+   tasks that should be executed by the plugin in the UI thread.
    It runs in the host's UI thread, which may differ from the main OFX processing thread.
    Plugin should return from this action when all Dialog interactions are done.
    At that point the host will continue again.

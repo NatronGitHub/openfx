@@ -471,7 +471,7 @@ BasicPlugin:: isIdentity(const OFX::IsIdentityArguments &args, OFX::Clip * &iden
 void
 BasicPlugin::setEnabledness(void)
 {
-  // the componet enabledness depends on the clip being RGBA and the param being true
+  // the component enabledness depends on the clip being RGBA and the param being true
   bool v = componentScalesEnabled_->getValue() && srcClip_->getPixelComponents() == OFX::ePixelComponentRGBA;
 
   // enable them
@@ -608,7 +608,7 @@ BasicInteract::penDown(const OFX::PenArgs &args)
     // move our position
     _position = args.penPosition;
 
-    // and request a redraw just incase
+    // and request a redraw just in case
     _effect->redrawOverlays();
   }
 

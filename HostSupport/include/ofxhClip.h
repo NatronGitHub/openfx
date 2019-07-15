@@ -150,8 +150,8 @@ namespace OFX {
       protected:
         ImageEffect::Instance*  _effectInstance; ///< image effect instance
         bool  _isOutput;                         ///< are we the output clip
-        std::string             _pixelDepth;     ///< what is the bit depth we is at. Set during the clip prefernces action.
-        std::string             _components;     ///< what components do we have.  Set during the clip prefernces action.
+        std::string             _pixelDepth;     ///< what is the bit depth we is at. Set during the clip preferences action.
+        std::string             _components;     ///< what components do we have.  Set during the clip preferences action.
         
       public:
         ClipInstance(ImageEffect::Instance* effectInstance, ClipDescriptor& desc);
@@ -288,8 +288,8 @@ namespace OFX {
         /// Field Order - Which spatial field occurs temporally first in a frame.
         /// \returns 
         ///  - kOfxImageFieldNone - the clip material is unfielded
-        ///  - kOfxImageFieldLower - the clip material is fielded, with image rows 0,2,4.... occuring first in a frame
-        ///  - kOfxImageFieldUpper - the clip material is fielded, with image rows line 1,3,5.... occuring first in a frame
+        ///  - kOfxImageFieldLower - the clip material is fielded, with image rows 0,2,4.... occurring first in a frame
+        ///  - kOfxImageFieldUpper - the clip material is fielded, with image rows line 1,3,5.... occurring first in a frame
         virtual const std::string &getFieldOrder() const = 0;
         
         // Connected -
@@ -310,7 +310,7 @@ namespace OFX {
         // Continuous Samples -
         //
         //  0 if the images can only be sampled at discreet times (eg: the clip is a sequence of frames),
-        //  1 if the images can only be sampled continuously (eg: the clip is infact an animating roto spline and can be rendered anywhen). 
+        //  1 if the images can only be sampled continuously (eg: the clip is in fact an animating roto spline and can be rendered anywhen). 
         virtual bool getContinuousSamples() const = 0;
 
         /// override this to fill in the image at the given time.
@@ -375,7 +375,7 @@ namespace OFX {
         virtual OfxRectD getRegionOfDefinition(OfxTime time) const = 0;
 
         /// given the colour component, find the nearest set of supported colour components
-        /// override this for extra wierd custom component depths
+        /// override this for extra weird custom component depths
         virtual const std::string &findSupportedComp(const std::string &s) const;
       };
 
@@ -395,7 +395,7 @@ namespace OFX {
         ImageBase();
 
         /// construct from a clip instance, but leave the
-        /// filling it to the calling code via the propery set
+        /// filling it to the calling code via the property set
         explicit ImageBase(ClipInstance& instance);
 
         // Render Scale (renderScaleX,renderScaleY) -
@@ -469,7 +469,7 @@ namespace OFX {
         Image();
 
         /// construct from a clip instance, but leave the
-        /// filling it to the calling code via the propery set
+        /// filling it to the calling code via the property set
         explicit Image(ClipInstance& instance);
 
         // Render Scale (renderScaleX,renderScaleY) -
@@ -534,7 +534,7 @@ namespace OFX {
         Texture();
 
         /// construct from a clip instance, but leave the
-        /// filling it to the calling code via the propery set
+        /// filling it to the calling code via the property set
         explicit Texture(ClipInstance& instance);
 
         // Render Scale (renderScaleX,renderScaleY) -

@@ -79,7 +79,7 @@ namespace OFX {
       gLogFileName = value;
     }
 
-    /** @brief Opens the log file, returns whether this was sucessful or not. */
+    /** @brief Opens the log file, returns whether this was successful or not. */
     bool open(void)
     {
 #ifdef DEBUG

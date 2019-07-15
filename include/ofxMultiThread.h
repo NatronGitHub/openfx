@@ -67,7 +67,7 @@ typedef struct OfxMultiThreadSuiteV1 {
 
   \arg func The function to call in each thread.
   \arg nThreads The number of threads to launch
-  \arg customArg The paramter to pass to customArg of func in each thread.
+  \arg customArg The parameter to pass to customArg of func in each thread.
 
   This function will spawn nThreads separate threads of computation (typically one per CPU) 
   to allow something to perform symmetric multi processing. Each thread will call 'func' passing
@@ -77,12 +77,12 @@ typedef struct OfxMultiThreadSuiteV1 {
   how it waits for all the threads to return (busy wait, blocking, whatever).
 
   \e nThreads can be more than the value returned by multiThreadNumCPUs, however the threads will
-  be limitted to the number of CPUs returned by multiThreadNumCPUs.
+  be limited to the number of CPUs returned by multiThreadNumCPUs.
 
   This function cannot be called recursively.
 
   @returns
-  - ::kOfxStatOK, the function func has executed and returned sucessfully
+  - ::kOfxStatOK, the function func has executed and returned successfully
   - ::kOfxStatFailed, the threading function failed to launch
   - ::kOfxStatErrExists, failed in an attempt to call multiThread recursively,
 
@@ -130,7 +130,7 @@ typedef struct OfxMultiThreadSuiteV1 {
   \arg mutex - where the new handle is returned
   \arg count - initial lock count on the mutex. This can be negative.
 
-  Creates a new mutex with lockCount locks on the mutex intially set.    
+  Creates a new mutex with lockCount locks on the mutex initially set.    
 
   @returns
   - kOfxStatOK - mutex is now valid and ready to go
@@ -139,7 +139,7 @@ typedef struct OfxMultiThreadSuiteV1 {
 
   /** @brief Destroy a mutex
       
-  Destroys a mutex intially created by mutexCreate.
+  Destroys a mutex initially created by mutexCreate.
   
   @returns
   - kOfxStatOK - if it destroyed the mutex
@@ -149,9 +149,9 @@ typedef struct OfxMultiThreadSuiteV1 {
 
   /** @brief Blocking lock on the mutex
 
-  This trys to lock a mutex and blocks the thread it is in until the lock suceeds. 
+  This tries to lock a mutex and blocks the thread it is in until the lock succeeds. 
 
-  A sucessful lock causes the mutex's lock count to be increased by one and to block any other calls to lock the mutex until it is unlocked.
+  A successful lock causes the mutex's lock count to be increased by one and to block any other calls to lock the mutex until it is unlocked.
   
   @returns
   - kOfxStatOK - if it got the lock
@@ -173,7 +173,7 @@ typedef struct OfxMultiThreadSuiteV1 {
 
   This attempts to lock a mutex, if it cannot, it returns and says so, rather than blocking.
 
-  A sucessful lock causes the mutex's lock count to be increased by one, if the lock did not suceed, the call returns immediately and the lock count remains unchanged.
+  A successful lock causes the mutex's lock count to be increased by one, if the lock did not succeed, the call returns immediately and the lock count remains unchanged.
 
   @returns
   - kOfxStatOK - if it got the lock

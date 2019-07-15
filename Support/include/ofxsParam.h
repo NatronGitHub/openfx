@@ -168,8 +168,8 @@ namespace OFX {
     /** @brief Enumerates the differing types of double params */
     enum DoubleTypeEnum {
         eDoubleTypePlain, //!< parameter has no special interpretation
-        eDoubleTypeAngle, //!< parameter is to be interpretted as an angle
-        eDoubleTypeScale, //!< parameter is to be interpretted as a scale factor
+        eDoubleTypeAngle, //!< parameter is to be interpreted as an angle
+        eDoubleTypeScale, //!< parameter is to be interpreted as a scale factor
         eDoubleTypeTime, //!< parameter represents a time value (1D only)
         eDoubleTypeAbsoluteTime, //!< parameter represents an absolute time value (1D only),
         eDoubleTypeX, //!< a size in the X dimension dimension (1D only), new for 1.2
@@ -325,7 +325,7 @@ namespace OFX {
         
 #ifdef OFX_EXTENSIONS_NATRON
         /** @brief When set to true, the parameter is specific to an effect instance of the plug-in and should have a
-         unique representation for each instance. See descripton of kNatronOfxImageEffectContextTracker for more details
+         unique representation for each instance. See description of kNatronOfxImageEffectContextTracker for more details
          on multiple instances and difference between shared and specific parameters.*/
         void setInstanceSpecific(bool isSpecific);
 
@@ -1302,10 +1302,10 @@ namespace OFX {
         /** @brief is the param animating */
         bool getIsPersistent(void) const;
     
-        /** @brief Get's whether the value of the param is significant (ie: affects the rendered image) */
+        /** @brief Gets whether the value of the param is significant (ie: affects the rendered image) */
         bool getEvaluateOnChange(void) const;
 
-        /** @brief Get's whether the value of the param is significant (ie: affects the rendered image) */
+        /** @brief Gets whether the value of the param is significant (ie: affects the rendered image) */
         CacheInvalidationEnum getCacheInvalidation(void) const;
 
         /** @brief if the param is animating, the number of keys in it, otherwise 0 */
