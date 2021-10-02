@@ -1,6 +1,6 @@
 PLUGINOBJECTS = opengl.o
 PLUGINNAME = opengl
-PATHTOROOT = ../
+PATHTOROOT = ..
 
 include ../Makefile.master
 

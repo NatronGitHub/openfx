@@ -1,6 +1,6 @@
 PLUGINOBJECTS = invert.o
 PLUGINNAME = invert
-PATHTOROOT = ../../
+PATHTOROOT = ../..
 
 include ../Makefile.master
 

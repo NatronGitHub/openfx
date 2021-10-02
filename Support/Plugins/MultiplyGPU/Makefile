@@ -3,7 +3,7 @@ HAVE_OPENGL ?= 0
 
 PLUGINOBJECTS = MultiplyGPU.o
 PLUGINNAME = MultiplyGPU
-PATHTOROOT = ../../
+PATHTOROOT = ../..
 
 ifeq ($(HAVE_CUDA),1)
 PLUGINOBJECTS += MultiplyCUDA.o

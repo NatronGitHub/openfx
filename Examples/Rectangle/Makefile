@@ -1,6 +1,6 @@
 PLUGINOBJECTS = rectangle.o
 PLUGINNAME = rectangle
-PATHTOROOT = ../
+PATHTOROOT = ..
 
 include ../Makefile.master
 

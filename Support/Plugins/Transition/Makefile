@@ -1,6 +1,6 @@
 PLUGINOBJECTS = crossFade.o
 PLUGINNAME = transition
-PATHTOROOT = ../../
+PATHTOROOT = ../..
 
 include ../Makefile.master
 

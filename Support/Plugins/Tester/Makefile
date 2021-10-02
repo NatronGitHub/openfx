@@ -1,6 +1,6 @@
 PLUGINOBJECTS = Tester.o
 PLUGINNAME = tester
-PATHTOROOT = ../../
+PATHTOROOT = ../..
 
 include ../Makefile.master
 

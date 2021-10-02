@@ -1,6 +1,6 @@
 PLUGINOBJECTS = field.o
 PLUGINNAME = field
-PATHTOROOT = ../../
+PATHTOROOT = ../..
 
 include ../Makefile.master
 

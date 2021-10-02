@@ -1,6 +1,6 @@
 PLUGINOBJECTS = propTester.o
 PLUGINNAME = PropTester
-PATHTOROOT = ../
+PATHTOROOT = ..
 
 include ../Plugins/Makefile.master
 

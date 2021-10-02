@@ -1,6 +1,6 @@
 PLUGINOBJECTS = retimer.o
 PLUGINNAME = retimer
-PATHTOROOT = ../../
+PATHTOROOT = ../..
 
 include ../Makefile.master
 

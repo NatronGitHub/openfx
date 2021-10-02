@@ -1,6 +1,6 @@
 PLUGINOBJECTS = noise.o randomGenerator.o
 PLUGINNAME = noise
-PATHTOROOT = ../../
+PATHTOROOT = ../..
 
 include ../Makefile.master
 

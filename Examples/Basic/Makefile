@@ -1,6 +1,6 @@
 PLUGINOBJECTS = basic.o
 PLUGINNAME = basic
-PATHTOROOT = ../
+PATHTOROOT = ..
 
 include ../Makefile.master
 

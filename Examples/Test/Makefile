@@ -1,6 +1,6 @@
 PLUGINOBJECTS = testProperties.o ofxLog.o
 PLUGINNAME = testProperties
-PATHTOROOT = ../
+PATHTOROOT = ..
 
 include ../Makefile.master
 

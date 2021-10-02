@@ -1,6 +1,6 @@
 PLUGINOBJECTS = depthConverter.o
 PLUGINNAME = depthConverter
-PATHTOROOT = ../
+PATHTOROOT = ..
 
 include ../Makefile.master
 

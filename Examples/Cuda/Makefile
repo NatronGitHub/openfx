@@ -6,7 +6,7 @@ LDFLAGS_ADD = $(CUDA_LIBS)
 
 PLUGINOBJECTS = cuda.o kernel.o
 PLUGINNAME = cuda
-PATHTOROOT = ../
+PATHTOROOT = ..
 
 include ../Makefile.master
 

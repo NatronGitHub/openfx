@@ -1,6 +1,6 @@
 PLUGINOBJECTS = overlay.o
 PLUGINNAME = overlay
-PATHTOROOT = ../
+PATHTOROOT = ..
 
 include ../Makefile.master
 
