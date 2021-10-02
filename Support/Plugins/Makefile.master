@@ -145,25 +145,40 @@ uninstall:
   endif 
   ifeq ($(OS),Darwin) 
     ifeq ($(BITS), Universal)
-      # Universal 32/64 is useful only on OSX 10.4 (i386/ppc), 10.5 (i386/ppc) and 10.6 (i386/x86_64).
-      # OSX 10.6 (Snow Leopard) or later, build for i386/x86_64
-      MACOSX := 10.6
-      MACOSXSDK := 10.6
-      ARCHFLAGS=-arch i386 -arch x86_64
-      ifeq ($(shell uname -r | sed 's/^\(.*\)\..*\..*/\1/'), 8)
-        # OSX 10.4 (Tiger)
-        MACOSX := 10.4
-        MACOSXSDK := 10.4u
-        ARCHFLAGS=-arch i386 -arch ppc
+      # Universal x86_64/i386 is useful only on OSX 10.4 (i386/ppc), 10.5 (i386/ppc) and 10.6 (i386/x86_64).
+      # OSX 10.6 (Snow Leopard) through macOS 10.13 (High Sierra), build for x86_64/i386.
+      # macOS 11 (Big Sur) and later, build for arm64/x86_64
+      MACOSXMAJOR=$(shell sw_vers -productVersion | cut -f 1 -d .)
+      MACOSXMINOR=$(shell sw_vers -productVersion | cut -f 2 -d .)
+      ifeq ($(MACOSXMAJOR),10)
+        MACOSX := $(MACOSXMAJOR).$(MACOSXMINOR)
+        MACOSXSDK := $(MACOSXMAJOR).$(MACOSXMINOR)
+        ARCHFLAGS=-arch i386 -arch x86_64
+        ifeq ($(MACOSXMINOR), 4)
+          # OSX 10.4 (Tiger)
+          MACOSXSDK := 10.4u
+          ARCHFLAGS=-arch i386 -arch ppc
+        endif
+        ifeq ($(MACOSXMINOR), 5)
+          # OSX 10.5 (Leopard)
+          ARCHFLAGS=-arch i386 -arch ppc
+        endif
+        SDKROOT = /Developer/SDKs/MacOSX$(MACOSX).sdk
+      else
+        # macOS 11 and later.
+        # The minor version of the Xcode SDK may differ from $(MACOSXMINOR).
+        MACOSX := $(shell xcodebuild -version -sdk macosx ProductVersion)
+        MACOSXSDK := $(MACOSX)
+        ARCHFLAGS=-arch arm64 -arch x86_64
+        SDKROOT = $(shell xcodebuild -version -sdk macosx Path)
       endif
-      ifeq ($(shell uname -r | sed 's/^\(.*\)\..*\..*/\1/'), 9)
-        # OSX 10.5 (Leopard)
-        MACOSX := 10.5
-        MACOSXSDK := 10.5
-        ARCHFLAGS=-arch i386 -arch ppc
-      endif
-      BITSFLAG = -isysroot /Developer/SDKs/MacOSX$(MACOSX).sdk $(ARCHFLAGS) -mmacosx-version-min=$(MACOSX) -fPIC
+    else
+      ARCHFLAGS=
+      MACOSX := $(shell xcodebuild -version -sdk macosx ProductVersion)
+      SDKROOT = $(shell xcodebuild -version -sdk macosx Path)
     endif
+    CPPFLAGS += -DGL_SILENCE_DEPRECATION
+    BITSFLAG = -isysroot $(SDKROOT) $(ARCHFLAGS) -mmacosx-version-min=$(MACOSX) -fPIC
     LINKFLAGS = $(BITSFLAG) -bundle -fvisibility=hidden -exported_symbols_list $(PATHTOROOT)/include/osxSymbols -framework OpenGL -Wl,-rpath,@loader_path/../Frameworks -Wl,-rpath,@loader_path/../Libraries
     ARCH = MacOS
   endif
