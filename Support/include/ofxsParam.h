@@ -2356,6 +2356,29 @@ namespace OFX {
 
         /** @brief Fetch a parametric param */
         ParametricParam* fetchParametricParam(const std::string &name) const;
+
+        /** @brief A convenience RAII class to make sure edit blocks are closed. */
+        class EditBlock {
+        public:
+            EditBlock(ParamSet& paramSet, const std::string &name, bool cond = true)
+            : _paramSet(paramSet)
+            , _cond(cond)
+            {
+                if (_cond) {
+                    _paramSet.beginEditBlock(name);
+                }
+            }
+
+            ~EditBlock()
+            {
+                if (_cond) {
+                    _paramSet.endEditBlock();
+                }
+            }
+        private:
+            ParamSet& _paramSet;
+            bool _cond;
+        };
     };
 };
 
