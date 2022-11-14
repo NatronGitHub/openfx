@@ -212,7 +212,7 @@ namespace OFX {
     for (std::size_t i = 0; i < values.size(); ++i) {
       data[i] = values[i].c_str();
     }
-    OfxStatus stat = gPropSuite->propSetStringN(_propHandle, property, (int)values.size(), &data[0]);
+    OfxStatus stat = gPropSuite->propSetStringN(_propHandle, property, (int)data.size(), &data[0]);
     OFX::Log::error(stat != kOfxStatOK, "Failed on setting string property %s[0..%d], host returned status %s;",
                     property, (int)values.size()-1, mapStatusToString(stat));
     if(throwOnFailure)
