@@ -36,7 +36,7 @@ England
 #include "ofxsSupportPrivate.h"
 #ifdef DEBUG
 #include <iostream>
-#if defined(__APPLE__) || defined(linux)
+#if defined(__APPLE__) || defined(__linux__)
 #include <execinfo.h>
 #include <stdlib.h>
 #endif
@@ -64,7 +64,7 @@ namespace OFX {
 #    ifdef DEBUG
       std::cout << "Throwing suite exception! " << mapStatusToString(stat) << std::endl;
       OFX::Log::print("\nThrew suite exception %s:", mapStatusToString(stat));
-#     if defined(__APPLE__) || defined(linux)
+#     if defined(__APPLE__) || defined(__linux__)
       void* callstack[128];
       int i, frames = backtrace(callstack, 128);
       char** strs = backtrace_symbols(callstack, frames);
@@ -83,7 +83,7 @@ namespace OFX {
   {
 #  ifdef DEBUG
     std::cout << "Throwing suite exception! Host missing '" << name << "' suite." << std::endl;
-#   if defined(__APPLE__) || defined(linux)
+#   if defined(__APPLE__) || defined(__linux__)
     void* callstack[128];
     int i, frames = backtrace(callstack, 128);
     char** strs = backtrace_symbols(callstack, frames);
