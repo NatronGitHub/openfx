@@ -32,15 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <iostream>
 
-#if defined(_WIN32) || defined(_WIN64)
-#ifndef WINDOWS
-#define WINDOWS
-#endif
-#elif defined(__linux__) || defined(__FreeBSD__) || defined( __APPLE__) || defined(unix) || defined(__unix) || defined(_XOPEN_SOURCE) || defined(_POSIX_SOURCE)
-#define UNIX
-#else
-#error cannot detect operating system
-#endif
+#include "ofxhPlatformDefines.h"
 
 #if defined(UNIX)
 #include <dlfcn.h>
