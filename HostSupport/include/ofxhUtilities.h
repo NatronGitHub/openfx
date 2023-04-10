@@ -39,6 +39,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cmath> // isnan, std::isnan
 
 #include "ofxCore.h"
+#include "ofxhPlatformDefines.h"
 
 // macro that intercepts any exception that passes through a plugin's entry point, and transforms it into a message on the host using Host::vmessage()
 #define CatchAllSetStatus(stat,host,plugin,msg)                         \
