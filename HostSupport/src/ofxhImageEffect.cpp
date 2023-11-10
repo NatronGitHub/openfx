@@ -1016,7 +1016,7 @@ namespace OFX {
             const char* id = ofxp->pluginIdentifier;
             std::cout << "OFX: "<<id<<"("<<(void*)ofxp<<")->"<<kOfxActionDestroyInstance<<"()"<<std::endl;
 #         endif
-          OfxStatus st = mainEntry(kOfxActionDestroyInstance,this->getHandle(),0,0);
+          st = mainEntry(kOfxActionDestroyInstance,this->getHandle(),0,0);
 #         ifdef OFX_DEBUG_ACTIONS
             std::cout << "OFX: "<<id<<"("<<(void*)ofxp<<")->"<<kOfxActionDestroyInstance<<"()->"<<StatStr(st)<<std::endl;
 #         endif
