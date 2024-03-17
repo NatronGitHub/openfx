@@ -410,7 +410,7 @@ namespace OFX {
   class CLASS : public OFX::PluginFactoryHelper<CLASS<majorVersion> > \
   { \
   public: \
-  CLASS<majorVersion>(const std::string& id, unsigned int verMin):OFX::PluginFactoryHelper<CLASS>(id, majorVersion, verMin){} \
+  CLASS(const std::string& id, unsigned int verMin):OFX::PluginFactoryHelper<CLASS<majorVersion> >(id, majorVersion, verMin){} \
   virtual void load() LOADFUNCDEF ;\
   virtual void unload() UNLOADFUNCDEF ;\
   virtual void describe(OFX::ImageEffectDescriptor &desc); \
