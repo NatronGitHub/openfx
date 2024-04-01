@@ -282,10 +282,11 @@ namespace OFX {
 #           ifdef OFX_DEBUG_ACTIONS
               OfxPlugin *op = _pluginHandle->getOfxPlugin();
               std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionUnload<<"()"<<std::endl;
+              std::string pluginIdentifier(op->pluginIdentifier); // save it before it becomes invalid
 #           endif
             stat = (*_pluginHandle)->mainEntry(kOfxActionUnload, 0, 0, 0);
 #           ifdef OFX_DEBUG_ACTIONS
-              std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionUnload<<"()->"<<StatStr(stat)<<std::endl;
+              std::cout << "OFX: "<<pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionUnload<<"()->"<<StatStr(stat)<<std::endl;
 #           endif
           } CatchAllSetStatus(stat, gImageEffectHost, (*_pluginHandle), kOfxActionUnload);
           (void)stat;

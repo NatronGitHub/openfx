@@ -111,6 +111,8 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_RESOLVE
         { kOfxImageEffectPropOpenCLRenderSupported, Property::eString, 1, false, "false"},
         { kOfxImageEffectPropCudaRenderSupported, Property::eString, 1, false, "false" },
+        { kOfxImageEffectPropCudaStreamSupported, Property::eString, 1, false, "false" },
+        { kOfxImageEffectPropMetalRenderSupported, Property::eString, 1, false, "false" },
 #endif
 #ifdef OFX_EXTENSIONS_NUKE
         { kFnOfxImageEffectPropMultiPlanar,   Property::eInt, 1, false, "0" },
@@ -1301,7 +1303,10 @@ namespace OFX {
 #       ifdef OFX_EXTENSIONS_RESOLVE
           { kOfxImageEffectPropOpenCLEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
+          { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, false, "0" },
 #       endif
 #       ifdef OFX_EXTENSIONS_NUKE
           { kFnOfxImageEffectPropView, Property::eInt, 1, true, "0" },
@@ -1401,7 +1406,10 @@ namespace OFX {
 #       ifdef OFX_EXTENSIONS_RESOLVE
           { kOfxImageEffectPropOpenCLEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
+          { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, false, "0" },
 #       endif
 #       ifdef OFX_EXTENSIONS_VEGAS
           { kOfxImageEffectPropRenderView, Property::eInt, 1, true, "0" },
@@ -1518,7 +1526,10 @@ namespace OFX {
 #       ifdef OFX_EXTENSIONS_RESOLVE
           { kOfxImageEffectPropOpenCLEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
+          { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, false, "0" },
 #       endif
 #       ifdef OFX_EXTENSIONS_NUKE
           { kFnOfxImageEffectPropView, Property::eInt, 1, true, "0" },
@@ -4199,6 +4210,8 @@ namespace OFX {
 #     ifdef OFX_EXTENSIONS_RESOLVE
         { kOfxImageEffectPropOpenCLRenderSupported, Property::eString, 1, false, "false"},
         { kOfxImageEffectPropCudaRenderSupported, Property::eString, 1, false, "false" },
+        { kOfxImageEffectPropCudaStreamSupported, Property::eString, 1, false, "false" },
+        { kOfxImageEffectPropMetalRenderSupported, Property::eString, 1, false, "false" },
 #     endif
 #     ifdef OFX_EXTENSIONS_NUKE
         { kFnOfxImageEffectPropMultiPlanar,   Property::eInt, 1, false, "0" },
