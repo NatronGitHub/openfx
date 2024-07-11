@@ -1360,6 +1360,11 @@ namespace OFX {
       _effectProps.propSetString(kOfxImageEffectPropCudaRenderSupported, (v ? "true" : "false"), false);
   }
 
+  /** @brief Does the plugin support CUDA Stream */
+  void ImageEffectDescriptor::setSupportsCudaStream(bool v)
+  {
+      _effectProps.propSetString(kOfxImageEffectPropCudaStreamSupported, (v ? "true" : "false"));
+  }
 
   /** @brief Does the plugin support Metal Render */
   void ImageEffectDescriptor::setSupportsMetalRender(bool v)
@@ -3851,6 +3856,7 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_RESOLVE
         gHostDescription.supportsOpenCLRender        = hostProps.propGetString(kOfxImageEffectPropOpenCLRenderSupported, 0, false) == "true";
         gHostDescription.supportsCudaRender          = hostProps.propGetString(kOfxImageEffectPropCudaRenderSupported, 0, false) == "true";
+        gHostDescription.supportsCudaStream          = hostProps.propGetString(kOfxImageEffectPropCudaStreamSupported, 0, false) == "true";
         gHostDescription.supportsMetalRender         = hostProps.propGetString(kOfxImageEffectPropMetalRenderSupported, 0, false) == "true";
 #endif
         gHostDescription.supportsRenderQualityDraft = hostProps.propGetInt(kOfxImageEffectPropRenderQualityDraft, false) != 0; // appeared in OFX 1.4
