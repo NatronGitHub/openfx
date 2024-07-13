@@ -68,6 +68,7 @@ namespace OFX {
         bool             _isEnabledMetalRender;   /**< @brief is Metal Render Enabled */
         void*            _pOpenCLCmdQ;           /**< @brief OpenCL Command Queue Handle */
         void*            _pCudaStream;           /**< @brief Cuda Stream Handle */
+        void*            _pMetalCmdQ;           /**< @brief Metal Command Queue Handle */
 #endif
 
     public :
