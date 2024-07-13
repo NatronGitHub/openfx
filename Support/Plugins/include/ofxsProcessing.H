@@ -65,7 +65,10 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_RESOLVE
         bool             _isEnabledOpenCLRender; /**< @brief is OpenCL Render Enabled */
         bool             _isEnabledCudaRender;   /**< @brief is Cuda Render Enabled */
+        bool             _isEnabledMetalRender;   /**< @brief is Metal Render Enabled */
         void*            _pOpenCLCmdQ;           /**< @brief OpenCL Command Queue Handle */
+        void*            _pCudaStream;           /**< @brief Cuda Stream Handle */
+        void*            _pMetalCmdQ;           /**< @brief Metal Command Queue Handle */
 #endif
 
     public :
@@ -76,7 +79,10 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_RESOLVE
           , _isEnabledOpenCLRender(false)
           , _isEnabledCudaRender(false)
+          , _isEnabledMetalRender(false)
           , _pOpenCLCmdQ(NULL)
+          , _pCudaStream(NULL)
+          , _pMetalCmdQ(NULL)
 #endif
         {
             _renderWindow.x1 = _renderWindow.y1 = _renderWindow.x2 = _renderWindow.y2 = 0;
@@ -92,10 +98,19 @@ namespace OFX {
         {
             _isEnabledOpenCLRender = args.isEnabledOpenCLRender;
             _isEnabledCudaRender = args.isEnabledCudaRender;
+            _isEnabledMetalRender = args.isEnabledMetalRender;
 
             if (_isEnabledOpenCLRender)
             {
                 _pOpenCLCmdQ = args.pOpenCLCmdQ;
+            }
+            if (_isEnabledCudaRender)
+            {
+                _pCudaStream = args.pCudaStream;
+            }
+            if (_isEnabledMetalRender)
+            {
+                _pMetalCmdQ = args.pMetalCmdQ;
             }
         }
 #endif
@@ -130,6 +145,12 @@ namespace OFX {
         virtual void processImagesCUDA(void)
         {
             OFX::Log::print("processImagesCUDA not implemented");
+            OFX::throwSuiteStatusException(kOfxStatErrUnsupported);
+        };
+        /** @brief this is called by process to actually process images using Metal when isEnabledMetalRender is true, override in derived classes */
+        virtual void processImagesMetal(void)
+        {
+            OFX::Log::print("processImagesMetal not implemented");
             OFX::throwSuiteStatusException(kOfxStatErrUnsupported);
         };
 #endif
@@ -169,6 +190,10 @@ namespace OFX {
             else if (_isEnabledCudaRender)
             {
                 processImagesCUDA();
+            }
+            else if (_isEnabledMetalRender)
+            {
+                processImagesMetal();
             }
             else // is CPU
 #endif
