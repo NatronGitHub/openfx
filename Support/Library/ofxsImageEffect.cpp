@@ -2649,6 +2649,13 @@ namespace OFX {
       _effectProps.propSetString(kOfxImageEffectPropOpenGLRenderSupported, (v ? "true" : "false"), false); // read/write from OFX 1.4
     }
   }
+
+  /** @brief Does the plugin require OpenGL accelerated rendering ? Can only be called from changedParam or changedClip. */
+  void ImageEffect::setNeedsOpenGLRender(bool v) {
+    if (gHostDescription.supportsOpenGLRender) {
+      _effectProps.propSetString(kOfxImageEffectPropOpenGLRenderSupported, (v ? "needed" : "false"), false); // read/write from OFX 1.4
+    }
+  }
 #endif
     
 
@@ -3846,7 +3853,7 @@ namespace OFX {
         gHostDescription.supportsCustomInteract     = hostProps.propGetInt(kOfxParamHostPropSupportsCustomInteract) != 0;
         gHostDescription.supportsChoiceAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsChoiceAnimation) != 0;
 #ifdef OFX_EXTENSIONS_RESOLVE
-        gHostDescription.supportsStrChoiceAnimation = hostProps.propGetInt(kOfxParamHostPropSupportsStrChoiceAnimation, false) != 0;
+        gHostDescription.supportsStrChoiceAnimation = hostProps.propGetInt(kOfxParamHostPropSupportsStrChoiceAnimation, false);
 #endif
         gHostDescription.supportsBooleanAnimation   = hostProps.propGetInt(kOfxParamHostPropSupportsBooleanAnimation) != 0;
         gHostDescription.supportsCustomAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsCustomAnimation) != 0;
@@ -3964,11 +3971,17 @@ namespace OFX {
         gMemorySuite    = (OfxMemorySuiteV1 *)      fetchSuite(kOfxMemorySuite, 1);
         gThreadSuite    = (OfxMultiThreadSuiteV1 *) fetchSuite(kOfxMultiThreadSuite, 1);
         gMessageSuite   = (OfxMessageSuiteV1 *)     fetchSuite(kOfxMessageSuite, 1);
+#ifndef OFX_EXTENSIONS_RESOLVE
+		//Resolve doesn't support OfxMessageSuiteV2, do not fetch to suppress warning
         gMessageSuiteV2 = (OfxMessageSuiteV2 *)     fetchSuite(kOfxMessageSuite, 2, true);
+#endif
         gProgressSuiteV1 = (OfxProgressSuiteV1 *)     fetchSuite(kOfxProgressSuite, 1, true);
         gProgressSuiteV2 = (OfxProgressSuiteV2 *)     fetchSuite(kOfxProgressSuite, 2, true);
         gTimeLineSuite   = (OfxTimeLineSuiteV1 *)     fetchSuite(kOfxTimeLineSuite, 1, true);
+#ifndef OFX_EXTENSIONS_RESOLVE
+		// Resolve doesn't support OfxParametricParameterSuiteV1, do not fetch to suppress warning
         gParametricParameterSuite = (OfxParametricParameterSuiteV1*) fetchSuite(kOfxParametricParameterSuite, 1, true);
+#endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
         gOpenGLRenderSuite = (OfxImageEffectOpenGLRenderSuiteV1*) fetchSuite(kOfxOpenGLRenderSuite, 1, true);
 #endif
@@ -4157,6 +4170,7 @@ namespace OFX {
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
       args.isEnabledMetalRender  = inArgs.propGetInt(kOfxImageEffectPropMetalEnabled, false) != 0;
       args.pOpenCLCmdQ           = inArgs.propGetPointer(kOfxImageEffectPropOpenCLCommandQueue, false);
+      args.pCudaStream           = inArgs.propGetPointer(kOfxImageEffectPropCudaStream, false);
       args.pMetalCmdQ            = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 #endif
 
@@ -4261,6 +4275,7 @@ namespace OFX {
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
       args.isEnabledMetalRender  = inArgs.propGetInt(kOfxImageEffectPropMetalEnabled, false) != 0;
       args.pOpenCLCmdQ           = inArgs.propGetPointer(kOfxImageEffectPropOpenCLCommandQueue, false);
+      args.pCudaStream           = inArgs.propGetPointer(kOfxImageEffectPropCudaStream, false);
       args.pMetalCmdQ            = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 #endif
 
@@ -4303,6 +4318,7 @@ namespace OFX {
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
       args.isEnabledMetalRender  = inArgs.propGetInt(kOfxImageEffectPropMetalEnabled, false) != 0;
       args.pOpenCLCmdQ           = inArgs.propGetPointer(kOfxImageEffectPropOpenCLCommandQueue, false);
+      args.pCudaStream           = inArgs.propGetPointer(kOfxImageEffectPropCudaStream, false);
       args.pMetalCmdQ            = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 #endif
       args.renderScale.x = args.renderScale.y = 1.;
