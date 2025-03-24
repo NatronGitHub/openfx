@@ -377,6 +377,38 @@ namespace OFX {
         virtual void notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC;
       };
 
+#ifdef OFX_EXTENSIONS_RESOLVE
+      class StrChoiceInstance : public Instance, public KeyframeParam {
+        std::string _returnValue; ///< location to hold temporary return value. Should delegate this to implementation!!!
+      public:
+        StrChoiceInstance(Descriptor& descriptor, Param::SetInstance* instance = 0);
+
+        // callback which should set option as appropriate
+        virtual void setOption(int num);
+
+        // Deriving implementatation needs to overide these
+        virtual OfxStatus get(std::string &) = 0;
+        virtual OfxStatus get(OfxTime time, std::string &) = 0;
+        virtual OfxStatus set(const char*) = 0;
+        virtual OfxStatus set(OfxTime time, const char*) = 0;
+
+        /// implementation of var args function
+        virtual OfxStatus getV(va_list arg);
+
+        /// implementation of var args function
+        virtual OfxStatus getV(OfxTime time, va_list arg);
+
+        /// implementation of var args function
+        virtual OfxStatus setV(va_list arg);
+
+        /// implementation of var args function
+        virtual OfxStatus setV(OfxTime time, va_list arg);
+
+        /// overridden from Instance
+        virtual void notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC;
+      };
+#endif
+
       class DoubleInstance : public Instance, public KeyframeParam {
       public:
         DoubleInstance(Descriptor& descriptor, Param::SetInstance* instance = 0) : Instance(descriptor,instance) {}

@@ -164,7 +164,9 @@ namespace MyHost {
   // make a parameter instance
   OFX::Host::Param::Instance* MyEffectInstance::newParam(const std::string& name, OFX::Host::Param::Descriptor& descriptor)
   {
-    if(descriptor.getType()==kOfxParamTypeInteger)
+    if(descriptor.getType()==kOfxParamTypeString)
+      return new MyStringInstance(this,name,descriptor);
+    else if(descriptor.getType()==kOfxParamTypeInteger)
       return new MyIntegerInstance(this,name,descriptor);
     else if(descriptor.getType()==kOfxParamTypeDouble)
       return new MyDoubleInstance(this,name,descriptor);
@@ -172,6 +174,10 @@ namespace MyHost {
       return new MyBooleanInstance(this,name,descriptor);
     else if(descriptor.getType()==kOfxParamTypeChoice)
       return new MyChoiceInstance(this,name,descriptor);
+#ifdef OFX_EXTENSIONS_RESOLVE
+    else if(descriptor.getType()==kOfxParamTypeStrChoice)
+      return new MyStrChoiceInstance(this,name,descriptor);
+#endif
     else if(descriptor.getType()==kOfxParamTypeRGBA)
       return new MyRGBAInstance(this,name,descriptor);
     else if(descriptor.getType()==kOfxParamTypeRGB)

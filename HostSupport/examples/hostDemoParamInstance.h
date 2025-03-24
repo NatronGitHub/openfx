@@ -39,7 +39,20 @@ namespace MyHost {
     MyPushbuttonInstance(MyEffectInstance* effect, const std::string& name, OFX::Host::Param::Descriptor& descriptor);
   };
 
+  class MyStringInstance : public OFX::Host::Param::StringInstance {
+  protected:
+    MyEffectInstance*   _effect;
+    OFX::Host::Param::Descriptor& _descriptor;
+  public:
+    MyStringInstance(MyEffectInstance* effect, const std::string& name, OFX::Host::Param::Descriptor& descriptor);
+    OfxStatus get(std::string&);
+    OfxStatus get(OfxTime time, std::string&);
+    OfxStatus set(const char*);
+    OfxStatus set(OfxTime time, const char*);
+  };
+
   class MyIntegerInstance : public OFX::Host::Param::IntegerInstance {
+    int _i;
   protected:
     MyEffectInstance*   _effect;
     OFX::Host::Param::Descriptor& _descriptor;
@@ -52,6 +65,7 @@ namespace MyHost {
   };
 
   class MyDoubleInstance : public OFX::Host::Param::DoubleInstance {
+    double _d;
   protected:
     MyEffectInstance*   _effect;
     OFX::Host::Param::Descriptor& _descriptor;
@@ -66,6 +80,7 @@ namespace MyHost {
   };
 
   class MyBooleanInstance : public OFX::Host::Param::BooleanInstance {
+    bool _b;
   protected:
     MyEffectInstance*   _effect;
     OFX::Host::Param::Descriptor& _descriptor;
@@ -88,6 +103,21 @@ namespace MyHost {
     OfxStatus set(int);
     OfxStatus set(OfxTime time, int);
   };
+
+#ifdef OFX_EXTENSIONS_RESOLVE
+  class MyStrChoiceInstance : public OFX::Host::Param::StrChoiceInstance {
+    std::string _choice;
+  protected:
+    MyEffectInstance*   _effect;
+    OFX::Host::Param::Descriptor& _descriptor;
+  public:
+    MyStrChoiceInstance(MyEffectInstance* effect,  const std::string& name, OFX::Host::Param::Descriptor& descriptor);
+    OfxStatus get(std::string&);
+    OfxStatus get(OfxTime time, std::string&);
+    OfxStatus set(const char*);
+    OfxStatus set(OfxTime time, const char*);
+  };
+#endif
 
   class MyRGBAInstance : public OFX::Host::Param::RGBAInstance {
   protected:

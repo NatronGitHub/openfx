@@ -999,7 +999,7 @@ namespace OFX {
 #       endif
         return set(time, value);
       }
-      
+
       /// overridden from Instance
       void ChoiceInstance::notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC
       {
@@ -1010,9 +1010,86 @@ namespace OFX {
       }
 
 #ifdef OFX_EXTENSIONS_RESOLVE
-#ifdef __GNUC__
-#warning "TODO: StrChoiceInstance"
-#endif
+      //
+      // StrChoiceInstance
+      //
+
+      /// make a parameter, with the given type and name
+      StrChoiceInstance::StrChoiceInstance(Descriptor& descriptor, Param::SetInstance* instance)
+        : Instance(descriptor,instance)
+      {
+        _properties.addNotifyHook(kOfxParamPropChoiceOption, this);
+      }
+
+      // callback which should set option as appropriate
+      void StrChoiceInstance::setOption(int /*num*/)
+      {
+      }
+
+      /// implementation of var args function
+      OfxStatus StrChoiceInstance::getV(va_list arg)
+      {
+        const char **value = va_arg(arg, const char **);
+
+        OfxStatus stat = get(_returnValue); // I so don't like this, temp storage should be delegated to the implementation
+        *value = _returnValue.c_str();
+#       ifdef OFX_DEBUG_PARAMETERS
+        if (stat == kOfxStatOK) {
+          std::cout << ' ' << *value;
+        }
+#       endif
+        return stat;
+      }
+
+      /// implementation of var args function
+      OfxStatus StrChoiceInstance::getV(OfxTime time, va_list arg)
+      {
+        if ( OFX::IsNaN(time) ) {
+          return kOfxStatErrValue;
+        }
+        const char **value = va_arg(arg, const char **);
+
+        OfxStatus stat = get(time, _returnValue); // I so don't like this, temp storage should be delegated to the implementation
+        *value = _returnValue.c_str();
+#       ifdef OFX_DEBUG_PARAMETERS
+        if (stat == kOfxStatOK) {
+          std::cout << ' ' << *value;
+        }
+#       endif
+        return stat;
+      }
+
+      /// implementation of var args function
+      OfxStatus StrChoiceInstance::setV(va_list arg)
+      {
+        char *value = va_arg(arg, char*);
+#       ifdef OFX_DEBUG_PARAMETERS
+        std::cout << value;
+#       endif
+        return set(value);
+      }
+
+      /// implementation of var args function
+      OfxStatus StrChoiceInstance::setV(OfxTime time, va_list arg)
+      {
+        if ( OFX::IsNaN(time) ) {
+          return kOfxStatErrValue;
+        }
+        char *value = va_arg(arg, char*);
+#       ifdef OFX_DEBUG_PARAMETERS
+        std::cout << value;
+#       endif
+        return set(time, value);
+      }
+
+      /// overridden from Instance
+      void StrChoiceInstance::notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC
+      {
+        Instance::notify(name, single, num);
+        if (name == kOfxParamPropChoiceOption) {
+          setOption(num);
+        }
+      }
 #endif
 
       //
@@ -2364,7 +2441,7 @@ namespace OFX {
 
         va_end(ap);
 
-        if (stat == kOfxStatOK) {
+        if (stat == kOfxStatOK && paramInstance->getParamSetInstance()) {
           paramInstance->getParamSetInstance()->paramChangedByPlugin(paramInstance);
         }
 
@@ -2405,7 +2482,7 @@ namespace OFX {
 
         va_end(ap);
 
-        if (stat == kOfxStatOK) {
+        if (stat == kOfxStatOK && paramInstance->getParamSetInstance()) {
           paramInstance->getParamSetInstance()->paramChangedByPlugin(paramInstance);
         }
 
