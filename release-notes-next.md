@@ -41,6 +41,9 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 - CMake: the Support library is now built with hidden symbol visibility, so plugins built on it export only the OFX entry points rather than hundreds of C++ symbols. Its `OfxGetPlugin` and `OfxGetNumberOfPlugins` definitions inherit `OfxExport` from `ofxCore.h`.
 - Fixed the Support Noise example giving a different image when a frame is rendered in tiles: it seeded its noise per render call, and now each pixel's noise depends only on its position, the time and the noise level.
 
+- Fixed the Support GPUGain example failing to render when the host chose Alpha for its output: it declared Alpha output but processes only RGBA, so its output clip now supports only RGBA.
+- Fixed the Support Gamma example producing NaNs from negative float input: it now applies the gamma to a value's magnitude and keeps its sign.
+
 ## Documentation Improvements
 
 - Removed the outdated "Properties by object reference" page; the generated Property Sets reference replaces it (issue #173).
