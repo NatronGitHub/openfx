@@ -43,6 +43,7 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 
 - Fixed the Support GPUGain example failing to render when the host chose Alpha for its output: it declared Alpha output but processes only RGBA, so its output clip now supports only RGBA.
 - Fixed the Support Gamma example producing NaNs from negative float input: it now applies the gamma to a value's magnitude and keeps its sign.
+- Fixed the Support Retimer example asking for source frames around the output time rather than the retimed source time it then fetches.
 
 ## Documentation Improvements
 
