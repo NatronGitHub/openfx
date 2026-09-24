@@ -38,6 +38,7 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 - Fixed the `@propdef` metadata of `kOfxParamPropChoiceEnum` (a string array, not a bool) and `kOfxParamPropDimensionLabel` (one label per dimension, not one).
 - Added missing metadata: the `outArgs` of `kOfxImageEffectActionIsIdentity`, and a property set for the OpenGL texture handle returned by `clipLoadTexture` (#263, #276).
 - Fixed the Invert example never releasing its output image (a shadowed handle variable).
+- CMake: the Support library is now built with hidden symbol visibility, so plugins built on it export only the OFX entry points rather than hundreds of C++ symbols. Its `OfxGetPlugin` and `OfxGetNumberOfPlugins` definitions inherit `OfxExport` from `ofxCore.h`.
 
 ## Documentation Improvements
 

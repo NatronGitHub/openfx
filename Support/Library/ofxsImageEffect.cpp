@@ -61,14 +61,11 @@ England
 
 #if defined __APPLE__ || defined __linux__ || defined __FreeBSD__
 # if __GNUC__ >= 4
-#  define EXPORT __attribute__((visibility("default")))
 #  define LOCAL  __attribute__((visibility("hidden")))
 # else
-#  define EXPORT
 #  define LOCAL
 # endif
 #elif defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
-#  define EXPORT OfxExport
 #  define LOCAL
 #else
 #  error Not building on your operating system quite yet
@@ -6005,7 +6002,7 @@ void init()
 }
 
 /** @brief, mandated function returning the number of plugins, which is always 1 */
-EXPORT int OfxGetNumberOfPlugins(void)
+int OfxGetNumberOfPlugins(void)
 {
   init();
   return (int)OFX::PluginFactories::plugIDs().size();
@@ -6016,7 +6013,7 @@ EXPORT int OfxGetNumberOfPlugins(void)
 We call the plugin side defined OFX::Plugin::getPluginIDs function to find out what to set.
 */
 
-EXPORT OfxPlugin* OfxGetPlugin(int nth)
+OfxPlugin* OfxGetPlugin(int nth)
 {
   init();
   // ofxPlugs has one entry per plugin returned by OfxGetNumberOfPlugins (plugInfoMap shrinks on unload)
