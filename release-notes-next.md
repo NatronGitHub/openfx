@@ -46,6 +46,13 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 - Fixed the Support Retimer example asking for source frames around the output time rather than the retimed source time it then fetches.
 - Fixed the Test example failing `kOfxImageEffectActionGetClipPreferences` with `kOfxStatErrBadHandle` because it required `inArgs`, which the spec passes as NULL for that action; it now answers `kOfxStatReplyDefault`, since it sets no preferences.
 
+- Fixed the ChoiceParams example answering `kOfxImageEffectActionGetClipPreferences` with `kOfxStatOK` when it set nothing; it now answers `kOfxStatReplyDefault` unless the host supports multiple clip depths.
+- Fixed the ColourSpace example answering `kOfxStatOK` to the actions it does not handle, such as `kOfxImageEffectActionGetFramesNeeded`; it now answers `kOfxStatReplyDefault`, as the spec requires of an action a plugin does not trap.
+- Fixed the ColourSpace example declaring its string-choice parameters with no enum values on a host without colour management, and passing a NULL string as the "unspecified" input colourspace on one with it.
+- Fixed the ColourSpace example writing its text overlay past the bottom and left edges of a frame too small to hold it.
+- Fixed the ColourSpace example under tiled rendering: it copied the whole source image to the start of each tile, overrunning the output buffer, and drew its text relative to each tile. It now copies only the render window and places the text in the frame.
+- Fixed the DepthConverter example asking for an output depth different from its input's on a host that does not support multiple clip depths, and claiming clip preferences it had not set.
+
 ## Documentation Improvements
 
 - Removed the outdated "Properties by object reference" page; the generated Property Sets reference replaces it (issue #173).
