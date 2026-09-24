@@ -1000,7 +1000,8 @@ getTemporalDomain( OfxImageEffectHandle  /*effect*/,  OfxPropertySetHandle /*inA
 static OfxStatus 
 getClipPreferences( OfxImageEffectHandle  /*effect*/,  OfxPropertySetHandle /*inArgs*/,  OfxPropertySetHandle /*outArgs*/)
 {
-  return kOfxStatOK;
+  // we set no preferences, so the host uses its defaults
+  return kOfxStatReplyDefault;
 }
 
 // are the settings of the effect performing an identity operation
@@ -1202,7 +1203,7 @@ pluginMain(const char *action,  const void *handle, OfxPropertySetHandle inArgsH
       checkMainHandles(action, handle, inArgsHandle, outArgsHandle, false, false, false);
     }
     else if(OFX::strEquals(action, kOfxImageEffectActionGetClipPreferences)) {
-      checkMainHandles(action, handle, inArgsHandle, outArgsHandle, false, false, false);
+      checkMainHandles(action, handle, inArgsHandle, outArgsHandle, false, true, false);
       stat = getClipPreferences(effectHandle, inArgsHandle, outArgsHandle);
     }
     else if(OFX::strEquals(action, kOfxImageEffectActionIsIdentity)) {
