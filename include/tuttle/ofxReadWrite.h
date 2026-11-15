@@ -11,7 +11,12 @@ extern "C" {
  * - Property Set - plugin descriptor (read/write)
  * - Default - empty string X 0
  * - Values - A array of extensions (jpeg, jpg...).
- * 
+ *
+
+    @propdef
+    type: string
+    dimension: N
+    extension: tuttle
  */
 #define kTuttleOfxImageEffectPropSupportedExtensions "TuttleOfxImageEffectPropSupportedExtensions"
 
@@ -25,7 +30,12 @@ extern "C" {
  *   - 50 - means good implementation without specific optimization
  *   - 100 - means good implementation with specific optimizations
  *   - -1 - means the plugin is not evaluated
- * 
+ *
+
+    @propdef
+    type: double
+    dimension: 1
+    extension: tuttle
  */
 #define kTuttleOfxImageEffectPropEvaluation "TuttleOfxImageEffectPropEvaluation"
 

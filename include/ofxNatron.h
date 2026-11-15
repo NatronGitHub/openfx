@@ -35,6 +35,11 @@ Valid values:
  
  Default value:
  - 0
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamHostPropSupportsDynamicChoices "NatronOfxParamHostPropSupportsDynamicChoices"
 
@@ -202,6 +207,10 @@ Notes:
 
 This is a property on parameters of type ::kOfxParamTypeChoice, and tells the choice whether menu should be hierarchical/cascading, and each option contains a slash-separated path to the item.
 
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
 */
 #define kNatronOfxParamPropChoiceCascading "NatronOfxParamPropChoiceCascading"
 
@@ -218,6 +227,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  - 1: Indicates that the parameter wants to have the choice "New" so that the host can create a new option
  Default value:
  - 0
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamPropChoiceHostCanAddOptions "NatronOfxParamPropChoiceHostCanAddOptions"
 
@@ -252,6 +266,16 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  If the property is not present the the host descriptor, or its value is not kOfxImageComponentRGBA, then the host does not have a channel selector, and the plugin may propose its own solution (e.g. a checkbox for each channel).
  
  The default for an image effect descriptor is kOfxImageComponentRGBA.
+
+    @propdef
+    type: enum
+    dimension: 1
+    values:
+      - OfxImageComponentNone
+      - OfxImageComponentRGBA
+      - OfxImageComponentRGB
+      - OfxImageComponentAlpha
+    extension: natron
  */
 #define kNatronOfxImageEffectPropChannelSelector "NatronOfxImageEffectPropChannelSelector"
 
@@ -264,6 +288,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  - Default value: 0
  
  When set to 1, the plug-in should be able to call clipGetHandle on the clip created by the host.
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
  */
 
 #define kNatronOfxImageEffectPropHostMasking "kNatronOfxImageEffectPropHostMasking"
@@ -275,6 +304,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  - Property Set - image effect descriptor (read/write), host descriptor (read only)
  - Valid Values - 0 or 1
  - Default value: 0
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
 */
 #define kNatronOfxImageEffectPropHostMixing "kNatronOfxImageEffectPropHostMixing"
 
@@ -357,6 +391,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  would be recognized by the host as a parameter of type Matrix3x3 with the name "transform".
  In this case the properties of the host rectangle parameter are taken from the row1 parameter, except
  for the kOfxParamPropDimensionLabel, kOfxParamPropDefault
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamPropDoubleTypeMatrix3x3 "NatronOfxParamTypeMatrix3x3"
 
@@ -379,6 +418,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  In this case the properties of the host rectangle parameter are taken from the position component parameter, except
  for the kOfxParamPropMin, kOfxParamPropMax, kOfxParamPropDisplayMin, kOfxParamPropDisplayMax, kOfxParamPropDimensionLabel, 
  kOfxParamPropDefault
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamPropTypeRectangle  "NatronOfxParamPropTypeRectangle"
 
@@ -392,6 +436,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  When set to 1, the parameter is specific to an effect instance of the plug-in and should have a
  unique representation for each instance. See descripton of kNatronOfxImageEffectContextTracker for more details
  on multiple instances and difference between shared and specific parameters.
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamPropIsInstanceSpecific "NatronOfxParamPropIsInstanceSpecific"
 
@@ -401,6 +450,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  - Default - 0
  - Valid Values - 0 or 1
  When set to 1, the host may disable using this plugin in new projects.
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
 */
 #define kNatronOfxImageEffectPropDeprecated "NatronOfxImageEffectPropDeprecated"
 
@@ -436,6 +490,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  - Property Set - image effect descriptor (read only) image effect (read only)
  - Default - ""
  - Valid Values - any
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxImageEffectPropProjectId "NatronOfxImageEffectPropProjectId"
 
@@ -445,6 +504,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  - Property Set - image effect descriptor (read only) image effect (read only)
  - Default - ""
  - Valid Values - any
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxImageEffectPropGroupId "NatronOfxImageEffectPropGroupId"
 
@@ -453,6 +517,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  - Property Set - image effect descriptor (read only) image effect (read only)
  - Default - ""
  - Valid Values - any
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxImageEffectPropInstanceId "NatronOfxImageEffectPropInstanceId"
 
@@ -608,7 +677,13 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  "NatronNativeOverlayType_CornerPin2D_NatronNativeOverlayParameterName_topLeft_NatronNativeOverlayParameterName_topRight_NatronNativeOverlayParameterName_bottomRight_NatronNativeOverlayParameterName_bottomLeft"
  
 
- **/
+ *
+
+    @propdef
+    type: string
+    dimension: N
+    extension: natron
+*/
 #define kNatronOfxPropNativeOverlays "NatronOfxPropNativeOverlays"
 
 /**
@@ -629,6 +704,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  - Valid Values - 1 or 0
  If the value is 1, the hint is written in markdown
  If the value is 0, the hint is written in plain-text
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxPropDescriptionIsMarkdown "NatronOfxPropDescriptionIsMarkdown"
 
@@ -642,6 +722,11 @@ property is set to 1.
  - Valid Values - 1 or 0
  If the value is 1, this parameter cannot have an interface in the viewport.
  If the value is 0, this corresponds to the index on the viewport at which the host should place the parameter.
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxGroupParamPropIsDialog "NatronOfxGroupParamPropIsDialog"
 
@@ -695,6 +780,10 @@ property is set to 1.
  
  Whenever an event is sent to overlay interacts (PenDown, PenMotion, PenUp, KeyDown, KeyUp, KeyRepeat, GainFocus, LoseFocus, the OFX Host should set the cursor to the one of the first interact which catches the event by returning kOfxStatOK to the corresponding action. If no overlay interact returns kOfxStatOK, the cursor should be set to the default cursor.
 
+    @propdef
+    type: string
+    dimension: N
+    extension: natron
  */
 #define kNatronOfxImageEffectPropDefaultCursors "NatronOfxImageEffectPropDefaultCursors"
 
@@ -730,6 +819,11 @@ property is set to 1.
  This property should contain a list of all parameters name that should be visible in the viewer. The ordering on which they appear
  on the viewport is defined by their order in this property, with index 0 defining the top-left parameter and last index the bottom-right
  parameter.
+
+    @propdef
+    type: string
+    dimension: N
+    extension: natron
  */
 #define kNatronOfxImageEffectPropInViewerContextParamsOrder "NatronOfxParamPropInViewerContextParamsOrder"
 
@@ -743,6 +837,11 @@ property is set to 1.
  kNatronOfxParamPropInViewerContextLayoutHintNormal: the host will not create a new row in the viewer interface before creating the next parameter
  kNatronOfxParamPropInViewerContextLayoutHintNormalDivider: the host will not create a new row in the viewer interface before creating the next parameter and will add a vertical separator before this parameter and the next
  kNatronOfxParamPropInViewerContextLayoutHintAddNewLine: the host will create a new row after this parameter
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamPropInViewerContextLayoutHint "NatronOfxParamPropInViewerContextLayoutHint"
 
@@ -764,6 +863,11 @@ property is set to 1.
 
  It tells the host how much space (in pixels) to leave between the current parameter and the next parameter in a viewport row
  Note that this is only relevant if kNatronOfxParamPropInViewerContextLayoutHint is set to kNatronOfxParamPropInViewerContextLayoutHintNormal
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamPropInViewerContextLayoutPadWidth "NatronOfxParamPropInViewerContextLayoutPadWidth"
 
@@ -775,6 +879,11 @@ property is set to 1.
  - Property Set - plugin parameter descriptor (read/write) and instance (read only),
  - Default -
  - Valid Values - any
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamPropInViewerContextLabel "NatronOfxParamPropInViewerContextLabel"
 
@@ -786,6 +895,11 @@ property is set to 1.
  - Valid Values - 0 or 1
 
  If secret, a parameter is not exposed to a user in the viewer interface, but should otherwise behave as a normal parameter.
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamPropInViewerContextSecret "NatronOfxParamPropInViewerContextSecret"
 
@@ -796,6 +910,11 @@ property is set to 1.
  - Default - 0
  - Valid Values - 0 or 1
  If 0, the boolean parameter should be a checkbox. If 1, it should be a toggable button.
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxBooleanParamPropIsToggableButton "NatronOfxBooleanParamPropIsToggableButton"
 
@@ -808,6 +927,11 @@ property is set to 1.
  - Property Set - plugin parameter descriptor (read/write) and instance (read/write)
  - Default - 0
  - Valid Values - 0 or 1
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamPropInViewerContextIsInToolbar "NatronOfxPageParamPropInViewerContextIsToolbar"
 
@@ -819,6 +943,11 @@ property is set to 1.
  - Default - 0
  - Valid Values - 0 or 1
   If set to 1 then the host could display this parameter in some sort of shortcut editor where the user may modify it.
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamPropInViewerContextCanHaveShortcut "NatronOfxParamPropInViewerContextCanHaveShortcut"
 
@@ -840,6 +969,11 @@ property is set to 1.
  - Property Set - image effect descriptor (read/write) and instance (read/write)
  - Default -
  - Valid Values -
+
+    @propdef
+    type: string
+    dimension: N
+    extension: natron
  */
 #define kNatronOfxImageEffectPropInViewerContextDefaultShortcuts "NatronOfxImageEffectPropInViewerContextDefaultShortcuts"
 
@@ -850,6 +984,11 @@ property is set to 1.
  - Property Set - image effect descriptor (read/write) and instance (read/write)
  - Default - 0
  - Valid Values - Any symbol defined in ofxKeySyms.h
+
+    @propdef
+    type: int
+    dimension: N
+    extension: natron
  */
 #define kNatronOfxImageEffectPropInViewerContextShortcutSymbol "NatronOfxImageEffectPropInViewerContextShortcutSymbol"
 
@@ -860,6 +999,11 @@ property is set to 1.
  - Property Set - image effect descriptor (read/write) and instance (read/write)
  - Default - 0
  - Valid Values - 0 or 1
+
+    @propdef
+    type: bool
+    dimension: N
+    extension: natron
  */
 #define kNatronOfxImageEffectPropInViewerContextShortcutHasControlModifier "NatronOfxImageEffectPropInViewerContextShortcutHasControlModifier"
 
@@ -871,6 +1015,11 @@ property is set to 1.
  - Property Set - image effect descriptor (read/write) and instance (read/write)
  - Default - 0
  - Valid Values - 0 or 1
+
+    @propdef
+    type: bool
+    dimension: N
+    extension: natron
  */
 #define kNatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier "NatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier"
 
@@ -882,6 +1031,11 @@ property is set to 1.
  - Property Set - image effect descriptor (read/write) and instance (read/write)
  - Default - 0
  - Valid Values - 0 or 1
+
+    @propdef
+    type: bool
+    dimension: N
+    extension: natron
  */
 #define kNatronOfxImageEffectPropInViewerContextShortcutHasAltModifier "NatronOfxImageEffectPropInViewerContextShortcutHasAltModifier"
 
@@ -893,6 +1047,11 @@ property is set to 1.
  - Property Set - image effect descriptor (read/write) and instance (read/write)
  - Default - 0
  - Valid Values - 0 or 1
+
+    @propdef
+    type: bool
+    dimension: N
+    extension: natron
  */
 #define kNatronOfxImageEffectPropInViewerContextShortcutHasMetaModifier "NatronOfxImageEffectPropInViewerContextShortcutHasMetaModifier"
 
@@ -904,6 +1063,11 @@ property is set to 1.
  - Property Set - image effect descriptor (read/write) and instance (read/write)
  - Default - 0
  - Valid Values - 0 or 1
+
+    @propdef
+    type: bool
+    dimension: N
+    extension: natron
  */
 #define kNatronOfxImageEffectPropInViewerContextShortcutHasKeypadModifier "NatronOfxImageEffectPropInViewerContextShortcutHasKeypadModifier"
 
@@ -934,6 +1098,10 @@ says:
  If the plugin returns NULL as outArgs of kOfxActionOpenGLContextDetached, it is supposed
  to follow the OpenFX spec, and will have to be detached/attached when switching the render context.
 
+    @propdef
+    type: pointer
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxImageEffectPropOpenGLContextData "NatronOfxImageEffectPropOpenGLContextData"
 
@@ -963,6 +1131,11 @@ says:
  - Type - Double x4
  - Property Set - inArgs property set of the action kOfxInteractActionDraw called on the parametric parameter 
  - Default - -1,-1,-1,-1
+
+    @propdef
+    type: double
+    dimension: 4
+    extension: natron
  */
 #define kNatronOfxPropPickerColour "NatronOfxPropPickerColour"
 
@@ -976,6 +1149,11 @@ says:
  - Default Value - (0)
  - Valid Values - 1 or 0
  If 1 the curves are considered to be periodic.
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
  */
 #define kNatronOfxParamPropParametricIsPeriodic "OfxParamPropParametricIsPeriodic"
 
@@ -990,7 +1168,13 @@ says:
 
  The order of the values is x1, y1, x2, y2 where x1 <= x2 and y1 <= y2.
 
- **/
+ *
+
+    @propdef
+    type: int
+    dimension: 4
+    extension: natron
+*/
 #define kOfxImageClipPropFormat "OfxImageClipPropFormat"
 
 
@@ -1016,6 +1200,11 @@ says:
  can return images with a distortion function attached (@see kOfxPropInverseDistortionFunction)
 
  This is a property on the descriptor.
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
  */
 #define kOfxImageEffectPropCanDistort "OfxImageEffectPropCanDistort"
 
@@ -1104,17 +1293,22 @@ the datas pointed to by kOfxPropInverseDistortionFunctionData
 
 #define kOfxImageEffectActionGetInverseDistortion "OfxImageEffectActionGetInverseDistortion"
 
-/*
+/**
  @brief Property that holds a pointer to a function of type OfxDistortionFunctionV1
  - Type - Pointer x1
  - Property Set - outArgs of kOfxImageEffectActionGetInverseDistortion and image instance (read only)
  - Default - 0
  
  The plug-in returns a pointer of such as function in the kOfxImageEffectActionGetInverseDistortion action.
+
+    @propdef
+    type: pointer
+    dimension: 1
+    extension: natron
  */
 #define kOfxPropInverseDistortionFunction "OfxPropInverseDistortionFunction"
 
-/*
+/**
  @brief Property that holds a pointer to data used in the function pointed to by kOfxPropInverseDistortionFunction.
  - Type - Pointer x1
  - Property Set - outArgs of kOfxImageEffectActionGetInverseDistortion and image instance (read only)
@@ -1125,11 +1319,16 @@ the datas pointed to by kOfxPropInverseDistortionFunctionData
  
  When the property is on the image instance, these are host data the should be passed to the function pointed to by the kOfxPropInverseDistortionFunction property
  on the same image.
+
+    @propdef
+    type: pointer
+    dimension: 1
+    extension: natron
  */
 #define kOfxPropInverseDistortionFunctionData "OfxPropInverseDistortionFunctionData"
 
 
-/*
+/**
 @brief Property that hints the host about the total size of the datas pointed to by kOfxPropInverseDistortionFunctionData. If these datas contain buffers or images
  they should be summed up.
  The host may cache these datas away and it is important to hint the host about the size these datas holds in the host cache.
@@ -1139,16 +1338,25 @@ the datas pointed to by kOfxPropInverseDistortionFunctionData
  - Property Set - outArgs of kOfxImageEffectActionGetInverseDistortion action
  - Default - 0
 
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
  */
 #define kOfxPropInverseDistortionFunctionDataSize "OfxPropInverseDistortionFunctionDataSize"
 
-/*
+/**
 @brief Property that holds a pointer to a function that can be called to free the data pointed to by kOfxPropInverseDistortionFunctionData that were passed back
  by a plug-in in the kOfxImageEffectActionGetInverseDistortion action
  
  - Type - Pointer x1
  - Property Set - outArgs of the kOfxImageEffectActionGetInverseDistortion action
  - Default - 0
+
+    @propdef
+    type: pointer
+    dimension: 1
+    extension: natron
  */
 #define kOfxPropInverseDistortionDataFreeFunction "OfxPropInverseDistortionDataFreeFunction"
 
@@ -1183,7 +1391,13 @@ typedef void (*OfxInverseDistortionDataFreeFunctionV1)(void* customData);
  - Valid Values - any matrix value
 
  The 9 values of this property represent a 2D 3 by 3 matrix. The matrix is in row/column format.
- **/
+ *
+
+    @propdef
+    type: double
+    dimension: 9
+    extension: natron
+*/
 
 #define kOfxPropMatrix3x3 "OfxPropMatrix3x3"
 
@@ -1198,6 +1412,11 @@ typedef void (*OfxInverseDistortionDataFreeFunctionV1)(void* customData);
  - Type - double X 1
  - Property Set - read only in argument to the ::kOfxInteractActionPenMotion, ::kOfxInteractActionPenDown and ::kOfxInteractActionPenUp actions
  - Default value - 1.
+
+    @propdef
+    type: double
+    dimension: 1
+    extension: natron
  */
 #define kOfxInteractPropScreenPixelRatio "OfxInteractPropScreenPixelRatio"
 

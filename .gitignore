@@ -66,3 +66,6 @@ HostSupport/expat*/*/Makefile
 HostSupport/expat*/*/*/Makefile
 HostSupport/expat*/xmlwf/xmlwf
 
+
+# Python
+__pycache__/
