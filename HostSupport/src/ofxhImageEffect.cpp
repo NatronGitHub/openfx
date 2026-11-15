@@ -835,7 +835,7 @@ namespace OFX {
 
       const std::string &Instance::getStringProperty(const std::string &name, int n) const OFX_EXCEPTION_SPEC
       {
-#ifdef OFX_EXTENSIONS_NUKE
+#ifdef OFX_EXTENSIONS_NATRON // kNatronOfxExtraCreatedPlanes and getUserCreatedPlanes() are Natron extensions
         if (name==kNatronOfxExtraCreatedPlanes) {
           const std::vector<std::string>& userPlanes = getUserCreatedPlanes();
           if (n >= 0 && n < (int)userPlanes.size()) {
@@ -844,19 +844,27 @@ namespace OFX {
             throw Property::Exception(kOfxStatErrBadIndex);
           }
         }
+#else
+        (void)name;
+        (void)n;
 #endif
         throw Property::Exception(kOfxStatErrValue);
       }
 
       void Instance::getStringPropertyN(const std::string &name, const char** values, int count) const OFX_EXCEPTION_SPEC
       {
-        if (count <= 0) throw Property::Exception(kOfxStatErrValue);
+        if (count < 0) throw Property::Exception(kOfxStatErrBadIndex);
+        if (count == 0) return;
 #ifdef OFX_EXTENSIONS_NATRON
         if (name==kNatronOfxExtraCreatedPlanes) {
-          const std::vector<std::string>& componentsPresents = getUserCreatedPlanes();
-          int minCount = (int)componentsPresents.size() < count ? (int)componentsPresents.size() : count;
+          const std::vector<std::string>& userPlanes = getUserCreatedPlanes();
+          int minCount = (int)userPlanes.size() < count ? (int)userPlanes.size() : count;
           for (int i = 0; i < minCount; ++i) {
-            values[i] = componentsPresents[i].c_str();
+            values[i] = userPlanes[i].c_str();
+          }
+          if (count > (int)userPlanes.size()) {
+            // don't leave the rest of the caller's buffer uninitialised
+            throw Property::Exception(kOfxStatErrBadIndex);
           }
           return;
         }
