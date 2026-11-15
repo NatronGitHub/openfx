@@ -4207,6 +4207,12 @@ namespace OFX {
 
         }
 
+        gHostDescription.supportedCursors.clear();
+        int nCursors = hostProps.propGetDimension(kOfxInteractHostPropSupportedCursors, false);
+        for (int i = 0; i < nCursors; ++i) {
+          gHostDescription.supportedCursors.push_back(hostProps.propGetString(kOfxInteractHostPropSupportedCursors, i, false));
+        }
+
 #endif
 
         int numComponents = hostProps.propGetDimension(kOfxImageEffectPropSupportedComponents);
