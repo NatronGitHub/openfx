@@ -34,6 +34,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <map>
 #include <list>
+#include <vector>
 #include <cstdarg>
 
 //ofx
@@ -41,6 +42,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 //ofxh
 #include "ofxhPropertySuite.h"
+
+/** @brief HostSupport-private host descriptor property (int X 1, default 0): set it to 1 when
+ the host's newParam() creates a Param::BytesInstance subclass for kOfxParamTypeBytes params.
+ While it is 0, paramDefine() returns kOfxStatErrUnsupported for Bytes params. The OFX standard
+ defines no host property for Bytes params: plug-ins find out from the paramDefine() status.
+ */
+#define kOfxHostSupportHostPropSupportsBytes "sf.openfx.net.OfxHostSupportHostPropSupportsBytes"
 
 
 namespace OFX {
@@ -681,6 +689,52 @@ namespace OFX {
         /// implementation of var args function
         /// Be careful: the char* is only valid until next API call
         /// see http://openfx.sourceforge.net/Documentation/1.3/ofxProgrammingReference.html#ArchitectureStrings
+        virtual OfxStatus getV(OfxTime time, va_list arg);
+
+        /// implementation of var args function
+        virtual OfxStatus setV(va_list arg);
+
+        /// implementation of var args function
+        virtual OfxStatus setV(OfxTime time, va_list arg);
+      };
+
+      /// OFX 1.5 Bytes param (kOfxParamTypeBytes): an opaque block of plug-in data.
+      ///
+      /// The value is passed through the parameter suite as an OfxBytes struct:
+      /// - paramGetValue(param, OfxBytes *bytes): the host fills *bytes. The data pointer
+      ///   belongs to the host and, like strings, is only valid until the next call on this
+      ///   param (it points to storage owned by this instance);
+      /// - paramSetValue(param, const OfxBytes *bytes): the host copies bytes->length bytes
+      ///   from bytes->data. A NULL OfxBytes pointer, or a zero length, sets an empty value.
+      /// The default (kOfxParamPropDefault) is "pointer to OfxBytes struct of one dimension,
+      /// or nullptr". The pointed data belongs to the plug-in, so the default is copied
+      /// when the instance is created: use getDefault().
+      ///
+      /// A host that implements this class must also set kOfxHostSupportHostPropSupportsBytes
+      /// to 1 on its host descriptor, otherwise paramDefine() rejects Bytes params with
+      /// kOfxStatErrUnsupported.
+      class BytesInstance : public Instance, public KeyframeParam {
+        std::vector<unsigned char> _defaultValue; ///< copy of the default value
+        std::vector<unsigned char> _returnValue;  ///< storage for the data returned by getV
+      public:
+        BytesInstance(Descriptor& descriptor, Param::SetInstance* instance = 0);
+
+        /// the default value, copied from kOfxParamPropDefault when the instance was created
+        const std::vector<unsigned char>& getDefault() const { return _defaultValue; }
+
+        // Deriving implementation needs to override these. In set(), the data is only valid
+        // during the call: copy it.
+        virtual OfxStatus get(std::vector<unsigned char> &) = 0;
+        virtual OfxStatus get(OfxTime time, std::vector<unsigned char> &) = 0;
+        virtual OfxStatus set(const unsigned char *data, size_t length) = 0;
+        virtual OfxStatus set(OfxTime time, const unsigned char *data, size_t length) = 0;
+
+        /// implementation of var args function
+        /// Be careful: the data pointer is only valid until the next API call on this param
+        virtual OfxStatus getV(va_list arg);
+
+        /// implementation of var args function
+        /// Be careful: the data pointer is only valid until the next API call on this param
         virtual OfxStatus getV(OfxTime time, va_list arg);
 
         /// implementation of var args function

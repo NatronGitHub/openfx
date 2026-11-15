@@ -94,6 +94,7 @@ namespace OFX {
     class PageParamDescriptor;
     class PushButtonParamDescriptor;
     class CustomParamDescriptor;
+    class BytesParamDescriptor;
     class ParamSetDescriptor;
 
     /* forward class declarations of the instances */
@@ -112,6 +113,7 @@ namespace OFX {
     class ChoiceParam;
     class StrChoiceParam;
     class CustomParam;
+    class BytesParam;
     class GroupParam;
     class PageParam;
     class PushButtonParam;
@@ -151,6 +153,7 @@ namespace OFX {
                         ePageParam,
                         ePushButtonParam,
                         eParametricParam,
+                        eBytesParam, // OFX 1.5 kOfxParamTypeBytes (appended: existing values are unchanged)
                         };
 
     /** @brief Enumerates the different types of cache invalidation */
@@ -1023,6 +1026,35 @@ namespace OFX {
     };
 
     ////////////////////////////////////////////////////////////////////////////////
+    /** @brief Wraps up a Bytes param (OFX 1.5 kOfxParamTypeBytes): an opaque block of plug-in data.
+
+     Hosts may not support it: use ParamSetDescriptor::defineBytesParam(), which returns NULL
+     on such hosts instead of throwing, and fall back to e.g. a hidden String param.
+     Bytes params don't animate by default.
+     */
+    class BytesParamDescriptor : public ValueParamDescriptor {
+    protected :
+        mDeclareProtectedAssignAndCCBase(BytesParamDescriptor,ValueParamDescriptor);
+        BytesParamDescriptor(void) {assert(false);}
+
+        std::vector<unsigned char> _defaultData; ///< the default value, kept alive while the plug-in is loaded
+        OfxBytes _defaultBytes;                  ///< what kOfxParamPropDefault points to
+
+    protected :
+        /** @brief hidden constructor */
+        BytesParamDescriptor(const std::string &name, OfxPropertySetHandle props);
+
+        // so it can make one
+        friend class ParamSetDescriptor;
+    public :
+        /** @brief set the default value of the param (the data is copied) */
+        void setDefault(const void *data, size_t length);
+
+        /** @brief set the default value of the param (the data is copied) */
+        void setDefault(const std::vector<unsigned char> &v);
+    };
+
+    ////////////////////////////////////////////////////////////////////////////////
     /** @brief Describes a set of properties */
     class ParamSetDescriptor { 
     protected :
@@ -1170,6 +1202,11 @@ namespace OFX {
         /** @brief Define a custom param */
         CustomParamDescriptor *defineCustomParam(const std::string &name);
 
+        /** @brief Define a Bytes param (OFX 1.5).
+         Returns NULL, without throwing, if the host doesn't support Bytes params
+         (paramDefine returns kOfxStatErrUnsupported or kOfxStatErrUnknown). */
+        BytesParamDescriptor *defineBytesParam(const std::string &name);
+
         
         /** @brief Fetch an integer param */
         IntParamDescriptor *fetchIntParam(const std::string &name) const;
@@ -1215,6 +1252,9 @@ namespace OFX {
 
         /** @brief Fetch a custom param */
         CustomParamDescriptor *fetchCustomParam(const std::string &name) const;
+
+        /** @brief Fetch a Bytes param (OFX 1.5) */
+        BytesParamDescriptor *fetchBytesParam(const std::string &name) const;
 
         /** @brief Fetch a parametric param */
         ParametricParamDescriptor *fetchParametricParam(const std::string &name) const;
@@ -2178,6 +2218,45 @@ namespace OFX {
     };
 
     ////////////////////////////////////////////////////////////////////////////////
+    /** @brief Wraps up a Bytes param (OFX 1.5 kOfxParamTypeBytes): an opaque block of plug-in data */
+    class BytesParam : public ValueParam {
+    protected :
+        mDeclareProtectedAssignAndCCBase(BytesParam,ValueParam);
+        BytesParam(void) {assert(false);}
+
+    protected :
+        /** @brief hidden constructor */
+        BytesParam(const ParamSet *paramSet, const std::string &name, OfxParamHandle handle);
+
+        // so it can make one
+        friend class ParamSet;
+    public :
+        /** @brief get the default value of the param (copied) */
+        void getDefault(std::vector<unsigned char> &v) const;
+
+        /** @brief get value (copied: the host's buffer is only valid until the next call) */
+        void getValue(std::vector<unsigned char> &v) const;
+
+        /** @brief get the value at a time (copied) */
+        void getValueAtTime(double t, std::vector<unsigned char> &v) const;
+
+        /** @brief set value (the host copies the data) */
+        void setValue(const void *data, size_t length);
+
+        /** @brief set value */
+        void setValue(const std::vector<unsigned char> &v);
+
+        /** @brief set the value at a time, implicitly adds a keyframe */
+        void setValueAtTime(double t, const void *data, size_t length);
+
+        /** @brief set the value at a time, implicitly adds a keyframe */
+        void setValueAtTime(double t, const std::vector<unsigned char> &v);
+
+        /** @brief delete all keys and set to default value */
+        void resetToDefault();
+    };
+
+    ////////////////////////////////////////////////////////////////////////////////
     /** @brief Wraps up a push button param, not much to it at all */
     class PushButtonParam : public Param {
     protected :
@@ -2399,6 +2478,9 @@ namespace OFX {
 
         /** @brief Fetch a custom param */
         CustomParam *fetchCustomParam(const std::string &name) const;
+
+        /** @brief Fetch a Bytes param (OFX 1.5) */
+        BytesParam *fetchBytesParam(const std::string &name) const;
 
         /** @brief Fetch a parametric param */
         ParametricParam* fetchParametricParam(const std::string &name) const;
