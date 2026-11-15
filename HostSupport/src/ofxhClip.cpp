@@ -37,6 +37,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ofxhPropertySuite.h"
 #include "ofxhClip.h"
 #include "ofxhImageEffect.h"
+#include "ofxGPURender.h" // OFX 1.5: kOfxImageEffectPropOpenCLImage, kOfxImageEffectPropThumbnailRender
 #ifdef OFX_EXTENSIONS_VEGAS
 #include "ofxSonyVegas.h"
 #endif
@@ -271,6 +272,14 @@ namespace OFX {
         Property::propSpecEnd,
       };
 
+      /// clip instance properties that are stored values, without a get hook
+      static const Property::PropSpec clipInstanceStoredStuffs[] = {
+        // OFX 1.5: "the frame number the host shows the user for time 0" (Default - 0).
+        // Hosts set it with getProps().setDoubleProperty().
+        { kOfxImageClipPropDisplayTimeOffset, Property::eDouble, 1, true, "0" },
+        Property::propSpecEnd
+      };
+
 
       ////////////////////////////////////////////////////////////////////////////////
       // instance
@@ -300,6 +309,7 @@ namespace OFX {
 
           i++;
         }
+        _properties.addProperties(clipInstanceStoredStuffs);
 #     ifdef OFX_EXTENSIONS_NATRON
         _properties.addNotifyHook(kOfxPropLabel, this);
         _properties.addNotifyHook(kOfxParamPropSecret, this);
@@ -596,6 +606,8 @@ namespace OFX {
           { kOfxPropChangeReason, Property::eString, 1, true, why.c_str() },
           { kOfxPropTime, Property::eDouble, 1, true, "0" },
           { kOfxImageEffectPropRenderScale, Property::eDouble, 2, true, "0" },
+          // OFX 1.5.1: in the inArgs of kOfxActionInstanceChanged
+          { kOfxImageEffectPropThumbnailRender, Property::eString, 1, true, "false" },
           Property::propSpecEnd
         };
 
@@ -804,6 +816,8 @@ namespace OFX {
 
       static const Property::PropSpec imageStuffs[] = {
         { kOfxImagePropData, Property::ePointer, 1, true, NULL },
+        // OFX 1.5: the cl_mem of an image passed as an OpenCL Image (NULL otherwise)
+        { kOfxImageEffectPropOpenCLImage, Property::ePointer, 1, true, NULL },
         Property::propSpecEnd
       };
 
