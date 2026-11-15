@@ -66,3 +66,8 @@ HostSupport/expat*/*/Makefile
 HostSupport/expat*/*/*/Makefile
 HostSupport/expat*/xmlwf/xmlwf
 
+
+# CMake / conan build outputs
+/build/
+/test_package/build/
+CMakeUserPresets.json
