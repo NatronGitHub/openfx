@@ -1919,6 +1919,16 @@ Integer Properties
 - **Used in Property Sets**: :ref:`InteractDescriptor <propset_InteractDescriptor>` (host), :ref:`InteractInstance <propset_InteractInstance>` (host)
 - **Doc**: For detailed doc, see :c:macro:`kOfxInteractPropBitDepth`.
 
+.. _prop_OfxInteractPropCursorHotSpot:
+
+**OfxInteractPropCursorHotSpot**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxInteractPropCursorHotSpot`
+- **Type**: int
+- **Dimension**: 2
+- **Doc**: For detailed doc, see :c:macro:`kOfxInteractPropCursorHotSpot`.
+
 .. _prop_OfxInteractPropPenViewportPosition:
 
 **OfxInteractPropPenViewportPosition**
@@ -2629,6 +2639,36 @@ String Properties
 - **Dimension**: 1
 - **Used in Property Sets**: :ref:`Image <propset_Image>` (host), :ref:`OpenGLTexture <propset_OpenGLTexture>` (host)
 - **Doc**: For detailed doc, see :c:macro:`kOfxImagePropUniqueIdentifier`.
+
+.. _prop_OfxInteractHostPropSupportedCursors:
+
+**OfxInteractHostPropSupportedCursors**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxInteractHostPropSupportedCursors`
+- **Type**: string
+- **Dimension**: Variable (0 or more)
+- **Doc**: For detailed doc, see :c:macro:`kOfxInteractHostPropSupportedCursors`.
+
+.. _prop_OfxInteractPropCursor:
+
+**OfxInteractPropCursor**
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxInteractPropCursor`
+- **Type**: string
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kOfxInteractPropCursor`.
+
+.. _prop_OfxInteractPropCursorImage:
+
+**OfxInteractPropCursorImage**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxInteractPropCursorImage`
+- **Type**: string
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kOfxInteractPropCursorImage`.
 
 .. _prop_OfxInteractPropSlaveToParam:
 
