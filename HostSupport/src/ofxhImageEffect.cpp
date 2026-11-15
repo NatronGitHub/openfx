@@ -1897,6 +1897,23 @@ namespace OFX {
 #endif
         inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
 
+        // "kOfxImageEffectPropRegionOfDefinition the calculated region of definition,
+        // initially set by the host to the default RoD"
+        OfxRectD defaultRod = {0., 0., 0., 0.};
+        bool hasDefaultRod = false;
+        try {
+          defaultRod = calcDefaultRegionOfDefinition(time, renderScale
+#                                                    ifdef OFX_EXTENSIONS_NUKE
+                                                     ,
+                                                     view
+#                                                    endif
+                                                     );
+          hasDefaultRod = true;
+          outArgs.setDoublePropertyN(kOfxImageEffectPropRegionOfDefinition, &defaultRod.x1, 4);
+        } catch (const Property::Exception &) {
+          // no default RoD available (e.g. unknown context): leave it to zero
+        }
+
 #       ifdef OFX_DEBUG_ACTIONS
           OfxPlugin *ofxp = _plugin->getPluginHandle()->getOfxPlugin();
           const char* id = ofxp->pluginIdentifier;
@@ -1910,12 +1927,12 @@ namespace OFX {
           outArgs.getDoublePropertyN(kOfxImageEffectPropRegionOfDefinition, &rod.x1, 4);
         }
         else if(stat == kOfxStatReplyDefault) {
-          rod = calcDefaultRegionOfDefinition(time, renderScale
-#                                             ifdef OFX_EXTENSIONS_NUKE
-                                              ,
-                                              view
-#                                             endif
-                                              );
+          rod = hasDefaultRod ? defaultRod : calcDefaultRegionOfDefinition(time, renderScale
+#                                                                          ifdef OFX_EXTENSIONS_NUKE
+                                                                           ,
+                                                                           view
+#                                                                          endif
+                                                                           );
         }
 
 
