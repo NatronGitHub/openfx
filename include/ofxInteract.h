@@ -137,6 +137,132 @@ This is used to indicate the status of the 'pen' in an interact. If a pen has on
  */
 #define kOfxInteractPropPenPressure "OfxInteractPropPenPressure"
 
+#ifdef OFX_EXTENSIONS_NATRON
+/** @defgroup InteractCursor Interact cursors (proposed extension)
+
+PROPOSED standard extension (NatronGitHub/openfx#4,
+Documentation/proposals/interact-cursor.md), not yet part of the OFX
+standard. Implemented by the NatronGitHub HostSupport and Support libraries
+under OFX_EXTENSIONS_NATRON. The names are the proposed standard names; they
+may change during standardization.
+
+
+An overlay interact may ask the host to change the shape of the window-system
+mouse cursor while the pen is over its view, or to hide it (e.g. when the
+interact draws its own cursor with OpenGL or the DrawSuite).
+
+Negotiation: a host that supports this sets ::kOfxInteractHostPropSupportedCursors
+on its host descriptor. A plug-in must check it before setting
+::kOfxInteractPropCursor; on other hosts the property does not exist on interact
+instances and setting it fails with kOfxStatErrUnknown.
+
+Ownership: the cursor property is per interact instance, hence per view. After
+any of kOfxInteractActionPenMotion, kOfxInteractActionPenDown,
+kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp or
+kOfxInteractActionKeyRepeat returns kOfxStatOK, the host reads
+::kOfxInteractPropCursor (and the related properties) on that interact instance,
+and displays that cursor in that view. The cursor stays in effect until another
+interact of the same view returns kOfxStatOK to one of these actions, until a
+kOfxInteractActionPenMotion is not trapped by any interact of the view (the
+host then restores its own cursor), or until the interact loses focus
+(kOfxInteractActionLoseFocus) or is destroyed. This matches the existing rule
+that "if the instance returns kOfxStatOK the host should not pass the pen motion
+to any other interactive object it may own that shares the same view".
+
+Since kOfxInteractActionPenMotion is also issued while the pen is up, a plug-in
+typically sets the cursor when hovering over one of its handles, and returns
+kOfxStatOK to that hover motion.
+@{
+*/
+
+/** @brief Cursors supported by the host for ::kOfxInteractPropCursor
+
+    - Type - C string X N
+    - Property Set - host descriptor (read only)
+    - Default - absent: the host does not support plug-in cursors
+    - Valid Values - any of the standard cursor names below, plus the special
+      value ::kOfxInteractCursorCustom if the host supports cursor images.
+
+The standard names are the CSS cursor keywords of the W3C "CSS Basic User
+Interface Module Level 4" (https://www.w3.org/TR/css-ui-4/#cursor), which have
+well-known equivalents on all window systems. A host lists those it can display;
+it must list at least ::kOfxInteractCursorDefault and should list
+::kOfxInteractCursorNone.
+*/
+#define kOfxInteractHostPropSupportedCursors "OfxInteractHostPropSupportedCursors"
+
+/** @brief The cursor requested by an interact instance
+
+    - Type - C string X 1
+    - Property Set - interact instance (read/write), only on hosts that set
+      ::kOfxInteractHostPropSupportedCursors
+    - Default - ::kOfxInteractCursorDefault
+    - Valid Values - one of the values of ::kOfxInteractHostPropSupportedCursors.
+      The host displays ::kOfxInteractCursorDefault for any other value.
+
+May be set by the plug-in during any interact action. It is read by the host as
+described in @ref InteractCursor.
+*/
+#define kOfxInteractPropCursor "OfxInteractPropCursor"
+
+/** @brief File name of a custom cursor image, used when ::kOfxInteractPropCursor is ::kOfxInteractCursorCustom
+
+    - Type - UTF8 C string X 1
+    - Property Set - interact instance (read/write), only on hosts that support
+      ::kOfxInteractCursorCustom
+    - Default - ""
+    - Valid Values - the file name, without any directory, of a PNG image with an
+      alpha channel in the Contents/Resources directory of the plug-in bundle.
+
+If a file with the same name and an "@2x" suffix before the extension exists
+(e.g. "Rotate@2x.png"), the host may use it on high-density displays. The host
+may scale or refuse images larger than 32x32 points. If the image cannot be
+loaded, the host displays ::kOfxInteractCursorDefault.
+*/
+#define kOfxInteractPropCursorImage "OfxInteractPropCursorImage"
+
+/** @brief Hot spot of the custom cursor image
+
+    - Type - int X 2
+    - Property Set - interact instance (read/write), only on hosts that support
+      ::kOfxInteractCursorCustom
+    - Default - 0,0
+    - Valid Values - x,y in image pixels (of the 1x image), from the top-left
+      corner of ::kOfxInteractPropCursorImage
+*/
+#define kOfxInteractPropCursorHotSpot "OfxInteractPropCursorHotSpot"
+
+/** @brief The host's own cursor for this view (the cursor it would display without plug-in) */
+#define kOfxInteractCursorDefault     "default"
+/** @brief No cursor (e.g. the interact draws its own) */
+#define kOfxInteractCursorNone        "none"
+/** @brief Custom image, see ::kOfxInteractPropCursorImage */
+#define kOfxInteractCursorCustom      "OfxInteractCursorCustom"
+/* standard cursors (CSS names) */
+#define kOfxInteractCursorPointer     "pointer"     /**< pointing hand, e.g. over a clickable handle */
+#define kOfxInteractCursorCrosshair   "crosshair"
+#define kOfxInteractCursorText        "text"
+#define kOfxInteractCursorWait        "wait"
+#define kOfxInteractCursorProgress    "progress"
+#define kOfxInteractCursorNotAllowed  "not-allowed"
+#define kOfxInteractCursorHelp        "help"
+#define kOfxInteractCursorCell        "cell"
+#define kOfxInteractCursorCopy        "copy"
+#define kOfxInteractCursorMove        "move"
+#define kOfxInteractCursorGrab        "grab"         /**< open hand */
+#define kOfxInteractCursorGrabbing    "grabbing"     /**< closed hand */
+#define kOfxInteractCursorAllScroll   "all-scroll"
+#define kOfxInteractCursorColResize   "col-resize"
+#define kOfxInteractCursorRowResize   "row-resize"
+#define kOfxInteractCursorEWResize    "ew-resize"
+#define kOfxInteractCursorNSResize    "ns-resize"
+#define kOfxInteractCursorNESWResize  "nesw-resize"
+#define kOfxInteractCursorNWSEResize  "nwse-resize"
+#define kOfxInteractCursorZoomIn      "zoom-in"
+#define kOfxInteractCursorZoomOut     "zoom-out"
+/** @} */
+#endif // OFX_EXTENSIONS_NATRON
+
 /** @brief Indicates whether the dits per component in the interact's openGL frame buffer
 
    - Type - int X 1
