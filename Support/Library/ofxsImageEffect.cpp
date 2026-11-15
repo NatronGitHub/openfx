@@ -3011,32 +3011,30 @@ namespace OFX {
     return none;
   }
 
+  /// rank of a bit depth, from shallowest to deepest (-1 if unknown)
+  static int BitDepthRank(const std::string &s)
+  {
+    if (s == kOfxBitDepthNone) return 0;
+    if (s == kOfxBitDepthByte) return 1;
+    if (s == kOfxBitDepthShort) return 2;
+    if (s == kOfxBitDepthHalf) return 3;
+    if (s == kOfxBitDepthFloat) return 4;
+    return -1;
+  }
+
+  /// get me deepest bit depth (same as OFX::FindDeepestBitDepth in HostSupport)
   static std::string FindDeepestBitDepth(const std::string &s1, const std::string &s2)
   {
-    if(s1 == kOfxBitDepthNone) {
-      return s2;
+    const int r1 = BitDepthRank(s1);
+    const int r2 = BitDepthRank(s2);
+    if (r1 <= 0) {
+      return s2; // none or unknown
     }
-    else if(s1 == kOfxBitDepthByte) {
-      if(s2 == kOfxBitDepthShort || s2 == kOfxBitDepthFloat)
-        return s2;
+    if (r2 < 0) {
       return s1;
     }
-    else if(s1 == kOfxBitDepthShort) {
-      if(s2 == kOfxBitDepthFloat)
-        return s2;
-      return s1;
-    }
-    else if(s1 == kOfxBitDepthHalf) {
-      if(s2 == kOfxBitDepthFloat)
-        return s2;
-      return s1;
-    }
-    else if(s1 == kOfxBitDepthFloat) {
-      return s1;
-    }
-    else {
-      return s2; // oooh this might be bad dad.
-    }
+    // Byte < Short < Half < Float
+    return (r2 > r1) ? s2 : s1;
   }
 
   static const std::string& findBestSupportedPixelDepth(const std::set<std::string>& supportedPixelDepths, const std::string &depth)
