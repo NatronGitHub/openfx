@@ -2172,6 +2172,21 @@ namespace OFX {
   }
 #endif
 
+  /** @brief wrap an image handle fetched from the host in an Image.
+
+      If the Image constructor throws (e.g. a mandatory image property is missing or invalid, or out
+      of memory), the destructor is not run, so release the handle here: the spec requires the image
+      handle to be disposed of by clipReleaseImage before the action returns. */
+  static Image* newImageOrRelease(OfxPropertySetHandle imageHandle)
+  {
+    try {
+      return new Image(imageHandle);
+    } catch (...) {
+      OFX::Private::gEffectSuite->clipReleaseImage(imageHandle);
+      throw;
+    }
+  }
+
   /** @brief fetch an image */
   Image *Clip::fetchImage(double t)
   {
@@ -2188,7 +2203,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
 
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
 
   /** @brief fetch an image, with a specific region in cannonical coordinates */
@@ -2207,7 +2222,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
 
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
     
 #ifdef OFX_EXTENSIONS_NUKE
@@ -2248,7 +2263,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
       
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
     
   Image* Clip::fetchImagePlane(double t, const char* plane)
@@ -2273,7 +2288,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
       
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
     
   Image* Clip::fetchImagePlane(double t, int view, const char* plane, const OfxRectD& bounds)
@@ -2295,7 +2310,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
 
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
     
   Image* Clip::fetchImagePlane(double t, const char* plane, const OfxRectD& bounds)
@@ -2321,7 +2336,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
 
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
     
   void Clip::getPlanesPresent(std::vector<std::string>* components) const
@@ -2354,7 +2369,7 @@ namespace OFX {
       } else {
         throwSuiteStatusException(stat);
       }
-      return new Image(imageHandle);
+      return newImageOrRelease(imageHandle);
     }
     else
 #endif
@@ -2389,7 +2404,13 @@ namespace OFX {
     if (stat != kOfxStatOK) {
       throwSuiteStatusException(stat);
     }
-    return new Texture(hTex);
+    try {
+      return new Texture(hTex);
+    } catch (...) {
+      // the destructor is not run if the constructor throws: free the texture, as required by the spec
+      Private::gOpenGLRenderSuite->clipFreeTexture(hTex);
+      throw;
+    }
   }
 #endif
 
