@@ -58,7 +58,7 @@ jobs:
           test "$(grep -c "Contexts:" cachedemo.log)" -ge 5
 
   cmake:
-    name: CMake (${{ matrix.os }}, ${{ matrix.config }}, extensions ${{ matrix.extensions }})
+    name: CMake (${{ matrix.os }}, ${{ matrix.config }}, extensions ${{ matrix.extensions }}${{ matrix.cxx && format(', C++{0}', matrix.cxx) || '' }})
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ${{ matrix.os }}
     strategy:
@@ -71,6 +71,12 @@ jobs:
           - os: ubuntu-latest
             config: Debug
             extensions: 'ON'
+          # newer C++ standards (the libraries also build as C++98/11)
+          - {os: ubuntu-latest, config: Release, extensions: 'ON', cxx: '20'}
+          - {os: ubuntu-latest, config: Release, extensions: 'ON', cxx: '23'}
+          - {os: macos-latest, config: Release, extensions: 'ON', cxx: '20'}
+          - {os: macos-latest, config: Release, extensions: 'ON', cxx: '23'}
+          - {os: windows-latest, config: Release, extensions: 'ON', cxx: '20'}
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies (Linux)
@@ -85,6 +91,7 @@ jobs:
           -DOFX_EXTENSIONS_VEGAS=${{ matrix.extensions }} -DOFX_EXTENSIONS_TUTTLE=${{ matrix.extensions }}
           -DOFX_EXTENSIONS_RESOLVE=${{ matrix.extensions }}
           -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins"
+          ${{ matrix.cxx && format('-DCMAKE_CXX_STANDARD={0} -DCMAKE_CXX_STANDARD_REQUIRED=ON', matrix.cxx) || '' }}
       - name: Build
         run: cmake --build build --config ${{ matrix.config }} --parallel
       - name: Install

@@ -50,6 +50,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <assert.h>
 #include <float.h>
+#include <limits> // numeric_limits (DBL_MAX is missing with some C++20 toolchains)
 #include <limits.h>
 #include <stdarg.h>
 #include <new> // bad_alloc
@@ -521,8 +522,8 @@ namespace OFX {
         if(!doneOne) {
           std::ostringstream dbl_min, dbl_max, int_min, int_max;
           doneOne = true;
-          dbl_min << -DBL_MAX; // not a bug, @see kOfxParamPropDisplayMin
-          dbl_max << DBL_MAX;
+          dbl_min << -std::numeric_limits<double>::max(); // not a bug, @see kOfxParamPropDisplayMin
+          dbl_max << std::numeric_limits<double>::max();
           int_min << INT_MIN;
           int_max << INT_MAX;
           
