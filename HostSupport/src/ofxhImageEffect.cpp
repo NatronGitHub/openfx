@@ -165,6 +165,7 @@ namespace OFX {
         { kOfxImageEffectPropCPURenderSupported, Property::eString, 1, false, "true" },
         { kOfxImageEffectPropMetalTextureSupported, Property::eString, 1, false, "false" },
         { kOfxImageEffectPropOpenCLSupported, Property::eString, 1, false, "false" },
+        { kOfxImageEffectPropNoSpatialAwareness, Property::eString, 1, false, "false" }, // OFX 1.5.1
         { kOfxImageEffectPropColourManagementStyle, Property::eString, 1, false, kOfxImageEffectColourManagementNone },
         { kOfxImageEffectPropColourManagementAvailableConfigs, Property::eString, 0, false, "" },
         Property::propSpecEnd
@@ -598,6 +599,15 @@ namespace OFX {
         Property::propSpecEnd
       };
 
+      /// OFX 1.5.1: kOfxImageEffectPropNoSpatialAwareness is in the inArgs of BeginSequenceRender
+      /// and Render: "The host will indicate this type of render by setting
+      /// kOfxImageEffectPropNoSpatialAwareness to "true" in the arguments passed to
+      /// kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionRender".
+      static const Property::PropSpec ofx151NoSpatialAwarenessArgs[] = {
+        { kOfxImageEffectPropNoSpatialAwareness, Property::eString, 1, true, "false" },
+        Property::propSpecEnd
+      };
+
 #if __cplusplus >= 201103L
 #  define OFXH_THREAD_LOCAL thread_local
 #elif defined(_MSC_VER)
@@ -638,6 +648,21 @@ namespace OFX {
       {
         const bool thumbnail = effect ? effect->isThumbnailRender() : gThumbnailRenderThread;
         inArgs.setStringProperty(kOfxImageEffectPropThumbnailRender, thumbnail ? "true" : "false");
+      }
+
+      bool Instance::isNoSpatialAwarenessRender() const
+      {
+        return false;
+      }
+
+      void Instance::setNoSpatialAwarenessArg(Property::Set &inArgs) const
+      {
+        // only plug-ins that declared they can render without spatial awareness may be asked to:
+        // "false - the plugin cannot render without spatial awareness and the host should bypass it
+        // for renders that require no spatial awareness."
+        const bool canDo = getProps().getStringProperty(kOfxImageEffectPropNoSpatialAwareness) == "true";
+        inArgs.setStringProperty(kOfxImageEffectPropNoSpatialAwareness,
+                                 (canDo && isNoSpatialAwarenessRender()) ? "true" : "false");
       }
 
       bool Instance::isThumbnailRender() const
@@ -1451,6 +1476,8 @@ namespace OFX {
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
         setThumbnailRenderArg(inArgs, this);
         inArgs.addProperties(ofx15MetalTextureArgs);
+        inArgs.addProperties(ofx151NoSpatialAwarenessArgs);
+        setNoSpatialAwarenessArg(inArgs);
 
         // set up second dimension for frame range and render scale
         inArgs.setDoubleProperty(kOfxImageEffectPropFrameRange,startFrame, 0);
@@ -1563,6 +1590,8 @@ namespace OFX {
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
         setThumbnailRenderArg(inArgs, this);
         inArgs.addProperties(ofx15MetalTextureArgs);
+        inArgs.addProperties(ofx151NoSpatialAwarenessArgs);
+        setNoSpatialAwarenessArg(inArgs);
         
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
         inArgs.setDoubleProperty(kOfxPropTime,time);

@@ -1431,12 +1431,14 @@ namespace OFX {
       _effectProps.propSetString(kOfxImageEffectPropMetalRenderSupported, (v ? "true" : "false"));
   }
 
-  /** @brief Does the plugin have no spatial awareness */
+#endif
+
+  /** @brief Does the plugin have no spatial awareness (OFX 1.5.1, kOfxImageEffectPropNoSpatialAwareness) */
   void ImageEffectDescriptor::setNoSpatialAwareness(bool v)
   {
-      _effectProps.propSetString(kOfxImageEffectPropNoSpatialAwareness, (v ? "true" : "false"));
+      // non-throwing: older hosts don't know this property
+      _effectProps.propSetString(kOfxImageEffectPropNoSpatialAwareness, (v ? "true" : "false"), 0, false);
   }
-#endif
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
   /** @brief Does the plugin support OpenGL accelerated rendering (but is also capable of CPU rendering) ? */
@@ -4459,6 +4461,16 @@ namespace OFX {
       return inArgs.propGetString(kOfxImageEffectPropThumbnailRender, 0, false) == "true";
     }
 
+    /** @brief kOfxImageEffectPropNoSpatialAwareness (OFX 1.5.1) in the inArgs of Render and
+        BeginSequenceRender: "The host will indicate this type of render by setting
+        kOfxImageEffectPropNoSpatialAwareness to "true" in the arguments passed to
+        kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionRender". false if absent */
+    static bool
+      getIsNoSpatialAwareness(const OFX::PropertySet &inArgs)
+    {
+      return inArgs.propGetString(kOfxImageEffectPropNoSpatialAwareness, 0, false) == "true";
+    }
+
     /** @brief kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5, optional in the inArgs) */
     static UnlicensedBehaviourEnum
       getBehaviourWhenUnlicensed(const OFX::PropertySet &inArgs)
@@ -4477,6 +4489,7 @@ namespace OFX {
       getRenderActionArguments(RenderArguments &args,  OFX::PropertySet inArgs)
     {
       args.isThumbnailRender = getIsThumbnailRender(inArgs);
+      args.isNoSpatialAwareness = getIsNoSpatialAwareness(inArgs);
       args.behaviourWhenUnlicensed = getBehaviourWhenUnlicensed(inArgs);
       // OFX 1.5 Metal textures: "This property is in the inArgs of kOfxImageEffectActionRender,
       // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
@@ -4587,6 +4600,7 @@ namespace OFX {
 
       BeginSequenceRenderArguments args;
       args.isThumbnailRender = getIsThumbnailRender(inArgs);
+      args.isNoSpatialAwareness = getIsNoSpatialAwareness(inArgs);
       args.behaviourWhenUnlicensed = getBehaviourWhenUnlicensed(inArgs);
       // OFX 1.5 Metal textures: "This property is in the inArgs of kOfxImageEffectActionRender,
       // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
