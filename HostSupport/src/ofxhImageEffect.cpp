@@ -706,6 +706,7 @@ namespace OFX {
         // descriptor. A host that doesn't do colour management leaves it at None.
         _properties.addProperty(new Property::String(kOfxImageEffectPropColourManagementStyle, 1, true,
                                                      kOfxImageEffectColourManagementNone));
+        addColourManagementInstanceProperties();
         _properties.setChainedSet(&other.getProps());
 
         _properties.setPointerProperty(kOfxImageEffectPropPluginHandle, _plugin->getPluginHandle()->getOfxPlugin());
@@ -3025,6 +3026,8 @@ namespace OFX {
         outArgs.setIntPropertyN(kOfxImageClipPropFormat, (const int*)&outputFormat.x1, 4);
 #endif
 
+        // OFX 1.5 colour management
+        setupClipPreferencesColourArgs(outArgs);
       }
 
       /// the idea here is the clip prefs live as active props on the effect
@@ -3088,6 +3091,8 @@ namespace OFX {
         _outputPreMultiplication   = outArgs.getStringProperty(kOfxImageEffectPropPreMultiplication);
         _continuousSamples = outArgs.getIntProperty(kOfxImageClipPropContinuousSamples) != 0;
         _frameVarying      = outArgs.getIntProperty(kOfxImageEffectFrameVarying) != 0;
+        // OFX 1.5 colour management: the colourspaces requested by the plug-in, for each input clip
+        readClipPreferencesColourArgs(outArgs);
 #       ifdef OFX_DEBUG_ACTIONS
           std::cout << _outputFrameRate<<","<<_outputFielding<<","<<_outputPreMultiplication<<","<<_continuousSamples<<","<<_frameVarying<<std::endl;
 #       endif
@@ -3186,6 +3191,192 @@ namespace OFX {
       Interact::Descriptor &Instance::getOverlayDescriptor(int bitDepthPerComponent, bool hasAlpha)
       {
         return _descriptor->getOverlayDescriptor(bitDepthPerComponent, hasAlpha);
+      }
+
+      ////////////////////////////////////////////////////////////////////////////////
+      // OFX 1.5 colour management (ofxColour.h)
+
+      /// effect instance properties set by the host once it has negotiated a colour management
+      /// style ("The host must set this property to indicate the native colour management config
+      /// the plug-in should be used to look up colourspace strings", "A host must set this property
+      /// on any effect instances where it has negotiated OCIO colour management", ...). An empty
+      /// string means "not defined".
+      static const Property::PropSpec effectInstanceColourStuffs[] = {
+        { kOfxImageEffectPropColourManagementConfig, Property::eString, 1, true, "" },
+        { kOfxImageEffectPropOCIOConfig, Property::eString, 1, true, "" },
+        { kOfxImageEffectPropDisplayColourspace, Property::eString, 1, true, "" },
+        { kOfxImageEffectPropOCIODisplay, Property::eString, 1, true, "" },
+        { kOfxImageEffectPropOCIOView, Property::eString, 1, true, "" },
+        Property::propSpecEnd
+      };
+
+      void Instance::addColourManagementInstanceProperties()
+      {
+        _properties.addProperties(effectInstanceColourStuffs);
+      }
+
+      /// rank of a colour management style: "The assumption is that OCIO > Full > Core > Basic"
+      static int colourManagementStyleRank(const std::string &style)
+      {
+        if (style == kOfxImageEffectColourManagementBasic) return 1;
+        if (style == kOfxImageEffectColourManagementCore) return 2;
+        if (style == kOfxImageEffectColourManagementFull) return 3;
+        if (style == kOfxImageEffectColourManagementOCIO) return 4;
+        return 0; // None, empty or unknown
+      }
+
+      std::string Instance::negotiateColourManagementStyle(const std::string &hostStyle,
+                                                           const std::string &pluginStyle)
+      {
+        // "the highest style supported by both host and plug-in should usually be chosen by the
+        // host". Each side declares the highest style it supports, and supporting a style is
+        // taken to imply supporting the lower ones (as in upstream's ColourSpace example).
+        const int h = colourManagementStyleRank(hostStyle);
+        const int p = colourManagementStyleRank(pluginStyle);
+        const int r = h < p ? h : p;
+        switch (r) {
+          case 1: return kOfxImageEffectColourManagementBasic;
+          case 2: return kOfxImageEffectColourManagementCore;
+          case 3: return kOfxImageEffectColourManagementFull;
+          case 4: return kOfxImageEffectColourManagementOCIO;
+          default: return kOfxImageEffectColourManagementNone;
+        }
+      }
+
+      const std::string &Instance::getColourManagementStyle() const
+      {
+        return _properties.getStringProperty(kOfxImageEffectPropColourManagementStyle);
+      }
+
+      void Instance::setColourManagementStyle(const std::string &style)
+      {
+        _properties.setStringProperty(kOfxImageEffectPropColourManagementStyle, style);
+      }
+
+      static const char kOfxColourspaceCrossReferencePrefix[] = "OfxColourspace_";
+
+      std::string Instance::resolveColourspace(const std::string &colourspace) const
+      {
+        // "Cross-referencing between clips is possible by setting this property to
+        // OfxColourspace_<clip>". Follow at most as many references as there are clips,
+        // to stop on cycles.
+        std::string cs = colourspace;
+        const std::size_t prefixLen = sizeof(kOfxColourspaceCrossReferencePrefix) - 1;
+        for (std::size_t n = 0; n <= _clips.size(); ++n) {
+          if (cs.compare(0, prefixLen, kOfxColourspaceCrossReferencePrefix) != 0) {
+            return cs;
+          }
+          std::map<std::string, ClipInstance*>::const_iterator it = _clips.find(cs.substr(prefixLen));
+          if (it == _clips.end() || !it->second) {
+            return std::string(); // reference to an unknown clip
+          }
+          cs = it->second->getColourspace();
+        }
+        return std::string(); // cycle
+      }
+
+      std::string Instance::preferredColourspacesPropertyName(const std::string &clipName)
+      {
+        return std::string(kOfxImageClipPropPreferredColourspaces) + "_" + clipName;
+      }
+
+      void Instance::setupClipPreferencesColourArgs(Property::Set &outArgs)
+      {
+        // kOfxImageEffectActionGetClipPreferences outArgs: "a set of char * X 1 properties, one
+        // for each of the input clips currently attached, labelled with
+        // OfxImageClipPropPreferredColourspaces_ post pended with the clip's name". The value is
+        // an ordered list (most preferred first), so the property has a variable dimension.
+        for (std::map<std::string, ClipInstance*>::iterator it = _clips.begin(); it != _clips.end(); ++it) {
+          if (!it->second || it->second->isOutput()) {
+            continue;
+          }
+          const std::string name = preferredColourspacesPropertyName(it->first);
+          if (outArgs.fetchProperty(name)) {
+            continue;
+          }
+          Property::PropSpec spec = { name.c_str(), Property::eString, 0, false, "" };
+          outArgs.createProperty(spec);
+        }
+      }
+
+      void Instance::readClipPreferencesColourArgs(const Property::Set &outArgs)
+      {
+        for (std::map<std::string, ClipInstance*>::iterator it = _clips.begin(); it != _clips.end(); ++it) {
+          if (!it->second || it->second->isOutput()) {
+            continue;
+          }
+          const std::string name = preferredColourspacesPropertyName(it->first);
+          std::vector<std::string> prefs;
+          if (outArgs.fetchProperty(name)) {
+            const int n = outArgs.getDimension(name);
+            for (int i = 0; i < n; ++i) {
+              prefs.push_back(outArgs.getStringProperty(name, i));
+            }
+          }
+          it->second->setPreferredColourspaces(prefs);
+        }
+      }
+
+      OfxStatus Instance::getOutputColourspaceAction(const std::vector<std::string> &preferredColourspaces,
+                                                     std::string &colourspace)
+      try {
+        colourspace.clear();
+        static const Property::PropSpec inStuff[] = {
+          { kOfxImageClipPropPreferredColourspaces, Property::eString, 0, true, "" },
+          Property::propSpecEnd
+        };
+        static const Property::PropSpec outStuff[] = {
+          { kOfxImageClipPropColourspace, Property::eString, 1, false, "" },
+          Property::propSpecEnd
+        };
+        Property::Set inArgs(inStuff);
+        Property::Set outArgs(outStuff);
+        for (std::size_t i = 0; i < preferredColourspaces.size(); ++i) {
+          inArgs.setStringProperty(kOfxImageClipPropPreferredColourspaces, preferredColourspaces[i], (int)i);
+        }
+
+#       ifdef OFX_DEBUG_ACTIONS
+          OfxPlugin *ofxp = _plugin->getPluginHandle()->getOfxPlugin();
+          const char* id = ofxp->pluginIdentifier;
+          std::cout << "OFX: "<<id<<"("<<(void*)ofxp<<")->"<<kOfxImageEffectActionGetOutputColourspace<<"()"<<std::endl;
+#       endif
+        OfxStatus st = mainEntry(kOfxImageEffectActionGetOutputColourspace,
+                                 this->getHandle(),
+                                 &inArgs,
+                                 &outArgs);
+#       ifdef OFX_DEBUG_ACTIONS
+          std::cout << "OFX: "<<id<<"("<<(void*)ofxp<<")->"<<kOfxImageEffectActionGetOutputColourspace<<"()->"<<StatStr(st)<<std::endl;
+#       endif
+
+        ClipInstance *output = getClip(kOfxImageEffectOutputClipName);
+        if (st == kOfxStatOK) {
+          colourspace = outArgs.getStringProperty(kOfxImageClipPropColourspace);
+        } else if (st == kOfxStatReplyDefault) {
+          // "the action was not trapped and the host should use the colourspace of the first
+          // input clip": the first connected input clip, in the order of declaration.
+          const std::vector<ClipDescriptor*> &clips = _descriptor->getClipsByOrder();
+          for (std::size_t i = 0; i < clips.size(); ++i) {
+            if (!clips[i] || clips[i]->isOutput()) {
+              continue;
+            }
+            ClipInstance *clip = getClip(clips[i]->getName());
+            if (clip && clip->getConnected()) {
+              colourspace = clip->getColourspace();
+              break;
+            }
+          }
+        } else {
+          return st;
+        }
+        // "On a successful return from this action, the host must set kOfxImageClipPropColourspace
+        // on the instance's output clip to the value from outArgs" (it may be a cross-reference)
+        if (output) {
+          output->setColourspace(colourspace);
+        }
+        return st;
+      }
+      catch (const Property::Exception &) {
+        return kOfxStatFailed;
       }
 
       OfxStatus Instance::getTimeDomainAction(OfxRangeD& range)

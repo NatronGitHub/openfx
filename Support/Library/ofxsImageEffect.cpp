@@ -56,6 +56,7 @@ England
 #include "ofxOpenGLRender.h"
 #endif
 #include "ofxGPURender.h" // OFX 1.5 GPU render extension properties
+#include "ofxColour.h" // OFX 1.5 colour management
 #include "ofxsCore.h"
 
 #if defined __APPLE__ || defined __linux__ || defined __FreeBSD__
@@ -2658,6 +2659,145 @@ namespace OFX {
 #endif
 
   /** @brief size of the project */
+  ////////////////////////////////////////////////////////////////////////////////
+  // OFX 1.5 colour management (ofxColour.h)
+
+  static const char *mapColourManagementStyleEnumToStr(ColourManagementStyleEnum v)
+  {
+    switch (v) {
+    case eColourManagementStyleBasic: return kOfxImageEffectColourManagementBasic;
+    case eColourManagementStyleCore: return kOfxImageEffectColourManagementCore;
+    case eColourManagementStyleFull: return kOfxImageEffectColourManagementFull;
+    case eColourManagementStyleOCIO: return kOfxImageEffectColourManagementOCIO;
+    case eColourManagementStyleNone:
+    default: return kOfxImageEffectColourManagementNone;
+    }
+  }
+
+  static ColourManagementStyleEnum mapStrToColourManagementStyleEnum(const std::string &s)
+  {
+    if (s == kOfxImageEffectColourManagementBasic) return eColourManagementStyleBasic;
+    if (s == kOfxImageEffectColourManagementCore) return eColourManagementStyleCore;
+    if (s == kOfxImageEffectColourManagementFull) return eColourManagementStyleFull;
+    if (s == kOfxImageEffectColourManagementOCIO) return eColourManagementStyleOCIO;
+    return eColourManagementStyleNone; // absent, empty or unknown
+  }
+
+  /// set a property that the host may not know, and report whether the host accepted it
+  static bool colourPropSetString(PropertySet &props, const char *property, const std::string &value, int idx = 0)
+  {
+    try {
+      props.propSetString(property, value, idx);
+      return true;
+    } catch (const OFX::Exception::PropertyUnknownToHost &) {
+      return false;
+    } catch (const OFX::Exception::PropertyValueIllegalToHost &) {
+      return false;
+    } catch (const OFX::Exception::Suite &) {
+      return false;
+    }
+  }
+
+  bool ImageEffectDescriptor::setColourManagementStyle(ColourManagementStyleEnum v)
+  {
+    return colourPropSetString(_effectProps, kOfxImageEffectPropColourManagementStyle, mapColourManagementStyleEnumToStr(v));
+  }
+
+  bool ImageEffectDescriptor::setColourManagementAvailableConfigs(const std::vector<std::string> &configs)
+  {
+    for (std::size_t i = 0; i < configs.size(); ++i) {
+      if (!colourPropSetString(_effectProps, kOfxImageEffectPropColourManagementAvailableConfigs, configs[i], (int)i)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  std::string Clip::getColourspace(void) const
+  {
+    return _clipProps.propGetString(kOfxImageClipPropColourspace, false);
+  }
+
+  std::string Clip::getResolvedColourspace(void) const
+  {
+    const std::string cs = getColourspace();
+    return _effect ? _effect->resolveColourspace(cs) : cs;
+  }
+
+  static const char kOfxColourspaceCrossReferencePrefix[] = "OfxColourspace_";
+
+  std::string ImageEffect::resolveColourspace(const std::string &colourspace) const
+  {
+    const std::size_t prefixLen = sizeof(kOfxColourspaceCrossReferencePrefix) - 1;
+    std::string cs = colourspace;
+    std::set<std::string> visited; // cycle protection
+    while (cs.compare(0, prefixLen, kOfxColourspaceCrossReferencePrefix) == 0) {
+      const std::string clipName = cs.substr(prefixLen);
+      if (!visited.insert(clipName).second) {
+        return std::string(); // cycle
+      }
+      OfxImageClipHandle clipHandle = 0;
+      OfxPropertySetHandle clipProps = 0;
+      if (!OFX::Private::gEffectSuite ||
+          OFX::Private::gEffectSuite->clipGetHandle(_effectHandle, clipName.c_str(), &clipHandle, &clipProps) != kOfxStatOK ||
+          !clipProps) {
+        return std::string(); // reference to an unknown clip
+      }
+      cs = PropertySet(clipProps).propGetString(kOfxImageClipPropColourspace, false);
+    }
+    return cs;
+  }
+
+  ColourManagementStyleEnum ImageEffect::getColourManagementStyle() const
+  {
+    return mapStrToColourManagementStyleEnum(_effectProps.propGetString(kOfxImageEffectPropColourManagementStyle, false));
+  }
+
+  std::string ImageEffect::getColourManagementConfig() const
+  {
+    return _effectProps.propGetString(kOfxImageEffectPropColourManagementConfig, false);
+  }
+
+  std::string ImageEffect::getOCIOConfig() const
+  {
+    return _effectProps.propGetString(kOfxImageEffectPropOCIOConfig, false);
+  }
+
+  std::string ImageEffect::getDisplayColourspace() const
+  {
+    return _effectProps.propGetString(kOfxImageEffectPropDisplayColourspace, false);
+  }
+
+  std::string ImageEffect::getOCIODisplay() const
+  {
+    return _effectProps.propGetString(kOfxImageEffectPropOCIODisplay, false);
+  }
+
+  std::string ImageEffect::getOCIOView() const
+  {
+    return _effectProps.propGetString(kOfxImageEffectPropOCIOView, false);
+  }
+
+  bool ImageEffect::getOutputColourspace(const GetOutputColourspaceArguments &/*args*/, std::string &/*colourspace*/)
+  {
+    // by default, do the default (the colourspace of the first input clip)
+    return false;
+  }
+
+  bool ClipPreferencesSetter::setPreferredColourspaces(Clip &clip, const std::vector<std::string> &colourspaces)
+  {
+    const std::string propName = std::string(kOfxImageClipPropPreferredColourspaces) + "_" + clip.name();
+    for (std::size_t i = 0; i < colourspaces.size(); ++i) {
+      if (!colourPropSetString(outArgs_, propName.c_str(), colourspaces[i], (int)i)) {
+        return false;
+      }
+    }
+    if (!colourspaces.empty()) {
+      doneSomething_ = true;
+    }
+    return true;
+  }
+
   OfxPointD ImageEffect::getProjectSize(void) const
   {
     OfxPointD v = {0., 0.};
@@ -4000,6 +4140,16 @@ namespace OFX {
         gHostDescription.supportsRenderQualityDraft = hostProps.propGetInt(kOfxImageEffectPropRenderQualityDraft, false) != 0; // appeared in OFX 1.4
         // OFX 1.5.1, host optional: absent means the host renders on the CPU, as always
         gHostDescription.supportsCPURender = hostProps.propGetString(kOfxImageEffectPropCPURenderSupported, 0, false) != "false";
+        // OFX 1.5 colour management, host optional: absent means None
+        gHostDescription.colourManagementStyle = mapStrToColourManagementStyleEnum(hostProps.propGetString(kOfxImageEffectPropColourManagementStyle, 0, false));
+        gHostDescription.colourManagementAvailableConfigs.clear();
+        {
+          const int n = hostProps.propGetDimension(kOfxImageEffectPropColourManagementAvailableConfigs, false);
+          for (int i = 0; i < n; ++i) {
+            gHostDescription.colourManagementAvailableConfigs.push_back(hostProps.propGetString(kOfxImageEffectPropColourManagementAvailableConfigs, i, false));
+          }
+        }
+
         // OFX 1.5, host optional
         gHostDescription.supportsMetalTexture = hostProps.propGetString(kOfxImageEffectPropMetalTextureSupported, 0, false) == "true";
         {
@@ -4828,6 +4978,27 @@ namespace OFX {
       return v;
     }
 
+    /** @brief Library side kOfxImageEffectActionGetOutputColourspace function (OFX 1.5 colour management) */
+    static
+    bool
+      getOutputColourspaceAction(OfxImageEffectHandle handle, OFX::PropertySet &inArgs, OFX::PropertySet &outArgs)
+    {
+      ImageEffect *effectInstance = retrieveImageEffectPointer(handle);
+
+      GetOutputColourspaceArguments args;
+      const int n = inArgs.propGetDimension(kOfxImageClipPropPreferredColourspaces, false);
+      for (int i = 0; i < n; ++i) {
+        args.preferredColourspaces.push_back(inArgs.propGetString(kOfxImageClipPropPreferredColourspaces, i, false));
+      }
+
+      std::string colourspace;
+      if (!effectInstance->getOutputColourspace(args, colourspace)) {
+        return false;
+      }
+      outArgs.propSetString(kOfxImageClipPropColourspace, colourspace);
+      return true;
+    }
+
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     /** @brief Library side context attached function */
     static
@@ -5415,6 +5586,13 @@ namespace OFX {
 
           // call the get time domain action
           if(getTimeDomainAction(handle, outArgs))
+            stat = kOfxStatOK;
+        }
+        else if(action == kOfxImageEffectActionGetOutputColourspace) {
+          checkMainHandles(actionRaw, handleRaw, inArgsRaw, outArgsRaw, false, false, false);
+
+          // OFX 1.5 colour management: ReplyDefault means "use the colourspace of the first input clip"
+          if(getOutputColourspaceAction(handle, inArgs, outArgs))
             stat = kOfxStatOK;
         }
         else if(action == kOfxActionBeginInstanceChanged) {

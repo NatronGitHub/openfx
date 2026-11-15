@@ -942,6 +942,59 @@ namespace OFX {
         // time domain
         virtual OfxStatus getTimeDomainAction(OfxRangeD& range);
 
+        /// @name OFX 1.5 colour management (ofxColour.h)
+        /// All non-virtual. A host that does colour management chooses a style (e.g. with
+        /// negotiateColourManagementStyle()), sets it with setColourManagementStyle(), sets the
+        /// other instance properties (kOfxImageEffectPropColourManagementConfig, OCIO config,
+        /// display...) with getProps().setStringProperty(), and sets the colourspace of each
+        /// input clip with ClipInstance::setColourspace().
+        ///
+        /// The host may change these properties during the lifetime of the instance (e.g. a new
+        /// project OCIO config, display or view). The spec defines no notification for that, but
+        /// requires calling kOfxImageEffectActionGetOutputColourspace "again if the host changes any
+        /// of the other colour properties" (and "whenever the effect instance is changed"): call
+        /// getOutputColourspaceAction() again, and re-run the clip preferences if the input
+        /// colourspaces changed. Plug-ins re-read the properties where they use them.
+        /// kOfxImageEffectPropOCIOConfig is a "Filesystem path to the config or URI starting ocio://".
+        /// @{
+
+        /// the style "chosen by the host", on this instance (kOfxImageEffectColourManagementNone by default)
+        const std::string &getColourManagementStyle() const;
+        void setColourManagementStyle(const std::string &style);
+
+        /// the highest style supported by both, given the highest style each one declares
+        /// (the host's kOfxImageEffectPropColourManagementStyle and the plug-in descriptor's)
+        static std::string negotiateColourManagementStyle(const std::string &hostStyle,
+                                                          const std::string &pluginStyle);
+
+        /// follow "OfxColourspace_<clip>" cross-references to an actual colourspace
+        /// ("" if the reference is to an unknown clip, or cyclic)
+        std::string resolveColourspace(const std::string &colourspace) const;
+
+        /// "OfxImageClipPropPreferredColourspaces_<clip>"
+        static std::string preferredColourspacesPropertyName(const std::string &clipName);
+
+        /// Add the OfxImageClipPropPreferredColourspaces_<clip> properties of the input clips to
+        /// the kOfxImageEffectActionGetClipPreferences outArgs. Called by setupClipPreferencesArgs();
+        /// hosts that build their own outArgs must call it too.
+        void setupClipPreferencesColourArgs(Property::Set &outArgs);
+
+        /// Copy the preferred colourspaces set by the plug-in in the clip preferences outArgs to
+        /// the input clips (see ClipInstance::getPreferredColourspaces()). Called by
+        /// getClipPreferences(); hosts that override it must call it too.
+        void readClipPreferencesColourArgs(const Property::Set &outArgs);
+
+        /// kOfxImageEffectActionGetOutputColourspace: ask the plug-in which colourspace its output
+        /// clip will be in, given the host's preferences (most preferred first). Returns the
+        /// action status; on kOfxStatOK, colourspace is the plug-in's choice; on
+        /// kOfxStatReplyDefault, it is the colourspace of the first connected input clip. In both
+        /// cases it is also set on the output clip, as the spec requires (it may be a
+        /// cross-reference, see resolveColourspace()). The action has no time or view argument:
+        /// the result describes the output clip at all times and views.
+        OfxStatus getOutputColourspaceAction(const std::vector<std::string> &preferredColourspaces,
+                                             std::string &colourspace);
+        /// @}
+
 #ifdef OFX_SUPPORTS_DIALOG
         // OfxDialogSuiteV1
         /// @see kOfxActionDialog
@@ -954,6 +1007,10 @@ namespace OFX {
         /// This is called by the CTOR of OverlayInteract to get the descriptor to do things with
         Interact::Descriptor &getOverlayDescriptor(int bitDepthPerComponent = 8, bool hasAlpha = false);
        
+      private:
+        void addColourManagementInstanceProperties();
+      public:
+
         /// Setup the default clip preferences on the clips
         virtual void setDefaultClipPreferences();
 
