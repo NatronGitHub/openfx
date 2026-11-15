@@ -204,7 +204,6 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   //
   // MyStrChoiceInstance
   //
@@ -240,7 +239,6 @@ namespace MyHost {
     _choice = std::string(choice);
     return kOfxStatOK;
   }
-#endif
 
   //
   // MyChoiceInstance

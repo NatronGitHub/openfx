@@ -76,10 +76,8 @@ namespace MyHost
     _properties.setStringProperty(kOfxImageEffectPropSupportedContexts, kOfxImageEffectContextGeneral, 2 );
     _properties.setStringProperty(kOfxImageEffectPropSupportedContexts, kOfxImageEffectContextTransition, 3 );
     _properties.setIntProperty(kOfxImageEffectPropSupportsMultipleClipDepths, 0);
-#ifdef OFX_EXTENSIONS_RESOLVE
     // MyEffectInstance::newParam() implements MyStrChoiceInstance
     _properties.setIntProperty(kOfxParamHostPropSupportsStrChoice, 1);
-#endif
     _properties.setIntProperty(kOfxImageEffectPropSupportsMultipleClipPARs, 0);
     _properties.setIntProperty(kOfxImageEffectPropSetableFrameRate, 0);
     _properties.setIntProperty(kOfxImageEffectPropSetableFielding, 0);

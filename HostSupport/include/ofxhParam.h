@@ -377,7 +377,6 @@ namespace OFX {
         virtual void notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC;
       };
 
-#ifdef OFX_EXTENSIONS_RESOLVE
       class StrChoiceInstance : public Instance, public KeyframeParam {
         std::string _returnValue; ///< location to hold temporary return value. Should delegate this to implementation!!!
       public:
@@ -412,7 +411,6 @@ namespace OFX {
         /// overridden from Instance
         virtual void notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC;
       };
-#endif
 
       class DoubleInstance : public Instance, public KeyframeParam {
       public:

@@ -104,7 +104,6 @@ namespace MyHost {
     OfxStatus set(OfxTime time, int);
   };
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   class MyStrChoiceInstance : public OFX::Host::Param::StrChoiceInstance {
     std::string _choice;
   protected:
@@ -117,7 +116,6 @@ namespace MyHost {
     OfxStatus set(const char*);
     OfxStatus set(OfxTime time, const char*);
   };
-#endif
 
   class MyRGBAInstance : public OFX::Host::Param::RGBAInstance {
   protected:

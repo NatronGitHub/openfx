@@ -174,10 +174,8 @@ namespace MyHost {
       return new MyBooleanInstance(this,name,descriptor);
     else if(descriptor.getType()==kOfxParamTypeChoice)
       return new MyChoiceInstance(this,name,descriptor);
-#ifdef OFX_EXTENSIONS_RESOLVE
     else if(descriptor.getType()==kOfxParamTypeStrChoice)
       return new MyStrChoiceInstance(this,name,descriptor);
-#endif
     else if(descriptor.getType()==kOfxParamTypeRGBA)
       return new MyRGBAInstance(this,name,descriptor);
     else if(descriptor.getType()==kOfxParamTypeRGB)

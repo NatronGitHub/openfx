@@ -161,9 +161,7 @@ namespace OFX {
     case eRGBAParam : return kOfxParamTypeRGBA ;
     case eBooleanParam : return kOfxParamTypeBoolean ;
     case eChoiceParam : return kOfxParamTypeChoice ;
-#ifdef OFX_EXTENSIONS_RESOLVE
     case eStrChoiceParam : return kOfxParamTypeStrChoice;
-#endif
     case eCustomParam : return kOfxParamTypeCustom ;
     case eGroupParam : return kOfxParamTypeGroup ;
     case ePageParam : return kOfxParamTypePage ;
@@ -205,10 +203,8 @@ namespace OFX {
       return eBooleanParam ;
     else if(isEqual(kOfxParamTypeChoice,v))
       return eChoiceParam ;
-#ifdef OFX_EXTENSIONS_RESOLVE
     else if (isEqual(kOfxParamTypeStrChoice, v))
       return eStrChoiceParam;
-#endif
     else if(isEqual(kOfxParamTypeCustom ,v))
       return eCustomParam ;
     else if(isEqual(kOfxParamTypeGroup,v))
@@ -1182,7 +1178,6 @@ namespace OFX {
 
 #endif
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   ////////////////////////////////////////////////////////////////////////////////
   // string choice param descriptor
 
@@ -1223,7 +1218,6 @@ namespace OFX {
       _paramProps.propReset(kOfxParamPropChoiceEnum);
       _paramProps.propReset(kOfxParamPropChoiceOption);
   }
-#endif
 
   ////////////////////////////////////////////////////////////////////////////////
   // string param descriptor
@@ -1632,7 +1626,6 @@ namespace OFX {
     return param;
   }
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   /** @brief Define a String Choice param */
   StrChoiceParamDescriptor* ParamSetDescriptor::defineStrChoiceParam(const std::string& p_Name)
   {
@@ -1640,7 +1633,6 @@ namespace OFX {
       defineParamDescriptor(p_Name, eStrChoiceParam, param);
       return param;
   }
-#endif
 
   /** @brief Define a group param */
   GroupParamDescriptor *ParamSetDescriptor::defineGroupParam(const std::string &name)
@@ -3523,7 +3515,6 @@ namespace OFX {
 
 #endif
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   ////////////////////////////////////////////////////////////////////////////////
   // Wraps up a string choice param */
 
@@ -3599,7 +3590,6 @@ namespace OFX {
       _paramProps.propReset(kOfxParamPropChoiceEnum);
       _paramProps.propReset(kOfxParamPropChoiceOption);
   }
-#endif
 
   ////////////////////////////////////////////////////////////////////////////////
   // Wraps up a custom param */
@@ -4118,14 +4108,12 @@ namespace OFX {
         fetchParam(name, t, ptr);
         return ptr;
       }
-#ifdef OFX_EXTENSIONS_RESOLVE
     case eStrChoiceParam :
       {
         StrChoiceParam* ptr = 0;
         fetchParam(name, t, ptr);
         return ptr;
       }
-#endif
     case eCustomParam : 
       {
         CustomParam* ptr = 0;
@@ -4264,7 +4252,6 @@ namespace OFX {
     return param;
   }
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   /** @brief Fetch a Choice param */
   StrChoiceParam* ParamSet::fetchStrChoiceParam(const std::string& p_Name) const
   {
@@ -4272,7 +4259,6 @@ namespace OFX {
       fetchParam(p_Name, eStrChoiceParam, param);
       return param;
   }
-#endif
 
   /** @brief Fetch a group param */
   GroupParam *ParamSet::fetchGroupParam(const std::string &name) const
