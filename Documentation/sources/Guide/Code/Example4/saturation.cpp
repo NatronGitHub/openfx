@@ -1,31 +1,5 @@
-/*
-Software License :
-
-Copyright (c) 2014, The Open Effects Association Ltd. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-    * Redistributions of source code must retain the above copyright notice,
-      this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright notice,
-      this list of conditions and the following disclaimer in the documentation
-      and/or other materials provided with the distribution.
-    * Neither the name The Open Effects Association Ltd, nor the names of its
-      contributors may be used to endorse or promote products derived from this
-      software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+// Copyright OpenFX and contributors to the OpenFX project.
+// SPDX-License-Identifier: BSD-3-Clause
 
 /*
   Author : Bruno Nicoletti (2014)
@@ -46,14 +20,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // the one OFX header we need, it includes the others necessary
 #include "ofxImageEffect.h"
-
-#if defined __APPLE__ || defined __linux__ || defined __FreeBSD__
-#  define EXPORT __attribute__((visibility("default")))
-#elif defined _WIN32
-#  define EXPORT OfxExport
-#else
-#  error Not building on your operating system quite yet
-#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 // macro to write a labelled message to stderr with
@@ -93,7 +59,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   }                                             \
 }
 
-// name of our two params
+// name of our param
 #define SATURATION_PARAM_NAME "saturation"
 
 // anonymous namespace to hide our symbols in
@@ -166,12 +132,6 @@ namespace {
     }
     else {
       propSet_ = NULL;
-      rowBytes_ = 0;
-      bounds_.x1 = bounds_.x2 = bounds_.y1 = bounds_.y2 = 0;
-      dataPtr_ = NULL;
-      nComponents_ = 0;
-      bytesPerComponent_ = 0;
-      bytesPerPixel_ = 0;
     }
   }
 
@@ -223,7 +183,6 @@ namespace {
       dataPtr_ = NULL;
       nComponents_ = 0;
       bytesPerComponent_ = 0;
-      bytesPerPixel_ = 0;
     }
   }
 
@@ -248,7 +207,7 @@ namespace {
     // Find the start of our row, using byte arithmetic
     char *rowStart = (dataPtr_) + yOffset * rowBytes_;
 
-    // finally find the position of the first component of column
+    // finally find the position of the first component of the column
     return rowStart + (xOffset * bytesPerPixel_);
   }
 
@@ -320,7 +279,9 @@ namespace {
   }
 
   ////////////////////////////////////////////////////////////////////////////////
-  // The first _action_ called after the binary is loaded (three boot strapper functions will be howeever)
+  // The first _action_ called after the binary is loaded (bootstrapper
+  // functions (e.g., `OfxGetNumberOfPlugins`) are, however, called before any
+  // action is called.)
   OfxStatus LoadAction(void)
   {
     // fetch our three suites
@@ -403,7 +364,7 @@ namespace {
     // define the mandated single output clip
     gImageEffectSuite->clipDefine(descriptor, "Output", &props);
 
-    // set the component types we can handle on out output
+    // set the component types we can handle on our output
     gPropertySuite->propSetString(props,
                                   kOfxImageEffectPropSupportedComponents,
                                   0,
@@ -429,7 +390,7 @@ namespace {
     if(strcmp(context, kOfxImageEffectContextGeneral) == 0) {
       gImageEffectSuite->clipDefine(descriptor, "Mask", &props);
 
-      // set the component types we can handle on our main input
+      // set the component types we can handle on our mask input
       gPropertySuite->propSetString(props,
                                     kOfxImageEffectPropSupportedComponents,
                                     0,
@@ -547,7 +508,7 @@ namespace {
   }
 
   ////////////////////////////////////////////////////////////////////////////////
-  // clamp to 0 and MAX inclusive
+  // blend v2 into v1 by the given blend factor
   template <class T1, class T2>
   static inline T1 Blend(T1 v1, T2 v2, float blend)
   {
@@ -566,7 +527,7 @@ namespace {
   {
     int nComps = output.nComponents();
 
-    // and do some processing
+    // do some processing
     for(int y = renderWindow.y1; y < renderWindow.y2; y++) {
       if(y % 20 == 0 && gImageEffectSuite->abort(instance)) break;
 
@@ -635,7 +596,7 @@ namespace {
   // Render an output image
   OfxStatus RenderAction( OfxImageEffectHandle instance,
                           OfxPropertySetHandle inArgs,
-                          OfxPropertySetHandle /*outArgs*/)
+                          OfxPropertySetHandle outArgs)
   {
     // get the render window and the time from the inArgs
     OfxTime time;
@@ -658,21 +619,23 @@ namespace {
     double saturation = 1.0;
     gParameterSuite->paramGetValueAtTime(myData->saturationParam, time, &saturation);
 
+    // the property sets holding our images
+    OfxPropertySetHandle outputImg = NULL, sourceImg = NULL, maskImg = NULL;
     try {
-      // fetch image to render into from that clip
+      // fetch the image to write into, from the output clip
       Image outputImg(myData->outputClip, time);
       if(!outputImg) {
         throw " no output image!";
       }
 
-      // fetch image to render into from that clip
+      // fetch the image to read from, from the source clip
       Image sourceImg(myData->sourceClip, time);
       if(!sourceImg) {
         throw " no source image!";
       }
 
-      // fetch mask image at render time from that clip, it may not be there
-      // as we might in the filter context or it might not be attached as it
+      // fetch the mask image at render time from the mask clip, it may not be
+      // there as we might in the filter context or it might not be attached as it
       // is optional, so don't worry if we don't have one.
       Image maskImg(myData->maskClip, time);
 
@@ -703,6 +666,7 @@ namespace {
       }
       else {
         throw " bad data type!";
+        throw 1;
       }
 
     }
@@ -809,7 +773,7 @@ namespace {
 static OfxPlugin effectPluginStruct =
 {
   kOfxImageEffectPluginApi,                  // The API this plugin satisfies.
-  1,                                         // The version of the API it satisifes.
+  1,                                         // The version of the API it satisfies.
   "org.openeffects:SaturationExamplePlugin", // The unique ID of this plugin.
   1,                                         // The major version number of this plugin.
   0,                                         // The minor version number of this plugin.
@@ -818,23 +782,23 @@ static OfxPlugin effectPluginStruct =
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-// The first of the two functions that a host application will look for
+// The first of the two required functions that a host application will look for
 // after loading the binary, this function returns the number of plugins within
 // this binary.
 //
 // This will be the first function called by the host.
-EXPORT int OfxGetNumberOfPlugins(void)
+int OfxGetNumberOfPlugins(void)
 {
   return 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// The second of the two functions that a host application will look for
-// after loading the binary, this function returns the 'nth' plugin declared in
-// this binary.
+// The second of the two required functions that a host application will look
+// for after loading the binary, this function returns the 'nth' plugin declared
+// in this binary.
 //
 // This will be called multiple times by the host, once for each plugin present.
-EXPORT OfxPlugin * OfxGetPlugin(int nth)
+OfxPlugin * OfxGetPlugin(int nth)
 {
   if(nth == 0)
     return &effectPluginStruct;

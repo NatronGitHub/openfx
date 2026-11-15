@@ -79,6 +79,9 @@ A plugin can return...
   - ::kOfxStatFailed, something went wrong, but no error code appropriate,
     the plugin should to post a message if possible.
 
+    @actiondef
+    inArgs:
+    outArgs:
 */
 #define  kOfxActionDialog	"OfxActionDialog"
 

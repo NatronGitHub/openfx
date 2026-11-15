@@ -47,6 +47,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
    - Valid Values - This must be one of 0 or 1
 
 @deprecated - This feature has been deprecated - officially commented out v1.4.
+
+    @propdef
+    type: bool
+    dimension: 1
+    deprecated: "1.4"
 */
 #define kOfxImageEffectPropInAnalysis "OfxImageEffectPropInAnalysis"
 
@@ -86,6 +91,12 @@ typedef struct OfxYUVAColourF {
 
 @deprecated - V1.3: This property is the redundant and its use will be deprecated in future releases.
 V1.4: Removed
+
+    @propdef
+    type: int
+    dimension: 2
+    cname: kOfxInteractPropViewportSize
+    deprecated: "1.3"
  */
 #define kOfxInteractPropViewportSize "OfxInteractPropViewport"
 

@@ -1,3 +1,4 @@
+.. SPDX-License-Identifier: CC-BY-4.0
 .. _threadRecursionSafety:
 Thread and Recursion Safety
 ===========================
@@ -35,7 +36,7 @@ The only actions that can be called on a render thread are...
 
 If a plugin cannot support this multi-threading behaviour, it will need
 to perform explicit locking itself, using the locking mechanisms in the
-suites defined in `ofxMultiThread.h <https://github.com/ofxa/openfx/blob/master/include/ofxMultiThread.h>`_.
+suites defined in `ofxMultiThread.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxMultiThread.h>`_.
 
 This will also mean that the host may need to perform locking on the
 various function calls over the API. For example, a main and render
@@ -126,7 +127,7 @@ The image effect actions which may be called recursively are...
 -  :c:macro:`kOfxImageEffectActionGetClipPreferences`
 -  :c:macro:`kOfxImageEffectActionGetRegionOfDefinition`
    (as a result of calling
-    :cpp:func:`OfxImageEffectSuiteV1::clipGetImage`
+   :cpp:func:`OfxImageEffectSuiteV1::clipGetImage`
    from
    :c:macro:`kOfxActionInstanceChanged`
    )

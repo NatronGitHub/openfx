@@ -1,4 +1,6 @@
-.. CoordinateSystems:
+.. SPDX-License-Identifier: CC-BY-4.0
+.. _CoordinateSystems:
+
 Coordinate Systems
 ==================
 
@@ -45,7 +47,7 @@ Pixel Coordinates
 
 *Real* images, where we have to deal with addressable pixels in memory,
 are in a coordinate system of non-square proxy scaled integer values. So
-a PAL D1 image, being renderred as a half resolution proxy would be
+a PAL D1 image, being rendered as a half resolution proxy would be
 (0,0) to (360, 288), which takes into account both the pixel aspect
 ratio of 1.067 and a scale factor of 0.5f. We call this the **Pixel
 Coordinate System**.
@@ -111,7 +113,7 @@ The Normalized Coordinate System
 
 Note, normalised parameters and the normalised coordinate system are
 being deprecated in favour of :ref:`spatial
-parameters <ParameterPropertiesDoubleTypesSpatial>` which can handle
+parameters <ParameterPropertiesDoubleTypesStrictlySpatial>` which can handle
 the project rescaling without the problems of converting to/from
 normalised coordinates.
 
@@ -213,7 +215,7 @@ the project size and offset...
    normalised coordinate by the project size then add the project origin
 
 To flag to the host that a parameter as normalised, we use the
-:ref:`kOfxParamPropDoubleType<kOfxParamPropDoubleType>` property.
+:c:macro:`kOfxParamPropDoubleType` property.
 Parameters that are so flagged have values set and retrieved by an
 effect in normalized coordinates. However a host can choose to represent
 them to the user in whatever space it chooses. The values that this

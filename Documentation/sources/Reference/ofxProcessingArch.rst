@@ -1,5 +1,4 @@
-.. _ImageEffectArchitectures:
-
+.. SPDX-License-Identifier: CC-BY-4.0
 Image Processing Architectures
 ==============================
 
@@ -60,7 +59,7 @@ infinite RoD is flagged by setting the minimums to be:
 
 .. doxygendefine:: kOfxFlagInfiniteMin
 
-and the maxmimums to be:
+and the maximums to be:
 
 .. doxygendefine:: kOfxFlagInfiniteMax
 

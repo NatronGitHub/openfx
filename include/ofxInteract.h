@@ -70,6 +70,10 @@ need to be redrawn if any of those parameters' values change. This multi-dimensi
 links such parameters to the interact.
 
 The interact can be slaved to multiple parameters (setting index 0, then index 1 etc...)
+
+    @propdef
+   type: string
+   dimension: N
  */
 #define kOfxInteractPropSlaveToParam "OfxInteractPropSlaveToParam"
 
@@ -78,6 +82,9 @@ The interact can be slaved to multiple parameters (setting index 0, then index 1
    - Type - double X 2
    - Property Set - interact instance and actions (read only)
 
+    @propdef
+   type: double
+   dimension: 2
  */
 #define kOfxInteractPropPixelScale "OfxInteractPropPixelScale"
 
@@ -91,6 +98,9 @@ The interact can be slaved to multiple parameters (setting index 0, then index 1
 
 The components are in the order red, green then blue.
 
+    @propdef
+    type: double
+    dimension: 3
  */
 #define kOfxInteractPropBackgroundColour "OfxInteractPropBackgroundColour"
 
@@ -106,6 +116,10 @@ property represents the value of that colour. Plugins are at liberty to use this
 they draw an overlay.
 
 If a host does not support such a colour, it should return kOfxStatReplyDefault
+
+    @propdef
+    type: double
+    dimension: 3
 */
 #define kOfxInteractPropSuggestedColour "OfxInteractPropSuggestedColour"
 
@@ -115,6 +129,10 @@ If a host does not support such a colour, it should return kOfxStatReplyDefault
    - Property Set - read only in argument to the ::kOfxInteractActionPenMotion, ::kOfxInteractActionPenDown and ::kOfxInteractActionPenUp actions
 
 This value passes the postion of the pen into an interact. This is in the interact's canonical coordinates.
+
+    @propdef
+   type: double
+   dimension: 2
  */
 #define kOfxInteractPropPenPosition "OfxInteractPropPenPosition"
 
@@ -124,6 +142,10 @@ This value passes the postion of the pen into an interact. This is in the intera
    - Property Set - read only in argument to the ::kOfxInteractActionPenMotion, ::kOfxInteractActionPenDown and ::kOfxInteractActionPenUp actions
 
 This value passes the postion of the pen into an interact. This is in the interact's openGL viewport coordinates, with 0,0 being at the bottom left.
+
+    @propdef
+   type: int
+   dimension: 2
  */
 #define kOfxInteractPropPenViewportPosition "OfxInteractPropPenViewportPosition"
 
@@ -134,14 +156,191 @@ This value passes the postion of the pen into an interact. This is in the intera
    - Valid Values - from 0 (no pressure) to 1 (maximum pressure)
 
 This is used to indicate the status of the 'pen' in an interact. If a pen has only two states (eg: a mouse button), these should map to 0.0 and 1.0.
+
+    @propdef
+   type: double
+   dimension: 1
  */
 #define kOfxInteractPropPenPressure "OfxInteractPropPenPressure"
+
+#ifdef OFX_EXTENSIONS_NATRON
+/** @defgroup InteractCursor Interact cursors (proposed extension)
+
+PROPOSED standard extension (NatronGitHub/openfx#4,
+Documentation/proposals/interact-cursor.md), not yet part of the OFX
+standard. Implemented by the NatronGitHub HostSupport and Support libraries
+under OFX_EXTENSIONS_NATRON. The names are the proposed standard names; they
+may change during standardization.
+
+
+An overlay interact may ask the host to change the shape of the window-system
+mouse cursor while the pen is over its view, or to hide it (e.g. when the
+interact draws its own cursor with OpenGL or the DrawSuite).
+
+Negotiation: a host that supports this sets ::kOfxInteractHostPropSupportedCursors
+on its host descriptor. A plug-in must check it before setting
+::kOfxInteractPropCursor; on other hosts the property does not exist on interact
+instances and setting it fails with kOfxStatErrUnknown.
+
+Reporting: the cursor property is per interact instance (a host may use one
+interact instance per view, or share one between views); it is
+the plug-in's own report of the cursor it wants. After each of
+kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp,
+kOfxInteractActionKeyDown, kOfxInteractActionKeyUp and
+kOfxInteractActionKeyRepeat that does not fail (whether it returns kOfxStatOK,
+i.e. the event was trapped, or kOfxStatReplyDefault), the host reads
+::kOfxInteractPropCursor (and the related properties) on that interact instance.
+Since kOfxInteractActionPenMotion is also issued while the pen is up, a plug-in
+typically sets a cursor when the pen hovers over one of its handles, and sets
+::kOfxInteractCursorDefault again when it moves off the handle. Setting the
+cursor does not require trapping the event: the plug-in keeps returning
+whatever it returned before. Trapping is optional, and only gives the request
+priority in the arbitration below.
+
+Arbitration: several interacts may share a view (overlays of several effects,
+host overlays), so the host decides which request to display. The recommended
+policy is: the cursor of the interact that trapped the event (returned
+kOfxStatOK) wins, which matches the existing rule that "if the instance returns
+kOfxStatOK the host should not pass the pen motion to any other interactive
+object it may own that shares the same view"; otherwise the most recent
+non-default request of an interact of that view; otherwise the host's own
+cursor. An interact that loses focus (kOfxInteractActionLoseFocus) or is
+destroyed no longer owns the cursor. When the displayed request is released this
+way, or because its interact went back to ::kOfxInteractCursorDefault, the host
+re-evaluates this policy from the current requests of all the interacts of the
+view, and only shows its own cursor if none of them requests one. A plug-in
+reports its request once, when it changes: an interact still hovering over its
+handle does not report its unchanged cursor again.
+
+Host strategies: a host may react to the change notifications, or, preferably,
+read the current request of every interact of the view after dispatching each
+pen/key event (in HostSupport: OFX::Host::Interact::Instance::getCursor()) and
+recompute the displayed cursor from them. Polling is required when one interact
+instance is shared by several views, since a change notification is only sent
+once, while each view needs the request.
+@{
+*/
+
+/** @brief Cursors supported by the host for ::kOfxInteractPropCursor
+
+    - Type - C string X N
+    - Property Set - host descriptor (read only)
+    - Default - absent: the host does not support plug-in cursors
+    - Valid Values - any of the standard cursor names below, plus the special
+      value ::kOfxInteractCursorCustom if the host supports cursor images.
+
+The standard names are the CSS cursor keywords of the W3C "CSS Basic User
+Interface Module Level 4" (https://www.w3.org/TR/css-ui-4/#cursor), which have
+well-known equivalents on all window systems. A host lists those it can display;
+it must list at least ::kOfxInteractCursorDefault and should list
+::kOfxInteractCursorNone.
+
+    @propdef
+    type: string
+    dimension: N
+    extension: natron
+*/
+#define kOfxInteractHostPropSupportedCursors "OfxInteractHostPropSupportedCursors"
+
+/** @brief The cursor requested by an interact instance
+
+    - Type - C string X 1
+    - Property Set - interact instance (read/write), only on hosts that set
+      ::kOfxInteractHostPropSupportedCursors
+    - Default - ::kOfxInteractCursorDefault
+    - Valid Values - one of the values of ::kOfxInteractHostPropSupportedCursors.
+      The host displays ::kOfxInteractCursorDefault for any other value.
+
+May be set by the plug-in during any interact action. It is read by the host as
+described in @ref InteractCursor.
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: natron
+*/
+#define kOfxInteractPropCursor "OfxInteractPropCursor"
+
+/** @brief File name of a custom cursor image, used when ::kOfxInteractPropCursor is ::kOfxInteractCursorCustom
+
+    - Type - UTF8 C string X 1
+    - Property Set - interact instance (read/write), only on hosts that support
+      ::kOfxInteractCursorCustom
+    - Default - ""
+    - Valid Values - the file name, without any directory, of a PNG image with an
+      alpha channel in the Contents/Resources directory of the plug-in bundle.
+
+If a file with the same name and an "@2x" suffix before the extension exists
+(e.g. "Rotate@2x.png"), the host may use it on high-density displays. The host
+may scale or refuse images larger than 32x32 points. If the image cannot be
+loaded, the host displays ::kOfxInteractCursorDefault.
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: natron
+*/
+#define kOfxInteractPropCursorImage "OfxInteractPropCursorImage"
+
+/** @brief Hot spot of the custom cursor image
+
+    - Type - int X 2
+    - Property Set - interact instance (read/write), only on hosts that support
+      ::kOfxInteractCursorCustom
+    - Default - 0,0
+    - Valid Values - x,y in pixels of the 1x image, from its top-left corner
+
+When the host uses the "@2x" variant of ::kOfxInteractPropCursorImage on a
+high-density display, the hot spot in that image's pixels is twice this value
+(e.g. with Qt, load the @2x image in a QPixmap, call setDevicePixelRatio(2),
+and pass this hot spot unchanged to QCursor).
+
+    @propdef
+    type: int
+    dimension: 2
+    extension: natron
+*/
+#define kOfxInteractPropCursorHotSpot "OfxInteractPropCursorHotSpot"
+
+/** @brief The host's own cursor for this view (the cursor it would display without plug-in) */
+#define kOfxInteractCursorDefault     "default"
+/** @brief No cursor (e.g. the interact draws its own) */
+#define kOfxInteractCursorNone        "none"
+/** @brief Custom image, see ::kOfxInteractPropCursorImage */
+#define kOfxInteractCursorCustom      "OfxInteractCursorCustom"
+/* standard cursors (CSS names) */
+#define kOfxInteractCursorPointer     "pointer"     /**< pointing hand, e.g. over a clickable handle */
+#define kOfxInteractCursorCrosshair   "crosshair"
+#define kOfxInteractCursorText        "text"
+#define kOfxInteractCursorWait        "wait"
+#define kOfxInteractCursorProgress    "progress"
+#define kOfxInteractCursorNotAllowed  "not-allowed"
+#define kOfxInteractCursorHelp        "help"
+#define kOfxInteractCursorCell        "cell"
+#define kOfxInteractCursorCopy        "copy"
+#define kOfxInteractCursorMove        "move"
+#define kOfxInteractCursorGrab        "grab"         /**< open hand */
+#define kOfxInteractCursorGrabbing    "grabbing"     /**< closed hand */
+#define kOfxInteractCursorAllScroll   "all-scroll"
+#define kOfxInteractCursorColResize   "col-resize"
+#define kOfxInteractCursorRowResize   "row-resize"
+#define kOfxInteractCursorEWResize    "ew-resize"
+#define kOfxInteractCursorNSResize    "ns-resize"
+#define kOfxInteractCursorNESWResize  "nesw-resize"
+#define kOfxInteractCursorNWSEResize  "nwse-resize"
+#define kOfxInteractCursorZoomIn      "zoom-in"
+#define kOfxInteractCursorZoomOut     "zoom-out"
+/** @} */
+#endif // OFX_EXTENSIONS_NATRON
 
 /** @brief Indicates whether the dits per component in the interact's openGL frame buffer
 
    - Type - int X 1
    - Property Set - interact instance and descriptor (read only)
 
+    @propdef
+   type: int
+   dimension: 1
  */
 #define kOfxInteractPropBitDepth "OfxInteractPropBitDepth"
 
@@ -152,6 +351,10 @@ This is used to indicate the status of the 'pen' in an interact. If a pen has on
    - Valid Values - This must be one of
        - 0 indicates no alpha component
        - 1 indicates an alpha component
+
+    @propdef
+   type: bool
+   dimension: 1
  */
 #define kOfxInteractPropHasAlpha "OfxInteractPropHasAlpha"
 
@@ -285,6 +488,16 @@ These are the list of actions passed to an interact's entry point function. For 
      - \ref kOfxStatReplyDefault the action was ignored
      - \ref kOfxStatErrFatal
      - \ref kOfxStatFailed something went wrong, the host should ignore this interact in future
+
+    @actiondef
+    inArgs:
+      - OfxPropEffectInstance
+      - OfxInteractPropDrawContext
+      - OfxInteractPropPixelScale
+      - OfxInteractPropBackgroundColour
+      - OfxPropTime
+      - OfxImageEffectPropRenderScale
+    outArgs:
  */
 #define kOfxInteractActionDraw "OfxInteractActionDraw"
 
@@ -322,6 +535,18 @@ These are the list of actions passed to an interact's entry point function. For 
  @returns
      -  \ref kOfxStatOK the action was trapped and the host should not pass the event to other objects it may own
      -  \ref kOfxStatReplyDefault the action was not trapped and the host can deal with it if it wants
+
+    @actiondef
+    inArgs:
+      - OfxPropEffectInstance
+      - OfxInteractPropPixelScale
+      - OfxInteractPropBackgroundColour
+      - OfxPropTime
+      - OfxImageEffectPropRenderScale
+      - OfxInteractPropPenPosition
+      - OfxInteractPropPenViewportPosition
+      - OfxInteractPropPenPressure
+    outArgs:
  */
 #define kOfxInteractActionPenMotion "OfxInteractActionPenMotion"
 
@@ -360,6 +585,18 @@ These are the list of actions passed to an interact's entry point function. For 
  @returns
      -  \ref kOfxStatOK, the action was trapped and the host should not pass the event to other objects it may own
      -  \ref kOfxStatReplyDefault , the action was not trapped and the host can deal with it if it wants
+
+    @actiondef
+    inArgs:
+      - OfxPropEffectInstance
+      - OfxInteractPropPixelScale
+      - OfxInteractPropBackgroundColour
+      - OfxPropTime
+      - OfxImageEffectPropRenderScale
+      - OfxInteractPropPenPosition
+      - OfxInteractPropPenViewportPosition
+      - OfxInteractPropPenPressure
+    outArgs:
  */
 #define kOfxInteractActionPenDown   "OfxInteractActionPenDown"
 
@@ -396,6 +633,18 @@ These are the list of actions passed to an interact's entry point function. For 
  @returns
      -  \ref kOfxStatOK, the action was trapped and the host should not pass the event to other objects it may own
      -  \ref kOfxStatReplyDefault , the action was not trapped and the host can deal with it if it wants
+
+    @actiondef
+    inArgs:
+      - OfxPropEffectInstance
+      - OfxInteractPropPixelScale
+      - OfxInteractPropBackgroundColour
+      - OfxPropTime
+      - OfxImageEffectPropRenderScale
+      - OfxInteractPropPenPosition
+      - OfxInteractPropPenViewportPosition
+      - OfxInteractPropPenPressure
+    outArgs:
  */
 #define kOfxInteractActionPenUp     "OfxInteractActionPenUp"
 
@@ -430,6 +679,15 @@ These are the list of actions passed to an interact's entry point function. For 
  @returns
      - \ref kOfxStatOK , the action was trapped and the host should not pass the event to other objects it may own
      - \ref kOfxStatReplyDefault , the action was not trapped and the host can deal with it if it wants
+
+    @actiondef
+    inArgs:
+      - OfxPropEffectInstance
+      - kOfxPropKeySym
+      - kOfxPropKeyString
+      - OfxPropTime
+      - OfxImageEffectPropRenderScale
+    outArgs:
  */
 #define kOfxInteractActionKeyDown   "OfxInteractActionKeyDown"
 
@@ -463,6 +721,15 @@ These are the list of actions passed to an interact's entry point function. For 
  @returns
      - \ref kOfxStatOK , the action was trapped and the host should not pass the event to other objects it may own
      - \ref kOfxStatReplyDefault , the action was not trapped and the host can deal with it if it wants
+
+    @actiondef
+    inArgs:
+      - OfxPropEffectInstance
+      - kOfxPropKeySym
+      - kOfxPropKeyString
+      - OfxPropTime
+      - OfxImageEffectPropRenderScale
+    outArgs:
  */
 #define kOfxInteractActionKeyUp     "OfxInteractActionKeyUp"
 
@@ -496,6 +763,15 @@ These are the list of actions passed to an interact's entry point function. For 
  @returns
      - \ref kOfxStatOK , the action was trapped and the host should not pass the event to other objects it may own
      - \ref kOfxStatReplyDefault , the action was not trapped and the host can deal with it if it wants
+
+    @actiondef
+    inArgs:
+      - OfxPropEffectInstance
+      - kOfxPropKeySym
+      - kOfxPropKeyString
+      - OfxPropTime
+      - OfxImageEffectPropRenderScale
+    outArgs:
  */
 #define kOfxInteractActionKeyRepeat     "OfxInteractActionKeyRepeat"
 
@@ -521,6 +797,15 @@ These are the list of actions passed to an interact's entry point function. For 
  @returns
      - \ref kOfxStatOK  the action was trapped
      - \ref kOfxStatReplyDefault  the action was not trapped
+
+    @actiondef
+    inArgs:
+      - OfxPropEffectInstance
+      - OfxInteractPropPixelScale
+      - OfxInteractPropBackgroundColour
+      - OfxPropTime
+      - OfxImageEffectPropRenderScale
+    outArgs:
  */
 #define kOfxInteractActionGainFocus "OfxInteractActionGainFocus"
 
@@ -546,8 +831,39 @@ These are the list of actions passed to an interact's entry point function. For 
  @returns
      - \ref kOfxStatOK  the action was trapped
      - \ref kOfxStatReplyDefault  the action was not trapped
+
+    @actiondef
+    inArgs:
+      - OfxPropEffectInstance
+      - OfxInteractPropPixelScale
+      - OfxInteractPropBackgroundColour
+      - OfxPropTime
+      - OfxImageEffectPropRenderScale
+    outArgs:
  */
 #define kOfxInteractActionLoseFocus "OfxInteractActionLoseFocus"
+
+/** @propset InteractInstance
+    write: host
+    props:
+      - OfxPropEffectInstance
+      - OfxPropInstanceData
+      - OfxInteractPropPixelScale
+      - OfxInteractPropBackgroundColour
+      - OfxInteractPropHasAlpha
+      - OfxInteractPropBitDepth
+      - OfxInteractPropSlaveToParam
+      - OfxInteractPropSuggestedColour
+*/
+
+
+/** @propset InteractDescriptor
+    write: host
+    props:
+      - OfxInteractPropHasAlpha
+      - OfxInteractPropBitDepth
+*/
+
 
 /*@}*/
 /*@}*/

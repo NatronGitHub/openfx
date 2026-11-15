@@ -1,3 +1,4 @@
+.. SPDX-License-Identifier: CC-BY-4.0
 Packaging OFX Plug-ins
 ======================
 
@@ -77,29 +78,103 @@ Where...
 -  ARCHITECTURE is the specific operating system architecture the
    plug-in was built for, these are currently...
 
-   -  ``MacOS`` - for Apple Macintosh OS X 32 bit and/or univeral binaries
-   -  ``MacOS-x86-64`` - for Apple Macintosh OS X, specifically on intel x86
-      CPUs running AMD's 64 bit extensions. 64 bit host applications
-      should check this first, and if it doesn't exist or is empty, fall
-      back to "MacOS" looking for a universal binary.
-   -  ``Win32`` - for Microsoft Windows (compiled 32 bit)
-   -  ``Win64`` - for Microsoft Windows (compiled 64 bit)
-   -  ``IRIX`` - for SGI IRIX plug-ins (compiled 32 bit)
-   -  ``IRIX64`` - for SGI IRIX plug-ins (compiled 64 bit)
+   -  ``MacOS`` - for Apple Macintosh OS X universal or architecture-specific binaries
+   -  ``MacOS-x86-64`` - *DEPRECATED*. Formerly used for Intel Macs during the transition from PowerPC.
+   -  ``Win32`` - for Microsoft Windows (Intel x86, 32 bit)
+   -  ``Win64`` - for Microsoft Windows (Intel x64, 64 bit)
+   -  ``Win-arm64ec`` - for Microsoft Windows (ARM64EC)
+   -  ``IRIX`` - for SGI IRIX plug-ins (compiled 32 bit) (*DEPRECATED*)
+   -  ``IRIX64`` - for SGI IRIX plug-ins (compiled 64 bit) (*DEPRECATED*)
    -  ``Linux-x86`` - for Linux on x86 CPUs (compiled 32 bit)
    -  ``Linux-x86-64`` - for Linux on x86 CPUs running AMD's 64 bit
       extensions
 
-Note that not all the above architectures need be supported, at least
-one.
+Note that not all the above architectures need be supported, only the
+architectures supported by the host product itself.
 
-This structure is necessary on OS X, but it also gives a nice skeleton
-to hang all other operating systems from in a single install, as well as
-a clean place to put resources.
+MacOS Architectures and Universal Binaries
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For MacOS, as of 2024 (OpenFX v1.5), all MacOS plug-ins should be in
+``MacOS``, and preferably should be universal binaries (whatever that
+means at any given point in time, given the hosts a plug-in is trying
+to support). There will not be a specific ``arm64`` folder.
+
+This is acceptable since MacOS supports multi-architecture binaries,
+so per-architecture subdirectories are not needed for a host
+application to find the proper architecture plug-in. This proposal
+would prohibit a plug-in from shipping a separate Intel and arm64
+binaries (since the plug-in .ofx file must always be named to match the
+top-level bundle name), but it should not be difficult for any plug-in
+to merge multiple architectures into a single binary on MacOS.
+
+Windows Architectures
+^^^^^^^^^^^^^^^^^^^^^
+
+As of 2024, Windows supports Arm64 CPUs. It uses two distinct ABIs:
+*Arm64* for native code, and *Arm64EC* for x64/Arm64 compatibility, in
+which x64 apps running in emulation on Arm64 hardware can interoperate
+with x64 DLLs (also in emulation) or Arm64EC DLLs (which are native
+Arm64 code with x64-compatible calling conventions). Arm64EC apps
+cannot load native Arm64 DLLs, only Intel or Arm64EC. Windows also
+supports an Arm64X "fat" binary PE format which contains both
+Intel/Arm64EC and Arm64 binaries. Note that there is no "fat binary"
+format on Windows that contains plain Intel x64 *and* Arm64 code.
+
+In practice, the Windows hosts that run on Arm64 hardware today (such
+as DaVinci Resolve and Vegas Pro) are Arm64EC; there are not yet any
+native Arm64 or Arm64X OpenFX hosts. This standard therefore defines a
+single new folder, ``Win-arm64ec``, and defers naming ``Win-arm64``
+and ``Win-arm64x`` folders until a host needs them (see *Future
+Architecture Compatibility* below).
+
+**Plug-ins**: Arm64EC plug-ins must be installed in the
+``Win-arm64ec`` folder. An Arm64X plug-in (which includes an Arm64EC
+branch) may also be installed there so that Arm64EC hosts will find
+it.
+
+**Hosts**: An Arm64EC host should load plug-ins from the
+``Win-arm64ec`` folder. Because an unmodified x64 host runs in
+emulation on Arm64 hardware and would otherwise look only in
+``Win64``, an x64 host should detect when it is running under Arm64
+emulation and, if so, also check the ``Win-arm64ec`` folder when it
+exists, preferring a native Arm64EC plug-in there over the emulated
+x64 plug-in in ``Win64``.
+
+Future Architecture Compatibility
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+NOTE: this section is not yet normative, but informational.
+
+Note that Linux does not support universal binaries. Each
+.ofx file is for one architecture, so a host must check the proper
+architecture-specific subdir. Windows on Arm64 processors is similar.
+
+When OpenFX apps on Linux support alternative processor architectures
+such as arm64, hosts should look in appropriately-named subdirs for
+the proper .ofx plugin file. On Linux, hosts should look in the subdir
+named by ``Linux-${uname -m}`` which for arm64 should be
+``Linux-aarch64``. Using ``uname -m`` rather than a hard-coded list
+allows for transparently supporting any future architectures.
+
+On Windows, when native Arm64 or Arm64X OpenFX hosts appear, the
+standard expects to add ``Win-arm64`` and ``Win-arm64x`` folders
+following the same naming pattern. A native Arm64 host (which can load
+only Arm64 DLLs) would then prefer ``Win-arm64``, falling back to
+``Win-arm64x``. These folder names are reserved but not yet
+normative, pending a host that needs them.
+
+
+Structure
+^^^^^^^^^
+
+This directory structure is necessary on OS X, but it also gives a
+nice skeleton to hang all other operating systems from in a single
+install, as well as a clean place to put resources.
 
 The ``Info.plist`` is specific to Apple and you should consult the Apple
 developer's website for more details. It should contain the following
-keys...
+keys:
 
 -  ``CFBundleExecutable`` - the name of the binary bundle in the MacOS
    directory
@@ -108,12 +183,12 @@ keys...
 -  ``CFBundleVersion``
 -  ``CFBundleDevelopmentRegion``
 
-.. ArchitectureInstallingLocation:
+.. _ArchitectureInstallingLocation:
 
 Installation Location
 ---------------------
 
-plug-ins are searched for in a variety of locations, both default and
+Plug-ins are searched for in a variety of locations, both default and
 user specified. All such directories are examined for plug-in bundles
 and sub directories are also recursively examined.
 

@@ -102,6 +102,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
    - Valid Values
       - 0 - host/plugin is not multiplanar
       - 1 - host/plugin is multiplanar
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: nuke
 */
 #define kFnOfxImageEffectPropMultiPlanar "uk.co.thefoundry.OfxImageEffectPropMultiPlanar"
 
@@ -122,7 +127,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  all planes will be transformed with minimalist changes to the plug-in code. Note that with this value the plug-in must NOT have
  flagged kFnOfxImageEffectPropMultiPlanar to true.
 
-The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tghe 
+The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tghe
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: nuke
 */
 #define kFnOfxImageEffectPropPassThroughComponents "uk.co.thefoundry.OfxImageEffectPropPassThroughComponents"
 
@@ -138,7 +148,16 @@ The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tgh
         - kFnOfxImagePlaneStereoDisparityLeft
         - kFnOfxImagePlaneStereoDisparityRight
 
-
+    @propdef
+    type: enum
+    dimension: N
+    values:
+      - uk.co.thefoundry.OfxImagePlaneColour
+      - uk.co.thefoundry.OfxImagePlaneBackMotionVector
+      - uk.co.thefoundry.OfxImagePlaneForwardMotionVector
+      - uk.co.thefoundry.OfxImagePlaneStereoDisparityLeft
+      - uk.co.thefoundry.OfxImagePlaneStereoDisparityRight
+    extension: nuke
 */
 #define kFnOfxImageEffectPropComponentsPresent "uk.co.thefoundry.OfxImageEffectClipPropPlanesPresent"
 
@@ -151,6 +170,11 @@ The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tgh
  Valid values - 0 in which case a single plane is passed to the render action or 1 in which case the render action is expected to render 
  all planes returned from kFnOfxImageEffectActionGetClipComponents
  Default value - 0
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: nuke
  */
 #define kOfxImageEffectPropRenderAllPlanes "OfxImageEffectPropRenderAllPlanes"
 
@@ -168,6 +192,11 @@ The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tgh
     * And any custom plane defined in Natron extensions in ofxNatron.h
 
  - If empty, this can be assumed that the plane kFnOfxImagePlaneColour should be rendered at least.
+
+    @propdef
+    type: string
+    dimension: N
+    extension: nuke
  */
 #define kOfxImageEffectPropRenderPlanes "OfxImageEffectPropRenderPlanes"
 
@@ -187,6 +216,10 @@ The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tgh
 
  - If empty, this can be assumed that the plane kFnOfxImagePlaneColour should be rendered at least.
 
+    @propdef
+    type: string
+    dimension: 1
+    extension: nuke
  */
 #define kOfxImageEffectPropIdentityPlane "OfxImageEffectPropIdentityPlane"
 
@@ -229,6 +262,11 @@ The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tgh
    - Valid Values
       - name of a clip - pass through planes will be taken from this clip
       - "" - no planes will be passed through
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: nuke
 */
 #define kFnOfxImageEffectPropPassThroughClip "uk.co.thefoundry.ImageEffectPropPassThroughClip"
 
@@ -240,6 +278,11 @@ The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tgh
    - Default - the 'render' time
    - Valid Values
       - if the ::kFnOfxImageEffectPropPassThroughClip, any frame specified in the get frames needed action
+
+    @propdef
+    type: double
+    dimension: 1
+    extension: nuke
 */
 #define kFnOfxImageEffectPropPassThroughTime "uk.co.thefoundry.ImageEffectPropPassThroughTime"
 
@@ -251,6 +294,11 @@ The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tgh
    - Default - the 'render' view
    - Valid Values
       - if the ::kFnOfxImageEffectPropPassThroughClip, any view specified in the get views needed action
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: nuke
 */
 #define kFnOfxImageEffectPropPassThroughView "uk.co.thefoundry.ImageEffectPropPassThroughView"
 
@@ -265,6 +313,11 @@ The plugin must have flagged kFnOfxImageEffectPropMultiPlanar as true, if so tgh
    - Valid Values
       - 0 - plugin is not view aware
       - 1 - plugin is view aware
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: nuke
 */
 #define kFnOfxImageEffectPropViewAware "uk.co.thefoundry.OfxImageEffectPropViewAware"
 
@@ -279,6 +332,11 @@ This property includes pass-throughs.
       - 0 - plugin will produce different output images depenedent on the view being rendered
       - 1 - plugin will produced exactly the same image for all output views only on the rendered planes, pass through are view variant
       - 2 - plugin will produced exactly the same image for all output views for all planes (even pass through)
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: nuke
 */
 #define kFnOfxImageEffectPropViewInvariance "uk.co.thefoundry.OfxImageEffectPropViewInvariance"
 
@@ -304,6 +362,11 @@ For view aware plugins, this action is called instead of the standard getframesn
    - Default - 0
    - Valid Values
       - any valid view number
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: nuke
  */
 #define kFnOfxImageEffectPropView "uk.co.thefoundry.OfxImageEffectPropView"
 
@@ -517,7 +580,13 @@ this was originally a 4 by 4 matrix but as Phil said, we cant guess the depth z 
 - Default - the identity matrix
 - Valid Values - any matrix value 
 
-The 9 values of this property represent a 2D 3 by 3 matrix. The matrix is in row/column format.**/
+The 9 values of this property represent a 2D 3 by 3 matrix. The matrix is in row/column format.*
+
+    @propdef
+    type: double
+    dimension: 9
+    extension: nuke
+*/
 
 #define kFnOfxPropMatrix2D "FnOfxPropMatrix2D"
  

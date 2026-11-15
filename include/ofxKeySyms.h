@@ -51,6 +51,10 @@ Some keys, especially on non-english language systems, may have a UTF8 value, bu
 cases, the keysym will have a value of kOfxKey_Unknown, but the ::kOfxPropKeyString property will still be set with
 the UTF8 value.
 
+    @propdef
+  type: int
+  dimension: 1
+  cname: kOfxPropKeySym
  */
 #define kOfxPropKeySym "kOfxPropKeySym"
 
@@ -68,6 +72,11 @@ in which case this is set to the empty string "", and the associate ::kOfxPropKe
 Some keys, especially on non-english language systems, may have a UTF8 value, but \em not a keysym values, in these
 cases, the keysym will have a value of kOfxKey_Unknown, but the ::kOfxPropKeyString property will still be set with
 the UTF8 value.
+
+    @propdef
+  type: string
+  dimension: 1
+  cname: kOfxPropKeyString
 */
 #define kOfxPropKeyString "kOfxPropKeyString"
 

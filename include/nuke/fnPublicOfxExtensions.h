@@ -50,6 +50,10 @@
 
    This is a property on parameters of type ::kOfxParamPropLayoutHint, and tells the group whether it should be open or closed by default.
 
+    @propdef
+    type: int
+    dimension: 1
+    extension: nuke
  */
 #define kOfxParamPropLayoutHint "OfxParamPropLayoutHint"
 
@@ -71,6 +75,11 @@
 
    This is a property on parameters of type ::kOfxParamPropLayoutPadWidth
    It tells the host how much space (in pixels) to leave between the current parameter and the next parameter in horizontal layouts.
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: nuke
  */
 #define kOfxParamPropLayoutPadWidth "OfxParamPropLayoutPadWidth"
 
@@ -82,6 +91,11 @@
     - Valid Values - greater than or equal to 0.0
 
    This is a property of an overlay interact instance.
+
+    @propdef
+    type: double
+    dimension: 3
+    extension: nuke
  */
 #define kOfxPropOverlayColour "OfxPropOverlayColour"
 
@@ -100,6 +114,11 @@
     - Property Set - host descriptor (read only), plugin descriptor (read/write)
     - Default - none
     - Valid Values - ASCII string
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: nuke
  */
 #define kOfxPropHostProductTitle "OfxPropHostProductTitle"
 
@@ -109,6 +128,11 @@
     - Property Set - param set instance (read/write)
     - Default - none
     - Valid Values - any positive integer values
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: nuke
  */
 #define kOfxPropHostMajorVersion "OfxPropHostMajorVersion"
 
@@ -118,6 +142,11 @@
     - Property Set - param set instance (read/write)
     - Default - none
     - Valid Values - any positive integer values
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: nuke
  */
 #define kOfxPropHostMinorVersion "OfxPropHostMinorVersion"
 
@@ -127,6 +156,11 @@
     - Property Set - host descriptor (read only), plugin descriptor (read/write)
     - Default - none
     - Valid Values - ASCII string
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: nuke
  */
 #define kOfxPropHostBuildVersion "OfxPropHostBuildVersion"
 
@@ -136,6 +170,11 @@
     - Property Set - plugin parameter descriptor (read/write) and instance (read only)
     - Default - 0
     - Valid Values - 0 or 1
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: nuke
  */
 #define kFnOfxParamPropGroupIsTab "FnOfxParamPropGroupIsTab"
 

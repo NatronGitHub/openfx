@@ -1,3 +1,4 @@
+.. SPDX-License-Identifier: CC-BY-4.0
 .. _imageEffectContexts:
 Image Effect Contexts
 =====================
@@ -31,7 +32,7 @@ The current contexts defined in OFX are:
 
    Two compulsory input clips and a compulsory 'Transition' double parameter
    Used to perform transitions between clips, typically in editing
-      applications, eg: a cross dissolve,
+   applications, eg: a cross dissolve,
 
 -  :c:macro:`kOfxImageEffectContextPaint`
 
@@ -89,7 +90,7 @@ During the :c:macro:`kOfxImageEffectActionDescribeInContext` action, an effect
 must describe all clips and parameters that it intends to use. This
 includes the mandated clips and parameters for that context.
 
-A plugin instance is created in a specific contex which will not changed
+A plugin instance is created in a specific context which will not changed
 over the lifetime of that instance. The context can be retrieved from
 the instance via the
 :c:macro:`kOfxImageEffectPropContext`
@@ -237,7 +238,7 @@ The Retimer Context
 -------------------
 
 The retimer context is for effects that change the length of a clip by
-interpolating frames from the source clip to create an inbetween output
+interpolating frames from the source clip to create an in between output
 frame.
 
 In this context, a plugin has the following mandated objects...
@@ -278,7 +279,7 @@ In this context, has the following mandated objects...
 
 -  an output clip named *Output*
 
-.. ImageEffectContextMandatedParameters:
+.. _ImageEffectContextMandatedParameters:
 
 Parameters Mandated In A Context
 --------------------------------

@@ -1,0 +1,19 @@
+@PACKAGE_INIT@
+
+# openfx CMake package: targets openfx::Api (C headers), openfx::HostSupport
+# (libOfxHost) and openfx::Support (libOfxSupport), plus add_ofx_plugin().
+# The compile definitions used to build the libraries (OFX_EXTENSIONS_*,
+# OFX_SUPPORTS_*) are usage requirements of the library targets.
+include(CMakeFindDependencyMacro)
+set(OFX_USE_SYSTEM_EXPAT @OFX_USE_SYSTEM_EXPAT@)
+if(OFX_USE_SYSTEM_EXPAT)
+  find_dependency(EXPAT)
+  if(NOT TARGET expat::expat)
+    add_library(expat::expat INTERFACE IMPORTED)
+    target_link_libraries(expat::expat INTERFACE EXPAT::EXPAT)
+  endif()
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/openfxTargets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/OpenFX.cmake")
+check_required_components(openfx)
