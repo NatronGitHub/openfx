@@ -43,6 +43,7 @@ This file only holds code that is visible to a plugin implementation, and so hid
 of the direct OFX objects and any library side only functions.
 */
 #include "ofxsParam.h"
+#include "ofxDrawSuite.h" // OFX 1.5 DrawSuite
 
 #include <list>
 
@@ -57,6 +58,44 @@ namespace OFX {
 
   /** @brief forward declaration */
   class ImageEffect;
+
+  /** @brief Wraps the OFX 1.5 DrawSuite (OfxDrawSuiteV1) for an overlay's draw action.
+
+   Obtained from DrawArgs::drawContext, which is NULL if the host lacks the DrawSuite.
+   Only valid during the draw action it was passed to. Coordinates are canonical, as for
+   OpenGL overlays. The functions return false (and never throw) if the host reports a
+   failure; see include/ofxDrawSuite.h for the semantics.
+   */
+  class DrawContext {
+  public:
+    DrawContext() : _handle(0) {}
+    explicit DrawContext(OfxDrawContextHandle handle) : _handle(handle) {}
+
+    /** @brief the C handle (kOfxInteractPropDrawContext) */
+    OfxDrawContextHandle getHandle() const { return _handle; }
+
+    /** @brief get one of the host's standard overlay colours */
+    bool getColour(OfxStandardColour stdColour, OfxRGBAColourF &colour) const;
+
+    /** @brief set the colour of the next primitives ("over" compositing if not opaque) */
+    bool setColour(const OfxRGBAColourF &colour) const;
+    bool setColour(float r, float g, float b, float a = 1.f) const;
+
+    /** @brief set the line width: 0 for a single pixel line, else smooth line of that width */
+    bool setLineWidth(float width) const;
+
+    /** @brief set the line stipple pattern */
+    bool setLineStipple(OfxDrawLineStipplePattern pattern) const;
+
+    /** @brief draw a primitive (lines, line strip/loop, rectangle, polygon, ellipse) */
+    bool draw(OfxDrawPrimitive primitive, const OfxPointD *points, int pointCount) const;
+
+    /** @brief draw UTF-8 text at pos, aligned with kOfxDrawTextAlignment* flags (font chosen by the host) */
+    bool drawText(const std::string &text, const OfxPointD &pos, int alignment = kOfxDrawTextAlignmentLeft | kOfxDrawTextAlignmentBaseline) const;
+
+  private:
+    OfxDrawContextHandle _handle;
+  };
 
   /// all image effect interacts have these argumens
   struct InteractArgs {
@@ -79,12 +118,23 @@ namespace OFX {
   /** @brief struct to pass arguments into OFX::Interact::draw */
   struct DrawArgs : public InteractArgs {
     DrawArgs(const PropertySet &props);
+    DrawArgs(const DrawArgs &other);
+    DrawArgs &operator=(const DrawArgs &other);
+
+    /** @brief OFX 1.5 DrawSuite context for this draw action, or NULL if the host doesn't
+        provide the DrawSuite. An overlay registered with
+        ImageEffectDescriptor::setOverlayInteractDescriptorV2() gets a non-NULL context
+        (and MUST draw with it, not OpenGL) whenever the host supports it. */
+    const DrawContext *drawContext;
 
 #ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
     OfxPointD       viewportSize;      /**< @brief The openGL viewport size for the instance */
 #endif
     OfxPointD       pixelScale;        /**< @brief The size of a real screen pixel under the interact's canonical projection */
     OfxRGBColourD   backGroundColour;  /**< @brief The current background colour, ignore the A */
+
+  private:
+    DrawContext     _drawContextStorage; // drawContext points here when valid
   };
 
   /** @brief POD  to pass arguments into OFX::Interact pen actions */

@@ -120,6 +120,12 @@ namespace OFX {
         /// created.
         virtual void initDescriptor(Descriptor* desc);
 
+        /// Override this and return true if the host implements the OFX 1.5 DrawSuite, i.e.
+        /// if its overlay interacts (Interact::Instance) override the draw*() hooks.
+        /// Then fetchSuite(kOfxDrawSuite, 1) succeeds, and overlays registered with
+        /// kOfxImageEffectPluginPropOverlayInteractV2 are used. Default: false.
+        virtual bool supportsDrawSuite() const;
+
 #ifdef OFX_SUPPORTS_MULTITHREAD
         // these functions must be implemented if the host supports OfxMultiThreadSuiteV1
         // all the following functions are described in ofxMultiThread.h
@@ -248,8 +254,24 @@ namespace OFX {
         bool getUsesMultiThreading() const;
 #endif
 
-        /// get the overlay interact main entry if it exists
+        /// get the overlay interact main entry if it exists.
+        ///
+        /// This is the kOfxImageEffectPluginPropOverlayInteractV2 entry if the plug-in set
+        /// one and the host supports the DrawSuite (Host::supportsDrawSuite()), else the
+        /// kOfxImageEffectPluginPropOverlayInteractV1 entry (OFX 1.5: "If the plugin requests
+        /// OverlayInteractV2 and the host supports it, then the plugin *must* do all drawing
+        /// with the DrawSuite, not OpenGL").
         OfxPluginEntryPoint *getOverlayInteractMainEntry() const;
+
+        /// the kOfxImageEffectPluginPropOverlayInteractV1 entry (OpenGL drawing), or NULL
+        OfxPluginEntryPoint *getOverlayInteractV1MainEntry() const;
+
+        /// the kOfxImageEffectPluginPropOverlayInteractV2 entry (DrawSuite drawing), or NULL
+        OfxPluginEntryPoint *getOverlayInteractV2MainEntry() const;
+
+        /// true if getOverlayInteractMainEntry() returns the V2 entry, i.e. the overlay
+        /// draws with the DrawSuite (the host must not expect OpenGL calls from it)
+        bool isOverlayInteractV2() const;
 
         /// does the effect support images of differing sizes
         bool supportsMultiResolution() const;

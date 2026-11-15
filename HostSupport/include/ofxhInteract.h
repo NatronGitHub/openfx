@@ -32,6 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define OFX_INTERACT_H
 
 #include "ofxOld.h" // old plugins may rely on deprecated properties being present
+#include "ofxDrawSuite.h" // OFX 1.5 DrawSuite
 #ifdef OFX_EXTENSIONS_NATRON
 #include "ofxPixels.h" // for OfxRGBAColourD
 #endif
@@ -44,6 +45,10 @@ namespace OFX {
       
       /// fetch a versioned suite for our interact
       const void *GetSuite(int version);
+
+      /// fetch a versioned OfxDrawSuite (kOfxDrawSuite, OFX 1.5). Hosts only hand it out
+      /// if they implement the Instance::draw*() hooks, see ImageEffect::Host::supportsDrawSuite()
+      const void *GetDrawSuite(int version);
       
       class Base {
       public:
@@ -115,6 +120,9 @@ namespace OFX {
         void         *_effectInstance; ///< this is ugly, we need a base class to all plugin instances at some point.
         Property::Set _argProperties;
 
+        /// true while kOfxInteractActionDraw is being called: the DrawSuite may only be used then
+        bool          _inDraw;
+
         /// initialise the argument properties
         void initArgProp(Property::Set& props,
                          OfxTime time,
@@ -180,6 +188,70 @@ namespace OFX {
 
         /// implement this
         virtual OfxStatus redraw() = 0;
+
+        /// @name DrawSuite hooks (OFX 1.5, OfxDrawSuiteV1)
+        ///
+        /// The draw context passed to the plug-in in kOfxInteractPropDrawContext during
+        /// kOfxInteractActionDraw identifies this instance. The OfxDrawSuiteV1 functions
+        /// call these hooks only during that action (outside it they return kOfxStatFailed:
+        /// "failure, e.g. if function is called outside kOfxInteractActionDraw"), after
+        /// checking their arguments (kOfxStatErrValue for an invalid colour enum, stipple
+        /// pattern, primitive, point count, or NULL text/pos). A host that returns true from
+        /// ImageEffect::Host::supportsDrawSuite() must override them to draw in this
+        /// interact's view. The defaults return kOfxStatErrMissingHostFeature.
+        /// The semantics of each function are those of include/ofxDrawSuite.h.
+        ///
+        /// Graphics state: HostSupport makes no OpenGL (or other graphics API) call around
+        /// these hooks, and does not require any graphics context to be current. They are
+        /// called synchronously, on the thread that called drawAction(), from inside the
+        /// plug-in's kOfxInteractActionDraw, in the order the plug-in issues them. The host
+        /// decides how to render them (OpenGL, Metal, a QPainter, a display list replayed
+        /// later, ...) and is responsible for any context/state it needs. Colour, line
+        /// width and stipple are state of this draw context: they apply to the following
+        /// drawPrimitive/drawText calls of the same draw action ("Sets the colour for
+        /// future drawing operations", "Sets the line width for future line drawing
+        /// operations").
+        ///
+        /// Coordinates and units. HostSupport passes all values to the hooks unchanged, so
+        /// any conversion to the host's drawing space is the host's job.
+        /// - drawPrimitive() points and drawText() pos: ofxDrawSuite.h does not state their
+        ///   coordinate space explicitly. They are in the same space as everything else in
+        ///   an overlay's draw action, i.e. the interact's canonical coordinates: the draw
+        ///   action is called with "the projection matrix will correspond to the
+        ///   interact's canonical view" (ofxInteract.h, kOfxInteractActionDraw), pen
+        ///   positions are "in the interact's canonical coordinates"
+        ///   (kOfxInteractPropPenPosition), and the primitives are defined by analogy with
+        ///   OpenGL ("like GL_LINES", "like GL_LINE_STRIP", ...). A host whose view draws
+        ///   in canonical coordinates (e.g. with a zoom/pan transform) can use them as is;
+        ///   kOfxInteractPropPixelScale ("The size of a real screen pixel under the
+        ///   interact's canonical projection") gives the canonical-to-screen scale.
+        ///   kOfxDrawPrimitiveRectangle and kOfxDrawPrimitiveEllipse take "2 opposite corner
+        ///   points" of an axis-aligned rectangle (not necessarily bottom-left/top-right).
+        /// - drawSetLineWidth(width): in screen pixels, not canonical units: "Use width 0
+        ///   for a single pixel line or non-zero for a smooth line of the desired width.
+        ///   The host should adjust for screen density" (i.e. multiply by the device pixel
+        ///   ratio on high-density displays). It does not scale with the view's zoom.
+        /// - drawSetLineStipple(pattern): an OfxDrawLineStipplePattern (solid, dot, dash,
+        ///   alt dash, dot dash); the spec does not define the dash lengths, which the host
+        ///   chooses in screen space, independent of the zoom, like the line width.
+        /// - drawText(text, pos, alignment): text is UTF-8; pos is aligned with the
+        ///   kOfxDrawTextAlignment* flags (pos is a point in canonical coordinates, see
+        ///   above); "The text font face and size are determined by the host", in screen
+        ///   space (the text does not scale with the zoom).
+        /// - drawSetColour/drawGetColour: OfxRGBAColourF in [0,1]; "The host should use
+        ///   "over" compositing when using a non-opaque colour". drawGetColour returns the
+        ///   host's standard overlay colours (OfxStandardColour).
+        /// @{
+        virtual OfxStatus drawGetColour(OfxStandardColour std_colour, OfxRGBAColourF *colour);
+        virtual OfxStatus drawSetColour(const OfxRGBAColourF *colour);
+        virtual OfxStatus drawSetLineWidth(float width);
+        virtual OfxStatus drawSetLineStipple(OfxDrawLineStipplePattern pattern);
+        virtual OfxStatus drawPrimitive(OfxDrawPrimitive primitive, const OfxPointD *points, int point_count);
+        virtual OfxStatus drawText(const char *text, const OfxPointD *pos, int alignment);
+        /// @}
+
+        /// is kOfxInteractActionDraw currently being called on this instance?
+        bool isInDraw() const { return _inDraw; }
 
         /// returns the params the interact uses
         virtual void getSlaveToParam(std::vector<std::string>& params) const;

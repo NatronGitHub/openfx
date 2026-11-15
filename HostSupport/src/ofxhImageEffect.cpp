@@ -276,7 +276,28 @@ namespace OFX {
       /// get the overlay interact main entry if it exists
       OfxPluginEntryPoint *Base::getOverlayInteractMainEntry() const
       {
+        if (isOverlayInteractV2()) {
+          return getOverlayInteractV2MainEntry();
+        }
+        return getOverlayInteractV1MainEntry();
+      }
+
+      OfxPluginEntryPoint *Base::getOverlayInteractV1MainEntry() const
+      {
         return (OfxPluginEntryPoint *)(_properties.getPointerProperty(kOfxImageEffectPluginPropOverlayInteractV1));
+      }
+
+      OfxPluginEntryPoint *Base::getOverlayInteractV2MainEntry() const
+      {
+        if (!_properties.fetchProperty(kOfxImageEffectPluginPropOverlayInteractV2, true)) {
+          return NULL;
+        }
+        return (OfxPluginEntryPoint *)(_properties.getPointerProperty(kOfxImageEffectPluginPropOverlayInteractV2));
+      }
+
+      bool Base::isOverlayInteractV2() const
+      {
+        return gImageEffectHost && gImageEffectHost->supportsDrawSuite() && getOverlayInteractV2MainEntry() != NULL;
       }
 
       /// does the effect support images of differing sizes
@@ -4521,6 +4542,11 @@ namespace OFX {
         }
       }
 
+      bool Host::supportsDrawSuite() const
+      {
+        return false;
+      }
+
       /// our suite fetcher
       const void *Host::fetchSuite(const char *suiteName, int suiteVersion)
       {
@@ -4556,6 +4582,10 @@ namespace OFX {
 #endif
         else if (strcmp(suiteName, kOfxInteractSuite)==0) {
           return Interact::GetSuite(suiteVersion);
+        }
+        else if (strcmp(suiteName, kOfxDrawSuite)==0) {
+          // OFX 1.5 DrawSuite: only if the host implements the Interact::Instance draw hooks
+          return supportsDrawSuite() ? Interact::GetDrawSuite(suiteVersion) : NULL;
         }
         else if (strcmp(suiteName, kOfxProgressSuite)==0) {
           if(suiteVersion==1) 

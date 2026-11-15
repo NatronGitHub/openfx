@@ -271,6 +271,7 @@ namespace OFX {
     OfxImageEffectSuiteV1 *gEffectSuite = 0;
     OfxPropertySuiteV1    *gPropSuite = 0;
     OfxInteractSuiteV1    *gInteractSuite = 0;
+    OfxDrawSuiteV1        *gDrawSuite = 0;
     OfxParameterSuiteV1   *gParamSuite = 0;
     OfxMemorySuiteV1      *gMemorySuite = 0;
     OfxMultiThreadSuiteV1 *gThreadSuite = 0;
@@ -1055,6 +1056,20 @@ namespace OFX {
     _overlayDescriptor.reset(desc);
     if(OFX::gHostDescription.supportsOverlays && desc->getMainEntry())
       _effectProps.propSetPointer(kOfxImageEffectPluginPropOverlayInteractV1, (void*)desc->getMainEntry());
+  }
+
+  bool ImageEffectDescriptor::setOverlayInteractDescriptorV2(EffectOverlayDescriptor* desc)
+  {
+    if (!OFX::gHostDescription.supportsDrawSuite) {
+      // no DrawSuite: register the same overlay as V1. It then gets
+      // DrawArgs::drawContext == NULL and must draw with OpenGL.
+      setOverlayInteractDescriptor(desc);
+      return false;
+    }
+    _overlayDescriptor.reset(desc);
+    if(OFX::gHostDescription.supportsOverlays && desc->getMainEntry())
+      _effectProps.propSetPointer(kOfxImageEffectPluginPropOverlayInteractV2, (void*)desc->getMainEntry(), false);
+    return true;
   }
 
 #ifdef OFX_EXTENSIONS_VEGAS
@@ -4129,6 +4144,11 @@ namespace OFX {
         if(OFX::gHostDescription.supportsOverlays || OFX::gHostDescription.supportsCustomInteract)
           gInteractSuite  = (OfxInteractSuiteV1 *)    fetchSuite(kOfxInteractSuite, 1);
 
+        // OFX 1.5 DrawSuite, optional: lets overlays draw without OpenGL (see
+        // ImageEffectDescriptor::setOverlayInteractDescriptorV2() and DrawArgs::drawContext)
+        gDrawSuite = OFX::gHostDescription.supportsOverlays ? (OfxDrawSuiteV1 *) fetchSuite(kOfxDrawSuite, 1, true) : NULL;
+        OFX::gHostDescription.supportsDrawSuite = gDrawSuite != NULL;
+
 #ifdef OFX_EXTENSIONS_VEGAS
 #if defined(WIN32) || defined(WIN64)
         gHWNDInteractSuite  = (OfxHWNDInteractSuiteV1 *)    fetchSuite(kOfxHWndInteractSuite, 1, true);
@@ -4169,6 +4189,7 @@ namespace OFX {
         gMessageSuite = 0;
         gMessageSuiteV2 = 0;
         gInteractSuite = 0;
+        gDrawSuite = 0;
         gParametricParameterSuite = 0;
         gOpenCLProgramSuite = 0;
 #ifdef OFX_EXTENSIONS_NUKE

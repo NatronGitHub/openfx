@@ -64,6 +64,7 @@ namespace OFX {
 
     /** @brief Pointer to the  interact suite */
     extern OfxInteractSuiteV1    *gInteractSuite;
+    extern OfxDrawSuiteV1        *gDrawSuite; // OFX 1.5 DrawSuite, NULL if the host lacks it
 
     /** @brief Pointer to the parameter suite */
     extern OfxParameterSuiteV1   *gParamSuite;

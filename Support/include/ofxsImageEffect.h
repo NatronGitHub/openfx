@@ -471,6 +471,7 @@ namespace OFX {
     std::string versionLabel;
     bool hostIsBackground;
     bool supportsOverlays;
+    bool supportsDrawSuite; ///< OFX 1.5: the host provides OfxDrawSuiteV1, so overlays may draw without OpenGL
     bool supportsMultiResolution;
     bool supportsTiles;
     bool temporalClipAccess;
@@ -940,6 +941,19 @@ namespace OFX {
       
     /** @brief override this to create an interact for the effect */
     virtual void setOverlayInteractDescriptor(EffectOverlayDescriptor* desc);
+
+    /** @brief register an overlay that draws with the OFX 1.5 DrawSuite (kOfxImageEffectPluginPropOverlayInteractV2)
+
+     If the host supports the DrawSuite (getImageEffectHostDescription()->supportsDrawSuite),
+     the overlay is registered as OverlayInteractV2, and its draw() gets a non-NULL
+     DrawArgs::drawContext, which it MUST use instead of OpenGL ("If this is called via
+     kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite").
+     Otherwise it is registered as OverlayInteractV1 (same as setOverlayInteractDescriptor()),
+     DrawArgs::drawContext is NULL, and draw() must use OpenGL.
+
+     Returns true if registered as V2.
+     */
+    bool setOverlayInteractDescriptorV2(EffectOverlayDescriptor* desc);
 
 #ifdef OFX_EXTENSIONS_VEGAS
 #if defined(WIN32) || defined(WIN64)
