@@ -3788,26 +3788,39 @@ namespace OFX {
       };
 #   endif
 
+      /// Map a message suite handle to an effect instance.
+      /// The handle may be NULL, a descriptor or an instance (see ofxMessage.h),
+      /// so it must not be blindly cast to ImageEffect::Instance.
+      static ImageEffect::Instance *messageHandleToInstance(void *handle, bool &isValidEffect)
+      {
+        ImageEffect::Base *effectBase = reinterpret_cast<ImageEffect::Base*>(handle);
+        isValidEffect = effectBase && effectBase->verifyMagic();
+        if (!isValidEffect) {
+          return NULL;
+        }
+        return dynamic_cast<ImageEffect::Instance*>(effectBase);
+      }
+
       /// message suite function for an image effect
       static OfxStatus message(void *handle, const char *type, const char *id, const char *format, ...)
       {
         try {
-        ImageEffect::Instance *effectInstance = reinterpret_cast<ImageEffect::Instance*>(handle);
-        OfxStatus stat;
-        if(effectInstance){
+          bool isValidEffect;
+          ImageEffect::Instance *effectInstance = messageHandleToInstance(handle, isValidEffect);
+          OfxStatus stat;
           va_list args;
           va_start(args,format);
-          stat = effectInstance->vmessage(type,id,format,args);
+          if (effectInstance) {
+            stat = effectInstance->vmessage(type,id,format,args);
+          } else if (gImageEffectHost) {
+            // NULL handle or descriptor handle: post the message on the host
+            stat = gImageEffectHost->vmessage(type,id,format,args);
+          } else {
+            vprintf(format,args);
+            stat = kOfxStatOK;
+          }
           va_end(args);
-        }
-        else{
-          va_list args;
-          va_start(args,format);
-          vprintf(format,args);
-          va_end(args);
-          stat = kOfxStatErrBadHandle;
-        }
-        return stat;
+          return stat;
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -3816,21 +3829,19 @@ namespace OFX {
       static OfxStatus setPersistentMessage(void *handle, const char *type, const char *id, const char *format, ...)
       {
         try {
-          ImageEffect::Instance *effectInstance = reinterpret_cast<ImageEffect::Instance*>(handle);
+          bool isValidEffect;
+          ImageEffect::Instance *effectInstance = messageHandleToInstance(handle, isValidEffect);
           OfxStatus stat;
-          if(effectInstance){
-            va_list args;
-            va_start(args,format);
+          va_list args;
+          va_start(args,format);
+          if (effectInstance) {
             stat = effectInstance->setPersistentMessage(type,id,format,args);
-            va_end(args);
-          }
-          else{
-            va_list args;
-            va_start(args,format);
+          } else {
+            // the handle must be an effect instance handle, "may NOT be null"
             vprintf(format,args);
-            va_end(args);
             stat = kOfxStatErrBadHandle;
           }
+          va_end(args);
           return stat;
         } catch (...) {
           return kOfxStatFailed;
@@ -3840,15 +3851,13 @@ namespace OFX {
       static OfxStatus clearPersistentMessage(void *handle)
       {
         try {
-          ImageEffect::Instance *effectInstance = reinterpret_cast<ImageEffect::Instance*>(handle);
-          OfxStatus stat;
-          if(effectInstance){
-            stat = effectInstance->clearPersistentMessage();
+          bool isValidEffect;
+          ImageEffect::Instance *effectInstance = messageHandleToInstance(handle, isValidEffect);
+          if (effectInstance) {
+            return effectInstance->clearPersistentMessage();
           }
-          else{
-            stat = kOfxStatErrBadHandle;
-          }
-          return stat;
+          // a descriptor never has persistent messages: nothing to clear
+          return isValidEffect ? kOfxStatOK : kOfxStatErrBadHandle;
         } catch (...) {
           return kOfxStatFailed;
         }
