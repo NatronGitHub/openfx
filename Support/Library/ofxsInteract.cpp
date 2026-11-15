@@ -355,10 +355,66 @@ namespace OFX {
 #endif
   }
 
+  ////////////////////////////////////////////////////////////////////////////////
+  // DrawContext: wraps the OFX 1.5 DrawSuite
+
+  bool DrawContext::getColour(OfxStandardColour stdColour, OfxRGBAColourF &colour) const
+  {
+    return _handle && OFX::Private::gDrawSuite &&
+           OFX::Private::gDrawSuite->getColour(_handle, stdColour, &colour) == kOfxStatOK;
+  }
+
+  bool DrawContext::setColour(const OfxRGBAColourF &colour) const
+  {
+    return _handle && OFX::Private::gDrawSuite &&
+           OFX::Private::gDrawSuite->setColour(_handle, &colour) == kOfxStatOK;
+  }
+
+  bool DrawContext::setColour(float r, float g, float b, float a) const
+  {
+    OfxRGBAColourF colour;
+    colour.r = r; colour.g = g; colour.b = b; colour.a = a;
+    return setColour(colour);
+  }
+
+  bool DrawContext::setLineWidth(float width) const
+  {
+    return _handle && OFX::Private::gDrawSuite &&
+           OFX::Private::gDrawSuite->setLineWidth(_handle, width) == kOfxStatOK;
+  }
+
+  bool DrawContext::setLineStipple(OfxDrawLineStipplePattern pattern) const
+  {
+    return _handle && OFX::Private::gDrawSuite &&
+           OFX::Private::gDrawSuite->setLineStipple(_handle, pattern) == kOfxStatOK;
+  }
+
+  bool DrawContext::draw(OfxDrawPrimitive primitive, const OfxPointD *points, int pointCount) const
+  {
+    return _handle && OFX::Private::gDrawSuite &&
+           OFX::Private::gDrawSuite->draw(_handle, primitive, points, pointCount) == kOfxStatOK;
+  }
+
+  bool DrawContext::drawText(const std::string &text, const OfxPointD &pos, int alignment) const
+  {
+    return _handle && OFX::Private::gDrawSuite &&
+           OFX::Private::gDrawSuite->drawText(_handle, text.c_str(), &pos, alignment) == kOfxStatOK;
+  }
+
   /** @brief ctor */
   DrawArgs::DrawArgs(const PropertySet &props)
     : InteractArgs(props)
+    , drawContext(NULL)
   {
+    // OFX 1.5 DrawSuite: kOfxInteractPropDrawContext in the draw action inArgs
+    OfxDrawContextHandle handle = NULL;
+    if (OFX::Private::gDrawSuite) {
+      handle = (OfxDrawContextHandle)props.propGetPointer(kOfxInteractPropDrawContext, false);
+    }
+    _drawContextStorage = DrawContext(handle);
+    if (handle) {
+      drawContext = &_drawContextStorage;
+    }
 #ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
     viewportSize.x = viewportSize.y = 0.;
     props.propGetDoubleN(kOfxInteractPropViewportSize, &viewportSize.x, 2, false);
@@ -366,6 +422,35 @@ namespace OFX {
     backGroundColour = getBackgroundColour(props);
     pixelScale       = getPixelScale(props);
   }
+
+  DrawArgs::DrawArgs(const DrawArgs &other)
+    : InteractArgs(other)
+    , drawContext(NULL)
+#ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
+    , viewportSize(other.viewportSize)
+#endif
+    , pixelScale(other.pixelScale)
+    , backGroundColour(other.backGroundColour)
+    , _drawContextStorage(other._drawContextStorage)
+  {
+    if (other.drawContext) {
+      drawContext = &_drawContextStorage;
+    }
+  }
+
+  DrawArgs &DrawArgs::operator=(const DrawArgs &other)
+  {
+    InteractArgs::operator=(other);
+#ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
+    viewportSize = other.viewportSize;
+#endif
+    pixelScale = other.pixelScale;
+    backGroundColour = other.backGroundColour;
+    _drawContextStorage = other._drawContextStorage;
+    drawContext = other.drawContext ? &_drawContextStorage : NULL;
+    return *this;
+  }
+
 
   /** @brief ctor */
   PenArgs::PenArgs(const PropertySet &props)
