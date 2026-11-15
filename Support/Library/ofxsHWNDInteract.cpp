@@ -34,7 +34,8 @@ England
 
 */
 
-#if defined(WIN32) || defined(WIN64)
+// Vegas HWND interacts: only with OFX_EXTENSIONS_VEGAS, and only on Windows
+#if defined(OFX_EXTENSIONS_VEGAS) && (defined(WIN32) || defined(WIN64))
 
 /** @brief This file contains code that skins the ofx interact suite (for image effects) */
 
@@ -319,4 +320,4 @@ namespace OFX {
 
 }; // end of namespace
 
-#endif // #if defined(WIN32) || defined(WIN64)
+#endif // #if defined(OFX_EXTENSIONS_VEGAS) && (defined(WIN32) || defined(WIN64))

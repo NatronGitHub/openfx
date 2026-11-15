@@ -1,0 +1,137 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The Makefiles are what the consumers (openfx-misc, openfx-io, openfx-arena,
+  # openfx-gmic, Natron) build with, so they're tested first.
+  make:
+    name: Make (${{ matrix.os }})
+    # avoid duplicate runs when a pull request comes from a branch of this repository
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        # Support/include/osxDeploy.sh (release bundles) needs GNU sed
+        run: brew install gnu-sed
+      - name: Keep the bundled expat's autotools files up to date
+        # git checkout gives the files arbitrary mtimes, which may make expat's
+        # Makefile try to re-run aclocal/automake
+        run: |
+          cd HostSupport/expat-*/
+          touch aclocal.m4 && sleep 1 && touch configure Makefile.in */Makefile.in expat_config.h.in
+      - name: Support library
+        run: make -C Support/Library
+      - name: HostSupport
+        run: make -C HostSupport
+      - name: Example hosts
+        run: make -C HostSupport/examples
+      - name: Support sample plug-ins (debug)
+        run: make -C Support/Plugins CONFIG=debug
+      - name: Support sample plug-ins (release)
+        run: make -C Support/Plugins CONFIG=release
+      - name: Raw C API examples
+        run: make -C Examples
+      - name: Load the sample plug-ins with cacheDemo
+        run: |
+          set -e
+          dirs=$(find "$PWD/Support/Plugins" -maxdepth 2 -type d -name '*-release' | tr '\n' ':')
+          cd HostSupport/examples/*-release
+          OFX_PLUGIN_PATH="$dirs" ./cacheDemo > cachedemo.log 2>&1 || { cat cachedemo.log; exit 1; }
+          grep -c "Contexts:" cachedemo.log
+          test "$(grep -c "Contexts:" cachedemo.log)" -ge 5
+
+  cmake:
+    name: CMake (${{ matrix.os }}, ${{ matrix.config }}, extensions ${{ matrix.extensions }}${{ matrix.cxx && format(', C++{0}', matrix.cxx) || '' }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        config: [Release]
+        extensions: ['ON', 'OFF']
+        cxx: ['']   # default standard; the include entries below add C++20/23 jobs
+        include:
+          - os: ubuntu-latest
+            config: Debug
+            extensions: 'ON'
+          # newer C++ standards (the libraries also build as C++98/11)
+          - {os: ubuntu-latest, config: Release, extensions: 'ON', cxx: '20'}
+          - {os: ubuntu-latest, config: Release, extensions: 'ON', cxx: '23'}
+          - {os: macos-latest, config: Release, extensions: 'ON', cxx: '20'}
+          - {os: macos-latest, config: Release, extensions: 'ON', cxx: '23'}
+          - {os: windows-latest, config: Release, extensions: 'ON', cxx: '20'}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=${{ runner.os != 'Windows' && 'ON' || 'OFF' }}
+          -DOFX_EXTENSIONS_NATRON=${{ matrix.extensions }} -DOFX_EXTENSIONS_NUKE=${{ matrix.extensions }}
+          -DOFX_EXTENSIONS_VEGAS=${{ matrix.extensions }} -DOFX_EXTENSIONS_TUTTLE=${{ matrix.extensions }}
+          -DOFX_EXTENSIONS_RESOLVE=${{ matrix.extensions }}
+          -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins"
+          ${{ matrix.cxx && format('-DCMAKE_CXX_STANDARD={0} -DCMAKE_CXX_STANDARD_REQUIRED=ON', matrix.cxx) || '' }}
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }} --parallel
+      - name: Install
+        # PLUGIN_INSTALLDIR defaults to the system OFX folder; keep everything in the prefix here
+        shell: bash
+        run: cmake --install build --config ${{ matrix.config }} --prefix install
+      - name: Load the plug-ins with cacheDemo
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -e
+          demo=$(find build -type f -name cacheDemo -perm -u+x | head -1)
+          test -n "$demo"
+          OFX_PLUGIN_PATH="$PWD/build/Plugins" "$demo" > cachedemo.log 2>&1 || { cat cachedemo.log; exit 1; }
+          grep -c "Contexts:" cachedemo.log
+          test "$(grep -c "Contexts:" cachedemo.log)" -ge 5
+
+  checks:
+    name: Headers and property metadata
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Property metadata (@propdef)
+        run: |
+          pip install pyyaml
+          python scripts/check-props.py
+      - name: All headers together compile (C++98, C++17; all extension flag sets)
+        run: |
+          set -e
+          { echo '#include "ofxCore.h"'; echo '#include "ofxImageEffect.h"'
+            for h in $(cd include && ls *.h); do echo "#include \"$h\""; done
+            echo '#include "nuke/fnOfxExtensions.h"'; } > all.cpp
+          for std in c++98 c++17; do
+            for D in "" "-DOFX_EXTENSIONS_RESOLVE" "-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC_V2"; do
+              echo "== $std $D"
+              g++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude all.cpp
+            done
+          done

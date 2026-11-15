@@ -31,6 +31,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /// This example shows basic plugin cache management.
 
 #include <iostream>
+#include <cstring> // strcmp
 #include <fstream>
 #include <stdexcept>
 

@@ -39,6 +39,7 @@ England
 
 #include <math.h> // for floor
 #include <float.h> // for FLT_MAX
+#include <limits> // numeric_limits (FLT_MAX is missing with some C++20 toolchains)
 
 #include <stdio.h>
 #include "ofxsImageEffect.h"
@@ -373,7 +374,7 @@ void RetimerExamplePluginFactory::describeInContext(OFX::ImageEffectDescriptor &
     param->setScriptName("speed");
     param->setHint("How much to changed the speed of the input clip");
     param->setDefault(1);
-    param->setRange(-FLT_MAX, FLT_MAX);
+    param->setRange(-std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
     param->setIncrement(0.05);
     param->setDisplayRange(0, 1);
     param->setAnimates(true); // can animate
