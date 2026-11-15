@@ -60,49 +60,124 @@
 #define DIRLIST_SEP_CHARS ":;"
 #define DIRSEP "/"
 #include <dirent.h>
-
-static const char *getArchStr() 
-{
-  if(sizeof(void *) == 4) {
-#if defined(__linux__)
-    return  "Linux-x86";
-#else
-    return  "FreeBSD-x86";
-#endif
-  }
-  else {
-#if defined(__linux__)
-    return  "Linux-x86-64";
-#else
-    return  "FreeBSD-x86-64";
-#endif
-  }
-}
-
-#define ARCHSTR getArchStr()
+#include <sys/stat.h>
+#include <sys/utsname.h>
 
 #elif defined (__APPLE__)
 
 #define DIRLIST_SEP_CHARS ";:"
-#if defined(__x86_64) || defined(__x86_64__)
-#define ARCHSTR "MacOS-x86-64"
-#else
-#define ARCHSTR "MacOS"
-#endif
 #define DIRSEP "/"
 #include <dirent.h>
+#include <sys/stat.h>
 
 #elif defined (WINDOWS)
 #define DIRLIST_SEP_CHARS ";"
-#ifdef _WIN64
-#define ARCHSTR "win64"
-#else
-#define ARCHSTR "win32"
-#endif
 #define DIRSEP "\\"
 
 #include "shlobj.h"
 #endif
+
+#include "ofxhArchDirs.h"
+
+#if defined (WINDOWS) && (defined(_M_X64) || defined(_M_AMD64) || defined(__x86_64__)) && !defined(_M_ARM64EC)
+/// Is this x64 host running under emulation on Arm64 hardware?
+/// IsWow64Process2 (Windows 10 1709 and later) is looked up at run time, so that this builds with older SDKs
+/// and MinGW and runs on older Windows (which cannot emulate x64 on Arm64 anyway).
+static bool isX64EmulatedOnArm64()
+{
+  typedef BOOL (WINAPI *IsWow64Process2Fn)(HANDLE, USHORT *, USHORT *);
+  HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+  if (!kernel32) {
+    return false;
+  }
+  IsWow64Process2Fn isWow64Process2 = (IsWow64Process2Fn)(void *)GetProcAddress(kernel32, "IsWow64Process2");
+  if (!isWow64Process2) {
+    return false;
+  }
+  USHORT processMachine = 0;
+  USHORT nativeMachine = 0;
+  if (!isWow64Process2(GetCurrentProcess(), &processMachine, &nativeMachine)) {
+    return false;
+  }
+  return nativeMachine == 0xAA64; // IMAGE_FILE_MACHINE_ARM64
+}
+#endif
+
+/// The bundle ARCHITECTURE directories this host looks in, most preferred first (see ofxhArchDirs.h).
+static std::vector<std::string> getArchDirs()
+{
+  using namespace OFX::Host::ArchDirs;
+
+  // the architecture this host was compiled for
+#if defined(_M_ARM64EC)
+  const ArchEnum arch = eArchArm64EC;
+#elif defined(__x86_64) || defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64)
+  const ArchEnum arch = eArchX86_64;
+#elif defined(__i386) || defined(__i386__) || defined(_M_IX86)
+  const ArchEnum arch = eArchX86;
+#elif defined(__aarch64__) || defined(_M_ARM64)
+  const ArchEnum arch = eArchArm64;
+#else
+  const ArchEnum arch = eArchOther;
+#endif
+
+  bool x64EmulatedOnArm64 = false;
+  std::string machine; // `uname -m` for the compiled architecture (Linux, FreeBSD)
+#if defined (__linux__) || defined (__FreeBSD__)
+  // Use the compiled architecture for the common ones (a 32-bit host on a 64-bit kernel must not use the
+  // kernel's name), and the kernel's machine name otherwise.
+#  if defined(__aarch64__)
+#    if defined(__linux__)
+  machine = "aarch64";
+#    else
+  machine = "arm64";
+#    endif
+#  elif defined(__riscv) && defined(__riscv_xlen) && (__riscv_xlen == 64)
+  machine = "riscv64";
+#  elif defined(__powerpc64__) && defined(__LITTLE_ENDIAN__)
+  machine = "ppc64le";
+#  elif defined(__powerpc64__)
+  machine = "ppc64";
+#  elif defined(__s390x__)
+  machine = "s390x";
+#  elif defined(__loongarch64)
+  machine = "loongarch64";
+#  else
+  struct utsname u;
+  if (uname(&u) == 0) {
+    machine = u.machine;
+  }
+#  endif
+#endif
+
+#if defined (__linux__)
+  const OSEnum os = eOSLinux;
+#elif defined (__FreeBSD__)
+  const OSEnum os = eOSFreeBSD;
+#elif defined (__APPLE__)
+  const OSEnum os = eOSMacOS;
+#else
+  const OSEnum os = eOSWindows;
+#  if (defined(_M_X64) || defined(_M_AMD64) || defined(__x86_64__)) && !defined(_M_ARM64EC)
+  x64EmulatedOnArm64 = isX64EmulatedOnArm64();
+#  endif
+#endif
+
+  return archDirsFor(os, arch, x64EmulatedOnArm64, machine);
+}
+
+/// does the plug-in binary at this path exist?
+static bool binaryExists(const std::string &path)
+{
+#if defined (WINDOWS)
+  std::wstring wpath = OFX::utf8_to_utf16(path);
+  DWORD attr = GetFileAttributesW(wpath.c_str());
+  return attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY);
+#else
+  struct stat st;
+  return stat(path.c_str(), &st) == 0 && !S_ISDIR(st.st_mode);
+#endif
+}
 
 
 bool OFX::Host::PluginCache::_useStdOFXPluginsLocation = true;
@@ -366,6 +441,8 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
 #endif
   
   _pluginDirs.push_back(dir.c_str());
+
+  const std::vector<std::string> archDirs = getArchDirs();
   
 #if defined (UNIX)
   while (dirent *de = readdir(d))
@@ -395,49 +472,30 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
       if (name.find(".ofx.bundle") != std::string::npos) {
         std::string barename = name.substr(0, name.length() - strlen(".bundle"));
         std::string bundlename = dir + DIRSEP + name;
-        std::string binpath = dir + DIRSEP + name + DIRSEP "Contents" DIRSEP + ARCHSTR + DIRSEP + barename;
-          
-        // don't insert binpath yet, do it later because of Mac OS X Universal stuff
-        //foundBinFiles.insert(binpath);
-
-#if defined(__APPLE__) && (defined(__x86_64) || defined(__x86_64__))
-        /* From the OpenFX specification:
-           
-           MacOS-x86-64 - for Apple Macintosh OS X, specifically on
-           intel x86 CPUs running AMD's 64 bit extensions. 64 bit host
-           applications should check this first, and if it doesn't
-           exist or is empty, fall back to "MacOS" looking for a
-           universal binary.
-        */
-          
-        std::string binpath_universal = dir + DIRSEP + name + DIRSEP "Contents" DIRSEP + "MacOS" + DIRSEP + barename;
-        if (_knownBinFiles.find(binpath_universal) != _knownBinFiles.end()) {
-          binpath = binpath_universal;
+        // The binary in the most preferred ARCHITECTURE directory that has one, or in the most
+        // preferred one if none has it (it is then recorded as an invalid binary, as before).
+        // E.g. an x86-64 macOS host checks MacOS-x86-64 then MacOS, an x64 Windows host running
+        // under Arm64 emulation checks Win-arm64ec then win64 (see ofxhArchDirs.h).
+        const std::string contents = dir + DIRSEP + name + DIRSEP "Contents" DIRSEP;
+        std::string binpath = archDirs.empty() ? std::string() : contents + archDirs[0] + DIRSEP + barename;
+        for (std::size_t a = 0; a < archDirs.size(); ++a) {
+          const std::string candidate = contents + archDirs[a] + DIRSEP + barename;
+          if (binaryExists(candidate)) {
+            binpath = candidate;
+            break;
+          }
         }
-#endif
 
-        if (_knownBinFiles.find(binpath) == _knownBinFiles.end()) {
+        if (binpath.empty()) {
+          // unknown host architecture: there is no binary we could load
+        } else if (_knownBinFiles.find(binpath) == _knownBinFiles.end()) {
 #ifdef CACHE_DEBUG
           printf("found non-cached binary %s\n", binpath.c_str());
 #endif
           _dirty = true;
 
           // the binary was not in the cache
-          
-          PluginBinary *pb = 0;
-#if defined(__x86_64) || defined(__x86_64__)
-          pb = new PluginBinary(binpath, bundlename, this);
-#  if defined(__APPLE__)
-          if (pb->isInvalid()) {
-            // fallback to "MacOS"
-            delete pb;
-            binpath = binpath_universal;
-            pb = new PluginBinary(binpath, bundlename, this);
-          }
-#  endif
-#else
-          pb = new PluginBinary(binpath, bundlename, this);
-#endif
+          PluginBinary *pb = new PluginBinary(binpath, bundlename, this);
           _binaries.push_back(pb);
           _knownBinFiles.insert(binpath);
           foundBinFiles.insert(binpath);
@@ -452,8 +510,10 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
           printf("found cached binary %s\n", binpath.c_str());
 #endif
         }
-        // insert final path (universal or not) in the list of found files
-        foundBinFiles.insert(binpath);
+        // insert the final path in the list of found files
+        if (!binpath.empty()) {
+          foundBinFiles.insert(binpath);
+        }
       } else {
         if (isdir && (recurse && !name.empty() && name[0] != '@' && name[name.size() - 1] != '.')) {
           scanDirectory(foundBinFiles, dir + DIRSEP + name, recurse);
