@@ -4427,6 +4427,29 @@ namespace OFX {
       return false;
     }
 
+    /** @brief find the descriptor stored by kOfxImageEffectActionDescribeInContext for this plugin and context.
+
+        Uses find() rather than operator[], which would insert a NULL entry (and then crash) if the
+        descriptor is missing. Lookups must not modify the map, since they happen on render threads. */
+    static
+    ImageEffectDescriptor*
+      getEffectDescriptor(const char* plugname, unsigned int majorVersion, unsigned int minorVersion, ContextEnum context)
+    {
+      OFX::Private::VersionIDKey key;
+      key.id = plugname;
+      key.majorVersion = majorVersion;
+      key.minorVersion = minorVersion;
+      EffectDescriptorMap::const_iterator it = gEffectDescriptors.find(key);
+      if (it != gEffectDescriptors.end()) {
+        EffectContextMap::const_iterator it2 = it->second.find(context);
+        if (it2 != it->second.end() && it2->second) {
+          return it2->second;
+        }
+      }
+      OFX::Log::error(true, "No descriptor for plugin '%s' %u.%u in context %d: kOfxImageEffectActionDescribeInContext was not called for this context.", plugname, majorVersion, minorVersion, (int)context);
+      throw OFX::Exception::Suite(kOfxStatFailed);
+    }
+
     /** @brief Library side get regions of interest function */
     static
     bool
@@ -4484,11 +4507,7 @@ namespace OFX {
 #endif
 
       // make a roi setter object
-      OFX::Private::VersionIDKey key;
-      key.id = plugname;
-      key.majorVersion = majorVersion;
-      key.minorVersion = minorVersion;
-      ActualROISetter setRoIs(outArgs, gEffectDescriptors[key][effectInstance->getContext()]->getClipROIPropNames());
+      ActualROISetter setRoIs(outArgs, getEffectDescriptor(plugname, majorVersion, minorVersion, effectInstance->getContext())->getClipROIPropNames());
 
       // and call the plugin client code
       effectInstance->getRegionsOfInterest(args, setRoIs);
@@ -4570,11 +4589,7 @@ namespace OFX {
       args.time = inArgs.propGetDouble(kOfxPropTime);
 
       // make a roi setter object
-      OFX::Private::VersionIDKey key;
-      key.id = plugname;
-      key.majorVersion = majorVersion;
-      key.minorVersion = minorVersion;
-      ActualSetter setFrames(outArgs, gEffectDescriptors[key][effectInstance->getContext()]->getClipFrameRangePropNames());
+      ActualSetter setFrames(outArgs, getEffectDescriptor(plugname, majorVersion, minorVersion, effectInstance->getContext())->getClipFrameRangePropNames());
 
       // and call the plugin client code
       effectInstance->getFramesNeeded(args, setFrames);
@@ -4665,11 +4680,7 @@ namespace OFX {
       ImageEffect *effectInstance = retrieveImageEffectPointer(handle);
 
       // set up our clip preferences setter
-      OFX::Private::VersionIDKey key;
-      key.id = plugname;
-      key.majorVersion = majorVersion;
-      key.minorVersion = minorVersion;
-      ImageEffectDescriptor* desc = gEffectDescriptors[key][effectInstance->getContext()];
+      ImageEffectDescriptor* desc = getEffectDescriptor(plugname, majorVersion, minorVersion, effectInstance->getContext());
       ClipPreferencesSetter prefs(outArgs, desc->getClipDepthPropNames(), desc->getClipComponentPropNames(), desc->getClipPARPropNames());
 
       // and call the plug-in client code
@@ -4798,11 +4809,7 @@ namespace OFX {
         args.view = inArgs.propGetInt(kFnOfxImageEffectPropView, 0, false);
         
         
-        OFX::Private::VersionIDKey key;
-        key.id = plugname;
-        key.majorVersion = majorVersion;
-        key.minorVersion = minorVersion;
-        ImageEffectDescriptor* desc = gEffectDescriptors[key][effectInstance->getContext()];
+        ImageEffectDescriptor* desc = getEffectDescriptor(plugname, majorVersion, minorVersion, effectInstance->getContext());
         FrameViewsNeededSetter setter(outArgs,desc->getClipFrameViewsPropNames());
         effectInstance->getFrameViewsNeeded(args,setter);
         if (setter.setOutProperties()) {
@@ -4820,11 +4827,7 @@ namespace OFX {
         args.time = inArgs.propGetDouble(kOfxPropTime);
         args.view = inArgs.propGetInt(kFnOfxImageEffectPropView, 0, false);
         
-        OFX::Private::VersionIDKey key;
-        key.id = plugname;
-        key.majorVersion = majorVersion;
-        key.minorVersion = minorVersion;
-        ImageEffectDescriptor* desc = gEffectDescriptors[key][effectInstance->getContext()];
+        ImageEffectDescriptor* desc = getEffectDescriptor(plugname, majorVersion, minorVersion, effectInstance->getContext());
         ClipComponentsSetter setter(outArgs,desc->getClipPlanesPropNames());
         OfxStatus stat = effectInstance->getClipComponents(args,setter);
         if (!setter.setOutProperties()) {
