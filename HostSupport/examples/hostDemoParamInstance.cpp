@@ -214,7 +214,7 @@ namespace MyHost {
                                      OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::StrChoiceInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
-      _choice = getProperties().getStringProperty(kOfxParamPropDefault);
+      _choice = getDefaultEnum();
   }
 
   OfxStatus MyStrChoiceInstance::get(std::string& choice)

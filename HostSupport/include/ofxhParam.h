@@ -383,6 +383,11 @@ namespace OFX {
       public:
         StrChoiceInstance(Descriptor& descriptor, Param::SetInstance* instance = 0);
 
+        /// the default enum value: kOfxParamPropDefault if set, else the first enum.
+        /// "If no default value is set by the plugin, the host should use the first
+        /// defined option (index 0)." (OFX 1.5, String-Valued Choice Parameters)
+        std::string getDefaultEnum() const;
+
         // callback which should set option as appropriate
         virtual void setOption(int num);
 

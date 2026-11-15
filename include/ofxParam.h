@@ -151,6 +151,16 @@ These are the list of properties used by the parameters suite.
     - Valid Values - 0 or 1
 */
 #define kOfxParamHostPropSupportsStrChoiceAnimation "OfxParamHostPropSupportsStrChoiceAnimation"
+
+/** @brief Indicates if the host supports the StrChoice param type (kOfxParamTypeStrChoice)
+
+    - Type - int X 1
+    - Property Set - host descriptor (read only)
+    - Valid Values - 0 or 1
+
+\since Version 1.5
+*/
+#define kOfxParamHostPropSupportsStrChoice "OfxParamHostPropSupportsStrChoice"
 #endif
 
 /** @brief Indicates if the host supports custom interacts for parameters

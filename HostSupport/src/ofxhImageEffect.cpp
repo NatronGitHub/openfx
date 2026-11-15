@@ -4188,6 +4188,8 @@ namespace OFX {
         { kOfxParamHostPropSupportsChoiceAnimation, Property::eInt, 1, true, "0"  },
 #     ifdef OFX_EXTENSIONS_RESOLVE
         { kOfxParamHostPropSupportsStrChoiceAnimation, Property::eInt, 1, true, "0"  },
+        // set to 1 by hosts that implement Param::StrChoiceInstance in newParam()
+        { kOfxParamHostPropSupportsStrChoice, Property::eInt, 1, true, "0"  },
 #     endif
         { kOfxParamHostPropSupportsBooleanAnimation, Property::eInt, 1, true, "0" },
         { kOfxParamHostPropSupportsCustomAnimation, Property::eInt, 1, true, "0" },

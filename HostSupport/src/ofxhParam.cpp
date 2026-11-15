@@ -668,6 +668,17 @@ namespace OFX {
         if(!isStandardType(paramType)) 
           return NULL; /// << EEK! This is bad.
 
+#ifdef OFX_EXTENSIONS_RESOLVE
+        // The type is known, but the host application may not implement it
+        // (it must then not be instantiated, see newParam()): paramDefine
+        // returns kOfxStatErrUnsupported, "if the type is known but unsupported".
+        if (std::string(paramType) == kOfxParamTypeStrChoice &&
+            !(ImageEffect::gImageEffectHost &&
+              ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxParamHostPropSupportsStrChoice) != 0)) {
+          return NULL;
+        }
+#endif
+
         Descriptor *desc = new Descriptor(paramType, name); 
         desc->addStandardParamProps(paramType);
         addParam(name, desc);
@@ -1019,6 +1030,16 @@ namespace OFX {
         : Instance(descriptor,instance)
       {
         _properties.addNotifyHook(kOfxParamPropChoiceOption, this);
+        _properties.addNotifyHook(kOfxParamPropChoiceEnum, this);
+      }
+
+      std::string StrChoiceInstance::getDefaultEnum() const
+      {
+        const std::string &def = getProperties().getStringProperty(kOfxParamPropDefault);
+        if (!def.empty() || getProperties().getDimension(kOfxParamPropChoiceEnum) == 0) {
+          return def;
+        }
+        return getProperties().getStringProperty(kOfxParamPropChoiceEnum, 0);
       }
 
       // callback which should set option as appropriate
@@ -1086,7 +1107,8 @@ namespace OFX {
       void StrChoiceInstance::notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC
       {
         Instance::notify(name, single, num);
-        if (name == kOfxParamPropChoiceOption) {
+        // options and enums are parallel arrays: notify the host if either changes
+        if (name == kOfxParamPropChoiceOption || name == kOfxParamPropChoiceEnum) {
           setOption(num);
         }
       }
