@@ -78,6 +78,10 @@ These are the list of properties used by the parameters suite.
     - Value Values - greater than 0
 
 This indicates the dimension of the parametric param.
+
+    @propdef
+    type: int
+    dimension: 1
 */
 #define kOfxParamPropParametricDimension "OfxParamPropParametricDimension"
 
@@ -93,6 +97,10 @@ This sets the colour of a parametric param curve drawn a host user interface. A 
 is needed for each dimension of the oparametric param. 
 
 If not set, the host should generally draw these in white.
+
+    @propdef
+    type: double
+    dimension: N
 */
 #define kOfxParamPropParametricUIColour "OfxParamPropParametricUIColour"
 
@@ -108,6 +116,10 @@ parameter's user interface.  None of the pen or keyboard actions can ever be cal
 The openGL transform will be set so that it is an orthographic transform that maps directly to the
 'parametric' space, so that 'x' represents the parametric position and 'y' represents the evaluated
 value.
+
+    @propdef
+    type: pointer
+    dimension: 1
 */
 #define kOfxParamPropParametricInteractBackground "OfxParamPropParametricInteractBackground"
 
@@ -118,6 +130,10 @@ value.
     - Valid Values 
       - 0 indicating the host does not support animation of parmetric params,
       - 1 indicating the host does support animation of parmetric params,
+
+    @propdef
+    type: bool
+    dimension: 1
 */
 #define kOfxParamHostPropSupportsParametricAnimation "OfxParamHostPropSupportsParametricAnimation"
 
@@ -129,6 +145,10 @@ value.
     - Valid Values - any pair of numbers so that  the first is less than the second.
 
 This controls the min and max values that the parameter will be evaluated at.
+
+    @propdef
+    type: double
+    dimension: 2
 */
 #define kOfxParamPropParametricRange "OfxParamPropParametricRange"
 
@@ -319,6 +339,11 @@ typedef struct OfxParametricParameterSuiteV1 {
    - Valid Values - Any default value specified below
 
    This controls the min and max values that the parameter will be evaluated at.
+
+    @propdef
+    type: string
+    dimension: N
+    extension: natron
   */
 #define kOfxHostPropSupportedParametricInterpolations "OfxHostPropSupportedParametricInterpolations"
 

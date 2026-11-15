@@ -14,7 +14,13 @@
 #define kOfxSonyVegasMovieStudioPlatinumHostName "com.sonycreativesoftware.vegas.moviestudio.pe"
 
 
-/** @brief string property on a Vegas host for the appropriate app data directory (for logs and caches) */
+/** @brief string property on a Vegas host for the appropriate app data directory (for logs and caches)
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: vegas
+*/
 #define kOfxPropVegasHostAppDataDirectory "OfxPropVegasHostAppDataDirectory"
 
 /** @brief Double value on the OfxParamPropDoubleType property of a double 2d parameter (Vegas extension) */
@@ -37,6 +43,11 @@
 
 /** @brief Integer property indicates the default open/closed state of a UI item defined 
   * (Vegas extension, only double 3d, 2d, int 3d, 2d, rgb, rgba)
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: vegas
   */
 #define kOfxParamPropParameterExpanded "OfxParamPropParameterExpanded"
 
@@ -62,10 +73,21 @@
 
 /** @brief String property (array of length 1) indicates the filename of the plug-in help file 
         defaults to the "pluginname.chm" in the resource directory of the plug-in
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: vegas
 */
 #define kOfxImageEffectPropHelpFile "OfxImageEffectPropHelpFile"
 
-/** @brief Integer property (array of length 1) indicates the context id to use in the help file */
+/** @brief Integer property (array of length 1) indicates the context id to use in the help file
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: vegas
+*/
 #define kOfxImageEffectPropHelpContextID "OfxImageEffectPropHelpContextID"
 
 /** @brief Action to plug-in to invoke help
@@ -91,7 +113,13 @@
 #define kOfxImageEffectActionInvokeAbout  "OfxImageEffectActionInvokeAbout"
 
 
-/** @brief String property (array of any length) indicates the guid that a plug-in can uplift from */
+/** @brief String property (array of any length) indicates the guid that a plug-in can uplift from
+
+    @propdef
+    type: string
+    dimension: N
+    extension: vegas
+*/
 #define kOfxImageEffectPropVegasUpliftGUID "OfxImageEffectPropVegasUpliftGUID"
 
 /** @brief Action to plug-in to uplift the keyframe data 
@@ -106,22 +134,58 @@
 */
 #define kOfxImageEffectActionVegasKeyframeUplift  "OfxImageEffectActionVegasKeyframeUplift"
 
-/** @brief Pointer property (array of any length) to the original keyframe data plug-in can uplift from */
+/** @brief Pointer property (array of any length) to the original keyframe data plug-in can uplift from
+
+    @propdef
+    type: pointer
+    dimension: N
+    extension: vegas
+*/
 #define kOfxPropVegasUpliftKeyframeData "OfxPropVegasUpliftKeyframeData"
 
-/** @brief Integer property (array of any length) to the original keyframe data length plug-in can uplift from */
+/** @brief Integer property (array of any length) to the original keyframe data length plug-in can uplift from
+
+    @propdef
+    type: int
+    dimension: N
+    extension: vegas
+*/
 #define kOfxPropVegasUpliftKeyframeDataLength "OfxPropVegasUpliftKeyframeDataLength"
 
-/** @brief Double property (array of any length) to the keyframe time for the keyframe data plug-in can uplift from */
+/** @brief Double property (array of any length) to the keyframe time for the keyframe data plug-in can uplift from
+
+    @propdef
+    type: double
+    dimension: N
+    extension: vegas
+*/
 #define kOfxPropVegasUpliftKeyframeTime "OfxPropVegasUpliftKeyframeTime"
 
-/** @brief String property (array of any length) to the original keyframe interpolation type */
+/** @brief String property (array of any length) to the original keyframe interpolation type
+
+    @propdef
+    type: string
+    dimension: N
+    extension: vegas
+*/
 #define kOfxPropVegasUpliftKeyframeInterpolation "OfxPropVegasUpliftKeyframeInterpolation"
 
-/** @brief Pointer property (array of length 1) to the original plug-in data */
+/** @brief Pointer property (array of length 1) to the original plug-in data
+
+    @propdef
+    type: pointer
+    dimension: 1
+    extension: vegas
+*/
 #define kOfxPropVegasUpliftData "OfxPropVegasUpliftData"
 
-/** @brief Integer property (array of length 1) to the original plug-in data length */
+/** @brief Integer property (array of length 1) to the original plug-in data length
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: vegas
+*/
 #define kOfxPropVegasUpliftDataLength "OfxPropVegasUpliftDataLength"
 
 
@@ -152,6 +216,13 @@
      - kOfxImagePixelOrderRGBA
      - kOfxImagePixelOrderBGRA
 
+    @propdef
+    type: enum
+    dimension: 1
+    values:
+      - OfxImagePixelOrderRGBA
+      - OfxImagePixelOrderBGRA
+    extension: vegas
 */
 #define kOfxImagePropPixelOrder "OfxImageEffectPropPixelOrder"
 
@@ -162,6 +233,10 @@
    - Property Set - Render In Args (read only)
    - Valid Values - 1 (standard), 2 (stereoscopic processing)
 
+    @propdef
+    type: int
+    dimension: 1
+    extension: vegas
 */
 #define kOfxImageEffectPropViewsToRender "OfxImageEffectPropViewsToRender"
 
@@ -171,6 +246,10 @@
    - Property Set - Render In Args (read only)
    - Valid Values - 0 (standard), 0 (left stereoscopic processing), 1 (right stereoscopic processing)
 
+    @propdef
+    type: int
+    dimension: 1
+    extension: vegas
 */
 #define kOfxImageEffectPropRenderView "OfxImageEffectPropRenderView"
 
@@ -184,6 +263,10 @@
    - Property Set - Render In Args (read only)
    - Valid Values - see below... (VeryBad, Bad, Good, Great)
 
+    @propdef
+    type: string
+    dimension: 1
+    extension: vegas
 */
 #define kOfxImageEffectPropRenderQuality "OfxImageEffectPropRenderQuality"
 
@@ -199,6 +282,10 @@
    - Property Set - Effect Instance (read only)
    - Valid Values - see below... (Media, Track, Event, Project, Generator, ...)
 
+    @propdef
+    type: string
+    dimension: 1
+    extension: vegas
 */
 #define kOfxImageEffectPropVegasContext "OfxImageEffectPropVegasContext"
 
@@ -263,16 +350,40 @@
 
 // HWnd interact functions
 
-/** @brief Pointer property (array of length 1) to the HWnd interact function */
+/** @brief Pointer property (array of length 1) to the HWnd interact function
+
+    @propdef
+    type: pointer
+    dimension: 1
+    extension: vegas
+*/
 #define kOfxImageEffectPluginPropHWndInteractV1 "OfxImageEffectPluginPropHWndInteractV1"
 
-/** @brief Pointer property (array of length 1) to the HWnd parent window */
+/** @brief Pointer property (array of length 1) to the HWnd parent window
+
+    @propdef
+    type: pointer
+    dimension: 1
+    extension: vegas
+*/
 #define kOfxHWndInteractPropParent "OfxHWndInteractPropParent"
 
-/** @brief Int property (array of length 2) to the minimum size (width, height) */
+/** @brief Int property (array of length 2) to the minimum size (width, height)
+
+    @propdef
+    type: int
+    dimension: 2
+    extension: vegas
+*/
 #define kOfxHWndInteractPropMinSize "OfxHWndInteractPropMinSize"
 
-/** @brief Int property (array of length 2) to the preferred size (width, height) */
+/** @brief Int property (array of length 2) to the preferred size (width, height)
+
+    @propdef
+    type: int
+    dimension: 2
+    extension: vegas
+*/
 #define kOfxHWndInteractPropPreferredSize "OfxHWndInteractPropPrefferedSize"
 
 /** @brief Action to plug-in to create an interaction hwnd
@@ -286,7 +397,13 @@
 */
 #define kOfxHWndInteractActionCreateWindow  "OfxHWndInteractActionCreateWindow"
 
-/** @brief Int property (array of length 4) to the rect to move to (left, top, width, height) */
+/** @brief Int property (array of length 4) to the rect to move to (left, top, width, height)
+
+    @propdef
+    type: int
+    dimension: 4
+    extension: vegas
+*/
 #define kOfxHWndInteractPropLocation "OfxHWndInteractPropLocation"
 
 /** @brief Action to plug-in to move the interact child window

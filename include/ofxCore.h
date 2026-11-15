@@ -201,6 +201,10 @@ These are the actions passed to a plug-in's 'main' function
  Do not create an entry in the host's UI for plug-in then.  
  Plug-in also has the option to return 0 for OfxGetNumberOfPlugins or kOfxStatFailed if host supports OfxSetHost in which case kOfxActionLoad will never be called.
  -  \ref kOfxStatErrFatal, fatal error in the plug-in.
+
+    @actiondef
+    inArgs:
+    outArgs:
  */
 #define  kOfxActionLoad "OfxActionLoad"
 
@@ -251,6 +255,9 @@ These are the actions passed to a plug-in's 'main' function
      plugin to post message
      -  \ref kOfxStatErrFatal
 
+    @actiondef
+    inArgs:
+    outArgs:
  */
 #define kOfxActionDescribe "OfxActionDescribe"
 
@@ -275,6 +282,9 @@ These are the actions passed to a plug-in's 'main' function
      -  \ref kOfxStatReplyDefault, the action was ignored
      -  \ref kOfxStatErrFatal, in which case we the program will be forced to quit
 
+    @actiondef
+    inArgs:
+    outArgs:
  */
 #define kOfxActionUnload "OfxActionUnload"
 
@@ -310,6 +320,10 @@ These are the actions passed to a plug-in's 'main' function
      -  \ref kOfxStatErrFatal,
      -  \ref kOfxStatFailed, something went wrong, but no error code appropriate,
      the plugin should to post a message
+
+    @actiondef
+    inArgs:
+    outArgs:
  */
 #define kOfxActionPurgeCaches                 "OfxActionPurgeCaches"
 
@@ -336,6 +350,10 @@ These are the actions passed to a plug-in's 'main' function
      -  \ref kOfxStatErrFatal,
      -  \ref kOfxStatFailed, something went wrong, but no error code appropriate,
      the plugin should to post a message
+
+    @actiondef
+    inArgs:
+    outArgs:
  */
 #define kOfxActionSyncPrivateData                 "OfxActionSyncPrivateData"
 
@@ -371,6 +389,10 @@ These are the actions passed to a plug-in's 'main' function
      -  \ref kOfxStatFailed, something went wrong, but no error code appropriate,
      the plugin should to post a message if possible and the host should
      destroy the instanace handle and not attempt to proceed further
+
+    @actiondef
+    inArgs:
+    outArgs:
  */
 #define kOfxActionCreateInstance        "OfxActionCreateInstance"
 
@@ -407,6 +429,9 @@ These are the actions passed to a plug-in's 'main' function
      -  \ref kOfxStatFailed, something went wrong, but no error code appropriate,
      the plugin should to post a message.
 
+    @actiondef
+    inArgs:
+    outArgs:
  */
 #define kOfxActionDestroyInstance       "OfxActionDestroyInstance"
 
@@ -463,6 +488,15 @@ These are the actions passed to a plug-in's 'main' function
      -  \ref kOfxStatFailed, something went wrong, but no error code appropriate,
      the plugin should to post a message
 
+    @actiondef
+    inArgs:
+      - OfxPropType
+      - OfxPropName
+      - OfxPropChangeReason
+      - OfxPropTime
+      - OfxImageEffectPropRenderScale
+      - OfxImageEffectPropThumbnailRender
+    outArgs:
  */
 #define kOfxActionInstanceChanged "OfxActionInstanceChanged"
 
@@ -506,10 +540,22 @@ These are the actions passed to a plug-in's 'main' function
      -  \ref kOfxStatErrFatal,
      -  \ref kOfxStatFailed, something went wrong, but no error code appropriate,
      the plugin should to post a message
+
+    @actiondef
+    inArgs:
+      - OfxPropChangeReason
+      - OfxImageEffectPropThumbnailRender
+    outArgs:
 */
 #define kOfxActionBeginInstanceChanged "OfxActionBeginInstanceChanged"
 
-/** @brief Action called after the end of a set of \ref kOfxActionEndInstanceChanged actions, used with ::kOfxActionBeginInstanceChanged to bracket a grouped set of changes,  see \ref kOfxActionBeginInstanceChanged*/
+/** @brief Action called after the end of a set of \ref kOfxActionEndInstanceChanged actions, used with ::kOfxActionBeginInstanceChanged to bracket a grouped set of changes,  see \ref kOfxActionBeginInstanceChanged
+
+    @actiondef
+    inArgs:
+      - OfxPropChangeReason
+    outArgs:
+*/
 #define kOfxActionEndInstanceChanged "OfxActionEndInstanceChanged"
 
 /** @brief
@@ -538,6 +584,10 @@ These are the actions passed to a plug-in's 'main' function
      -  \ref kOfxStatErrFatal,
      -  \ref kOfxStatFailed, something went wrong, but no error code appropriate,
      the plugin should to post a message
+
+    @actiondef
+    inArgs:
+    outArgs:
  */
 #define kOfxActionBeginInstanceEdit "OfxActionBeginInstanceEdit"
 
@@ -565,6 +615,10 @@ These are the actions passed to a plug-in's 'main' function
      -  \ref kOfxStatErrFatal,
      -  \ref kOfxStatFailed, something went wrong, but no error code appropriate,
      the plugin should to post a message
+
+    @actiondef
+    inArgs:
+    outArgs:
  */
 #define kOfxActionEndInstanceEdit "OfxActionEndInstanceEdit"
 
@@ -619,6 +673,10 @@ This is a version string that will specify which version of the API is being imp
 can have multiple values. For example "1.0", "1.2.4" etc.....
 
 If this is not present, it is safe to assume that the version of the API is "1.0".
+
+    @propdef
+    type: int
+    dimension: N
 */
 #define kOfxPropAPIVersion "OfxPropAPIVersion"
 
@@ -627,6 +685,10 @@ If this is not present, it is safe to assume that the version of the API is "1.0
     - Type - double X 1
     - Default - 0, if a setable property
     - Property Set - commonly used as an argument to actions, input and output.
+
+    @propdef
+    type: double
+    dimension: 1
 */
 #define kOfxPropTime "OfxPropTime"
 
@@ -639,6 +701,10 @@ If this is not present, it is safe to assume that the version of the API is "1.0
 If false the effect currently has no interface, however this may be because the effect is loaded in a background render host, or it may be loaded on an interactive host that has not yet opened an editor for the effect.
 
 The output of an effect should only ever depend on the state of its parameters, not on the interactive flag. The interactive flag is more a courtesy flag to let a plugin know that it has an interace. If a plugin want's to have its behaviour dependant on the interactive flag, it can always make a secret parameter which shadows the state if the flag.
+
+    @propdef
+    type: bool
+    dimension: 1
 */
 #define kOfxPropIsInteractive "OfxPropIsInteractive"
 
@@ -652,6 +718,10 @@ path format for the host OS (eg:  UNIX directory separators are forward slashes,
 
 The path is to the bundle location, see \ref InstallationLocation.
 eg:  '/usr/OFX/Plugins/AcmePlugins/AcmeFantasticPlugin.ofx.bundle'
+
+    @propdef
+    type: string
+    dimension: 1
 */
 #define kOfxPluginPropFilePath "OfxPluginPropFilePath"
 
@@ -662,6 +732,10 @@ eg:  '/usr/OFX/Plugins/AcmePlugins/AcmeFantasticPlugin.ofx.bundle'
     - Default - NULL
 
 This data pointer is unique to each plug-in instance, so two instances of the same plug-in do not share the same data pointer. Use it to hang any needed private data structures.
+
+    @propdef
+    type: pointer
+    dimension: 1
 */
 #define kOfxPropInstanceData "OfxPropInstanceData"
 
@@ -677,6 +751,10 @@ This data pointer is unique to each plug-in instance, so two instances of the sa
        - ::kOfxTypeParameterInstance
        - ::kOfxTypeClip
        - ::kOfxTypeImage
+
+    @propdef
+    type: string
+    dimension: 1
 */
 #define kOfxPropType "OfxPropType"
 
@@ -686,6 +764,10 @@ This data pointer is unique to each plug-in instance, so two instances of the sa
     - Property Set - on many objects (descriptors and instances), see \ref PropertiesByObject (read only)
 
 This property is used to label objects uniquely amoung objects of that type. It is typically set when a plugin creates a new object with a function that takes a name.
+
+    @propdef
+    type: string
+    dimension: 1
 */
 #define kOfxPropName "OfxPropName"
 
@@ -699,6 +781,10 @@ This property is used to label objects uniquely amoung objects of that type. It 
 This is a multi dimensional integer property that represents the version of a host (host descriptor), or plugin (plugin descriptor). These represent a version number of the form '1.2.3.4', with each dimension adding another 'dot' on the right.
 
 A version is considered to be more recent than another if its ordered set of values is lexicographically greater than another, reading left to right. (ie: 1.2.4 is smaller than 1.2.6). Also, if the number of dimensions is different, then the values of the missing dimensions are considered to be zero (so 1.2.4 is greater than 1.2).
+
+    @propdef
+    type: int
+    dimension: N
 */
 #define kOfxPropVersion "OfxPropVersion"
 
@@ -711,6 +797,10 @@ A version is considered to be more recent than another if its ordered set of val
 
 This is purely for user feedback, a plugin or host should use ::kOfxPropVersion if they need
 to check for specific versions.
+
+    @propdef
+    type: string
+    dimension: 1
 */
 #define kOfxPropVersionLabel "OfxPropVersionLabel"
 
@@ -722,6 +812,10 @@ to check for specific versions.
     - Valid Values - UTF8 string
 
 This is a string giving a potentially verbose description of the effect.
+
+    @propdef
+    type: string
+    dimension: 1
 */
 #define kOfxPropPluginDescription "OfxPropPluginDescription"
 
@@ -734,6 +828,10 @@ This is a string giving a potentially verbose description of the effect.
 The label is what a user sees on any interface in place of the object's name.
 
 Note that resetting this will also reset ::kOfxPropShortLabel and ::kOfxPropLongLabel.
+
+    @propdef
+    type: string
+    dimension: 1
 */
 #define kOfxPropLabel "OfxPropLabel"
 
@@ -747,6 +845,11 @@ Note that resetting this will also reset ::kOfxPropShortLabel and ::kOfxPropLong
 The value is a path is defined relative to the Resource folder that points to an SVG or PNG file containing the icon.
 
 The first dimension, if set, will the name of and SVG file, the second a PNG file.
+
+    @propdef
+    type: string
+    dimension: 2
+    hostOptional: true
 */
 #define kOfxPropIcon "OfxPropIcon"
 
@@ -757,6 +860,11 @@ The first dimension, if set, will the name of and SVG file, the second a PNG fil
     - Default - initially ::kOfxPropName, but will be reset if ::kOfxPropLabel is changed.
 
 This is a shorter version of the label, typically 13 character glyphs or less. Hosts should use this if they have limitted display space for their object labels.
+
+    @propdef
+    type: string
+    dimension: 1
+    hostOptional: true
 */
 #define kOfxPropShortLabel "OfxPropShortLabel"
 
@@ -767,6 +875,11 @@ This is a shorter version of the label, typically 13 character glyphs or less. H
     - Default - initially ::kOfxPropName, but will be reset if ::kOfxPropLabel is changed.
 
 This is a longer version of the label, typically 32 character glyphs or so. Hosts should use this if they have mucg display space for their object labels.
+
+    @propdef
+    type: string
+    dimension: 1
+    hostOptional: true
 */
 #define kOfxPropLongLabel "OfxPropLongLabel"
 
@@ -780,6 +893,14 @@ This is a longer version of the label, typically 32 character glyphs or so. Host
        - ::kOfxChangeTime - the time has changed and this has affected the value of the object because it varies over time
 
 Argument property for the ::kOfxActionInstanceChanged action.
+
+    @propdef
+    type: enum
+    dimension: 1
+    values:
+      - OfxChangeUserEdited
+      - OfxChangePluginEdited
+      - OfxChangeTime
 */
 #define kOfxPropChangeReason "OfxPropChangeReason"
 
@@ -790,6 +911,10 @@ Argument property for the ::kOfxActionInstanceChanged action.
 
 This property is used to link an object to the effect. For example if the plug-in supplies an openGL overlay for an image effect,
 the interact instance will have one of these so that the plug-in can connect back to the effect the GUI links to.
+
+    @propdef
+    type: pointer
+    dimension: 1
 */
 #define kOfxPropEffectInstance "OfxPropEffectInstance"
 
@@ -799,6 +924,10 @@ the interact instance will have one of these so that the plug-in can connect bac
     - Property Set - host descriptor.
 
 Some plug-in vendor want raw OS specific handles back from the host so they can do interesting things with host OS APIs. Typically this is to control windowing properly on Microsoft Windows. This property returns the appropriate 'root' window handle on the current operating system. So on Windows this would be the hWnd of the application main window.
+
+    @propdef
+    type: pointer
+    dimension: 1
 */
 #define kOfxPropHostOSHandle "OfxPropHostOSHandle"
 

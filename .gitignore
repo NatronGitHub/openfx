@@ -67,6 +67,9 @@ HostSupport/expat*/*/*/Makefile
 HostSupport/expat*/xmlwf/xmlwf
 
 
+# Python
+__pycache__/
+
 # CMake / conan build outputs
 /build/
 /test_package/build/

@@ -424,7 +424,7 @@ IMAGE_PATH             =
 # input file. Doxygen will then use the output that the filter program writes
 # to standard output.
 
-INPUT_FILTER           =
+INPUT_FILTER           = ./doxy-filter.sh
 
 # If the FILTER_SOURCE_FILES tag is set to YES, the input filter (if set using
 # INPUT_FILTER) will be used to filter the input files when producing source
