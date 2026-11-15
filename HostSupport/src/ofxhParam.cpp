@@ -52,6 +52,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <float.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <new> // bad_alloc
 #include <sstream> // stringstream
 
 namespace OFX {
@@ -2013,7 +2014,7 @@ namespace OFX {
       ////////////////////////////////////////////////////////////////////////////////
       // Suite functions below
 
-      static OfxStatus paramDefine(OfxParamSetHandle paramSet,
+      static OfxStatus paramDefineImpl(OfxParamSetHandle paramSet,
                                    const char *paramType,
                                    const char *name,
                                    OfxPropertySetHandle *propertySet)
@@ -2061,8 +2062,22 @@ namespace OFX {
           return kOfxStatErrUnsupported;
         }
       }
+
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramDefine(OfxParamSetHandle paramSet, const char *paramType, const char *name, OfxPropertySetHandle *propertySet)
+      {
+        try {
+          return paramDefineImpl(paramSet, paramType, name, propertySet);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
       
-      static OfxStatus paramGetHandle(OfxParamSetHandle paramSet,
+      static OfxStatus paramGetHandleImpl(OfxParamSetHandle paramSet,
                                       const char *name,
                                       OfxParamHandle *param,
                                       OfxPropertySetHandle *propertySet)
@@ -2156,8 +2171,22 @@ namespace OFX {
 #       endif
         return kOfxStatErrBadHandle;
       }
+
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramGetHandle(OfxParamSetHandle paramSet, const char *name, OfxParamHandle *param, OfxPropertySetHandle *propertySet)
+      {
+        try {
+          return paramGetHandleImpl(paramSet, name, param, propertySet);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
       
-      static OfxStatus paramSetGetPropertySet(OfxParamSetHandle paramSet,
+      static OfxStatus paramSetGetPropertySetImpl(OfxParamSetHandle paramSet,
                                               OfxPropertySetHandle *propHandle)
       {
 #       ifdef OFX_DEBUG_PARAMETERS
@@ -2181,9 +2210,23 @@ namespace OFX {
         std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #       endif
         return kOfxStatErrBadHandle;
+      }
+
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramSetGetPropertySet(OfxParamSetHandle paramSet, OfxPropertySetHandle *propHandle)
+      {
+        try {
+          return paramSetGetPropertySetImpl(paramSet, propHandle);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
+        }
       } 
       
-      static OfxStatus paramGetPropertySet(OfxParamHandle param,
+      static OfxStatus paramGetPropertySetImpl(OfxParamHandle param,
                                            OfxPropertySetHandle *propHandle)
       {
 #       ifdef OFX_DEBUG_PARAMETERS
@@ -2209,6 +2252,20 @@ namespace OFX {
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
           return kOfxStatErrBadHandle;
+        }
+      }
+
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramGetPropertySet(OfxParamHandle param, OfxPropertySetHandle *propHandle)
+      {
+        try {
+          return paramGetPropertySetImpl(param, propHandle);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
         }
       }
 
@@ -2429,7 +2486,7 @@ namespace OFX {
         return stat;
       }
 
-      static OfxStatus paramGetNumKeys(OfxParamHandle  paramHandle,
+      static OfxStatus paramGetNumKeysImpl(OfxParamHandle  paramHandle,
                                        unsigned int  *numberOfKeys)
       {
 #       ifdef OFX_DEBUG_PARAMETERS
@@ -2460,8 +2517,22 @@ namespace OFX {
 #       endif
         return stat;
       }
+
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramGetNumKeys(OfxParamHandle paramHandle, unsigned int *numberOfKeys)
+      {
+        try {
+          return paramGetNumKeysImpl(paramHandle, numberOfKeys);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
       
-      static OfxStatus paramGetKeyTime(OfxParamHandle  paramHandle,
+      static OfxStatus paramGetKeyTimeImpl(OfxParamHandle  paramHandle,
                                        unsigned int nthKey,
                                        OfxTime *time)
       {
@@ -2490,8 +2561,22 @@ namespace OFX {
 #       endif
         return stat;
       }
+
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramGetKeyTime(OfxParamHandle paramHandle, unsigned int nthKey, OfxTime *time)
+      {
+        try {
+          return paramGetKeyTimeImpl(paramHandle, nthKey, time);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
       
-      static OfxStatus paramGetKeyIndex(OfxParamHandle  paramHandle,
+      static OfxStatus paramGetKeyIndexImpl(OfxParamHandle  paramHandle,
                                         OfxTime time,
                                         int     direction,
                                         int    *index) 
@@ -2524,8 +2609,22 @@ namespace OFX {
 #       endif
         return stat;
       }
+
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramGetKeyIndex(OfxParamHandle paramHandle, OfxTime time, int direction, int *index)
+      {
+        try {
+          return paramGetKeyIndexImpl(paramHandle, time, direction, index);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
       
-      static OfxStatus paramDeleteKey(OfxParamHandle  paramHandle,
+      static OfxStatus paramDeleteKeyImpl(OfxParamHandle  paramHandle,
                                       OfxTime time)
       {
         if ( OFX::IsNaN(time) ) {
@@ -2556,8 +2655,22 @@ namespace OFX {
 #       endif
         return stat;
       }
+
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramDeleteKey(OfxParamHandle paramHandle, OfxTime time)
+      {
+        try {
+          return paramDeleteKeyImpl(paramHandle, time);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
       
-      static OfxStatus paramDeleteAllKeys(OfxParamHandle  paramHandle) 
+      static OfxStatus paramDeleteAllKeysImpl(OfxParamHandle  paramHandle) 
       {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramDeleteAllKeys - " << paramHandle << " ...";
@@ -2584,8 +2697,22 @@ namespace OFX {
 #       endif
         return stat;
       }
+
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramDeleteAllKeys(OfxParamHandle paramHandle)
+      {
+        try {
+          return paramDeleteAllKeysImpl(paramHandle);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
       
-      static OfxStatus paramCopy(OfxParamHandle  paramTo,
+      static OfxStatus paramCopyImpl(OfxParamHandle  paramTo,
                                  OfxParamHandle  paramFrom, 
                                  OfxTime dstOffset, const OfxRangeD *frameRange)
       {
@@ -2609,8 +2736,22 @@ namespace OFX {
 #       endif
         return stat;
       }
+
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramCopy(OfxParamHandle paramTo, OfxParamHandle paramFrom, OfxTime dstOffset, const OfxRangeD *frameRange)
+      {
+        try {
+          return paramCopyImpl(paramTo, paramFrom, dstOffset, frameRange);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
       
-      static OfxStatus paramEditBegin(OfxParamSetHandle paramSet, const char *name)
+      static OfxStatus paramEditBeginImpl(OfxParamSetHandle paramSet, const char *name)
       {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramEditBegin - " << paramSet << ' ' << name << " ...";
@@ -2629,8 +2770,22 @@ namespace OFX {
         return stat;
       }
 
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramEditBegin(OfxParamSetHandle paramSet, const char *name)
+      {
+        try {
+          return paramEditBeginImpl(paramSet, name);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
+
       
-      static OfxStatus paramEditEnd(OfxParamSetHandle paramSet) {
+      static OfxStatus paramEditEndImpl(OfxParamSetHandle paramSet) {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramEditEnd - " << paramSet << " ...";
 #       endif
@@ -2646,6 +2801,20 @@ namespace OFX {
         std::cout << ' ' << StatStr(stat) << std::endl;
 #       endif
         return stat;
+      }
+
+      /// C entry point: C++ exceptions must not propagate into the plug-in
+      static OfxStatus paramEditEnd(OfxParamSetHandle paramSet)
+      {
+        try {
+          return paramEditEndImpl(paramSet);
+        } catch (const std::bad_alloc &) {
+          return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
+        } catch (...) {
+          return kOfxStatFailed;
+        }
       }
       
       static const OfxParameterSuiteV1 gParamSuiteV1 = {
