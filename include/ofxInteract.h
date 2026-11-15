@@ -156,7 +156,8 @@ on its host descriptor. A plug-in must check it before setting
 ::kOfxInteractPropCursor; on other hosts the property does not exist on interact
 instances and setting it fails with kOfxStatErrUnknown.
 
-Reporting: the cursor property is per interact instance, hence per view; it is
+Reporting: the cursor property is per interact instance (a host may use one
+interact instance per view, or share one between views); it is
 the plug-in's own report of the cursor it wants. After each of
 kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp,
 kOfxInteractActionKeyDown, kOfxInteractActionKeyUp and
@@ -184,6 +185,13 @@ re-evaluates this policy from the current requests of all the interacts of the
 view, and only shows its own cursor if none of them requests one. A plug-in
 reports its request once, when it changes: an interact still hovering over its
 handle does not report its unchanged cursor again.
+
+Host strategies: a host may react to the change notifications, or, preferably,
+read the current request of every interact of the view after dispatching each
+pen/key event (in HostSupport: OFX::Host::Interact::Instance::getCursor()) and
+recompute the displayed cursor from them. Polling is required when one interact
+instance is shared by several views, since a change notification is only sent
+once, while each view needs the request.
 @{
 */
 

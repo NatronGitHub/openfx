@@ -400,6 +400,11 @@ namespace OFX {
         /// otherwise the host's own cursor. getCursor() gives the current request of any
         /// interact, e.g. to re-evaluate after dispatching an event to all interacts of a view.
         ///
+        /// Polling getCursor() on every interact of the view after each dispatched pen/key event,
+        /// and recomputing the displayed cursor, is a valid and preferred host strategy; it is
+        /// required when one interact instance is shared by several views (Natron), because a
+        /// change is notified only once while each view needs it.
+        ///
         /// Important: notifications are per interact and only report changes of that
         /// interact's own request. When the displayed cursor is released (its owner goes back
         /// to default, loses focus or is destroyed), the host must re-evaluate the arbitration
