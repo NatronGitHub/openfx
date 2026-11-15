@@ -231,6 +231,10 @@ namespace OFX {
         OFX::Host::Property::Set inarg(inargspec);
 
         PluginHandle *ph = getPluginHandle();
+        if (!ph) {
+          // kOfxActionLoad or kOfxActionDescribe failed: no further actions may be passed to the plug-in
+          return 0;
+        }
         auto_ptr<ImageEffect::Descriptor> newContext( gImageEffectHost->makeDescriptor(getDescriptor(), this));
 
         OfxStatus stat;
@@ -269,7 +273,15 @@ namespace OFX {
                                                                           this,
                                                                           *desc,
                                                                           context);
-          instance->populate();
+          if (!instance) {
+            return 0;
+          }
+          OfxStatus st = instance->populate();
+          if (st != kOfxStatOK) {
+            // clips or params could not be created: the instance is unusable
+            delete instance;
+            return 0;
+          }
           return instance;
         }
         return 0;
