@@ -1,0 +1,5 @@
+file(GLOB PLUGIN_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
+set(TGT example-PropTester)
+add_ofx_plugin(${TGT} ${CMAKE_CURRENT_SOURCE_DIR})
+target_sources(${TGT} PRIVATE ${PLUGIN_SOURCES})
+target_link_libraries(${TGT} PRIVATE OfxSupport OpenGL::GL)

@@ -552,6 +552,10 @@ namespace OFX {
       std::vector<std::pair<std::string,std::string> > parameters;
     };
     std::vector<NativeOverlayHandle> nativeInteracts;
+
+    /// cursors the host can display for interacts (kOfxInteractHostPropSupportedCursors,
+    /// proposed extension NatronGitHub/openfx#4); empty if the host doesn't support it
+    std::vector<std::string> supportedCursors;
 #endif
 
   public:
