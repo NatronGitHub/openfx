@@ -38,6 +38,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ofxhClip.h"
 #include "ofxhImageEffect.h"
 #include "ofxGPURender.h" // OFX 1.5: kOfxImageEffectPropOpenCLImage, kOfxImageEffectPropThumbnailRender
+#include "ofxColour.h" // OFX 1.5: colour management
 #ifdef OFX_EXTENSIONS_VEGAS
 #include "ofxSonyVegas.h"
 #endif
@@ -281,6 +282,18 @@ namespace OFX {
       };
 
 
+      /// OFX 1.5 colour management (ofxColour.h) clip instance properties, stored values.
+      static const Property::PropSpec clipInstanceColourStuffs[] = {
+        // "Hosts should set this property to the colourspace of the input clip" (set with
+        // setColourspace()). "If a clip sets OfxImageClipPropIsMask or it only supports
+        // OfxImageComponentAlpha, colour management is disabled and this property must be
+        // unset": it stays empty.
+        { kOfxImageClipPropColourspace, Property::eString, 1, true, "" },
+        // ordered list of colourspaces requested by the plug-in (see kOfxImageEffectActionGetClipPreferences)
+        { kOfxImageClipPropPreferredColourspaces, Property::eString, 0, false, "" },
+        Property::propSpecEnd
+      };
+
       ////////////////////////////////////////////////////////////////////////////////
       // instance
       ClipInstance::ClipInstance(ImageEffect::Instance* effectInstance, ClipDescriptor& desc) 
@@ -310,11 +323,46 @@ namespace OFX {
           i++;
         }
         _properties.addProperties(clipInstanceStoredStuffs);
+        _properties.addProperties(clipInstanceColourStuffs);
 #     ifdef OFX_EXTENSIONS_NATRON
         _properties.addNotifyHook(kOfxPropLabel, this);
         _properties.addNotifyHook(kOfxParamPropSecret, this);
         _properties.addNotifyHook(kOfxParamPropHint, this);
 #     endif
+      }
+
+      ////////////////////////////////////////////////////////////////////////////////
+      // OFX 1.5 colour management (ofxColour.h)
+
+      const std::string &ClipInstance::getColourspace() const
+      {
+        return _properties.getStringProperty(kOfxImageClipPropColourspace);
+      }
+
+      void ClipInstance::setColourspace(const std::string &colourspace)
+      {
+        _properties.setStringProperty(kOfxImageClipPropColourspace, colourspace);
+      }
+
+      void ClipInstance::getPreferredColourspaces(std::vector<std::string> &colourspaces) const
+      {
+        colourspaces.clear();
+        const int n = _properties.getDimension(kOfxImageClipPropPreferredColourspaces);
+        for (int i = 0; i < n; ++i) {
+          colourspaces.push_back(_properties.getStringProperty(kOfxImageClipPropPreferredColourspaces, i));
+        }
+      }
+
+      void ClipInstance::setPreferredColourspaces(const std::vector<std::string> &colourspaces)
+      {
+        Property::String *prop = _properties.fetchStringProperty(kOfxImageClipPropPreferredColourspaces);
+        if (!prop) {
+          return;
+        }
+        prop->reset(); // variable dimension: back to 0 values
+        for (std::size_t i = 0; i < colourspaces.size(); ++i) {
+          prop->setValue(colourspaces[i], (int)i);
+        }
       }
 
 #     ifdef OFX_EXTENSIONS_NATRON

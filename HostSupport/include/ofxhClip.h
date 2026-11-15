@@ -297,6 +297,22 @@ namespace OFX {
         //  Says whether the clip is actually connected at the moment.
         virtual bool getConnected() const = 0;
 
+        /// @name OFX 1.5 colour management (ofxColour.h)
+        /// Non-virtual, stored in the clip instance properties.
+        /// @{
+
+        /// kOfxImageClipPropColourspace: the colourspace of the images of this clip, set by the
+        /// host ("" if colour management is not in use, or disabled for this clip). It may be a
+        /// cross-reference "OfxColourspace_<clip>", see ImageEffect::Instance::resolveColourspace().
+        const std::string &getColourspace() const;
+        void setColourspace(const std::string &colourspace);
+
+        /// kOfxImageClipPropPreferredColourspaces: the colourspaces the plug-in asked for in
+        /// kOfxImageEffectActionGetClipPreferences, most preferred first (empty: no preference).
+        void getPreferredColourspaces(std::vector<std::string> &colourspaces) const;
+        void setPreferredColourspaces(const std::vector<std::string> &colourspaces);
+        /// @}
+
         // Unmapped Frame Rate -
         //
         //  The unmapped frame rate.
