@@ -655,14 +655,15 @@ void PluginCache::elementBeginCallback(void */*userData*/, const XML_Char *name,
   }
   
   if (ename == "binary") {
-    const char *binAtts[] = {"static_bin", "path", "bundle_path", "mtime", "size", NULL};
+    // "static_bin" is optional: caches written before Nov. 2017 (edc1d81a) don't have it
+    const char *binAtts[] = {"path", "bundle_path", "mtime", "size", NULL};
     
     if (!mapHasAll(attmap, binAtts)) {
       throw std::runtime_error("malformed plugin cache: <binary> element with missing attributes");
     }
 
 #ifdef OFX_USE_STATIC_PLUGINS
-    bool isStaticLinkedCachedBinary = OFX::Host::Property::stringToInt(attmap["static_bin"]);
+    bool isStaticLinkedCachedBinary = attmap.count("static_bin") && OFX::Host::Property::stringToInt(attmap["static_bin"]);
 #endif
 
     std::string fname = attmap["path"];
