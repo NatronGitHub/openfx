@@ -228,6 +228,7 @@ namespace OFX {
         { kOfxParamTypeInteger3D, Property::eInt,    3 },
         { kOfxParamTypeString,    Property::eString, 1 },
         { kOfxParamTypeCustom,    Property::eString, 1 },
+        { kOfxParamTypeBytes,     Property::ePointer, 1 }, // OFX 1.5: the value is an OfxBytes
         { kOfxParamTypeGroup,     Property::eNone,   0 },
         { kOfxParamTypePage,      Property::eNone,   0 },
         { kOfxParamTypePushButton,Property::eNone,   0 },
@@ -496,10 +497,14 @@ namespace OFX {
         /// so just set the kOfxParamPropIsAnimating property to 0 for all those "extra animating" params.
         bool animates = type != kOfxParamTypeCustom && type != kOfxParamTypeString && type != kOfxParamTypeBoolean && type != kOfxParamTypeChoice;
         animates = animates && type != kOfxParamTypeStrChoice;
+        // OFX 1.5 Bytes params: opaque plug-in data, not animated unless the plug-in asks for it
+        animates = animates && type != kOfxParamTypeBytes;
 
         Property::PropSpec variantProps[] = {
           { kOfxParamPropAnimates,    Property::eInt, 1,       false, animates ? "1" : "0" },
-          { kOfxParamPropDefault,     valueType,               dim, false, valueType == Property::eString ? "" : "0" },
+          // a Pointer property's default is the pointer itself (see Set::createProperty), so use NULL:
+          // the default of a Bytes param is "pointer to OfxBytes struct of one dimension, or nullptr"
+          { kOfxParamPropDefault,     valueType,               dim, false, valueType == Property::eString ? "" : (valueType == Property::ePointer ? NULL : "0") },
           Property::propSpecEnd
         };
 
@@ -2044,7 +2049,96 @@ namespace OFX {
 #       endif
         return set(time, value);
       }
-      
+
+      //
+      // BytesInstance (OFX 1.5)
+      //
+
+      BytesInstance::BytesInstance(Descriptor& descriptor, Param::SetInstance* instance)
+        : Instance(descriptor, instance)
+      {
+        // kOfxParamPropDefault: "pointer to OfxBytes struct of one dimension, or nullptr".
+        // The data belongs to the plug-in, so keep a copy.
+        const OfxBytes *def = (const OfxBytes *)getProperties().getPointerProperty(kOfxParamPropDefault);
+        if (def && def->data && def->length > 0) {
+          _defaultValue.assign(def->data, def->data + def->length);
+        }
+      }
+
+      /// fill the plug-in's OfxBytes from storage owned by this instance
+      static void fillBytes(OfxBytes *value, const std::vector<unsigned char> &storage)
+      {
+        value->data = storage.empty() ? NULL : &storage[0];
+        value->length = storage.size();
+      }
+
+      /// implementation of var args function
+      OfxStatus BytesInstance::getV(va_list arg)
+      {
+        OfxBytes *value = va_arg(arg, OfxBytes *);
+        if (!value) {
+          return kOfxStatErrValue;
+        }
+        OfxStatus stat = get(_returnValue); // temp storage, valid until the next call (like strings)
+        if (stat == kOfxStatOK) {
+          fillBytes(value, _returnValue);
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << " (" << value->length << " bytes)";
+#         endif
+        }
+        return stat;
+      }
+
+      /// implementation of var args function
+      OfxStatus BytesInstance::getV(OfxTime time, va_list arg)
+      {
+        if ( OFX::IsNaN(time) ) {
+          return kOfxStatErrValue;
+        }
+        OfxBytes *value = va_arg(arg, OfxBytes *);
+        if (!value) {
+          return kOfxStatErrValue;
+        }
+        OfxStatus stat = get(time, _returnValue);
+        if (stat == kOfxStatOK) {
+          fillBytes(value, _returnValue);
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << " (" << value->length << " bytes)";
+#         endif
+        }
+        return stat;
+      }
+
+      /// implementation of var args function
+      OfxStatus BytesInstance::setV(va_list arg)
+      {
+        const OfxBytes *value = va_arg(arg, const OfxBytes *);
+        if (value && !value->data && value->length > 0) {
+          return kOfxStatErrValue;
+        }
+#       ifdef OFX_DEBUG_PARAMETERS
+        std::cout << " (" << (value ? value->length : 0) << " bytes)";
+#       endif
+        // a NULL OfxBytes pointer sets an empty value
+        return set(value ? value->data : NULL, value ? value->length : 0);
+      }
+
+      /// implementation of var args function
+      OfxStatus BytesInstance::setV(OfxTime time, va_list arg)
+      {
+        if ( OFX::IsNaN(time) ) {
+          return kOfxStatErrValue;
+        }
+        const OfxBytes *value = va_arg(arg, const OfxBytes *);
+        if (value && !value->data && value->length > 0) {
+          return kOfxStatErrValue;
+        }
+#       ifdef OFX_DEBUG_PARAMETERS
+        std::cout << " (" << (value ? value->length : 0) << " bytes)";
+#       endif
+        return set(time, value ? value->data : NULL, value ? value->length : 0);
+      }
+
       //////////////////////////////////////////////////////////////////////////////////
       // Param::SetInstance
       //
@@ -2148,6 +2242,18 @@ namespace OFX {
         if (paramType && std::string(paramType) == kOfxParamTypeStrChoice &&
             !(ImageEffect::gImageEffectHost &&
               ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxParamHostPropSupportsStrChoice) != 0)) {
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << ' ' << StatStr(kOfxStatErrUnsupported) << std::endl;
+#         endif
+          return kOfxStatErrUnsupported;
+        }
+
+        // Same for Bytes params (OFX 1.5). The standard has no host property for them:
+        // plug-ins find out from this status (see the upstream Examples/Custom plug-in).
+        // HostSupport-based hosts opt in with kOfxHostSupportHostPropSupportsBytes.
+        if (paramType && std::string(paramType) == kOfxParamTypeBytes &&
+            !(ImageEffect::gImageEffectHost &&
+              ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxHostSupportHostPropSupportsBytes) != 0)) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrUnsupported) << std::endl;
 #         endif
