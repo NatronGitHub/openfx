@@ -576,19 +576,57 @@ void PluginCache::scanPluginFiles()
 }
 
 
+namespace {
+  /// state shared between readCache() and the XML parser callbacks
+  struct XMLReadState {
+    XML_Parser parser;
+    bool failed;
+    std::string error;
+  };
+
+  /// C++ exceptions must not propagate through the expat C code: record the
+  /// error, stop the parser, and let readCache() report it.
+  void stopParserOnException(void *userData, const char *what) {
+    XMLReadState *state = static_cast<XMLReadState*>(userData);
+    if (!state->failed) {
+      state->failed = true;
+      state->error = what;
+    }
+    XML_StopParser(state->parser, XML_FALSE);
+  }
+}
+
 /// callback for XML parser
 static void elementBeginHandler(void *userData, const XML_Char *name, const XML_Char **atts) {
-  PluginCache::getPluginCache()->elementBeginCallback(userData, name, atts);
+  try {
+    PluginCache::getPluginCache()->elementBeginCallback(userData, name, atts);
+  } catch (const std::exception &e) {
+    stopParserOnException(userData, e.what());
+  } catch (...) {
+    stopParserOnException(userData, "unknown exception");
+  }
 }
 
 /// callback for XML parser
 static void elementCharHandler(void *userData, const XML_Char *data, int len) {
-  PluginCache::getPluginCache()->elementCharCallback(userData, data, len);
+  try {
+    PluginCache::getPluginCache()->elementCharCallback(userData, data, len);
+  } catch (const std::exception &e) {
+    stopParserOnException(userData, e.what());
+  } catch (...) {
+    stopParserOnException(userData, "unknown exception");
+  }
 }
 
 /// callback for XML parser
 static void elementEndHandler(void *userData, const XML_Char *name) {
-  PluginCache::getPluginCache()->elementEndCallback(userData, name);
+  try {
+    PluginCache::getPluginCache()->elementEndCallback(userData, name);
+  } catch (const std::exception &e) {
+    stopParserOnException(userData, e.what());
+  } catch (...) {
+    stopParserOnException(userData, "unknown exception");
+  }
 }
 
 static bool mapHasAll(const std::map<std::string, std::string> &attmap, const char **atts) {
@@ -629,14 +667,15 @@ void PluginCache::elementBeginCallback(void */*userData*/, const XML_Char *name,
   }
   
   if (ename == "binary") {
-    const char *binAtts[] = {"static_bin", "path", "bundle_path", "mtime", "size", NULL};
+    // "static_bin" is optional: caches written before Nov. 2017 (edc1d81a) don't have it
+    const char *binAtts[] = {"path", "bundle_path", "mtime", "size", NULL};
     
     if (!mapHasAll(attmap, binAtts)) {
-      // no path: bad XML
+      throw std::runtime_error("malformed plugin cache: <binary> element with missing attributes");
     }
 
 #ifdef OFX_USE_STATIC_PLUGINS
-    bool isStaticLinkedCachedBinary = OFX::Host::Property::stringToInt(attmap["static_bin"]);
+    bool isStaticLinkedCachedBinary = attmap.count("static_bin") && OFX::Host::Property::stringToInt(attmap["static_bin"]);
 #endif
 
     std::string fname = attmap["path"];
@@ -671,7 +710,7 @@ void PluginCache::elementBeginCallback(void */*userData*/, const XML_Char *name,
     const char *plugAtts[] = {"api", "name", "index", "api_version", "major_version", "minor_version", NULL};
     
     if (!mapHasAll(attmap, plugAtts)) {
-      // no path: bad XML
+      throw std::runtime_error("malformed plugin cache: <plugin> element with missing attributes");
     }
     
     std::string api = attmap["api"];
@@ -754,36 +793,73 @@ void PluginCache::elementEndCallback(void */*userData*/, const XML_Char *name) {
 }
 
 void PluginCache::readCache(std::istream &ifs) {
+  // Remember the state before reading, so that a cache that cannot be read
+  // completely is discarded entirely: a partially read cache would otherwise
+  // be trusted by scanPluginFiles() for the binaries it lists.
+  const std::size_t nBinaries = _binaries.size();
+  const std::set<std::string> knownBinFiles = _knownBinFiles;
+#ifdef OFX_USE_STATIC_PLUGINS
+  PluginBinary *staticBinary = _staticBinary;
+#endif
+
   XML_Parser xP = XML_ParserCreate(NULL);
   if (!xP) {
     throw std::runtime_error("Error creating XML parser");
 
   }
+  XMLReadState state;
+  state.parser = xP;
+  state.failed = false;
+  XML_SetUserData(xP, &state);
   XML_SetElementHandler(xP, elementBeginHandler, elementEndHandler);
   XML_SetCharacterDataHandler(xP, elementCharHandler);
+  std::string errorDesc;
   int done = false;
   char buf[4096];
-  while (!done && !ifs.eof()) {
+  while (errorDesc.empty() && !done && !ifs.eof()) {
     if (!ifs.good()) {
-      throw std::runtime_error("Error reading cache stream");
+      errorDesc = "Error reading cache stream";
+      break;
     }
     ifs.read(buf, sizeof(buf));
     int n = (int)ifs.gcount();
     done = (n != sizeof(buf));
 
     if (XML_Parse(xP, buf, n, done) == XML_STATUS_ERROR) {
-      XML_Error errorCode = XML_GetErrorCode(xP);
+      std::stringstream ss;
       XML_Size errorLine = XML_GetCurrentLineNumber(xP);
       XML_Size errorCol = XML_GetCurrentColumnNumber(xP);
-      const XML_LChar *errorString = XML_ErrorString(errorCode);
-      std::stringstream errorDesc;
-      errorDesc << "XML parsing error at line " << errorLine << ":" << errorCol;
-      errorDesc << ": " << errorString;
-      XML_ParserFree(xP);
-      throw std::runtime_error(errorDesc.str());
+      if (state.failed) {
+        ss << "Error reading plugin cache at line " << errorLine << ":" << errorCol;
+        ss << ": " << state.error;
+      } else {
+        XML_Error errorCode = XML_GetErrorCode(xP);
+        const XML_LChar *errorString = XML_ErrorString(errorCode);
+        ss << "XML parsing error at line " << errorLine << ":" << errorCol;
+        ss << ": " << errorString;
+      }
+      errorDesc = ss.str();
     }
   }
   XML_ParserFree(xP);
+
+  if (!errorDesc.empty()) {
+    // roll back everything that was read from the cache
+    if (_xmlCurrentPlugin) {
+      _xmlCurrentPlugin->getApiHandler().endXmlParsing();
+    }
+    _xmlCurrentPlugin = 0;
+    _xmlCurrentBinary = 0;
+    while (_binaries.size() > nBinaries) {
+      delete _binaries.back();
+      _binaries.pop_back();
+    }
+    _knownBinFiles = knownBinFiles;
+#ifdef OFX_USE_STATIC_PLUGINS
+    _staticBinary = staticBinary;
+#endif
+    throw std::runtime_error(errorDesc);
+  }
 }
 
 void PluginCache::writePluginCache(std::ostream &os) const {

@@ -570,6 +570,12 @@ namespace OFX {
 
       void PluginCache::endXmlParsing() {
         _currentPlugin = 0;
+        // these point into the plugin descriptors, which may be deleted
+        // if the cache is discarded
+        _currentContext = 0;
+        _currentParam = 0;
+        _currentClip = 0;
+        _currentProp = 0;
       }
 
       void PluginCache::saveXML(Plugin *ip, std::ostream &os) const {
