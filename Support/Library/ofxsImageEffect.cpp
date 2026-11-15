@@ -1617,6 +1617,13 @@ namespace OFX {
     _effectProps.propSetInt(kOfxImageEffectPluginPropObsolete, int(v), false);
   }
 
+  /** @brief Does the plugin support Metal texture render (OFX 1.5) */
+  void ImageEffectDescriptor::setSupportsMetalTextureRender(bool v)
+  {
+    // host may not know this property: don't throw
+    _effectProps.propSetString(kOfxImageEffectPropMetalTextureSupported, (v ? "true" : "false"), false);
+  }
+
   /** @brief Can the plugin render on the CPU (OFX 1.5.1) */
   void ImageEffectDescriptor::setSupportsCPURender(bool v)
   {
@@ -2723,6 +2730,13 @@ namespace OFX {
     return _effectProps.propGetInt(kFnOfxImageEffectCanTransform, false) != 0;
   }
 #endif
+
+  /** @brief Does this instance support Metal texture render (OFX 1.5) */
+  void ImageEffect::setSupportsMetalTextureRender(bool v)
+  {
+    // host may not know this property: don't throw
+    _effectProps.propSetString(kOfxImageEffectPropMetalTextureSupported, (v ? "true" : "false"), false);
+  }
 
   /** @brief Can this instance render on the CPU (OFX 1.5.1) */
   void ImageEffect::setSupportsCPURender(bool v)
@@ -3955,6 +3969,8 @@ namespace OFX {
         gHostDescription.supportsRenderQualityDraft = hostProps.propGetInt(kOfxImageEffectPropRenderQualityDraft, false) != 0; // appeared in OFX 1.4
         // OFX 1.5.1, host optional: absent means the host renders on the CPU, as always
         gHostDescription.supportsCPURender = hostProps.propGetString(kOfxImageEffectPropCPURenderSupported, 0, false) != "false";
+        // OFX 1.5, host optional
+        gHostDescription.supportsMetalTexture = hostProps.propGetString(kOfxImageEffectPropMetalTextureSupported, 0, false) == "true";
         {
             std::string originStr = hostProps.propGetString(kOfxImageEffectHostPropNativeOrigin, false); // appeared in OFX 1.4
           if (originStr.empty()) {
@@ -4267,6 +4283,10 @@ namespace OFX {
     {
       args.isThumbnailRender = getIsThumbnailRender(inArgs);
       args.behaviourWhenUnlicensed = getBehaviourWhenUnlicensed(inArgs);
+      // OFX 1.5 Metal textures: "This property is in the inArgs of kOfxImageEffectActionRender,
+      // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
+      args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
+      args.pMetalCommandQueue = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
       args.time = inArgs.propGetDouble(kOfxPropTime);
 
       args.renderScale.x = args.renderScale.y = 1.;
@@ -4373,6 +4393,10 @@ namespace OFX {
       BeginSequenceRenderArguments args;
       args.isThumbnailRender = getIsThumbnailRender(inArgs);
       args.behaviourWhenUnlicensed = getBehaviourWhenUnlicensed(inArgs);
+      // OFX 1.5 Metal textures: "This property is in the inArgs of kOfxImageEffectActionRender,
+      // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
+      args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
+      args.pMetalCommandQueue = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 
       args.frameRange.min = args.frameRange.max = 0.;
       inArgs.propGetDoubleN(kOfxImageEffectPropFrameRange, &args.frameRange.min, 2);
@@ -4424,6 +4448,10 @@ namespace OFX {
       ImageEffect *effectInstance = retrieveImageEffectPointer(handle);
 
       EndSequenceRenderArguments args;
+      // OFX 1.5 Metal textures: "This property is in the inArgs of kOfxImageEffectActionRender,
+      // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
+      args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
+      args.pMetalCommandQueue = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 
 #ifdef OFX_EXTENSIONS_RESOLVE
       args.isEnabledOpenCLRender = inArgs.propGetInt(kOfxImageEffectPropOpenCLEnabled, false) != 0;
