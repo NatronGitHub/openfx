@@ -97,7 +97,7 @@ namespace OFX {
     /// written as character references, so that the output is always valid
     /// UTF-8. C0 control characters other than tab, line feed and carriage return
     /// cannot be represented in XML 1.0 (not even as character references) and
-    /// are replaced by U+FFFD.
+    /// are replaced by U+FFFD, as are the noncharacters U+FFFE and U+FFFF.
     inline std::string escape(const std::string &s) {
       std::string ns;
       for (size_t i=0;i<s.size();i++) {
@@ -137,7 +137,12 @@ namespace OFX {
               ns += s[i];
             } else {
               size_t len = utf8SequenceLength(s, i);
-              if (len > 0) {
+              if (len == 3 && c == 0xEF && (unsigned char)s[i + 1] == 0xBF &&
+                  ((unsigned char)s[i + 2] == 0xBE || (unsigned char)s[i + 2] == 0xBF)) {
+                // U+FFFE and U+FFFF are valid UTF-8 but not XML 1.0 Chars
+                appendCharRef(ns, 0xFFFD);
+                i += len - 1;
+              } else if (len > 0) {
                 ns.append(s, i, len);
                 i += len - 1;
               } else {
