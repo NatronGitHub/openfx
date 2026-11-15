@@ -2036,6 +2036,11 @@ namespace OFX {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrExists) << std::endl;
 #         endif
+          // like clipDefine, hand back the existing param's properties, so that a
+          // plug-in ignoring the status doesn't use an uninitialised handle
+          if (propertySet) {
+            *propertySet = paramSetDescriptor->getParams().find(name)->second->getPropHandle();
+          }
           return kOfxStatErrExists;
         }
 
