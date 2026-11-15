@@ -287,6 +287,7 @@ namespace OFX {
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     OfxImageEffectOpenGLRenderSuiteV1 *gOpenGLRenderSuite = 0;
 #endif
+    OfxOpenCLProgramSuiteV1 *gOpenCLProgramSuite = 0; // optional, OFX 1.5
 #ifdef OFX_EXTENSIONS_NUKE
     NukeOfxCameraSuiteV1* gCameraSuite = 0;
     FnOfxImageEffectPlaneSuiteV1* gImageEffectPlaneSuiteV1 = 0;
@@ -1359,6 +1360,21 @@ namespace OFX {
     }
   }
 #endif
+
+  namespace OpenCL {
+    bool isProgramSuiteAvailable()
+    {
+      return OFX::Private::gOpenCLProgramSuite != 0 && OFX::Private::gOpenCLProgramSuite->compileProgram != 0;
+    }
+
+    OfxStatus compileProgram(const char *programSource, bool optional, void *program)
+    {
+      if (!isProgramSuiteAvailable()) {
+        return kOfxStatErrUnsupported;
+      }
+      return OFX::Private::gOpenCLProgramSuite->compileProgram(programSource, optional ? 1 : 0, program);
+    }
+  }
 
   /** @brief Does the plugin support OpenCL Buffers render */
   void ImageEffectDescriptor::setSupportsOpenCLBuffersRender(bool v)
@@ -4081,6 +4097,7 @@ namespace OFX {
         gProgressSuiteV1 = (OfxProgressSuiteV1 *)     fetchSuite(kOfxProgressSuite, 1, true);
         gProgressSuiteV2 = (OfxProgressSuiteV2 *)     fetchSuite(kOfxProgressSuite, 2, true);
         gTimeLineSuite   = (OfxTimeLineSuiteV1 *)     fetchSuite(kOfxTimeLineSuite, 1, true);
+        gOpenCLProgramSuite = (OfxOpenCLProgramSuiteV1 *) fetchSuite(kOfxOpenCLProgramSuite, 1, true); // OFX 1.5, optional
         gParametricParameterSuite = (OfxParametricParameterSuiteV1*) fetchSuite(kOfxParametricParameterSuite, 1, true);
 #ifdef OFX_SUPPORTS_OPENGLRENDER
         gOpenGLRenderSuite = (OfxImageEffectOpenGLRenderSuiteV1*) fetchSuite(kOfxOpenGLRenderSuite, 1, true);
@@ -4153,6 +4170,7 @@ namespace OFX {
         gMessageSuiteV2 = 0;
         gInteractSuite = 0;
         gParametricParameterSuite = 0;
+        gOpenCLProgramSuite = 0;
 #ifdef OFX_EXTENSIONS_NUKE
         gCameraSuite = 0;
         gImageEffectPlaneSuiteV1 = 0;

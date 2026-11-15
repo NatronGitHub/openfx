@@ -438,6 +438,25 @@ namespace OFX {
   */
   const void * fetchSuite(const char *suiteName, int suiteVersion, bool optional = false);
 
+  /** @brief OFX 1.5 OpenCL program suite (OfxOpenCLProgramSuiteV1, ofxGPURender.h): an optional
+   suite "the host can provide for building OpenCL programs for the plug-in, as an alternative
+   to calling clCreateProgramWithSource / clBuildProgram" (the host may add build flags and
+   cache program binaries). */
+  namespace OpenCL {
+    /** @brief Does the host provide the OpenCL program suite? */
+    bool isProgramSuiteAvailable();
+
+    /** @brief Ask the host to compile an OpenCL program.
+
+     \arg programSource the OpenCL C source
+     \arg optional      if true, the host may skip compiling on this call
+     \arg program       points to a cl_program, where the compiled program is stored
+     \return the host's status, or kOfxStatErrUnsupported if the host doesn't provide the suite
+     (the plug-in should then call clCreateProgramWithSource / clBuildProgram itself). Never throws.
+     */
+    OfxStatus compileProgram(const char *programSource, bool optional, void *program);
+  }
+
   ////////////////////////////////////////////////////////////////////////////////
   /** @brief A class that lists all the properties of a host */
   struct ImageEffectHostDescription {

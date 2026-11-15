@@ -3945,6 +3945,35 @@ namespace OFX {
       };
 #   endif
 
+      ////////////////////////////////////////////////////////////////////////////////
+      // OFX 1.5 OpenCL program suite, implemented by the host (see Host::compileOpenCLProgram)
+      static OfxStatus compileOpenCLProgram(const char *pszProgramSource, int fOptional, void *pResult)
+      {
+        if (!gImageEffectHost || !pszProgramSource || !pResult) {
+          return kOfxStatErrBadHandle;
+        }
+        try {
+          return gImageEffectHost->compileOpenCLProgram(pszProgramSource, fOptional, pResult);
+        } catch (...) {
+          // C++ exceptions must not propagate into the plug-in
+          return kOfxStatFailed;
+        }
+      }
+
+      static const struct OfxOpenCLProgramSuiteV1 gOpenCLProgramSuite = {
+        compileOpenCLProgram
+      };
+
+      bool Host::supportsOpenCLProgramSuite() const
+      {
+        return false;
+      }
+
+      OfxStatus Host::compileOpenCLProgram(const char */*pszProgramSource*/, int /*fOptional*/, void */*pResult*/)
+      {
+        return kOfxStatErrUnsupported;
+      }
+
       /// Map a message suite handle to an effect instance.
       /// The handle may be NULL, a descriptor or an instance (see ofxMessage.h),
       /// so it must not be blindly cast to ImageEffect::Instance.
@@ -4511,6 +4540,13 @@ namespace OFX {
             return NULL;
         }
 #     endif
+        else if (strcmp(suiteName, kOfxOpenCLProgramSuite)==0) {
+          // optional OFX 1.5 suite: only available if the host implements it
+          if (suiteVersion == 1 && supportsOpenCLProgramSuite())
+            return (void*)&gOpenCLProgramSuite;
+          else
+            return NULL;
+        }
 #     ifdef OFX_EXTENSIONS_VEGAS
 #      if 0
         else if (strcmp(suiteName, kOfxVegasKeyframeSuite)==0) {
