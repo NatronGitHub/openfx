@@ -66,6 +66,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifdef OFX_SUPPORTS_OPENGLRENDER
 #include "ofxOpenGLRender.h"
 #endif
+#include "ofxGPURender.h" // OFX 1.5: CPU/Metal texture/OpenCL images render props
+#include "ofxColour.h" // OFX 1.5: colour management
 #include "ofxOld.h" // old plugins may rely on deprecated properties being present
 
 #include <string.h>
@@ -111,6 +113,8 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_RESOLVE
         { kOfxImageEffectPropOpenCLRenderSupported, Property::eString, 1, false, "false"},
         { kOfxImageEffectPropCudaRenderSupported, Property::eString, 1, false, "false" },
+        { kOfxImageEffectPropCudaStreamSupported, Property::eString, 1, false, "false" },
+        { kOfxImageEffectPropMetalRenderSupported, Property::eString, 1, false, "false" },
 #endif
 #ifdef OFX_EXTENSIONS_NUKE
         { kFnOfxImageEffectPropMultiPlanar,   Property::eInt, 1, false, "0" },
@@ -154,6 +158,15 @@ namespace OFX {
         { kOfxImageEffectPropCanDistort, Property::eInt, 1, true, "0" },
         { kOfxImageEffectPropRenderAllPlanes, Property::eInt, 1, true, "0"},
 #endif
+        // OFX 1.5 / 1.5.1 plug-in descriptor properties, with their spec defaults.
+        // These describe what the plug-in can do; they don't advertise any host capability.
+        { kOfxImageEffectPluginPropObsolete, Property::eInt, 1, false, "0" },
+        { kOfxImageEffectPluginPropOverlayInteractV2, Property::ePointer, 1, false, NULL },
+        { kOfxImageEffectPropCPURenderSupported, Property::eString, 1, false, "true" },
+        { kOfxImageEffectPropMetalTextureSupported, Property::eString, 1, false, "false" },
+        { kOfxImageEffectPropOpenCLSupported, Property::eString, 1, false, "false" },
+        { kOfxImageEffectPropColourManagementStyle, Property::eString, 1, false, kOfxImageEffectColourManagementNone },
+        { kOfxImageEffectPropColourManagementAvailableConfigs, Property::eString, 0, false, "" },
         Property::propSpecEnd
       };
 
@@ -555,6 +568,22 @@ namespace OFX {
       // Instance
       //
 
+      /// OFX 1.5.1: kOfxImageEffectPropThumbnailRender is in the inArgs of
+      /// BeginInstanceChanged, InstanceChanged, BeginSequenceRender, Render,
+      /// GetRegionOfDefinition, GetRegionsOfInterest, GetFramesNeeded and IsIdentity.
+      /// Hosts that do thumbnail renders set it to "true".
+      static const Property::PropSpec ofx15ThumbnailRenderArgs[] = {
+        { kOfxImageEffectPropThumbnailRender, Property::eString, 1, true, "false" },
+        Property::propSpecEnd
+      };
+
+      /// OFX 1.5: kOfxImageEffectPropMetalTextureEnabled is in the inArgs of
+      /// Render, BeginSequenceRender and EndSequenceRender (0: images are not Metal textures).
+      static const Property::PropSpec ofx15MetalTextureArgs[] = {
+        { kOfxImageEffectPropMetalTextureEnabled, Property::eInt, 1, true, "0" },
+        Property::propSpecEnd
+      };
+
       static const Property::PropSpec effectInstanceStuff[] = {
         /* name                                 type                   dim.   r/o    default value */
         { kOfxImageEffectPropContext,           Property::eString,     1, true, "" },
@@ -602,6 +631,13 @@ namespace OFX {
         
         // this will add parameters that are needed in an instance but not a Descriptor
         _properties.addProperties(effectInstanceStuff);
+
+        // OFX 1.5: on the instance, kOfxImageEffectPropColourManagementStyle is the style
+        // chosen by the host ("The chosen style must be set by the host using this property
+        // on an image effect instance"), not the plug-in's capability copied from the
+        // descriptor. A host that doesn't do colour management leaves it at None.
+        _properties.addProperty(new Property::String(kOfxImageEffectPropColourManagementStyle, 1, true,
+                                                     kOfxImageEffectColourManagementNone));
         _properties.setChainedSet(&other.getProps());
 
         _properties.setPointerProperty(kOfxImageEffectPropPluginHandle, _plugin->getPluginHandle()->getOfxPlugin());
@@ -1063,6 +1099,7 @@ namespace OFX {
         };
 
         Property::Set inArgs(stuff);
+        inArgs.addProperties(ofx15ThumbnailRenderArgs);
 
 #       ifdef OFX_DEBUG_ACTIONS
           std::cout << "OFX: "<<(void*)this<<"->"<<kOfxActionBeginInstanceChanged<<"("<<why<<")"<<std::endl;
@@ -1104,6 +1141,7 @@ namespace OFX {
         };
 
         Property::Set inArgs(stuff);
+        inArgs.addProperties(ofx15ThumbnailRenderArgs);
 
         // add the second dimension of the render scale
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -1327,7 +1365,10 @@ namespace OFX {
 #       ifdef OFX_EXTENSIONS_RESOLVE
           { kOfxImageEffectPropOpenCLEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
+          { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, false, "0" },
 #       endif
 #       ifdef OFX_EXTENSIONS_NUKE
           { kFnOfxImageEffectPropView, Property::eInt, 1, true, "0" },
@@ -1336,6 +1377,8 @@ namespace OFX {
         };
 
         Property::Set inArgs(stuff);
+        inArgs.addProperties(ofx15ThumbnailRenderArgs);
+        inArgs.addProperties(ofx15MetalTextureArgs);
 
         // set up second dimension for frame range and render scale
         inArgs.setDoubleProperty(kOfxImageEffectPropFrameRange,startFrame, 0);
@@ -1427,7 +1470,10 @@ namespace OFX {
 #       ifdef OFX_EXTENSIONS_RESOLVE
           { kOfxImageEffectPropOpenCLEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
+          { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, false, "0" },
 #       endif
 #       ifdef OFX_EXTENSIONS_VEGAS
           { kOfxImageEffectPropRenderView, Property::eInt, 1, true, "0" },
@@ -1442,6 +1488,8 @@ namespace OFX {
         };
 
         Property::Set inArgs(inStuff);
+        inArgs.addProperties(ofx15ThumbnailRenderArgs);
+        inArgs.addProperties(ofx15MetalTextureArgs);
         
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -1544,7 +1592,10 @@ namespace OFX {
 #       ifdef OFX_EXTENSIONS_RESOLVE
           { kOfxImageEffectPropOpenCLEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
+          { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, false, "0" },
+          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, false, "0" },
 #       endif
 #       ifdef OFX_EXTENSIONS_NUKE
           { kFnOfxImageEffectPropView, Property::eInt, 1, true, "0" },
@@ -1553,6 +1604,7 @@ namespace OFX {
         };
 
         Property::Set inArgs(inStuff);
+        inArgs.addProperties(ofx15MetalTextureArgs);
 
         inArgs.setDoubleProperty(kOfxImageEffectPropFrameStep,step);
 
@@ -1889,6 +1941,7 @@ namespace OFX {
         };
 
         Property::Set inArgs(inStuff);
+        inArgs.addProperties(ofx15ThumbnailRenderArgs);
         Property::Set outArgs(outStuff);
         
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -1993,6 +2046,7 @@ namespace OFX {
           Property::propSpecEnd
         };
         Property::Set inArgs(inStuff);
+        inArgs.addProperties(ofx15ThumbnailRenderArgs);
 
         inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -2394,6 +2448,7 @@ namespace OFX {
             Property::propSpecEnd
           };
           Property::Set inArgs(inStuff);       
+          inArgs.addProperties(ofx15ThumbnailRenderArgs);
           inArgs.setDoubleProperty(kOfxPropTime,time);
         
         
@@ -2539,6 +2594,7 @@ namespace OFX {
         };
 
         Property::Set inArgs(inStuff);        
+        inArgs.addProperties(ofx15ThumbnailRenderArgs);
 
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -4292,9 +4348,9 @@ namespace OFX {
 #     endif
         { kOfxParamHostPropSupportsStringAnimation, Property::eInt, 1, true, "0" },
         { kOfxParamHostPropSupportsChoiceAnimation, Property::eInt, 1, true, "0"  },
-#     ifdef OFX_EXTENSIONS_RESOLVE
         { kOfxParamHostPropSupportsStrChoiceAnimation, Property::eInt, 1, true, "0"  },
-#     endif
+        // set to 1 by hosts that implement Param::StrChoiceInstance in newParam()
+        { kOfxParamHostPropSupportsStrChoice, Property::eInt, 1, true, "0"  },
         { kOfxParamHostPropSupportsBooleanAnimation, Property::eInt, 1, true, "0" },
         { kOfxParamHostPropSupportsCustomAnimation, Property::eInt, 1, true, "0" },
         { kOfxPropHostOSHandle, Property::ePointer, 1, true, NULL },
@@ -4316,6 +4372,8 @@ namespace OFX {
 #     ifdef OFX_EXTENSIONS_RESOLVE
         { kOfxImageEffectPropOpenCLRenderSupported, Property::eString, 1, false, "false"},
         { kOfxImageEffectPropCudaRenderSupported, Property::eString, 1, false, "false" },
+        { kOfxImageEffectPropCudaStreamSupported, Property::eString, 1, false, "false" },
+        { kOfxImageEffectPropMetalRenderSupported, Property::eString, 1, false, "false" },
 #     endif
 #     ifdef OFX_EXTENSIONS_NUKE
         { kFnOfxImageEffectPropMultiPlanar,   Property::eInt, 1, false, "0" },
@@ -4333,6 +4391,13 @@ namespace OFX {
         { kNatronOfxPropNativeOverlays, Property::eString, 0, true, ""},
         { kOfxImageEffectPropCanDistort, Property::eInt, 1, false, "0" },
 #    endif
+        // OFX 1.5 / 1.5.1 host capabilities, with "not supported" defaults (a host
+        // application that implements one of these sets it on its host descriptor).
+        { kOfxImageEffectPropCPURenderSupported, Property::eString, 1, true, "true" },
+        { kOfxImageEffectPropMetalTextureSupported, Property::eString, 1, true, "false" },
+        { kOfxImageEffectPropOpenCLSupported, Property::eString, 1, true, "false" },
+        { kOfxImageEffectPropColourManagementStyle, Property::eString, 1, true, kOfxImageEffectColourManagementNone },
+        { kOfxImageEffectPropColourManagementAvailableConfigs, Property::eString, 0, true, "" },
         Property::propSpecEnd
       };    
 

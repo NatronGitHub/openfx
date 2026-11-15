@@ -463,9 +463,8 @@ namespace OFX {
     bool supportsStringAnimation;
     bool supportsCustomInteract;
     bool supportsChoiceAnimation;
-#ifdef OFX_EXTENSIONS_RESOLVE
     bool supportsStrChoiceAnimation;
-#endif
+    bool supportsStrChoice; ///< kOfxParamHostPropSupportsStrChoice: check before defining a StrChoice param
     bool supportsBooleanAnimation;
     bool supportsCustomAnimation;
     void* osHandle;
@@ -500,6 +499,7 @@ namespace OFX {
     bool supportsProgressSuite;
     bool supportsTimeLineSuite;
     bool supportsMessageSuiteV2;
+    bool supportsCPURender; ///< kOfxImageEffectPropCPURenderSupported (OFX 1.5.1, host optional); true if absent
 #ifdef OFX_EXTENSIONS_NATRON
     bool isNatron;
     bool supportsDynamicChoices;
@@ -795,8 +795,14 @@ namespace OFX {
     /** @brief If the slave  param changes the clip preferences need to be re-evaluated */
     void addClipPreferencesSlaveParam(ParamDescriptor &p);
 
+    /** @brief Does the plugin support OpenCL Buffers render (kOfxImageEffectPropOpenCLRenderSupported, OFX 1.5), defaults to false */
+    void setSupportsOpenCLBuffersRender(bool v);
+
+    /** @brief Does the plugin support OpenCL Images render (kOfxImageEffectPropOpenCLSupported, OFX 1.5), defaults to false */
+    void setSupportsOpenCLImagesRender(bool v);
+
 #ifdef OFX_EXTENSIONS_RESOLVE
-    /** @brief Does the plugin support OpenCL Render, defaults to false */
+    /** @brief Does the plugin support OpenCL Render, defaults to false (same as setSupportsOpenCLBuffersRender) */
     void setSupportsOpenCLRender(bool v);
 
     /** @brief Does the plugin support CUDA Render, defaults to false */
@@ -934,6 +940,15 @@ namespace OFX {
     at once or not (e.g: optical flow plug-in that could produce bw/fw planes at once)*/
   void setRenderAllPlanes(bool enabled);
 #endif
+
+  /** @brief indicate that the plugin is made obsolete by another version of the same plugin in the same bundle,
+   so that the host doesn't show it in its plugin browser (kOfxImageEffectPluginPropObsolete, OFX 1.5).
+   At least one version of the plugin in the bundle must not be obsolete. Ignored by hosts that don't know it. */
+  void setIsObsolete(bool v);
+
+  /** @brief Can the plugin render on the CPU (kOfxImageEffectPropCPURenderSupported, OFX 1.5.1), defaults to true.
+   Set to false for GPU-only plugins. Ignored by hosts that don't know it. */
+  void setSupportsCPURender(bool v);
   };
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -1046,6 +1061,7 @@ namespace OFX {
   class Image : public ImageBase {
   protected :
     void     *_pixelData;                    /**< @brief the base address of the image */
+    void     *_OpenCLImage;                  /**< @brief the OpenCL Image handle (cl_mem), or NULL (OFX 1.5) */
 
   public :
     /** @brief ctor */
@@ -1059,6 +1075,13 @@ namespace OFX {
 
     /** @brief get the pixel data for this image */
     const void *getPixelData(void) const { return _pixelData;}
+
+    /** @brief get the OpenCL Image handle (cl_mem) if the host passes the image as an OpenCL Image
+     (kOfxImageEffectPropOpenCLImage, OFX 1.5), else NULL. In that case getPixelData() is not used. */
+    void *getOpenCLImage(void) { return _OpenCLImage;}
+
+    /** @brief get the OpenCL Image handle (cl_mem), or NULL */
+    const void *getOpenCLImage(void) const { return _OpenCLImage;}
 
     /** @brief return a pixel pointer, returns NULL if (x,y) is outside the image bounds
 
@@ -1226,6 +1249,10 @@ namespace OFX {
 
     /** @brief get the frame rate, in frames per second on this clip, after any clip preferences have been applied */
     double getFrameRate(void) const;
+
+    /** @brief the frame number the host shows the user for time 0 (kOfxImageClipPropDisplayTimeOffset, OFX 1.5), 0 if the host doesn't set it.
+     Add it to OFX times shown to the user, and subtract it from frame numbers entered by the user. */
+    double getDisplayTimeOffset(void) const;
 
     /** @brief return the range of frames over which this clip has images, after any clip preferences have been applied */
     OfxRangeD getFrameRange(void) const;
@@ -1437,6 +1464,13 @@ namespace OFX {
   };
 
   ////////////////////////////////////////////////////////////////////////////////
+  /** @brief Host behaviour when the plug-in is unlicensed (kOfxImageEffectPropBehaviourWhenUnlicensed, OFX 1.5) */
+  enum UnlicensedBehaviourEnum {
+    eUnlicensedBehaviourNotSet,   /**< property absent: render (e.g. watermarked) and return kOfxStatOK */
+    eUnlicensedBehaviourContinue, /**< kOfxUnlicensedContinue: render and return kOfxStatUnlicensed */
+    eUnlicensedBehaviourFail      /**< kOfxUnlicensedFail: may return kOfxStatUnlicensed without rendering */
+  };
+
   /** @brief POD struct to pass rendering arguments into @ref ImageEffect::render */
   struct RenderArguments {
     double    time;
@@ -1472,6 +1506,8 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
     std::list<std::string> planes;
 #endif
+    bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
+    UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5): eUnlicensedBehaviourNotSet if absent */
   };
 
   /** @brief POD struct to pass rendering arguments into @ref OFX::ImageEffect::isIdentity */
@@ -1484,6 +1520,7 @@ namespace OFX {
     int view;
     std::string plane;
 #endif
+    bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
   };
 
   /** @brief POD struct to pass arguments into  @ref OFX::ImageEffect::beginSequenceRender */
@@ -1512,6 +1549,8 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
     int view;
 #endif
+    bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
+    UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5): eUnlicensedBehaviourNotSet if absent */
   };
 
   /** @brief POD struct to pass arguments into  @ref OFX::ImageEffect::endSequenceRender */
@@ -1547,6 +1586,7 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
     int view;
 #endif
+    bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
   };
 
   /** @brief POD struct to pass arguments into @ref OFX::ImageEffect::getRegionsOfInterest */
@@ -1557,6 +1597,7 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
     int view;
 #endif
+    bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
   };
 
 #ifdef OFX_EXTENSIONS_VEGAS
@@ -1620,6 +1661,7 @@ namespace OFX {
   /** @brief POD struct to pass arguments into @ref OFX::ImageEffect::getFramesNeeded */
   struct FramesNeededArguments {
     double    time;
+    bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
   };
 
   /** @brief Class used to set the frames needed to render a single frame of a clip in @ref OFX::ImageEffect::getFramesNeeded
@@ -1777,6 +1819,9 @@ namespace OFX {
     */
     void setOutputHasContinuousSamples(bool v);
 
+    /** @brief upstream (AcademySoftwareFoundation/openfx) spelling of setOutputHasContinuousSamples() */
+    void setOutputHasContinousSamples(bool v) { setOutputHasContinuousSamples(v); }
+
     /** @brief Sets whether the effect will produce different images in all frames, even if the no params or input images are varying (eg: a noise generator).
 
     Defaults to false.
@@ -1805,6 +1850,7 @@ namespace OFX {
     InstanceChangeReason reason;      /**< @brief why did it change */
     double               time;        /**< time of the change */
     OfxPointD            renderScale; /**< the renderscale on the instance */
+    bool                 isThumbnailRender; /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1), false if absent */
   };
 
   /** @brief struct to pass arguments into @ref OFX::ImageEffect::interpolateCustomParam.
@@ -1955,6 +2001,9 @@ namespace OFX {
      */
     OfxRectD getSelectionRectangle() const;
 #endif
+
+    /** @brief Can this instance render on the CPU (kOfxImageEffectPropCPURenderSupported, OFX 1.5.1). Ignored by hosts that don't know it. */
+    void setSupportsCPURender(bool v);
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     /** @brief Does the plugin support OpenGL accelerated rendering (but is also capable of CPU rendering) ? Can only be called from changedParam or changedClip (OFX 1.4). */

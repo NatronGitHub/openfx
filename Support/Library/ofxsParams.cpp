@@ -161,9 +161,7 @@ namespace OFX {
     case eRGBAParam : return kOfxParamTypeRGBA ;
     case eBooleanParam : return kOfxParamTypeBoolean ;
     case eChoiceParam : return kOfxParamTypeChoice ;
-#ifdef OFX_EXTENSIONS_RESOLVE
     case eStrChoiceParam : return kOfxParamTypeStrChoice;
-#endif
     case eCustomParam : return kOfxParamTypeCustom ;
     case eGroupParam : return kOfxParamTypeGroup ;
     case ePageParam : return kOfxParamTypePage ;
@@ -205,10 +203,8 @@ namespace OFX {
       return eBooleanParam ;
     else if(isEqual(kOfxParamTypeChoice,v))
       return eChoiceParam ;
-#ifdef OFX_EXTENSIONS_RESOLVE
     else if (isEqual(kOfxParamTypeStrChoice, v))
       return eStrChoiceParam;
-#endif
     else if(isEqual(kOfxParamTypeCustom ,v))
       return eCustomParam ;
     else if(isEqual(kOfxParamTypeGroup,v))
@@ -481,9 +477,58 @@ namespace OFX {
   // int param descriptor
 
   /** @brief ctor */
+
+  /// set a string property that the host may not know, and report whether the host accepted it
+  static bool propSetStringIfSupported(PropertySet &props, const char *property, const std::string &value)
+  {
+    try {
+      props.propSetString(property, value);
+      return true;
+    } catch (const OFX::Exception::PropertyUnknownToHost &) {
+      return false;
+    } catch (const OFX::Exception::PropertyValueIllegalToHost &) {
+      return false;
+    } catch (const OFX::Exception::Suite &) {
+      return false;
+    }
+  }
+
+  static const char *mapInterpTypeEnumToStr(InterpTypeEnum v)
+  {
+    switch (v) {
+    case eInterpTypeConstantStep: return kOfxParamInterpTypeConstantStep;
+    case eInterpTypeSmooth: return kOfxParamInterpTypeSmooth;
+    case eInterpTypeLinear:
+    default: return kOfxParamInterpTypeLinear;
+    }
+  }
+
+  static const char *mapColourManagementEnumToStr(ColourManagementEnum v)
+  {
+    switch (v) {
+    case eColourManagementManaged: return kOfxParamColourManagementManaged;
+    case eColourManagementSRGB: return kOfxParamColourManagementSRGB;
+    case eColourManagementNone:
+    default: return kOfxParamColourManagementNone;
+    }
+  }
+
+  static ColourManagementEnum mapStrToColourManagementEnum(const std::string &s)
+  {
+    if (s == kOfxParamColourManagementManaged) return eColourManagementManaged;
+    if (s == kOfxParamColourManagementSRGB) return eColourManagementSRGB;
+    return eColourManagementNone; // absent, empty or unknown
+  }
+
   IntParamDescriptor::IntParamDescriptor(const std::string &name, OfxPropertySetHandle props)
     : ValueParamDescriptor(name, eIntParam, props)
   {
+  }
+
+  /** @brief set the default interpolation (kOfxParamInterpType, OFX 1.5) */
+  bool IntParamDescriptor::setInterpType(InterpTypeEnum v)
+  {
+    return propSetStringIfSupported(_paramProps, kOfxParamInterpType, mapInterpTypeEnumToStr(v));
   }
 
   /** @brief set the default value, default is 0 */
@@ -723,6 +768,12 @@ namespace OFX {
   {
   }
 
+  /** @brief set the default interpolation (kOfxParamInterpType, OFX 1.5) */
+  bool DoubleParamDescriptor::setInterpType(InterpTypeEnum v)
+  {
+    return propSetStringIfSupported(_paramProps, kOfxParamInterpType, mapInterpTypeEnumToStr(v));
+  }
+
   /** @brief set the default value, default is 0 */
   void 
     DoubleParamDescriptor::setDefault(double v)
@@ -886,6 +937,13 @@ namespace OFX {
   {
   }
 
+  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, OFX 1.5.1).
+   "A plug-in MUST check the status returned when setting this property", hence the return value. */
+  bool RGBParamDescriptor::setColourManagement(ColourManagementEnum v)
+  {
+    return propSetStringIfSupported(_paramProps, kOfxParamPropColourManagement, mapColourManagementEnumToStr(v));
+  }
+
   /** @brief set the default value */
   void  RGBParamDescriptor::setDefault(double r, double g, double b)
   {
@@ -951,6 +1009,13 @@ namespace OFX {
   RGBAParamDescriptor::RGBAParamDescriptor(const std::string &name, OfxPropertySetHandle props)
     : ValueParamDescriptor(name, eRGBAParam, props)
   {
+  }
+
+  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, OFX 1.5.1).
+   "A plug-in MUST check the status returned when setting this property", hence the return value. */
+  bool RGBAParamDescriptor::setColourManagement(ColourManagementEnum v)
+  {
+    return propSetStringIfSupported(_paramProps, kOfxParamPropColourManagement, mapColourManagementEnumToStr(v));
   }
 
   /** @brief set the default value */
@@ -1071,7 +1136,30 @@ namespace OFX {
   }
 
   /** @brief set the default value */
+
+  /// set the UI order of option nth (kOfxParamPropChoiceOrder, OFX 1.5), if requested.
+  /// The host may not support this property: don't throw.
+  static void setChoiceOrder(PropertySet &props, int nth, int order)
+  {
+    if (order != INT_MIN) {
+      props.propSetInt(kOfxParamPropChoiceOrder, order, nth, false);
+    }
+  }
+
+  /// clear kOfxParamPropChoiceOrder, if the host knows it and it was set
+  static void resetChoiceOrder(PropertySet &props)
+  {
+    if (props.propGetDimension(kOfxParamPropChoiceOrder, false) > 0) {
+      props.propReset(kOfxParamPropChoiceOrder);
+    }
+  }
+
   void ChoiceParamDescriptor::appendOption(const std::string &optionLabel, const std::string& optionHint, const std::string& optionEnum)
+  {
+    appendOption(optionLabel, optionHint, optionEnum, INT_MIN);
+  }
+
+  void ChoiceParamDescriptor::appendOption(const std::string &optionLabel, const std::string& optionHint, const std::string& optionEnum, int order)
   {
     int nCurrentValues = _paramProps.propGetDimension(kOfxParamPropChoiceOption);
     if(!optionHint.empty()) {
@@ -1105,12 +1193,14 @@ namespace OFX {
     unused(optionEnum);
 #endif
     _paramProps.propSetString(kOfxParamPropChoiceOption, optionLabel, nCurrentValues);
+    setChoiceOrder(_paramProps, nCurrentValues, order);
   }
 
   /** @brief set the default value */
   void ChoiceParamDescriptor::resetOptions(void)
   {
     _paramProps.propReset(kOfxParamPropChoiceOption);
+    resetChoiceOrder(_paramProps);
 #ifdef OFX_EXTENSIONS_TUTTLE
     if (_paramProps.propGetDimension(kOfxParamPropChoiceLabelOption, false) > 0) {
       _paramProps.propReset(kOfxParamPropChoiceLabelOption);
@@ -1130,6 +1220,8 @@ namespace OFX {
                                            const std::vector<std::string>& newEntriesHint,
                                            const std::vector<std::string>& newEntriesEnum)
   {
+    // the new entries have no UI order
+    resetChoiceOrder(_paramProps);
     assert(newEntries.size() == newEntriesHint.size() || newEntriesHint.empty());
     assert(newEntries.size() == newEntriesEnum.size() || newEntriesEnum.empty());
 
@@ -1182,7 +1274,6 @@ namespace OFX {
 
 #endif
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   ////////////////////////////////////////////////////////////////////////////////
   // string choice param descriptor
 
@@ -1199,13 +1290,14 @@ namespace OFX {
   }
 
   /** @brief append an option */
-  void StrChoiceParamDescriptor::appendOption(const std::string& p_Enum, const std::string& p_Option)
+  void StrChoiceParamDescriptor::appendOption(const std::string& p_Enum, const std::string& p_Option, int order)
   {
       const int numOptions = _paramProps.propGetDimension(kOfxParamPropChoiceOption);
       assert(numOptions == _paramProps.propGetDimension(kOfxParamPropChoiceEnum));
 
       _paramProps.propSetString(kOfxParamPropChoiceEnum, p_Enum, numOptions);
       _paramProps.propSetString(kOfxParamPropChoiceOption, p_Option, numOptions);
+      setChoiceOrder(_paramProps, numOptions, order);
   }
 
   /** @brief how many options do we have */
@@ -1222,8 +1314,8 @@ namespace OFX {
   {
       _paramProps.propReset(kOfxParamPropChoiceEnum);
       _paramProps.propReset(kOfxParamPropChoiceOption);
+      resetChoiceOrder(_paramProps);
   }
-#endif
 
   ////////////////////////////////////////////////////////////////////////////////
   // string param descriptor
@@ -1632,7 +1724,6 @@ namespace OFX {
     return param;
   }
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   /** @brief Define a String Choice param */
   StrChoiceParamDescriptor* ParamSetDescriptor::defineStrChoiceParam(const std::string& p_Name)
   {
@@ -1640,7 +1731,6 @@ namespace OFX {
       defineParamDescriptor(p_Name, eStrChoiceParam, param);
       return param;
   }
-#endif
 
   /** @brief Define a group param */
   GroupParamDescriptor *ParamSetDescriptor::defineGroupParam(const std::string &name)
@@ -2998,6 +3088,12 @@ namespace OFX {
   {
   }
 
+  /** @brief encoding of the colour values (kOfxParamPropColourManagement), eColourManagementNone if absent */
+  ColourManagementEnum RGBParam::getColourManagement(void) const
+  {
+    return mapStrToColourManagementEnum(_paramProps.propGetString(kOfxParamPropColourManagement, false));
+  }
+
   /** @brief set the default value */
   void RGBParam::setDefault(double r, double g, double b)
   {
@@ -3073,6 +3169,12 @@ namespace OFX {
   RGBAParam::RGBAParam(const ParamSet *paramSet, const std::string &name, OfxParamHandle handle)
     : ValueParam(paramSet, name, eRGBAParam, handle)
   {
+  }
+
+  /** @brief encoding of the colour values (kOfxParamPropColourManagement), eColourManagementNone if absent */
+  ColourManagementEnum RGBAParam::getColourManagement(void) const
+  {
+    return mapStrToColourManagementEnum(_paramProps.propGetString(kOfxParamPropColourManagement, false));
   }
 
   /** @brief set the default value */
@@ -3416,6 +3518,11 @@ namespace OFX {
   /** @brief add another option */
   void ChoiceParam::appendOption(const std::string &optionLabel, const std::string& optionHint, const std::string& optionEnum)
   {
+    appendOption(optionLabel, optionHint, optionEnum, INT_MIN);
+  }
+
+  void ChoiceParam::appendOption(const std::string &optionLabel, const std::string& optionHint, const std::string& optionEnum, int order)
+  {
     int nCurrentValues = _paramProps.propGetDimension(kOfxParamPropChoiceOption);
     if(!optionHint.empty()) {
 #ifdef OFX_EXTENSIONS_TUTTLE
@@ -3449,6 +3556,7 @@ namespace OFX {
     unused(optionEnum);
 #endif
     _paramProps.propSetString(kOfxParamPropChoiceOption, optionLabel, nCurrentValues);
+    setChoiceOrder(_paramProps, nCurrentValues, order);
   }
 
   /** @brief set the string of a specific option */
@@ -3462,6 +3570,8 @@ namespace OFX {
                                  const std::vector<std::string>& newEntriesHint,
                                  const std::vector<std::string>& newEntriesEnum)
   {
+    // the new entries have no UI order
+    resetChoiceOrder(_paramProps);
     assert(newEntries.size() == newEntriesHint.size() || newEntriesHint.empty());
     assert(newEntries.size() == newEntriesEnum.size() || newEntriesEnum.empty());
 
@@ -3523,7 +3633,6 @@ namespace OFX {
 
 #endif
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   ////////////////////////////////////////////////////////////////////////////////
   // Wraps up a string choice param */
 
@@ -3544,13 +3653,14 @@ namespace OFX {
   }
 
   /** @brief add another option */
-  void StrChoiceParam::appendOption(const std::string& p_Enum, const std::string& p_Option)
+  void StrChoiceParam::appendOption(const std::string& p_Enum, const std::string& p_Option, int order)
   {
       const int numOptions = _paramProps.propGetDimension(kOfxParamPropChoiceOption);
       assert(numOptions == _paramProps.propGetDimension(kOfxParamPropChoiceEnum));
 
       _paramProps.propSetString(kOfxParamPropChoiceEnum, p_Enum, numOptions);
       _paramProps.propSetString(kOfxParamPropChoiceOption, p_Option, numOptions);
+      setChoiceOrder(_paramProps, numOptions, order);
   }
 
   /** @brief set the string of a specific option */
@@ -3598,8 +3708,8 @@ namespace OFX {
   {
       _paramProps.propReset(kOfxParamPropChoiceEnum);
       _paramProps.propReset(kOfxParamPropChoiceOption);
+      resetChoiceOrder(_paramProps);
   }
-#endif
 
   ////////////////////////////////////////////////////////////////////////////////
   // Wraps up a custom param */
@@ -4118,14 +4228,12 @@ namespace OFX {
         fetchParam(name, t, ptr);
         return ptr;
       }
-#ifdef OFX_EXTENSIONS_RESOLVE
     case eStrChoiceParam :
       {
         StrChoiceParam* ptr = 0;
         fetchParam(name, t, ptr);
         return ptr;
       }
-#endif
     case eCustomParam : 
       {
         CustomParam* ptr = 0;
@@ -4264,7 +4372,6 @@ namespace OFX {
     return param;
   }
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   /** @brief Fetch a Choice param */
   StrChoiceParam* ParamSet::fetchStrChoiceParam(const std::string& p_Name) const
   {
@@ -4272,7 +4379,6 @@ namespace OFX {
       fetchParam(p_Name, eStrChoiceParam, param);
       return param;
   }
-#endif
 
   /** @brief Fetch a group param */
   GroupParam *ParamSet::fetchGroupParam(const std::string &name) const

@@ -55,6 +55,7 @@ England
 #ifdef OFX_SUPPORTS_OPENGLRENDER
 #include "ofxOpenGLRender.h"
 #endif
+#include "ofxGPURender.h" // OFX 1.5 GPU render extension properties
 #include "ofxsCore.h"
 
 #if defined __APPLE__ || defined __linux__ || defined __FreeBSD__
@@ -1359,6 +1360,20 @@ namespace OFX {
   }
 #endif
 
+  /** @brief Does the plugin support OpenCL Buffers render */
+  void ImageEffectDescriptor::setSupportsOpenCLBuffersRender(bool v)
+  {
+    // host may not know this property (OFX 1.5): don't throw
+    _effectProps.propSetString(kOfxImageEffectPropOpenCLRenderSupported, (v ? "true" : "false"), false);
+  }
+
+  /** @brief Does the plugin support OpenCL Images render */
+  void ImageEffectDescriptor::setSupportsOpenCLImagesRender(bool v)
+  {
+    // host may not know this property (OFX 1.5): don't throw
+    _effectProps.propSetString(kOfxImageEffectPropOpenCLSupported, (v ? "true" : "false"), false);
+  }
+
 #ifdef OFX_EXTENSIONS_RESOLVE
   /** @brief Does the plugin support OpenCL Render */
   void ImageEffectDescriptor::setSupportsOpenCLRender(bool v)
@@ -1586,6 +1601,7 @@ namespace OFX {
     _effectProps.propSetInt(kNatronOfxImageEffectPropDeprecated, (int)v, false);
   }
 
+
   /** @brief say whether all the planes listed on the output clip in the getClipComponents action should preferably be rendered
    at once or not (e.g: optical flow plug-in that could produce bw/fw planes at once)*/
   void ImageEffectDescriptor::setRenderAllPlanes(bool enabled)
@@ -1593,6 +1609,20 @@ namespace OFX {
     _effectProps.propSetInt(kOfxImageEffectPropRenderAllPlanes, (int)enabled, false);
   }
 #endif
+
+  /** @brief indicate that the plugin is made obsolete by another version in the same bundle (OFX 1.5) */
+  void ImageEffectDescriptor::setIsObsolete(bool v)
+  {
+    // host may not know this property: don't throw
+    _effectProps.propSetInt(kOfxImageEffectPluginPropObsolete, int(v), false);
+  }
+
+  /** @brief Can the plugin render on the CPU (OFX 1.5.1) */
+  void ImageEffectDescriptor::setSupportsCPURender(bool v)
+  {
+    // host may not know this property: don't throw
+    _effectProps.propSetString(kOfxImageEffectPropCPURenderSupported, (v ? "true" : "false"), false);
+  }
 
   ////////////////////////////////////////////////////////////////////////////////
   // wraps up an image  
@@ -1602,7 +1632,9 @@ namespace OFX {
     OFX::Validation::validateImageBaseProperties(props);
 
     // and fetch all the properties
-    _rowBytes         = _imageProps.propGetInt(kOfxImagePropRowBytes);
+    // "the kOfxImagePropRowBytes property is not required to be set by the host" for OpenCL Images (ofxGPURender.h)
+    const bool isOpenCLImage = _imageProps.propGetPointer(kOfxImageEffectPropOpenCLImage, false) != NULL;
+    _rowBytes         = _imageProps.propGetInt(kOfxImagePropRowBytes, !isOpenCLImage);
     _pixelAspectRatio = _imageProps.propGetDouble(kOfxImagePropPixelAspectRatio);;
       
     std::string str  = _imageProps.propGetString(kOfxImageEffectPropComponents);
@@ -1764,8 +1796,10 @@ namespace OFX {
     OFX::Validation::validateImageProperties(props);
 
     // and fetch all the properties
+    // OFX 1.5: images passed as OpenCL Images have kOfxImageEffectPropOpenCLImage instead of kOfxImagePropData
+    _OpenCLImage = _imageProps.propGetPointer(kOfxImageEffectPropOpenCLImage, /*throwOnFailure*/false);
     // should throw if it is not an image
-    _pixelData = _imageProps.propGetPointer(kOfxImagePropData);
+    _pixelData = _imageProps.propGetPointer(kOfxImagePropData, /*throwOnFailure*/!_OpenCLImage);
   }
 
   Image::~Image()
@@ -2120,6 +2154,12 @@ namespace OFX {
   }
 
   /** @brief get the frame rate, in frames per second on this clip, after any clip preferences have been applied */
+  /** @brief kOfxImageClipPropDisplayTimeOffset (OFX 1.5), 0 if the host doesn't set it */
+  double Clip::getDisplayTimeOffset(void) const
+  {
+    return _clipProps.propGetDouble(kOfxImageClipPropDisplayTimeOffset, false);
+  }
+
   double Clip::getFrameRate(void) const
   {
     return _clipProps.propGetDouble(kOfxImageEffectPropFrameRate);
@@ -2683,6 +2723,13 @@ namespace OFX {
     return _effectProps.propGetInt(kFnOfxImageEffectCanTransform, false) != 0;
   }
 #endif
+
+  /** @brief Can this instance render on the CPU (OFX 1.5.1) */
+  void ImageEffect::setSupportsCPURender(bool v)
+  {
+    // host may not know this property: don't throw
+    _effectProps.propSetString(kOfxImageEffectPropCPURenderSupported, (v ? "true" : "false"), false);
+  }
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
   /** @brief Does the plugin support OpenGL accelerated rendering (but is also capable of CPU rendering) ? Can only be called from changedParam or changedClip (OFX 1.4). */
@@ -3892,9 +3939,8 @@ namespace OFX {
         gHostDescription.supportsStringAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsStringAnimation) != 0;
         gHostDescription.supportsCustomInteract     = hostProps.propGetInt(kOfxParamHostPropSupportsCustomInteract) != 0;
         gHostDescription.supportsChoiceAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsChoiceAnimation) != 0;
-#ifdef OFX_EXTENSIONS_RESOLVE
-        gHostDescription.supportsStrChoiceAnimation = hostProps.propGetInt(kOfxParamHostPropSupportsStrChoiceAnimation, false);
-#endif
+        gHostDescription.supportsStrChoiceAnimation = hostProps.propGetInt(kOfxParamHostPropSupportsStrChoiceAnimation, false) != 0;
+        gHostDescription.supportsStrChoice          = hostProps.propGetInt(kOfxParamHostPropSupportsStrChoice, false) != 0;
         gHostDescription.supportsBooleanAnimation   = hostProps.propGetInt(kOfxParamHostPropSupportsBooleanAnimation) != 0;
         gHostDescription.supportsCustomAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsCustomAnimation) != 0;
         gHostDescription.osHandle                   = hostProps.propGetPointer(kOfxPropHostOSHandle, false);
@@ -3907,6 +3953,8 @@ namespace OFX {
         gHostDescription.supportsMetalRender         = hostProps.propGetString(kOfxImageEffectPropMetalRenderSupported, 0, false) == "true";
 #endif
         gHostDescription.supportsRenderQualityDraft = hostProps.propGetInt(kOfxImageEffectPropRenderQualityDraft, false) != 0; // appeared in OFX 1.4
+        // OFX 1.5.1, host optional: absent means the host renders on the CPU, as always
+        gHostDescription.supportsCPURender = hostProps.propGetString(kOfxImageEffectPropCPURenderSupported, 0, false) != "false";
         {
             std::string originStr = hostProps.propGetString(kOfxImageEffectHostPropNativeOrigin, false); // appeared in OFX 1.4
           if (originStr.empty()) {
@@ -4199,10 +4247,32 @@ namespace OFX {
     }
 
 
+    /** @brief kOfxImageEffectPropThumbnailRender (OFX 1.5.1, optional in the inArgs): false if absent */
+    static bool
+      getIsThumbnailRender(const OFX::PropertySet &inArgs)
+    {
+      return inArgs.propGetString(kOfxImageEffectPropThumbnailRender, 0, false) == "true";
+    }
+
+    /** @brief kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5, optional in the inArgs) */
+    static UnlicensedBehaviourEnum
+      getBehaviourWhenUnlicensed(const OFX::PropertySet &inArgs)
+    {
+      const std::string str = inArgs.propGetString(kOfxImageEffectPropBehaviourWhenUnlicensed, 0, false);
+      if (str == kOfxUnlicensedContinue) {
+        return eUnlicensedBehaviourContinue;
+      } else if (str == kOfxUnlicensedFail) {
+        return eUnlicensedBehaviourFail;
+      }
+      return eUnlicensedBehaviourNotSet;
+    }
+
     /** @brief Fetches the arguments used in a render action 'inargs' property set into a POD struct */
     static void
       getRenderActionArguments(RenderArguments &args,  OFX::PropertySet inArgs)
     {
+      args.isThumbnailRender = getIsThumbnailRender(inArgs);
+      args.behaviourWhenUnlicensed = getBehaviourWhenUnlicensed(inArgs);
       args.time = inArgs.propGetDouble(kOfxPropTime);
 
       args.renderScale.x = args.renderScale.y = 1.;
@@ -4307,6 +4377,8 @@ namespace OFX {
       ImageEffect *effectInstance = retrieveImageEffectPointer(handle);
 
       BeginSequenceRenderArguments args;
+      args.isThumbnailRender = getIsThumbnailRender(inArgs);
+      args.behaviourWhenUnlicensed = getBehaviourWhenUnlicensed(inArgs);
 
       args.frameRange.min = args.frameRange.max = 0.;
       inArgs.propGetDoubleN(kOfxImageEffectPropFrameRange, &args.frameRange.min, 2);
@@ -4400,6 +4472,7 @@ namespace OFX {
     static void
       getIsIdentityActionArguments(IsIdentityArguments &args,  OFX::PropertySet inArgs)
     {
+      args.isThumbnailRender = getIsThumbnailRender(inArgs);
       args.time = inArgs.propGetDouble(kOfxPropTime);
 
       args.renderScale.x = args.renderScale.y = 1.;
@@ -4468,6 +4541,7 @@ namespace OFX {
     {
       ImageEffect *effectInstance = retrieveImageEffectPointer(handle);
       RegionOfDefinitionArguments args;
+      args.isThumbnailRender = getIsThumbnailRender(inArgs);
 
       args.renderScale.x = args.renderScale.y = 1.;
       inArgs.propGetDoubleN(kOfxImageEffectPropRenderScale, &args.renderScale.x, 2);
@@ -4554,6 +4628,7 @@ namespace OFX {
       // fetch our effect pointer 
       ImageEffect *effectInstance = retrieveImageEffectPointer(handle);
       RegionsOfInterestArguments args;
+      args.isThumbnailRender = getIsThumbnailRender(inArgs);
 
       // fetch in arguments from the prop handle
       args.renderScale.x = args.renderScale.y = 1.;
@@ -4646,6 +4721,7 @@ namespace OFX {
       // fetch our effect pointer 
       ImageEffect *effectInstance = retrieveImageEffectPointer(handle);
       FramesNeededArguments args;
+      args.isThumbnailRender = getIsThumbnailRender(inArgs);
 
       // fetch in arguments from the prop handle
       args.time = inArgs.propGetDouble(kOfxPropTime);
@@ -4776,6 +4852,7 @@ namespace OFX {
       ImageEffect *effectInstance = retrieveImageEffectPointer(handle);
 
       InstanceChangedArgs args;
+      args.isThumbnailRender = getIsThumbnailRender(inArgs);
 
       // why did it change
       std::string reasonStr = inArgs.propGetString(kOfxPropChangeReason);

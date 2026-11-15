@@ -219,9 +219,7 @@ namespace OFX {
         { kOfxParamTypeDouble,    Property::eDouble, 1 },
         { kOfxParamTypeBoolean,   Property::eInt,    1 },
         { kOfxParamTypeChoice,    Property::eInt,    1 },
-#ifdef OFX_EXTENSIONS_RESOLVE
         { kOfxParamTypeStrChoice, Property::eString, 1 },
-#endif
         { kOfxParamTypeRGBA,      Property::eDouble, 4 },
         { kOfxParamTypeRGB,       Property::eDouble, 3 },
         { kOfxParamTypeDouble2D,  Property::eDouble, 2 },
@@ -329,16 +327,19 @@ namespace OFX {
           { kNatronOfxParamPropChoiceCascading,         Property::eInt, 1,    false,    "0"},
           { kNatronOfxParamPropChoiceHostCanAddOptions, Property::eInt, 1,    false,    "0"},
 #endif
+          // OFX 1.5: UI order of the options; "if not set, the host will present the
+          // options in their natural order"
+          { kOfxParamPropChoiceOrder,    Property::eInt,       0,    false,    "" },
           Property::propSpecEnd
         };
 
-#ifdef OFX_EXTENSIONS_RESOLVE
         static const Property::PropSpec allStrChoice[] = {
           { kOfxParamPropChoiceEnum,      Property::eString,    0,    false,    "" },
           { kOfxParamPropChoiceOption,    Property::eString,    0,    false,    "" },
+          // OFX 1.5: "StrChoice parameters may also be reordered using kOfxParamPropChoiceOrder"
+          { kOfxParamPropChoiceOrder,     Property::eInt,       0,    false,    "" },
           Property::propSpecEnd
         };
-#endif
 
         static const Property::PropSpec allCustom[] = {
           { kOfxParamPropCustomInterpCallbackV1,    Property::ePointer,    1,    false,    0 },
@@ -406,11 +407,9 @@ namespace OFX {
           _properties.addProperties(allChoice);
         }
 
-#ifdef OFX_EXTENSIONS_RESOLVE
         if (type == kOfxParamTypeStrChoice) {
           _properties.addProperties(allStrChoice);
         }
-#endif
 
         if (type == kOfxParamTypeCustom) {
           _properties.addProperties(allCustom);
@@ -496,9 +495,7 @@ namespace OFX {
         /// If host doesn't support animation on them, then setting kOfxParamPropIsAnimating to 0 or 1 doesn't matter
         /// so just set the kOfxParamPropIsAnimating property to 0 for all those "extra animating" params.
         bool animates = type != kOfxParamTypeCustom && type != kOfxParamTypeString && type != kOfxParamTypeBoolean && type != kOfxParamTypeChoice;
-#ifdef OFX_EXTENSIONS_RESOLVE
         animates = animates && type != kOfxParamTypeStrChoice;
-#endif
 
         Property::PropSpec variantProps[] = {
           { kOfxParamPropAnimates,    Property::eInt, 1,       false, animates ? "1" : "0" },
@@ -539,6 +536,16 @@ namespace OFX {
         };
 
         _properties.addProperties(allNumeric);
+
+        /// OFX 1.5: default interpolation of 1D integer and double params
+        /// ("Default - kOfxParamInterpTypeLinear")
+        if (dim == 1 && (isDoubleParam(type) || isIntParam(type))) {
+          static const Property::PropSpec all1DInterp[] = {
+            { kOfxParamInterpType, Property::eString, 1, false, kOfxParamInterpTypeLinear },
+            Property::propSpecEnd
+          };
+          _properties.addProperties(all1DInterp);
+        }
 
         /// if any double or a colour
         if (valueType == Property::eDouble) {
@@ -1002,7 +1009,7 @@ namespace OFX {
 #       endif
         return set(time, value);
       }
-      
+
       /// overridden from Instance
       void ChoiceInstance::notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC
       {
@@ -1012,11 +1019,97 @@ namespace OFX {
         }
       }
 
-#ifdef OFX_EXTENSIONS_RESOLVE
-#ifdef __GNUC__
-#warning "TODO: StrChoiceInstance"
-#endif
-#endif
+      //
+      // StrChoiceInstance
+      //
+
+      /// make a parameter, with the given type and name
+      StrChoiceInstance::StrChoiceInstance(Descriptor& descriptor, Param::SetInstance* instance)
+        : Instance(descriptor,instance)
+      {
+        _properties.addNotifyHook(kOfxParamPropChoiceOption, this);
+        _properties.addNotifyHook(kOfxParamPropChoiceEnum, this);
+      }
+
+      std::string StrChoiceInstance::getDefaultEnum() const
+      {
+        const std::string &def = getProperties().getStringProperty(kOfxParamPropDefault);
+        if (!def.empty() || getProperties().getDimension(kOfxParamPropChoiceEnum) == 0) {
+          return def;
+        }
+        return getProperties().getStringProperty(kOfxParamPropChoiceEnum, 0);
+      }
+
+      // callback which should set option as appropriate
+      void StrChoiceInstance::setOption(int /*num*/)
+      {
+      }
+
+      /// implementation of var args function
+      OfxStatus StrChoiceInstance::getV(va_list arg)
+      {
+        const char **value = va_arg(arg, const char **);
+
+        OfxStatus stat = get(_returnValue); // I so don't like this, temp storage should be delegated to the implementation
+        *value = _returnValue.c_str();
+#       ifdef OFX_DEBUG_PARAMETERS
+        if (stat == kOfxStatOK) {
+          std::cout << ' ' << *value;
+        }
+#       endif
+        return stat;
+      }
+
+      /// implementation of var args function
+      OfxStatus StrChoiceInstance::getV(OfxTime time, va_list arg)
+      {
+        if ( OFX::IsNaN(time) ) {
+          return kOfxStatErrValue;
+        }
+        const char **value = va_arg(arg, const char **);
+
+        OfxStatus stat = get(time, _returnValue); // I so don't like this, temp storage should be delegated to the implementation
+        *value = _returnValue.c_str();
+#       ifdef OFX_DEBUG_PARAMETERS
+        if (stat == kOfxStatOK) {
+          std::cout << ' ' << *value;
+        }
+#       endif
+        return stat;
+      }
+
+      /// implementation of var args function
+      OfxStatus StrChoiceInstance::setV(va_list arg)
+      {
+        char *value = va_arg(arg, char*);
+#       ifdef OFX_DEBUG_PARAMETERS
+        std::cout << value;
+#       endif
+        return set(value);
+      }
+
+      /// implementation of var args function
+      OfxStatus StrChoiceInstance::setV(OfxTime time, va_list arg)
+      {
+        if ( OFX::IsNaN(time) ) {
+          return kOfxStatErrValue;
+        }
+        char *value = va_arg(arg, char*);
+#       ifdef OFX_DEBUG_PARAMETERS
+        std::cout << value;
+#       endif
+        return set(time, value);
+      }
+
+      /// overridden from Instance
+      void StrChoiceInstance::notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC
+      {
+        Instance::notify(name, single, num);
+        // options and enums are parallel arrays: notify the host if either changes
+        if (name == kOfxParamPropChoiceOption || name == kOfxParamPropChoiceEnum) {
+          setOption(num);
+        }
+      }
 
       //
       // IntegerInstance
@@ -2047,6 +2140,20 @@ namespace OFX {
           return kOfxStatErrExists;
         }
 
+        // The type is known, but the host application may not implement it (its
+        // newParam() could not instantiate it): "kOfxStatErrUnsupported - if the type
+        // is known but unsupported". This is checked here rather than in the virtual
+        // SetDescriptor::paramDefine(), because host overrides of the latter (e.g.
+        // Natron's) don't expect it to return NULL for a known type.
+        if (paramType && std::string(paramType) == kOfxParamTypeStrChoice &&
+            !(ImageEffect::gImageEffectHost &&
+              ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxParamHostPropSupportsStrChoice) != 0)) {
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << ' ' << StatStr(kOfxStatErrUnsupported) << std::endl;
+#         endif
+          return kOfxStatErrUnsupported;
+        }
+
         Descriptor *desc = paramSetDescriptor->paramDefine(paramType, name);
 
         if(desc) {
@@ -2437,7 +2544,7 @@ namespace OFX {
 
         va_end(ap);
 
-        if (stat == kOfxStatOK) {
+        if (stat == kOfxStatOK && paramInstance->getParamSetInstance()) {
           paramInstance->getParamSetInstance()->paramChangedByPlugin(paramInstance);
         }
 
@@ -2478,7 +2585,7 @@ namespace OFX {
 
         va_end(ap);
 
-        if (stat == kOfxStatOK) {
+        if (stat == kOfxStatOK && paramInstance->getParamSetInstance()) {
           paramInstance->getParamSetInstance()->paramChangedByPlugin(paramInstance);
         }
 
