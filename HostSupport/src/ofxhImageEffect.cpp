@@ -4346,6 +4346,8 @@ namespace OFX {
         { kOfxParamHostPropSupportsStrChoiceAnimation, Property::eInt, 1, true, "0"  },
         // set to 1 by hosts that implement Param::StrChoiceInstance in newParam()
         { kOfxParamHostPropSupportsStrChoice, Property::eInt, 1, true, "0"  },
+        // set to 1 by hosts that implement Param::BytesInstance in newParam()
+        { kOfxHostSupportHostPropSupportsBytes, Property::eInt, 1, true, "0"  },
         { kOfxParamHostPropSupportsBooleanAnimation, Property::eInt, 1, true, "0" },
         { kOfxParamHostPropSupportsCustomAnimation, Property::eInt, 1, true, "0" },
         { kOfxPropHostOSHandle, Property::ePointer, 1, true, NULL },

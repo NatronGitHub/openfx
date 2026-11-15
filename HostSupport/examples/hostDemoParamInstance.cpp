@@ -87,6 +87,40 @@ namespace MyHost {
   }
 
   //
+  // MyBytesInstance (OFX 1.5 kOfxParamTypeBytes)
+  //
+
+  MyBytesInstance::MyBytesInstance(MyEffectInstance* effect,
+                                   const std::string& name,
+                                   OFX::Host::Param::Descriptor& descriptor)
+    : OFX::Host::Param::BytesInstance(descriptor), _value(getDefault()), _effect(effect), _descriptor(descriptor)
+  {
+  }
+
+  OfxStatus MyBytesInstance::get(std::vector<unsigned char>& v)
+  {
+    v = _value;
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyBytesInstance::get(OfxTime, std::vector<unsigned char>& v)
+  {
+    v = _value;
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyBytesInstance::set(const unsigned char* data, size_t length)
+  {
+    _value.assign(data, data + length); // copy: data is only valid during the call
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyBytesInstance::set(OfxTime, const unsigned char* data, size_t length)
+  {
+    return set(data, length);
+  }
+
+  //
   // MyIntegerInstance
   //
 

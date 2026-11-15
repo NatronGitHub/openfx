@@ -51,6 +51,19 @@ namespace MyHost {
     OfxStatus set(OfxTime time, const char*);
   };
 
+  class MyBytesInstance : public OFX::Host::Param::BytesInstance {
+    std::vector<unsigned char> _value;
+  protected:
+    MyEffectInstance*   _effect;
+    OFX::Host::Param::Descriptor& _descriptor;
+  public:
+    MyBytesInstance(MyEffectInstance* effect, const std::string& name, OFX::Host::Param::Descriptor& descriptor);
+    OfxStatus get(std::vector<unsigned char>&);
+    OfxStatus get(OfxTime time, std::vector<unsigned char>&);
+    OfxStatus set(const unsigned char* data, size_t length);
+    OfxStatus set(OfxTime time, const unsigned char* data, size_t length);
+  };
+
   class MyIntegerInstance : public OFX::Host::Param::IntegerInstance {
     int _i;
   protected:
