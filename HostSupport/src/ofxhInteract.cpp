@@ -156,6 +156,17 @@ namespace OFX {
         Property::propSpecEnd
       };
 
+#ifdef OFX_EXTENSIONS_NATRON
+      // proposed interact cursor extension (NatronGitHub/openfx#4), only declared on
+      // hosts that list kOfxInteractHostPropSupportedCursors
+      static const Property::PropSpec interactCursorStuffs[] = {
+        { kOfxInteractPropCursor, Property::eString, 1, false, kOfxInteractCursorDefault },
+        { kOfxInteractPropCursorImage, Property::eString, 1, false, "" },
+        { kOfxInteractPropCursorHotSpot, Property::eInt, 2, false, "0" },
+        Property::propSpecEnd
+      };
+#endif
+
       // instance
 
       Instance::Instance(Descriptor& desc, void *effectInstance) 
@@ -178,6 +189,9 @@ namespace OFX {
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
         _properties.setGetHook(kOfxInteractPropScreenPixelRatio, this);
+        if (hostSupportsCursors()) {
+          _properties.addProperties(interactCursorStuffs);
+        }
 #endif
         _argProperties.setGetHook(kOfxInteractPropPixelScale, this);
         _argProperties.setGetHook(kOfxInteractPropBackgroundColour,this);
@@ -462,7 +476,13 @@ namespace OFX {
 #endif
                     );
         setPenArgProps(penPos, penPosViewport, pressure);
-        return callEntry(kOfxInteractActionPenMotion,&_argProperties);
+        OfxStatus st = callEntry(kOfxInteractActionPenMotion,&_argProperties);
+#ifdef OFX_EXTENSIONS_NATRON
+        if (st == kOfxStatOK) {
+          notifyCursor();
+        }
+#endif
+        return st;
       }
 
       OfxStatus Instance::penUpAction(OfxTime time,
@@ -491,7 +511,13 @@ namespace OFX {
 #endif
                     );
         setPenArgProps(penPos, penPosViewport, pressure);
-        return callEntry(kOfxInteractActionPenUp,&_argProperties);
+        OfxStatus st = callEntry(kOfxInteractActionPenUp,&_argProperties);
+#ifdef OFX_EXTENSIONS_NATRON
+        if (st == kOfxStatOK) {
+          notifyCursor();
+        }
+#endif
+        return st;
       }
 
       OfxStatus Instance::penDownAction(OfxTime time,
@@ -520,7 +546,13 @@ namespace OFX {
 #endif
                     );
         setPenArgProps(penPos, penPosViewport, pressure);
-        return callEntry(kOfxInteractActionPenDown,&_argProperties);
+        OfxStatus st = callEntry(kOfxInteractActionPenDown,&_argProperties);
+#ifdef OFX_EXTENSIONS_NATRON
+        if (st == kOfxStatOK) {
+          notifyCursor();
+        }
+#endif
+        return st;
       }
 
       OfxStatus Instance::keyDownAction(OfxTime time,
@@ -548,7 +580,13 @@ namespace OFX {
 #endif
                     );
         setKeyArgProps(key, keyString);
-        return callEntry(kOfxInteractActionKeyDown,&_argProperties);
+        OfxStatus st = callEntry(kOfxInteractActionKeyDown,&_argProperties);
+#ifdef OFX_EXTENSIONS_NATRON
+        if (st == kOfxStatOK) {
+          notifyCursor();
+        }
+#endif
+        return st;
       }
 
       OfxStatus Instance::keyUpAction(OfxTime time,
@@ -576,7 +614,13 @@ namespace OFX {
 #endif
                     );
         setKeyArgProps(key, keyString);
-        return callEntry(kOfxInteractActionKeyUp,&_argProperties);
+        OfxStatus st = callEntry(kOfxInteractActionKeyUp,&_argProperties);
+#ifdef OFX_EXTENSIONS_NATRON
+        if (st == kOfxStatOK) {
+          notifyCursor();
+        }
+#endif
+        return st;
       }
 
       OfxStatus Instance::keyRepeatAction(OfxTime time,
@@ -604,7 +648,13 @@ namespace OFX {
 #endif
                     );
         setKeyArgProps(key, keyString);
-        return callEntry(kOfxInteractActionKeyRepeat,&_argProperties);
+        OfxStatus st = callEntry(kOfxInteractActionKeyRepeat,&_argProperties);
+#ifdef OFX_EXTENSIONS_NATRON
+        if (st == kOfxStatOK) {
+          notifyCursor();
+        }
+#endif
+        return st;
       }
       
       OfxStatus Instance::gainFocusAction(OfxTime time,
@@ -653,7 +703,17 @@ namespace OFX {
                     , colourPicker
 #endif
                     );
-        return callEntry(kOfxInteractActionLoseFocus,&_argProperties);
+        OfxStatus st = callEntry(kOfxInteractActionLoseFocus,&_argProperties);
+#ifdef OFX_EXTENSIONS_NATRON
+        // the interact no longer owns the cursor
+        if (hostSupportsCursors()) {
+          try {
+            cursorChanged(kOfxInteractCursorDefault, "", 0, 0);
+          } catch (...) {
+          }
+        }
+#endif
+        return st;
       }
 
       ////////////////////////////////////////////////////////////////////////////////
@@ -722,6 +782,37 @@ namespace OFX {
         return NULL;
       }
 
+
+#ifdef OFX_EXTENSIONS_NATRON
+      bool Instance::hostSupportsCursors()
+      {
+        return ImageEffect::gImageEffectHost &&
+               ImageEffect::gImageEffectHost->getProperties().getDimension(kOfxInteractHostPropSupportedCursors) > 0;
+      }
+
+      void Instance::notifyCursor()
+      {
+        if (!hostSupportsCursors()) {
+          return;
+        }
+        try {
+          const std::string &cursor = _properties.getStringProperty(kOfxInteractPropCursor);
+          const std::string &image = _properties.getStringProperty(kOfxInteractPropCursorImage);
+          int hotSpot[2] = {0, 0};
+          _properties.getIntPropertyN(kOfxInteractPropCursorHotSpot, hotSpot, 2);
+          cursorChanged(cursor.empty() ? std::string(kOfxInteractCursorDefault) : cursor, image, hotSpot[0], hotSpot[1]);
+        } catch (...) {
+          // never let the host's cursor handling break the action
+        }
+      }
+
+      void Instance::cursorChanged(const std::string &/*cursor*/,
+                                   const std::string &/*image*/,
+                                   int /*hotSpotX*/,
+                                   int /*hotSpotY*/)
+      {
+      }
+#endif
 
     } // Interact
 

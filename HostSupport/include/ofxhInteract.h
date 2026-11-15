@@ -135,6 +135,16 @@ namespace OFX {
         /// set key args in the props
         void setKeyArgProps(int     key,
                             char*   keyString);
+
+#ifdef OFX_EXTENSIONS_NATRON
+        /// does the host support the proposed interact cursor extension (NatronGitHub/openfx#4)?
+        /// true if the host descriptor lists at least one kOfxInteractHostPropSupportedCursors
+        static bool hostSupportsCursors();
+
+        /// called after a pen or key action returned kOfxStatOK: tell the host the cursor
+        /// requested by this interact (see cursorChanged())
+        void notifyCursor();
+#endif
         
       public:
         Instance(Descriptor &desc, void *effectInstance);
@@ -366,6 +376,26 @@ namespace OFX {
                                           , const OfxRGBAColourD* colourPicker
 #endif
                                           );
+
+#ifdef OFX_EXTENSIONS_NATRON
+        /// Proposed interact cursor extension (NatronGitHub/openfx#4).
+        ///
+        /// Called by HostSupport, only if the host descriptor lists
+        /// kOfxInteractHostPropSupportedCursors, after a pen or key action
+        /// (PenMotion, PenDown, PenUp, KeyDown, KeyUp, KeyRepeat) returned kOfxStatOK,
+        /// with the values of kOfxInteractPropCursor, kOfxInteractPropCursorImage and
+        /// kOfxInteractPropCursorHotSpot on this instance, and with kOfxInteractCursorDefault
+        /// after kOfxInteractActionLoseFocus. The host should display that cursor in
+        /// this interact's view. An unsupported value should be displayed as
+        /// kOfxInteractCursorDefault. If a pen motion is trapped by no interact of a view,
+        /// the host should restore its own cursor there.
+        ///
+        /// The default implementation does nothing.
+        virtual void cursorChanged(const std::string &cursor,
+                                   const std::string &image,
+                                   int hotSpotX,
+                                   int hotSpotY);
+#endif
       };
 
     } // Interact
