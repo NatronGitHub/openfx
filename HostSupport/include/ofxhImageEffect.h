@@ -867,6 +867,14 @@ namespace OFX {
         /// other instance properties (kOfxImageEffectPropColourManagementConfig, OCIO config,
         /// display...) with getProps().setStringProperty(), and sets the colourspace of each
         /// input clip with ClipInstance::setColourspace().
+        ///
+        /// The host may change these properties during the lifetime of the instance (e.g. a new
+        /// project OCIO config, display or view). The spec defines no notification for that, but
+        /// requires calling kOfxImageEffectActionGetOutputColourspace "again if the host changes any
+        /// of the other colour properties" (and "whenever the effect instance is changed"): call
+        /// getOutputColourspaceAction() again, and re-run the clip preferences if the input
+        /// colourspaces changed. Plug-ins re-read the properties where they use them.
+        /// kOfxImageEffectPropOCIOConfig is a "Filesystem path to the config or URI starting ocio://".
         /// @{
 
         /// the style "chosen by the host", on this instance (kOfxImageEffectColourManagementNone by default)
@@ -900,7 +908,8 @@ namespace OFX {
         /// action status; on kOfxStatOK, colourspace is the plug-in's choice; on
         /// kOfxStatReplyDefault, it is the colourspace of the first connected input clip. In both
         /// cases it is also set on the output clip, as the spec requires (it may be a
-        /// cross-reference, see resolveColourspace()).
+        /// cross-reference, see resolveColourspace()). The action has no time or view argument:
+        /// the result describes the output clip at all times and views.
         OfxStatus getOutputColourspaceAction(const std::vector<std::string> &preferredColourspaces,
                                              std::string &colourspace);
         /// @}

@@ -1255,6 +1255,10 @@ namespace OFX {
      "Plug-ins must check kOfxImageClipPropColourspace to see if their request was satisfied." */
     std::string getColourspace(void) const;
 
+    /** @brief getColourspace(), with "OfxColourspace_<clip>" cross-references followed to an actual colourspace
+     (see ImageEffect::resolveColourspace()). */
+    std::string getResolvedColourspace(void) const;
+
     /** @brief get the components in the image */
     PreMultiplicationEnum getPreMultiplication(void) const;
 
@@ -2045,19 +2049,35 @@ namespace OFX {
     /** @brief Can this instance render on the CPU (kOfxImageEffectPropCPURenderSupported, OFX 1.5.1). Ignored by hosts that don't know it. */
     void setSupportsCPURender(bool v);
 
-    /** @name OFX 1.5 colour management (ofxColour.h). All empty / None on hosts without colour management. */
+    /** @name OFX 1.5 colour management (ofxColour.h). All empty / None on hosts without colour management.
+
+     These are read from the instance properties on every call, and the host may change them during the
+     lifetime of the instance: the spec requires the host to call kOfxImageEffectActionGetOutputColourspace
+     "again if the host changes any of the other colour properties", but defines no notification for such
+     a change. So read them where they are used (getClipPreferences(), getOutputColourspace(),
+     beginSequenceRender(), render()...), and don't cache them in the constructor.
+     */
     //@{
     /** @brief the colour management style chosen by the host for this instance */
     ColourManagementStyleEnum getColourManagementStyle() const;
     /** @brief the native config used to look up colourspace strings (kOfxImageEffectPropColourManagementConfig) */
     std::string getColourManagementConfig() const;
-    /** @brief the OCIO config, in the OCIO style (kOfxImageEffectPropOCIOConfig) */
+    /** @brief the OCIO config, in the OCIO style (kOfxImageEffectPropOCIOConfig): "Filesystem path to the config
+     or URI starting ocio://" ("Use of URIs for built-in configs, such as ocio://default is permitted").
+     Built-in config URIs need the OCIO library >= 2.2 (OCIO_NAMESPACE::Config::CreateFromFile() accepts them
+     since 2.2); with an older OCIO, a plugin should report an error for an ocio:// value. */
     std::string getOCIOConfig() const;
     /** @brief the display colourspace for a plugin-owned viewport (kOfxImageEffectPropDisplayColourspace) */
     std::string getDisplayColourspace() const;
     /** @brief the OCIO display and view for a plugin-owned viewport (empty: use the default rules) */
     std::string getOCIODisplay() const;
     std::string getOCIOView() const;
+
+    /** @brief follow "OfxColourspace_<clip>" cross-references ("Cross-referencing between clips is possible by
+     setting this property to OfxColourspace_<clip>") to an actual colourspace, using the colourspace of the
+     referenced clip of this instance. Returns colourspace itself if it is not a cross-reference, and "" if a
+     reference is to an unknown clip or the references form a cycle. */
+    std::string resolveColourspace(const std::string &colourspace) const;
     //@}
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -2340,6 +2360,13 @@ img->getField(), args.fieldToRender
 
      Return true and set colourspace (a colourspace allowed by the style in use, or a cross-reference such as
      "OfxColourspace_Source"); return false to let the host use the colourspace of the first input clip (the default).
+
+     The result must not depend on time or view: the action has no time or view argument (its only inArg is
+     kOfxImageClipPropPreferredColourspaces), and it describes the output clip as a whole. It may depend on
+     parameter values ("a plug-in may change its output colourspace based on a user changing a parameter"),
+     so a parameter that selects the output colourspace should not animate (setAnimates(false)), or the plugin
+     should use its value at a fixed time. Clip::getColourspace() of the inputs may be used ("Assume that the
+     plug-in will check kOfxImageClipPropColourspace on its input clips during this action").
      */
     virtual bool getOutputColourspace(const GetOutputColourspaceArguments &args, std::string &colourspace);
 

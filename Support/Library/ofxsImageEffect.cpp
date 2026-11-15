@@ -2680,6 +2680,36 @@ namespace OFX {
     return _clipProps.propGetString(kOfxImageClipPropColourspace, false);
   }
 
+  std::string Clip::getResolvedColourspace(void) const
+  {
+    const std::string cs = getColourspace();
+    return _effect ? _effect->resolveColourspace(cs) : cs;
+  }
+
+  static const char kOfxColourspaceCrossReferencePrefix[] = "OfxColourspace_";
+
+  std::string ImageEffect::resolveColourspace(const std::string &colourspace) const
+  {
+    const std::size_t prefixLen = sizeof(kOfxColourspaceCrossReferencePrefix) - 1;
+    std::string cs = colourspace;
+    std::set<std::string> visited; // cycle protection
+    while (cs.compare(0, prefixLen, kOfxColourspaceCrossReferencePrefix) == 0) {
+      const std::string clipName = cs.substr(prefixLen);
+      if (!visited.insert(clipName).second) {
+        return std::string(); // cycle
+      }
+      OfxImageClipHandle clipHandle = 0;
+      OfxPropertySetHandle clipProps = 0;
+      if (!OFX::Private::gEffectSuite ||
+          OFX::Private::gEffectSuite->clipGetHandle(_effectHandle, clipName.c_str(), &clipHandle, &clipProps) != kOfxStatOK ||
+          !clipProps) {
+        return std::string(); // reference to an unknown clip
+      }
+      cs = PropertySet(clipProps).propGetString(kOfxImageClipPropColourspace, false);
+    }
+    return cs;
+  }
+
   ColourManagementStyleEnum ImageEffect::getColourManagementStyle() const
   {
     return mapStrToColourManagementStyleEnum(_effectProps.propGetString(kOfxImageEffectPropColourManagementStyle, false));
