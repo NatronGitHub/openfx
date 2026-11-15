@@ -2056,6 +2056,8 @@ namespace OFX {
           return paramDefineImpl(paramSet, paramType, name, propertySet);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -2163,6 +2165,8 @@ namespace OFX {
           return paramGetHandleImpl(paramSet, name, param, propertySet);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -2201,6 +2205,8 @@ namespace OFX {
           return paramSetGetPropertySetImpl(paramSet, propHandle);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -2242,6 +2248,8 @@ namespace OFX {
           return paramGetPropertySetImpl(param, propHandle);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -2503,6 +2511,8 @@ namespace OFX {
           return paramGetNumKeysImpl(paramHandle, numberOfKeys);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -2545,6 +2555,8 @@ namespace OFX {
           return paramGetKeyTimeImpl(paramHandle, nthKey, time);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -2591,6 +2603,8 @@ namespace OFX {
           return paramGetKeyIndexImpl(paramHandle, time, direction, index);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -2635,6 +2649,8 @@ namespace OFX {
           return paramDeleteKeyImpl(paramHandle, time);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -2675,6 +2691,8 @@ namespace OFX {
           return paramDeleteAllKeysImpl(paramHandle);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -2712,6 +2730,8 @@ namespace OFX {
           return paramCopyImpl(paramTo, paramFrom, dstOffset, frameRange);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -2743,6 +2763,8 @@ namespace OFX {
           return paramEditBeginImpl(paramSet, name);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -2774,6 +2796,8 @@ namespace OFX {
           return paramEditEndImpl(paramSet);
         } catch (const std::bad_alloc &) {
           return kOfxStatErrMemory;
+        } catch (const Property::Exception &e) {
+          return e.getStatus();
         } catch (...) {
           return kOfxStatFailed;
         }
