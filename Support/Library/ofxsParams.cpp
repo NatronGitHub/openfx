@@ -1116,6 +1116,13 @@ namespace OFX {
       _paramProps.propReset(kOfxParamPropChoiceLabelOption);
     }
 #endif
+#ifdef OFX_EXTENSIONS_NATRON
+    // also clear the option enums, as resetOptions(newEntries, ...) does, or appendOption() would
+    // leave stale enums after the new options
+    if (_paramProps.propGetDimension(kOfxParamPropChoiceEnum, false) > 0) {
+      _paramProps.propReset(kOfxParamPropChoiceEnum);
+    }
+#endif
   }
 
   /** @brief set to the default value */
