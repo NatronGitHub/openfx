@@ -379,6 +379,19 @@ namespace OFX {
       /// A class that is used to initialise a property set. Feed in an array of these to
       /// a property and it will construct a bunch of properties. Terminate such an array
       /// with an empty (all zero) set.
+      /// What the plug-in-facing property suite does when a plug-in writes
+      /// (propSet*, propSetN*, propReset) a property that is read-only for plug-ins
+      /// (PropSpec::readonly). Host-side C++ setters are never restricted.
+      enum PluginReadOnlyPolicyEnum {
+        ePluginReadOnlyEnforce, ///< refuse the write with kOfxStatErrValue (default)
+        ePluginReadOnlyWarn,    ///< accept the write, but log it to stderr (once per property name)
+        ePluginReadOnlyIgnore   ///< accept the write silently (behaviour before NatronGitHub/openfx#76)
+      };
+
+      /// set the policy, e.g. at host startup; applies to all property sets
+      void setPluginReadOnlyPolicy(PluginReadOnlyPolicyEnum policy);
+      PluginReadOnlyPolicyEnum getPluginReadOnlyPolicy();
+
       struct PropSpec {
         const char *name;          ///< name of the property 
         TypeEnum type;             ///< type
