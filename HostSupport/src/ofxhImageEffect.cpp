@@ -598,6 +598,11 @@ namespace OFX {
         gThumbnailRenderThread = _previous;
       }
 
+      bool ThumbnailRenderScope::isActive()
+      {
+        return gThumbnailRenderThread;
+      }
+
       bool isThumbnailRenderThread()
       {
         return gThumbnailRenderThread;
@@ -606,6 +611,17 @@ namespace OFX {
       void setThumbnailRenderArg(Property::Set &inArgs)
       {
         inArgs.setStringProperty(kOfxImageEffectPropThumbnailRender, gThumbnailRenderThread ? "true" : "false");
+      }
+
+      void setThumbnailRenderArg(Property::Set &inArgs, const Instance *effect)
+      {
+        const bool thumbnail = effect ? effect->isThumbnailRender() : gThumbnailRenderThread;
+        inArgs.setStringProperty(kOfxImageEffectPropThumbnailRender, thumbnail ? "true" : "false");
+      }
+
+      bool Instance::isThumbnailRender() const
+      {
+        return ThumbnailRenderScope::isActive();
       }
 
       /// OFX 1.5: kOfxImageEffectPropMetalTextureEnabled is in the inArgs of
@@ -1131,7 +1147,7 @@ namespace OFX {
 
         Property::Set inArgs(stuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
-        setThumbnailRenderArg(inArgs);
+        setThumbnailRenderArg(inArgs, this);
 
 #       ifdef OFX_DEBUG_ACTIONS
           std::cout << "OFX: "<<(void*)this<<"->"<<kOfxActionBeginInstanceChanged<<"("<<why<<")"<<std::endl;
@@ -1174,7 +1190,7 @@ namespace OFX {
 
         Property::Set inArgs(stuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
-        setThumbnailRenderArg(inArgs);
+        setThumbnailRenderArg(inArgs, this);
 
         // add the second dimension of the render scale
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -1411,7 +1427,7 @@ namespace OFX {
 
         Property::Set inArgs(stuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
-        setThumbnailRenderArg(inArgs);
+        setThumbnailRenderArg(inArgs, this);
         inArgs.addProperties(ofx15MetalTextureArgs);
 
         // set up second dimension for frame range and render scale
@@ -1523,7 +1539,7 @@ namespace OFX {
 
         Property::Set inArgs(inStuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
-        setThumbnailRenderArg(inArgs);
+        setThumbnailRenderArg(inArgs, this);
         inArgs.addProperties(ofx15MetalTextureArgs);
         
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
@@ -1977,7 +1993,7 @@ namespace OFX {
 
         Property::Set inArgs(inStuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
-        setThumbnailRenderArg(inArgs);
+        setThumbnailRenderArg(inArgs, this);
         Property::Set outArgs(outStuff);
         
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -2083,7 +2099,7 @@ namespace OFX {
         };
         Property::Set inArgs(inStuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
-        setThumbnailRenderArg(inArgs);
+        setThumbnailRenderArg(inArgs, this);
 
         inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -2486,7 +2502,7 @@ namespace OFX {
           };
           Property::Set inArgs(inStuff);       
           inArgs.addProperties(ofx15ThumbnailRenderArgs);
-          setThumbnailRenderArg(inArgs);
+          setThumbnailRenderArg(inArgs, this);
           inArgs.setDoubleProperty(kOfxPropTime,time);
         
         
@@ -2633,7 +2649,7 @@ namespace OFX {
 
         Property::Set inArgs(inStuff);        
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
-        setThumbnailRenderArg(inArgs);
+        setThumbnailRenderArg(inArgs, this);
 
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
         inArgs.setDoubleProperty(kOfxPropTime,time);

@@ -612,7 +612,7 @@ namespace OFX {
         };
 
         Property::Set inArgs(stuff);
-        ImageEffect::setThumbnailRenderArg(inArgs);
+        ImageEffect::setThumbnailRenderArg(inArgs, _effectInstance);
 
         // add the second dimension of the render scale
         inArgs.setDoubleProperty(kOfxPropTime,time);
