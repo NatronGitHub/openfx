@@ -750,9 +750,24 @@ namespace OFX {
         throw Property::Exception(kOfxStatErrMissingHostFeature);
       }
 
+
+      /// Copy the first n values of a dim-dimensional hooked property to the
+      /// caller's buffer: propGet*N only gives room for indices 0..n-1.
+      template<class T>
+      static void copyHookValuesN(T *dst, const T *src, int n, int dim)
+      {
+        if (n < 0 || n > dim) {
+          throw Property::Exception(kOfxStatErrBadIndex);
+        }
+        for (int i = 0; i < n; ++i) {
+          dst[i] = src[i];
+        }
+      }
+
       // get the virutals for viewport size, pixel scale, background colour
       double Instance::getDoubleProperty(const std::string &name, int index) const OFX_EXCEPTION_SPEC
       {
+        if (index < 0) throw Property::Exception(kOfxStatErrBadIndex);
         if(name==kOfxImageEffectPropProjectSize){
           if(index>=2) throw Property::Exception(kOfxStatErrBadIndex);
           double values[2];
@@ -789,29 +804,30 @@ namespace OFX {
 
       void Instance::getDoublePropertyN(const std::string &name, double* first, int n) const OFX_EXCEPTION_SPEC
       {
+        double values[2];
         if(name==kOfxImageEffectPropProjectSize){
-          if(n>2) throw Property::Exception(kOfxStatErrBadIndex);
-          getProjectSize(first[0],first[1]);
+          getProjectSize(values[0],values[1]);
+          copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectOffset){
-          if(n>2) throw Property::Exception(kOfxStatErrBadIndex);
-          getProjectOffset(first[0],first[1]);
+          getProjectOffset(values[0],values[1]);
+          copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectExtent){
-          if(n>2) throw Property::Exception(kOfxStatErrBadIndex);
-          getProjectExtent(first[0],first[1]);
+          getProjectExtent(values[0],values[1]);
+          copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectPixelAspectRatio){
-          if(n>1) throw Property::Exception(kOfxStatErrBadIndex);
-          *first = getProjectPixelAspectRatio();
+          values[0] = getProjectPixelAspectRatio();
+          copyHookValuesN(first, values, n, 1);
         }
         else if(name==kOfxImageEffectInstancePropEffectDuration){
-          if(n>1) throw Property::Exception(kOfxStatErrBadIndex);
-          *first = getEffectDuration();
+          values[0] = getEffectDuration();
+          copyHookValuesN(first, values, n, 1);
         }
         else if(name==kOfxImageEffectPropFrameRate){
-          if(n>1) throw Property::Exception(kOfxStatErrBadIndex);
-          *first = getFrameRate();
+          values[0] = getFrameRate();
+          copyHookValuesN(first, values, n, 1);
         }
         else
           throw Property::Exception(kOfxStatErrUnknown);
@@ -819,7 +835,7 @@ namespace OFX {
 
       const std::string &Instance::getStringProperty(const std::string &name, int n) const OFX_EXCEPTION_SPEC
       {
-#ifdef OFX_EXTENSIONS_NUKE
+#ifdef OFX_EXTENSIONS_NATRON // kNatronOfxExtraCreatedPlanes and getUserCreatedPlanes() are Natron extensions
         if (name==kNatronOfxExtraCreatedPlanes) {
           const std::vector<std::string>& userPlanes = getUserCreatedPlanes();
           if (n >= 0 && n < (int)userPlanes.size()) {
@@ -828,19 +844,27 @@ namespace OFX {
             throw Property::Exception(kOfxStatErrBadIndex);
           }
         }
+#else
+        (void)name;
+        (void)n;
 #endif
         throw Property::Exception(kOfxStatErrValue);
       }
 
       void Instance::getStringPropertyN(const std::string &name, const char** values, int count) const OFX_EXCEPTION_SPEC
       {
-        if (count <= 0) throw Property::Exception(kOfxStatErrValue);
+        if (count < 0) throw Property::Exception(kOfxStatErrBadIndex);
+        if (count == 0) return;
 #ifdef OFX_EXTENSIONS_NATRON
         if (name==kNatronOfxExtraCreatedPlanes) {
-          const std::vector<std::string>& componentsPresents = getUserCreatedPlanes();
-          int minCount = (int)componentsPresents.size() < count ? (int)componentsPresents.size() : count;
+          const std::vector<std::string>& userPlanes = getUserCreatedPlanes();
+          int minCount = (int)userPlanes.size() < count ? (int)userPlanes.size() : count;
           for (int i = 0; i < minCount; ++i) {
-            values[i] = componentsPresents[i].c_str();
+            values[i] = userPlanes[i].c_str();
+          }
+          if (count > (int)userPlanes.size()) {
+            // don't leave the rest of the caller's buffer uninitialised
+            throw Property::Exception(kOfxStatErrBadIndex);
           }
           return;
         }
