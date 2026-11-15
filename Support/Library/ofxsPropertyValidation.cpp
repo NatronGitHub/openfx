@@ -843,6 +843,13 @@ namespace OFX {
       PropertyDescription(kOfxParamPropCustomInterpCallbackV1, OFX::ePointer, 1, eDescDefault, NULLPTR, eDescFinished),
     };
 
+    /** @brief values for a Bytes param (OFX 1.5): the default is a pointer to an OfxBytes struct, or NULL */
+    static PropertyDescription gBytesParamProps[ ] =
+    {
+      PropertyDescription(kOfxParamPropDefault,                OFX::ePointer, 1, eDescDefault, NULLPTR, eDescFinished),
+      PropertyDescription(kOfxParamPropAnimates,               OFX::eInt,     1, eDescDefault, 0, eDescFinished),
+    };
+
     /** @brief properties for an RGB colour param */
     static PropertyDescription gRGBColourParamProps[ ] =
     {
@@ -1076,6 +1083,14 @@ namespace OFX {
       mPropDescriptionArg(gInteractOverideParamProps),
       mPropDescriptionArg(gValueHolderParamProps),
       mPropDescriptionArg(gCustomParamProps),
+      NULLPTR);
+
+    /** @brief Property set for Bytes params (OFX 1.5) */
+    static PropertySetDescription gBytesParamPropSet("Bytes parameter",
+      mPropDescriptionArg(gBasicParamProps),
+      mPropDescriptionArg(gInteractOverideParamProps),
+      mPropDescriptionArg(gValueHolderParamProps),
+      mPropDescriptionArg(gBytesParamProps),
       NULLPTR);
 
     /** @brief Property set for boolean params */
@@ -1360,6 +1375,9 @@ namespace OFX {
         break;
       case eParametricParam:
         gParametricParamPropSet.validate(paramProps, checkDefaults);
+        break;
+      case eBytesParam:
+        gBytesParamPropSet.validate(paramProps, checkDefaults);
         break;
       case eDummyParam:
       //default:

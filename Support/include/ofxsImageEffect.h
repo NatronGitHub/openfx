@@ -448,6 +448,25 @@ namespace OFX {
     eColourManagementStyleOCIO   ///< kOfxImageEffectColourManagementOCIO - any OCIO config (implies the OCIO library)
   };
 
+  /** @brief OFX 1.5 OpenCL program suite (OfxOpenCLProgramSuiteV1, ofxGPURender.h): an optional
+   suite "the host can provide for building OpenCL programs for the plug-in, as an alternative
+   to calling clCreateProgramWithSource / clBuildProgram" (the host may add build flags and
+   cache program binaries). */
+  namespace OpenCL {
+    /** @brief Does the host provide the OpenCL program suite? */
+    bool isProgramSuiteAvailable();
+
+    /** @brief Ask the host to compile an OpenCL program.
+
+     \arg programSource the OpenCL C source
+     \arg optional      if true, the host may skip compiling on this call
+     \arg program       points to a cl_program, where the compiled program is stored
+     \return the host's status, or kOfxStatErrUnsupported if the host doesn't provide the suite
+     (the plug-in should then call clCreateProgramWithSource / clBuildProgram itself). Never throws.
+     */
+    OfxStatus compileProgram(const char *programSource, bool optional, void *program);
+  }
+
   ////////////////////////////////////////////////////////////////////////////////
   /** @brief A class that lists all the properties of a host */
   struct ImageEffectHostDescription {
@@ -512,6 +531,8 @@ namespace OFX {
     bool supportsCPURender; ///< kOfxImageEffectPropCPURenderSupported (OFX 1.5.1, host optional); true if absent
     ColourManagementStyleEnum colourManagementStyle; ///< kOfxImageEffectPropColourManagementStyle on the host (OFX 1.5); None if absent
     std::vector<std::string> colourManagementAvailableConfigs; ///< kOfxImageEffectPropColourManagementAvailableConfigs on the host (OFX 1.5)
+
+    bool supportsMetalTexture; ///< kOfxImageEffectPropMetalTextureSupported on the host (OFX 1.5); false if absent
 #ifdef OFX_EXTENSIONS_NATRON
     bool isNatron;
     bool supportsDynamicChoices;
@@ -808,6 +829,11 @@ namespace OFX {
 
     /** @brief Does the plugin support OpenCL Images render (kOfxImageEffectPropOpenCLSupported, OFX 1.5), defaults to false */
     void setSupportsOpenCLImagesRender(bool v);
+
+    /** @brief Does the plugin support Metal texture render (kOfxImageEffectPropMetalTextureSupported, OFX 1.5), defaults to false.
+     When the host also supports it, it MAY pass images as id<MTLTexture> (see RenderArguments::isEnabledMetalTextureRender).
+     Ignored by hosts that don't know it. */
+    void setSupportsMetalTextureRender(bool v);
 
 #ifdef OFX_EXTENSIONS_RESOLVE
     /** @brief Does the plugin support OpenCL Render, defaults to false (same as setSupportsOpenCLBuffersRender) */
@@ -1535,6 +1561,8 @@ namespace OFX {
 #endif
     bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
     UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5): eUnlicensedBehaviourNotSet if absent */
+    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (OFX 1.5): images are id<MTLTexture>. false if absent */
+    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ, which only exists with OFX_EXTENSIONS_RESOLVE) */
   };
 
   /** @brief POD struct to pass rendering arguments into @ref OFX::ImageEffect::isIdentity */
@@ -1578,6 +1606,8 @@ namespace OFX {
 #endif
     bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
     UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5): eUnlicensedBehaviourNotSet if absent */
+    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (OFX 1.5): images are id<MTLTexture>. false if absent */
+    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ, which only exists with OFX_EXTENSIONS_RESOLVE) */
   };
 
   /** @brief POD struct to pass arguments into  @ref OFX::ImageEffect::endSequenceRender */
@@ -1604,6 +1634,8 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
     int view;
 #endif
+    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (OFX 1.5): images are id<MTLTexture>. false if absent */
+    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ, which only exists with OFX_EXTENSIONS_RESOLVE) */
   };
 
   /** @brief POD struct to pass arguments into  @ref OFX::ImageEffect::getRegionOfDefinition */
@@ -2079,6 +2111,9 @@ namespace OFX {
      reference is to an unknown clip or the references form a cycle. */
     std::string resolveColourspace(const std::string &colourspace) const;
     //@}
+
+    /** @brief Does this instance support Metal texture render (kOfxImageEffectPropMetalTextureSupported, OFX 1.5). Ignored by hosts that don't know it. */
+    void setSupportsMetalTextureRender(bool v);
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     /** @brief Does the plugin support OpenGL accelerated rendering (but is also capable of CPU rendering) ? Can only be called from changedParam or changedClip (OFX 1.4). */

@@ -167,6 +167,7 @@ namespace OFX {
     case ePageParam : return kOfxParamTypePage ;
     case ePushButtonParam : return kOfxParamTypePushButton ;
     case eParametricParam : return kOfxParamTypeParametric ;
+    case eBytesParam : return kOfxParamTypeBytes ;
     default: assert(false);
     }
     return kOfxParamTypeInteger;
@@ -215,6 +216,8 @@ namespace OFX {
       return ePushButtonParam ;
     else if(isEqual(kOfxParamTypeParametric,v))
       return eParametricParam ;
+    else if(isEqual(kOfxParamTypeBytes,v))
+      return eBytesParam ;
     else
       assert(false);
     return ePushButtonParam ;
@@ -1385,6 +1388,42 @@ namespace OFX {
   }
 
   ////////////////////////////////////////////////////////////////////////////////
+  // Bytes param descriptor (OFX 1.5)
+
+  /** @brief hidden ctor */
+  BytesParamDescriptor::BytesParamDescriptor(const std::string &name, OfxPropertySetHandle props)
+    : ValueParamDescriptor(name, eBytesParam, props)
+  {
+    _defaultBytes.data = NULL;
+    _defaultBytes.length = 0;
+  }
+
+  /** @brief set the default value.
+   kOfxParamPropDefault is a "pointer to OfxBytes struct of one dimension, or nullptr". The data
+   is copied into this descriptor, which lives until the plug-in is unloaded, so the pointer
+   stays valid for the host. */
+  void BytesParamDescriptor::setDefault(const void *data, size_t length)
+  {
+    if (!data || length == 0) {
+      _defaultData.clear();
+      _defaultBytes.data = NULL;
+      _defaultBytes.length = 0;
+      _paramProps.propSetPointer(kOfxParamPropDefault, NULL);
+      return;
+    }
+    const unsigned char *p = (const unsigned char *)data;
+    _defaultData.assign(p, p + length);
+    _defaultBytes.data = &_defaultData[0];
+    _defaultBytes.length = _defaultData.size();
+    _paramProps.propSetPointer(kOfxParamPropDefault, (void *)&_defaultBytes);
+  }
+
+  void BytesParamDescriptor::setDefault(const std::vector<unsigned char> &v)
+  {
+    setDefault(v.empty() ? NULL : &v[0], v.size());
+  }
+
+  ////////////////////////////////////////////////////////////////////////////////
   // group param descriptor
 
   /** @brief hidden constructor */
@@ -1775,6 +1814,23 @@ namespace OFX {
     return param;
   }
 
+  /** @brief Define a Bytes param (OFX 1.5); NULL if the host doesn't support them */
+  BytesParamDescriptor *ParamSetDescriptor::defineBytesParam(const std::string &name)
+  {
+    BytesParamDescriptor *param = NULL;
+    try {
+      defineParamDescriptor(name, eBytesParam, param);
+    } catch (const OFX::Exception::Suite &e) {
+      // the OFX standard has no host property for Bytes params: a host that doesn't
+      // support them returns kOfxStatErrUnsupported (or kOfxStatErrUnknown, before OFX 1.5)
+      if (e.status() == kOfxStatErrUnsupported || e.status() == kOfxStatErrUnknown) {
+        return NULL;
+      }
+      throw;
+    }
+    return param;
+  }
+
   /** @brief Fetch an integer param */
   IntParamDescriptor * 
     ParamSetDescriptor::fetchIntParam(const std::string &name) const
@@ -1893,6 +1949,14 @@ namespace OFX {
   {
     CustomParamDescriptor *param = NULL;
     fetchParamDescriptor(name, eCustomParam, param);
+    return param;
+  }
+
+  /** @brief Fetch a Bytes param */
+  BytesParamDescriptor *ParamSetDescriptor::fetchBytesParam(const std::string &name) const
+  {
+    BytesParamDescriptor *param = NULL;
+    fetchParamDescriptor(name, eBytesParam, param);
     return param;
   }
 
@@ -3792,6 +3856,109 @@ namespace OFX {
   }
 
   ////////////////////////////////////////////////////////////////////////////////
+  // Wraps up a Bytes param (OFX 1.5)
+
+  /** @brief hidden constructor */
+  BytesParam::BytesParam(const ParamSet *paramSet, const std::string &name, OfxParamHandle handle)
+    : ValueParam(paramSet, name, eBytesParam, handle)
+  {
+  }
+
+  static void copyBytes(const OfxBytes &bytes, std::vector<unsigned char> &v)
+  {
+    if (bytes.data && bytes.length > 0) {
+      v.assign(bytes.data, bytes.data + bytes.length);
+    } else {
+      v.clear();
+    }
+  }
+
+  /** @brief get the default value */
+  void BytesParam::getDefault(std::vector<unsigned char> &v) const
+  {
+    const OfxBytes *def = (const OfxBytes *)_paramProps.propGetPointer(kOfxParamPropDefault, false);
+    if (def) {
+      copyBytes(*def, v);
+    } else {
+      v.clear();
+    }
+  }
+
+  /** @brief get value */
+  void BytesParam::getValue(std::vector<unsigned char> &v) const
+  {
+    OfxBytes bytes;
+    bytes.data = NULL;
+    bytes.length = 0;
+    OfxStatus stat = OFX::Private::gParamSuite->paramGetValue(_paramHandle, &bytes);
+    throwSuiteStatusException(stat);
+    copyBytes(bytes, v);
+  }
+
+  /** @brief get the value at a time */
+  void BytesParam::getValueAtTime(double t, std::vector<unsigned char> &v) const
+  {
+#  ifndef NDEBUG
+    if ( OFX::IsNaN(t) ) {
+      throwSuiteStatusException(kOfxStatErrValue);
+    }
+#  endif
+    OfxBytes bytes;
+    bytes.data = NULL;
+    bytes.length = 0;
+    OfxStatus stat = OFX::Private::gParamSuite->paramGetValueAtTime(_paramHandle, t, &bytes);
+    throwSuiteStatusException(stat);
+    copyBytes(bytes, v);
+  }
+
+  /** @brief set value */
+  void BytesParam::setValue(const void *data, size_t length)
+  {
+    OfxBytes bytes;
+    bytes.data = (const unsigned char *)data;
+    bytes.length = data ? length : 0;
+    OfxStatus stat = OFX::Private::gParamSuite->paramSetValue(_paramHandle, &bytes);
+    throwSuiteStatusException(stat);
+  }
+
+  /** @brief set value */
+  void BytesParam::setValue(const std::vector<unsigned char> &v)
+  {
+    setValue(v.empty() ? NULL : &v[0], v.size());
+  }
+
+  /** @brief set the value at a time, implicitly adds a keyframe */
+  void BytesParam::setValueAtTime(double t, const void *data, size_t length)
+  {
+#  ifndef NDEBUG
+    if ( OFX::IsNaN(t) ) {
+      throwSuiteStatusException(kOfxStatErrValue);
+    }
+#  endif
+    if(!OFX::Private::gParamSuite->paramSetValueAtTime) throwHostMissingSuiteException("paramSetValueAtTime");
+    OfxBytes bytes;
+    bytes.data = (const unsigned char *)data;
+    bytes.length = data ? length : 0;
+    OfxStatus stat = OFX::Private::gParamSuite->paramSetValueAtTime(_paramHandle, t, &bytes);
+    throwSuiteStatusException(stat);
+  }
+
+  /** @brief set the value at a time, implicitly adds a keyframe */
+  void BytesParam::setValueAtTime(double t, const std::vector<unsigned char> &v)
+  {
+    setValueAtTime(t, v.empty() ? NULL : &v[0], v.size());
+  }
+
+  /** @brief delete all keys and set to default value */
+  void BytesParam::resetToDefault()
+  {
+    deleteAllKeys();
+    std::vector<unsigned char> v;
+    getDefault(v);
+    setValue(v);
+  }
+
+  ////////////////////////////////////////////////////////////////////////////////
   // Wraps up a group param
   /** @brief hidden constructor */
   GroupParam::GroupParam(const ParamSet *paramSet, const std::string &name, OfxParamHandle handle)
@@ -4264,6 +4431,12 @@ namespace OFX {
         fetchParam(name, t, ptr);
         return ptr;
       }
+    case eBytesParam :
+      {
+        BytesParam* ptr = 0;
+        fetchParam(name, t, ptr);
+        return ptr;
+      }
     default:
       assert(false);
     }
@@ -4409,6 +4582,14 @@ namespace OFX {
   {
     CustomParam *param = NULL;
     fetchParam(name, eCustomParam, param);
+    return param;
+  }
+
+  /** @brief Fetch a Bytes param */
+  BytesParam *ParamSet::fetchBytesParam(const std::string &name) const
+  {
+    BytesParam *param = NULL;
+    fetchParam(name, eBytesParam, param);
     return param;
   }
 
