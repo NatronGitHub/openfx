@@ -399,6 +399,13 @@ namespace OFX {
         /// (actionStatus == kOfxStatOK) wins; otherwise the most recent non-default cursor;
         /// otherwise the host's own cursor. getCursor() gives the current request of any
         /// interact, e.g. to re-evaluate after dispatching an event to all interacts of a view.
+        ///
+        /// Important: notifications are per interact and only report changes of that
+        /// interact's own request. When the displayed cursor is released (its owner goes back
+        /// to default, loses focus or is destroyed), the host must re-evaluate the arbitration
+        /// from the current requests of all interacts of the view (getCursor(), or the last
+        /// value each one reported), not fall back to its own cursor: another interact may
+        /// still be requesting a cursor that it will not report again, because it did not change.
         /// An unsupported value should be displayed as kOfxInteractCursorDefault.
         ///
         /// Destruction: this cannot be called from ~Instance (the derived class is already

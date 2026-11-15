@@ -39,6 +39,8 @@ The cursor names are the CSS cursor keywords (`default`, `none`, `pointer`, `cro
 2. otherwise, the most recent non-default request of an interact of that view;
 3. otherwise, the host's own cursor.
 
+When the displayed request is released (its interact goes back to `default`, loses focus or is destroyed), the host re-evaluates this order from the current requests of all interacts of the view, and only then falls back to its own cursor. Interacts report their request once, when it changes, so an interact still over its handle won't report its unchanged cursor again. (Found in the first Natron GUI test: ContactSheet's pointer was lost after hovering another overlay's handle and coming back.)
+
 An interact that loses focus or is destroyed no longer owns the cursor, and the host restores its own cursor if that interact's request was displayed.
 
 **Custom images.** `kOfxInteractPropCursorHotSpot` is in pixels of the 1x image. For an `@2x` file the hot spot in that image's pixels is twice that (with Qt: `QPixmap::setDevicePixelRatio(2)`, hot spot unchanged).

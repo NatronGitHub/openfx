@@ -178,8 +178,12 @@ kOfxStatOK the host should not pass the pen motion to any other interactive
 object it may own that shares the same view"; otherwise the most recent
 non-default request of an interact of that view; otherwise the host's own
 cursor. An interact that loses focus (kOfxInteractActionLoseFocus) or is
-destroyed no longer owns the cursor, and the host restores its own cursor if
-that interact's request was displayed.
+destroyed no longer owns the cursor. When the displayed request is released this
+way, or because its interact went back to ::kOfxInteractCursorDefault, the host
+re-evaluates this policy from the current requests of all the interacts of the
+view, and only shows its own cursor if none of them requests one. A plug-in
+reports its request once, when it changes: an interact still hovering over its
+handle does not report its unchanged cursor again.
 @{
 */
 
