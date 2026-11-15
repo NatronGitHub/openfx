@@ -188,8 +188,11 @@ namespace OFX {
 
       Instance::~Instance()
       {
-        /// call it directly incase CI failed and we should always tidy up after create instance
-        callEntry(kOfxActionDestroyInstance,  NULL);
+        // kOfxActionDestroyInstance requires that "kOfxActionCreateInstance has been called on the handle":
+        // only tidy up an instance that was successfully created.
+        if (_state == eCreated) {
+          callEntry(kOfxActionDestroyInstance,  NULL);
+        }
       }
 
       /// call the entry point in the descriptor with action and the given args
