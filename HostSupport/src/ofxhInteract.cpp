@@ -135,6 +135,7 @@ namespace OFX {
       static const Property::PropSpec interactArgsStuffs[] = {
         { kOfxPropEffectInstance, Property::ePointer, 1, false, NULL },
         { kOfxPropTime, Property::eDouble, 1, false, "0.0" },
+        { kOfxInteractPropDrawContext, Property::ePointer, 1, false, NULL }, // OFX 1.5 DrawSuite, set during kOfxInteractActionDraw
         { kOfxImageEffectPropRenderScale, Property::eDouble, 2, false, "0.0" },
 #ifdef OFX_EXTENSIONS_NUKE
         { kFnOfxImageEffectPropView, Property::eInt, 1, false, "0" },
@@ -164,6 +165,7 @@ namespace OFX {
         , _state(desc.getState())
         , _effectInstance(effectInstance)
         , _argProperties(interactArgsStuffs)
+        , _inDraw(false)
       {
         _properties.setPointerProperty(kOfxPropEffectInstance, effectInstance);
         _properties.setChainedSet(&desc.getProperties()); /// chain it into the descriptor props
@@ -433,7 +435,53 @@ namespace OFX {
                     , colourPicker
 #endif
                     );
-        return callEntry(kOfxInteractActionDraw, &_argProperties);
+        // OFX 1.5 DrawSuite: the draw context identifies this instance, and is only valid
+        // during this action ("kOfxStatFailed - failure, e.g. if function is called outside
+        // kOfxInteractActionDraw")
+        _argProperties.setPointerProperty(kOfxInteractPropDrawContext, (void*)this);
+        _inDraw = true;
+        OfxStatus st;
+        try {
+          st = callEntry(kOfxInteractActionDraw, &_argProperties);
+        } catch (...) {
+          _inDraw = false;
+          _argProperties.setPointerProperty(kOfxInteractPropDrawContext, NULL);
+          throw;
+        }
+        _inDraw = false;
+        _argProperties.setPointerProperty(kOfxInteractPropDrawContext, NULL);
+        return st;
+      }
+
+      // default DrawSuite hooks: the host does not implement drawing
+      OfxStatus Instance::drawGetColour(OfxStandardColour /*std_colour*/, OfxRGBAColourF * /*colour*/)
+      {
+        return kOfxStatErrMissingHostFeature;
+      }
+
+      OfxStatus Instance::drawSetColour(const OfxRGBAColourF * /*colour*/)
+      {
+        return kOfxStatErrMissingHostFeature;
+      }
+
+      OfxStatus Instance::drawSetLineWidth(float /*width*/)
+      {
+        return kOfxStatErrMissingHostFeature;
+      }
+
+      OfxStatus Instance::drawSetLineStipple(OfxDrawLineStipplePattern /*pattern*/)
+      {
+        return kOfxStatErrMissingHostFeature;
+      }
+
+      OfxStatus Instance::drawPrimitive(OfxDrawPrimitive /*primitive*/, const OfxPointD * /*points*/, int /*point_count*/)
+      {
+        return kOfxStatErrMissingHostFeature;
+      }
+
+      OfxStatus Instance::drawText(const char * /*text*/, const OfxPointD * /*pos*/, int /*alignment*/)
+      {
+        return kOfxStatErrMissingHostFeature;
       }
 
       OfxStatus Instance::penMotionAction(OfxTime time,
@@ -708,6 +756,144 @@ namespace OFX {
         }
       }
       
+      ////////////////////////////////////////////////////////////////////////////////
+      // DrawSuite functions (OFX 1.5, include/ofxDrawSuite.h)
+      //
+      // The context is the Interact::Instance whose kOfxInteractActionDraw is being
+      // called (see Instance::drawAction()); outside that action the functions fail.
+
+      static Interact::Instance *drawContextInstance(OfxDrawContextHandle context)
+      {
+        Interact::Instance *interactInstance = reinterpret_cast<Interact::Instance*>(context);
+        if (!interactInstance || !interactInstance->isInDraw()) {
+          return NULL;
+        }
+        return interactInstance;
+      }
+
+      static OfxStatus drawGetColour(OfxDrawContextHandle context, OfxStandardColour std_colour, OfxRGBAColourF *colour)
+      {
+        try {
+          Interact::Instance *interactInstance = drawContextInstance(context);
+          if (!interactInstance) {
+            return kOfxStatFailed;
+          }
+          if (!colour || (int)std_colour < (int)kOfxStandardColourOverlayBackground || (int)std_colour > (int)kOfxStandardColourOverlayText) {
+            return kOfxStatErrValue;
+          }
+          return interactInstance->drawGetColour(std_colour, colour);
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
+
+      static OfxStatus drawSetColour(OfxDrawContextHandle context, const OfxRGBAColourF *colour)
+      {
+        try {
+          Interact::Instance *interactInstance = drawContextInstance(context);
+          if (!interactInstance) {
+            return kOfxStatFailed;
+          }
+          if (!colour) {
+            return kOfxStatErrValue;
+          }
+          return interactInstance->drawSetColour(colour);
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
+
+      static OfxStatus drawSetLineWidth(OfxDrawContextHandle context, float width)
+      {
+        try {
+          Interact::Instance *interactInstance = drawContextInstance(context);
+          if (!interactInstance) {
+            return kOfxStatFailed;
+          }
+          return interactInstance->drawSetLineWidth(width);
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
+
+      static OfxStatus drawSetLineStipple(OfxDrawContextHandle context, OfxDrawLineStipplePattern pattern)
+      {
+        try {
+          Interact::Instance *interactInstance = drawContextInstance(context);
+          if (!interactInstance) {
+            return kOfxStatFailed;
+          }
+          if ((int)pattern < (int)kOfxDrawLineStipplePatternSolid || (int)pattern > (int)kOfxDrawLineStipplePatternDotDash) {
+            return kOfxStatErrValue;
+          }
+          return interactInstance->drawSetLineStipple(pattern);
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
+
+      static OfxStatus drawDraw(OfxDrawContextHandle context, OfxDrawPrimitive primitive, const OfxPointD *points, int point_count)
+      {
+        try {
+          Interact::Instance *interactInstance = drawContextInstance(context);
+          if (!interactInstance) {
+            return kOfxStatFailed;
+          }
+          // "kOfxStatErrValue - invalid primitive, or point_count not valid for primitive"
+          int minCount;
+          switch (primitive) {
+            case kOfxDrawPrimitiveLines:      minCount = 2; break;
+            case kOfxDrawPrimitiveLineStrip:  minCount = 2; break;
+            case kOfxDrawPrimitiveLineLoop:   minCount = 2; break;
+            case kOfxDrawPrimitiveRectangle:  minCount = 2; break;
+            case kOfxDrawPrimitivePolygon:    minCount = 3; break;
+            case kOfxDrawPrimitiveEllipse:    minCount = 2; break;
+            default: return kOfxStatErrValue;
+          }
+          if (!points || point_count < minCount ||
+              (primitive == kOfxDrawPrimitiveLines && point_count % 2 != 0) ||
+              ((primitive == kOfxDrawPrimitiveRectangle || primitive == kOfxDrawPrimitiveEllipse) && point_count != 2)) {
+            return kOfxStatErrValue;
+          }
+          return interactInstance->drawPrimitive(primitive, points, point_count);
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
+
+      static OfxStatus drawDrawText(OfxDrawContextHandle context, const char *text, const OfxPointD *pos, int alignment)
+      {
+        try {
+          Interact::Instance *interactInstance = drawContextInstance(context);
+          if (!interactInstance) {
+            return kOfxStatFailed;
+          }
+          // "kOfxStatErrValue - text or pos were not defined"
+          if (!text || !pos) {
+            return kOfxStatErrValue;
+          }
+          return interactInstance->drawText(text, pos, alignment);
+        } catch (...) {
+          return kOfxStatFailed;
+        }
+      }
+
+      /// the draw suite
+      static const OfxDrawSuiteV1 gDrawSuite = {
+        drawGetColour,
+        drawSetColour,
+        drawSetLineWidth,
+        drawSetLineStipple,
+        drawDraw,
+        drawDrawText
+      };
+
+      const void *GetDrawSuite(int version) {
+        if(version == 1)
+          return (void *) &gDrawSuite;
+        return NULL;
+      }
+
       /// the interact suite
       static const OfxInteractSuiteV1 gSuite = {
         interactSwapBuffers,

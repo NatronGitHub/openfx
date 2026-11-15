@@ -32,6 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define OFX_INTERACT_H
 
 #include "ofxOld.h" // old plugins may rely on deprecated properties being present
+#include "ofxDrawSuite.h" // OFX 1.5 DrawSuite
 #ifdef OFX_EXTENSIONS_NATRON
 #include "ofxPixels.h" // for OfxRGBAColourD
 #endif
@@ -44,6 +45,10 @@ namespace OFX {
       
       /// fetch a versioned suite for our interact
       const void *GetSuite(int version);
+
+      /// fetch a versioned OfxDrawSuite (kOfxDrawSuite, OFX 1.5). Hosts only hand it out
+      /// if they implement the Instance::draw*() hooks, see ImageEffect::Host::supportsDrawSuite()
+      const void *GetDrawSuite(int version);
       
       class Base {
       public:
@@ -115,6 +120,9 @@ namespace OFX {
         void         *_effectInstance; ///< this is ugly, we need a base class to all plugin instances at some point.
         Property::Set _argProperties;
 
+        /// true while kOfxInteractActionDraw is being called: the DrawSuite may only be used then
+        bool          _inDraw;
+
         /// initialise the argument properties
         void initArgProp(Property::Set& props,
                          OfxTime time,
@@ -180,6 +188,27 @@ namespace OFX {
 
         /// implement this
         virtual OfxStatus redraw() = 0;
+
+        /// @name DrawSuite hooks (OFX 1.5, OfxDrawSuiteV1)
+        ///
+        /// The draw context passed to the plug-in in kOfxInteractPropDrawContext during
+        /// kOfxInteractActionDraw identifies this instance; the OfxDrawSuiteV1 functions
+        /// call these hooks, only during the draw action (kOfxStatFailed otherwise, as the
+        /// spec requires). A host that sets ImageEffect::Host::supportsDrawSuite() must
+        /// override them to draw in this interact's view, in canonical coordinates (like
+        /// OpenGL overlays). The defaults return kOfxStatErrMissingHostFeature.
+        /// See include/ofxDrawSuite.h for the semantics of each function.
+        /// @{
+        virtual OfxStatus drawGetColour(OfxStandardColour std_colour, OfxRGBAColourF *colour);
+        virtual OfxStatus drawSetColour(const OfxRGBAColourF *colour);
+        virtual OfxStatus drawSetLineWidth(float width);
+        virtual OfxStatus drawSetLineStipple(OfxDrawLineStipplePattern pattern);
+        virtual OfxStatus drawPrimitive(OfxDrawPrimitive primitive, const OfxPointD *points, int point_count);
+        virtual OfxStatus drawText(const char *text, const OfxPointD *pos, int alignment);
+        /// @}
+
+        /// is kOfxInteractActionDraw currently being called on this instance?
+        bool isInDraw() const { return _inDraw; }
 
         /// returns the params the interact uses
         virtual void getSlaveToParam(std::vector<std::string>& params) const;
