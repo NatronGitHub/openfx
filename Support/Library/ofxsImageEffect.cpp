@@ -1681,7 +1681,7 @@ namespace OFX {
       _field = eFieldLower;
     }
     else if(str == kOfxImageFieldUpper) {
-      _field = eFieldLower;
+      _field = eFieldUpper;
     }
     else {
       OFX::Log::error(true, "Unknown field state '%s' reported on an image", str.c_str());
