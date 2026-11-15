@@ -438,6 +438,16 @@ namespace OFX {
   */
   const void * fetchSuite(const char *suiteName, int suiteVersion, bool optional = false);
 
+  /** @brief OFX 1.5 colour management style (kOfxImageEffectPropColourManagementStyle, ofxColour.h).
+   "The assumption is that OCIO > Full > Core > Basic". */
+  enum ColourManagementStyleEnum {
+    eColourManagementStyleNone,  ///< kOfxImageEffectColourManagementNone - no colour management
+    eColourManagementStyleBasic, ///< kOfxImageEffectColourManagementBasic - only basic colourspaces from the config header
+    eColourManagementStyleCore,  ///< kOfxImageEffectColourManagementCore - only core colourspaces from the config header
+    eColourManagementStyleFull,  ///< kOfxImageEffectColourManagementFull - any colourspace from the config header
+    eColourManagementStyleOCIO   ///< kOfxImageEffectColourManagementOCIO - any OCIO config (implies the OCIO library)
+  };
+
   ////////////////////////////////////////////////////////////////////////////////
   /** @brief A class that lists all the properties of a host */
   struct ImageEffectHostDescription {
@@ -500,6 +510,8 @@ namespace OFX {
     bool supportsTimeLineSuite;
     bool supportsMessageSuiteV2;
     bool supportsCPURender; ///< kOfxImageEffectPropCPURenderSupported (OFX 1.5.1, host optional); true if absent
+    ColourManagementStyleEnum colourManagementStyle; ///< kOfxImageEffectPropColourManagementStyle on the host (OFX 1.5); None if absent
+    std::vector<std::string> colourManagementAvailableConfigs; ///< kOfxImageEffectPropColourManagementAvailableConfigs on the host (OFX 1.5)
 #ifdef OFX_EXTENSIONS_NATRON
     bool isNatron;
     bool supportsDynamicChoices;
@@ -945,6 +957,16 @@ namespace OFX {
   /** @brief Can the plugin render on the CPU (kOfxImageEffectPropCPURenderSupported, OFX 1.5.1), defaults to true.
    Set to false for GPU-only plugins. Ignored by hosts that don't know it. */
   void setSupportsCPURender(bool v);
+
+  /** @brief the highest colour management style the plugin can use (kOfxImageEffectPropColourManagementStyle,
+   OFX 1.5); the style actually used by an instance is ImageEffect::getColourManagementStyle().
+   Returns false if the host doesn't know the property (then there is no colour management). */
+  bool setColourManagementStyle(ColourManagementStyleEnum v);
+
+  /** @brief the native mode configs the plugin supports (kOfxImageEffectPropColourManagementAvailableConfigs,
+   OFX 1.5: "This property must be set by both plug-ins and hosts"), e.g. kOfxConfigIdentifier.
+   Returns false if the host doesn't know the property. */
+  bool setColourManagementAvailableConfigs(const std::vector<std::string> &configs);
   };
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -1227,6 +1249,11 @@ namespace OFX {
 
     /** @brief get the string representing the pixel components */
     std::string getUnmappedPixelComponentsProperty(void) const { return _clipProps.propGetString(kOfxImageClipPropUnmappedComponents);}
+
+    /** @brief the colourspace of the images of this clip, as set by the host (kOfxImageClipPropColourspace, OFX 1.5);
+     empty if there is no colour management. It may be a cross-reference "OfxColourspace_<clip>".
+     "Plug-ins must check kOfxImageClipPropColourspace to see if their request was satisfied." */
+    std::string getColourspace(void) const;
 
     /** @brief get the components in the image */
     PreMultiplicationEnum getPreMultiplication(void) const;
@@ -1785,6 +1812,17 @@ namespace OFX {
     */
     void setClipBitDepth(Clip &clip, BitDepthEnum bitDepth);
 
+    /** @brief request images of an input clip in one of these colourspaces, most preferred first
+     (OfxImageClipPropPreferredColourspaces_<clip>, OFX 1.5 colour management).
+
+     Only meaningful if ImageEffect::getColourManagementStyle() is not eColourManagementStyleNone; names must be
+     allowed by that style (e.g. kOfxColourspaceOfxSceneLinear, or "OfxColourspace_<clip>" cross-references).
+     Check Clip::getColourspace() later: "In the event that the host cannot supply images in a requested
+     colourspace, it may supply images in any valid colourspace".
+     Returns false (and sets nothing) if the host doesn't support it.
+     */
+    bool setPreferredColourspaces(Clip &clip, const std::vector<std::string> &colourspaces);
+
     /** @brief, force the host to set a clip's mapped Pixel Aspect Ratio to be \em PAR
 
     Only callable if the OFX::ImageEffectHostDescription::supportsMultipleClipPARs is true.
@@ -1859,6 +1897,12 @@ namespace OFX {
     double      keytime1;
     double      keytime2;
     double      amount;
+  };
+
+  ////////////////////////////////////////////////////////////////////////////////
+  /** @brief arguments of kOfxImageEffectActionGetOutputColourspace (OFX 1.5) */
+  struct GetOutputColourspaceArguments {
+    std::vector<std::string> preferredColourspaces; ///< the host's preferred output colourspaces, most preferred first
   };
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -2000,6 +2044,21 @@ namespace OFX {
 
     /** @brief Can this instance render on the CPU (kOfxImageEffectPropCPURenderSupported, OFX 1.5.1). Ignored by hosts that don't know it. */
     void setSupportsCPURender(bool v);
+
+    /** @name OFX 1.5 colour management (ofxColour.h). All empty / None on hosts without colour management. */
+    //@{
+    /** @brief the colour management style chosen by the host for this instance */
+    ColourManagementStyleEnum getColourManagementStyle() const;
+    /** @brief the native config used to look up colourspace strings (kOfxImageEffectPropColourManagementConfig) */
+    std::string getColourManagementConfig() const;
+    /** @brief the OCIO config, in the OCIO style (kOfxImageEffectPropOCIOConfig) */
+    std::string getOCIOConfig() const;
+    /** @brief the display colourspace for a plugin-owned viewport (kOfxImageEffectPropDisplayColourspace) */
+    std::string getDisplayColourspace() const;
+    /** @brief the OCIO display and view for a plugin-owned viewport (empty: use the default rules) */
+    std::string getOCIODisplay() const;
+    std::string getOCIOView() const;
+    //@}
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     /** @brief Does the plugin support OpenGL accelerated rendering (but is also capable of CPU rendering) ? Can only be called from changedParam or changedClip (OFX 1.4). */
@@ -2275,6 +2334,14 @@ img->getField(), args.fieldToRender
     return true is range was set, otherwise the default (the union of the time domain of all input clips) is used
     */
     virtual bool getTimeDomain(OfxRangeD &range);
+
+    /** @brief kOfxImageEffectActionGetOutputColourspace (OFX 1.5): which colourspace the output clip will be in,
+     given the host's preferred colourspaces (args.preferredColourspaces, most preferred first).
+
+     Return true and set colourspace (a colourspace allowed by the style in use, or a cross-reference such as
+     "OfxColourspace_Source"); return false to let the host use the colourspace of the first input clip (the default).
+     */
+    virtual bool getOutputColourspace(const GetOutputColourspaceArguments &args, std::string &colourspace);
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     /** @brief OpenGL context attached (returns context-specific data if createContextData, or NULL if the plugin does not support multiple contexts) */
