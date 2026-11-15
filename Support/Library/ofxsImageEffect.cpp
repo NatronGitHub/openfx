@@ -4024,6 +4024,9 @@ namespace OFX {
       gLoadCount--;
       if (gLoadCount<0) {
         OFX::Log::warning(true, "OFX Plugin '%s' is already unloaded.", id);
+        // e.g. a host that sends kOfxActionUnload after a failed kOfxActionLoad: keep the
+        // count at 0, so that the next load fetches the suites again
+        gLoadCount = 0;
         return;
       }
 
