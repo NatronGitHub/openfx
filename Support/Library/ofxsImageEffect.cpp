@@ -5506,6 +5506,9 @@ namespace OFX {
         std::string output = effectInstance->interpolateCustomParam(interpArgs, paramName);
 
         outArgs.propSetString(kOfxParamPropCustomValue, output);
+
+        // the value was interpolated and set: report success, not kOfxStatReplyDefault ("the action was ignored")
+        stat = kOfxStatOK;
       }
 
       // catch suite exceptions
