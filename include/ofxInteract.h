@@ -156,22 +156,28 @@ on its host descriptor. A plug-in must check it before setting
 ::kOfxInteractPropCursor; on other hosts the property does not exist on interact
 instances and setting it fails with kOfxStatErrUnknown.
 
-Ownership: the cursor property is per interact instance, hence per view. After
-any of kOfxInteractActionPenMotion, kOfxInteractActionPenDown,
-kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp or
-kOfxInteractActionKeyRepeat returns kOfxStatOK, the host reads
-::kOfxInteractPropCursor (and the related properties) on that interact instance,
-and displays that cursor in that view. The cursor stays in effect until another
-interact of the same view returns kOfxStatOK to one of these actions, until a
-kOfxInteractActionPenMotion is not trapped by any interact of the view (the
-host then restores its own cursor), or until the interact loses focus
-(kOfxInteractActionLoseFocus) or is destroyed. This matches the existing rule
-that "if the instance returns kOfxStatOK the host should not pass the pen motion
-to any other interactive object it may own that shares the same view".
-
+Reporting: the cursor property is per interact instance, hence per view; it is
+the plug-in's own report of the cursor it wants. After each of
+kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp,
+kOfxInteractActionKeyDown, kOfxInteractActionKeyUp and
+kOfxInteractActionKeyRepeat that does not fail (whether it returns kOfxStatOK,
+i.e. the event was trapped, or kOfxStatReplyDefault), the host reads
+::kOfxInteractPropCursor (and the related properties) on that interact instance.
 Since kOfxInteractActionPenMotion is also issued while the pen is up, a plug-in
-typically sets the cursor when hovering over one of its handles, and returns
-kOfxStatOK to that hover motion.
+typically sets a cursor when the pen hovers over one of its handles (and traps
+that motion), and sets ::kOfxInteractCursorDefault again when it moves off the
+handle (without trapping it).
+
+Arbitration: several interacts may share a view (overlays of several effects,
+host overlays), so the host decides which request to display. The recommended
+policy is: the cursor of the interact that trapped the event (returned
+kOfxStatOK) wins, which matches the existing rule that "if the instance returns
+kOfxStatOK the host should not pass the pen motion to any other interactive
+object it may own that shares the same view"; otherwise the most recent
+non-default request of an interact of that view; otherwise the host's own
+cursor. An interact that loses focus (kOfxInteractActionLoseFocus) or is
+destroyed no longer owns the cursor, and the host restores its own cursor if
+that interact's request was displayed.
 @{
 */
 
@@ -227,8 +233,12 @@ loaded, the host displays ::kOfxInteractCursorDefault.
     - Property Set - interact instance (read/write), only on hosts that support
       ::kOfxInteractCursorCustom
     - Default - 0,0
-    - Valid Values - x,y in image pixels (of the 1x image), from the top-left
-      corner of ::kOfxInteractPropCursorImage
+    - Valid Values - x,y in pixels of the 1x image, from its top-left corner
+
+When the host uses the "@2x" variant of ::kOfxInteractPropCursorImage on a
+high-density display, the hot spot in that image's pixels is twice this value
+(e.g. with Qt, load the @2x image in a QPixmap, call setDevicePixelRatio(2),
+and pass this hot spot unchanged to QCursor).
 */
 #define kOfxInteractPropCursorHotSpot "OfxInteractPropCursorHotSpot"
 

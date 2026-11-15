@@ -30,13 +30,18 @@ Defined in `include/ofxInteract.h` (see the `InteractCursor` group in this branc
 
 The cursor names are the CSS cursor keywords (`default`, `none`, `pointer`, `crosshair`, `move`, `grab`, `grabbing`, `ew-resize`, `nwse-resize`, `zoom-in`, ...). They are platform-neutral and documented by the W3C, and they map directly to Cocoa, Win32, X11/Wayland and Qt cursors.
 
-**Who owns the cursor.** This rule extends the existing PenMotion postcondition ("if the instance returns kOfxStatOK the host should not pass the pen motion to any other interactive object ... that shares the same view").
-- After an interact returns `kOfxStatOK` to a pen or key action (PenMotion, PenDown, PenUp, KeyDown, KeyUp, KeyRepeat), the host reads that instance's cursor properties and shows that cursor in that view.
-- The cursor stays in effect until one of these happens:
-  - another interact traps an event;
-  - a PenMotion is not trapped by any interact, and the host then restores its own cursor;
-  - the interact loses focus or is destroyed.
-- PenMotion is "issued whether the pen is currently up or down", so hovering over a handle is enough to change the cursor.
+**Reporting: the plug-in's own report decides.** The cursor properties are the plug-in's report of the cursor it wants in that view.
+- After every pen or key action (PenMotion, PenDown, PenUp, KeyDown, KeyUp, KeyRepeat) that does not fail, the host reads that instance's cursor properties. "Does not fail" means it returned `kOfxStatOK` (the event was trapped) or `kOfxStatReplyDefault` (not trapped).
+- PenMotion is "issued whether the pen is currently up or down". So a plug-in sets a cursor when the pen hovers over a handle (and traps that motion), and sets `default` again when the pen moves off it (without trapping). Reading the properties only after trapped events would leave a resize or grab cursor stuck after the pen leaves the handle.
+
+**Arbitration: the host decides between interacts.** Several interacts can share a view (overlays of several effects, host overlays). Recommended policy:
+1. the cursor of the interact that trapped the event (`kOfxStatOK`) wins. This extends the existing PenMotion postcondition ("if the instance returns kOfxStatOK the host should not pass the pen motion to any other interactive object ... that shares the same view");
+2. otherwise, the most recent non-default request of an interact of that view;
+3. otherwise, the host's own cursor.
+
+An interact that loses focus or is destroyed no longer owns the cursor, and the host restores its own cursor if that interact's request was displayed.
+
+**Custom images.** `kOfxInteractPropCursorHotSpot` is in pixels of the 1x image. For an `@2x` file the hot spot in that image's pixels is twice that (with Qt: `QPixmap::setDevicePixelRatio(2)`, hot spot unchanged).
 
 **Why a property on the interact instance, and not a parameter?** The existing Natron extension uses a secret String parameter (`kNatronOfxParamCursorName`). Parameters are persistent: they are saved in the project, can be undone, trigger `kOfxActionInstanceChanged`, and are shared by all views. The cursor is transient UI state of one view. Hosts already create one interact instance per view, so the instance is the right place for it.
 
@@ -81,7 +86,9 @@ This is a new feature with no compatibility impact. It adds only new properties,
    - `ImageEffectHostDescription::supportedCursors`.
 2. **HostSupport:**
    - declare the instance properties when the host descriptor lists cursors;
-   - add a hook `Interact::Instance::cursorChanged()` that hosts override.
+   - after each non-failing pen/key action, call `Interact::Instance::cursorChanged(actionStatus, cursor, image, hotX, hotY)` (overridden by hosts) when the instance's request changed since the last report, and `"default"` after LoseFocus;
+   - `Interact::Instance::getCursor()` to poll an interact's current request when arbitrating;
+   - the host restores its own cursor when an interact that owns it is destroyed (HostSupport can't call a virtual from the destructor).
 3. **Natron:**
    - map the names to Qt cursors, and apply the rule above in `ViewerGL`;
    - keep the old parameter-based extension working.
