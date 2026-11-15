@@ -1,0 +1,72 @@
+name: Extended builds
+
+# Variants that must not run on every pull request (policy for all
+# Natron-related repos): CMake on Linux/macOS, MSVC, debug builds, extension
+# flags OFF, C++20 and C++23. Runs nightly and on demand.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash -eo pipefail {0}
+
+jobs:
+  # CMake, with each platform's default compiler (MSVC on Windows). The Makefile
+  # builds and the MSYS2 build run on every pull request (build.yml).
+  cmake:
+    name: CMake (${{ matrix.os }}, ${{ matrix.config }}, extensions ${{ matrix.extensions }}${{ matrix.cxx && format(', C++{0}', matrix.cxx) || '' }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        config: [Release]
+        extensions: ['ON', 'OFF']
+        cxx: ['']   # default standard; the include entries below add C++20/23 jobs
+        include:
+          - os: ubuntu-latest
+            config: Debug
+            extensions: 'ON'
+          # newer C++ standards (the libraries also build as C++98/11)
+          - {os: ubuntu-latest, config: Release, extensions: 'ON', cxx: '20'}
+          - {os: ubuntu-latest, config: Release, extensions: 'ON', cxx: '23'}
+          - {os: macos-latest, config: Release, extensions: 'ON', cxx: '20'}
+          - {os: macos-latest, config: Release, extensions: 'ON', cxx: '23'}
+          - {os: windows-latest, config: Release, extensions: 'ON', cxx: '20'}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=${{ runner.os != 'Windows' && 'ON' || 'OFF' }}
+          -DOFX_EXTENSIONS_NATRON=${{ matrix.extensions }} -DOFX_EXTENSIONS_NUKE=${{ matrix.extensions }}
+          -DOFX_EXTENSIONS_VEGAS=${{ matrix.extensions }} -DOFX_EXTENSIONS_TUTTLE=${{ matrix.extensions }}
+          -DOFX_EXTENSIONS_RESOLVE=${{ matrix.extensions }}
+          -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins"
+          ${{ matrix.cxx && format('-DCMAKE_CXX_STANDARD={0} -DCMAKE_CXX_STANDARD_REQUIRED=ON', matrix.cxx) || '' }}
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }} --parallel
+      - name: Install
+        # PLUGIN_INSTALLDIR defaults to the system OFX folder; keep everything in the prefix here
+        run: cmake --install build --config ${{ matrix.config }} --prefix install
+      - name: Load the plug-ins with cacheDemo
+        if: runner.os != 'Windows'
+        run: |
+          demo=$(find build -type f -name cacheDemo -perm -u+x | head -1)
+          test -n "$demo"
+          OFX_PLUGIN_PATH="$PWD/build/Plugins" "$demo" > cachedemo.log 2>&1 || { cat cachedemo.log; exit 1; }
+          grep -c "Contexts:" cachedemo.log
+          test "$(grep -c "Contexts:" cachedemo.log)" -ge 5
