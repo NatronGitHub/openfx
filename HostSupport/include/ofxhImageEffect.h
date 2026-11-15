@@ -422,6 +422,53 @@ namespace OFX {
       /// a map used to specify clip components on clips
       typedef std::map<ClipInstance*,std::list<std::string> > ComponentsMap;
 #endif
+
+      /// OFX 1.5.1 thumbnail renders (kOfxImageEffectPropThumbnailRender).
+      ///
+      /// The spec puts kOfxImageEffectPropThumbnailRender ("true"/"false") in the
+      /// inArgs of BeginInstanceChanged, InstanceChanged, BeginSequenceRender,
+      /// Render, GetRegionOfDefinition, GetRegionsOfInterest, GetFramesNeeded and
+      /// IsIdentity. The action wrappers of Instance (beginInstanceChangedAction,
+      /// paramInstanceChangedAction, ClipInstance::instanceChangedAction,
+      /// beginRenderAction, renderAction, getRegionOfDefinitionAction,
+      /// getRegionOfInterestAction, getFrameNeededAction, isIdentityAction) set it
+      /// according to Instance::isThumbnailRender(), whose default implementation
+      /// returns true while a ThumbnailRenderScope(true) is alive in the calling thread.
+      /// Hosts that spread one render over several threads override
+      /// Instance::isThumbnailRender() instead.
+      ///
+      /// The flag is per thread rather than per instance, so that a host can render
+      /// a thumbnail of an effect on one thread while the same instance renders full
+      /// images on other threads, without changing the signatures of the wrappers:
+      ///
+      ///     {
+      ///       OFX::Host::ImageEffect::ThumbnailRenderScope thumbnail(true);
+      ///       effect->getRegionOfDefinitionAction(...);
+      ///       effect->renderAction(...);
+      ///     }
+      class ThumbnailRenderScope {
+      public:
+        explicit ThumbnailRenderScope(bool thumbnail = true);
+        ~ThumbnailRenderScope();
+        /// whether a ThumbnailRenderScope(true) is the innermost scope alive in the calling thread
+        static bool isActive();
+      private:
+        bool _previous;
+        ThumbnailRenderScope(const ThumbnailRenderScope &); // not copyable
+        ThumbnailRenderScope &operator=(const ThumbnailRenderScope &);
+      };
+
+      /// whether actions called from the current thread are thumbnail renders
+      bool isThumbnailRenderThread();
+
+      /// set kOfxImageEffectPropThumbnailRender in action inArgs according to
+      /// isThumbnailRenderThread() (the property must already exist in inArgs).
+      /// The action wrappers of Instance use Instance::isThumbnailRender() instead.
+      void setThumbnailRenderArg(Property::Set &inArgs);
+
+      /// same, according to effect->isThumbnailRender() (or isThumbnailRenderThread() if effect is NULL)
+      void setThumbnailRenderArg(Property::Set &inArgs, const Instance *effect);
+
       /// an image effect plugin instance.
       ///
       /// Client code needs to filling the pure virtuals in this.
@@ -947,6 +994,19 @@ namespace OFX {
         // get the list of parameters (name) in the order they should appear in the host viewport
         virtual bool isInViewportParam(const std::string& paramName) const;
 #endif
+
+        /// OFX 1.5.1: is the action being built a "thumbnail" render
+        /// (kOfxImageEffectPropThumbnailRender in the inArgs of BeginInstanceChanged,
+        /// InstanceChanged, BeginSequenceRender, Render, GetRegionOfDefinition,
+        /// GetRegionsOfInterest, GetFramesNeeded and IsIdentity)?
+        ///
+        /// Called by the action wrappers each time they build those inArgs. The default
+        /// returns ThumbnailRenderScope::isActive(), i.e. whether a ThumbnailRenderScope(true)
+        /// is alive in the calling thread. Hosts that dispatch the actions of one render to
+        /// several threads (tiles on a thread pool, the multithread suite...) should override
+        /// it to return their own per-render state (e.g. from their own thread-local render
+        /// arguments).
+        virtual bool isThumbnailRender() const;
       };
 
       ////////////////////////////////////////////////////////////////////////////////

@@ -577,6 +577,53 @@ namespace OFX {
         Property::propSpecEnd
       };
 
+#if __cplusplus >= 201103L
+#  define OFXH_THREAD_LOCAL thread_local
+#elif defined(_MSC_VER)
+#  define OFXH_THREAD_LOCAL __declspec(thread)
+#else
+#  define OFXH_THREAD_LOCAL __thread
+#endif
+      /// see ThumbnailRenderScope; a POD, so that __thread/__declspec(thread) work too
+      static OFXH_THREAD_LOCAL bool gThumbnailRenderThread = false;
+
+      ThumbnailRenderScope::ThumbnailRenderScope(bool thumbnail)
+        : _previous(gThumbnailRenderThread)
+      {
+        gThumbnailRenderThread = thumbnail;
+      }
+
+      ThumbnailRenderScope::~ThumbnailRenderScope()
+      {
+        gThumbnailRenderThread = _previous;
+      }
+
+      bool ThumbnailRenderScope::isActive()
+      {
+        return gThumbnailRenderThread;
+      }
+
+      bool isThumbnailRenderThread()
+      {
+        return gThumbnailRenderThread;
+      }
+
+      void setThumbnailRenderArg(Property::Set &inArgs)
+      {
+        inArgs.setStringProperty(kOfxImageEffectPropThumbnailRender, gThumbnailRenderThread ? "true" : "false");
+      }
+
+      void setThumbnailRenderArg(Property::Set &inArgs, const Instance *effect)
+      {
+        const bool thumbnail = effect ? effect->isThumbnailRender() : gThumbnailRenderThread;
+        inArgs.setStringProperty(kOfxImageEffectPropThumbnailRender, thumbnail ? "true" : "false");
+      }
+
+      bool Instance::isThumbnailRender() const
+      {
+        return ThumbnailRenderScope::isActive();
+      }
+
       /// OFX 1.5: kOfxImageEffectPropMetalTextureEnabled is in the inArgs of
       /// Render, BeginSequenceRender and EndSequenceRender (0: images are not Metal textures).
       static const Property::PropSpec ofx15MetalTextureArgs[] = {
@@ -1100,6 +1147,7 @@ namespace OFX {
 
         Property::Set inArgs(stuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
+        setThumbnailRenderArg(inArgs, this);
 
 #       ifdef OFX_DEBUG_ACTIONS
           std::cout << "OFX: "<<(void*)this<<"->"<<kOfxActionBeginInstanceChanged<<"("<<why<<")"<<std::endl;
@@ -1142,6 +1190,7 @@ namespace OFX {
 
         Property::Set inArgs(stuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
+        setThumbnailRenderArg(inArgs, this);
 
         // add the second dimension of the render scale
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -1378,6 +1427,7 @@ namespace OFX {
 
         Property::Set inArgs(stuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
+        setThumbnailRenderArg(inArgs, this);
         inArgs.addProperties(ofx15MetalTextureArgs);
 
         // set up second dimension for frame range and render scale
@@ -1489,6 +1539,7 @@ namespace OFX {
 
         Property::Set inArgs(inStuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
+        setThumbnailRenderArg(inArgs, this);
         inArgs.addProperties(ofx15MetalTextureArgs);
         
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
@@ -1942,6 +1993,7 @@ namespace OFX {
 
         Property::Set inArgs(inStuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
+        setThumbnailRenderArg(inArgs, this);
         Property::Set outArgs(outStuff);
         
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -2047,6 +2099,7 @@ namespace OFX {
         };
         Property::Set inArgs(inStuff);
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
+        setThumbnailRenderArg(inArgs, this);
 
         inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -2449,6 +2502,7 @@ namespace OFX {
           };
           Property::Set inArgs(inStuff);       
           inArgs.addProperties(ofx15ThumbnailRenderArgs);
+          setThumbnailRenderArg(inArgs, this);
           inArgs.setDoubleProperty(kOfxPropTime,time);
         
         
@@ -2595,6 +2649,7 @@ namespace OFX {
 
         Property::Set inArgs(inStuff);        
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
+        setThumbnailRenderArg(inArgs, this);
 
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
         inArgs.setDoubleProperty(kOfxPropTime,time);
