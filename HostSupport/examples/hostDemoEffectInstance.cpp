@@ -166,6 +166,8 @@ namespace MyHost {
   {
     if(descriptor.getType()==kOfxParamTypeString)
       return new MyStringInstance(this,name,descriptor);
+    else if(descriptor.getType()==kOfxParamTypeBytes)
+      return new MyBytesInstance(this,name,descriptor);
     else if(descriptor.getType()==kOfxParamTypeInteger)
       return new MyIntegerInstance(this,name,descriptor);
     else if(descriptor.getType()==kOfxParamTypeDouble)

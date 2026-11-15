@@ -181,6 +181,18 @@ namespace OFX {
 
         // return an memory::instance calls makeMemoryInstance that can be overriden
         Memory::Instance* imageMemoryAlloc(size_t nBytes);
+
+        /// OFX 1.5 OpenCL program suite (OfxOpenCLProgramSuiteV1, ofxGPURender.h), an optional
+        /// suite "the host can provide for building OpenCL programs for the plug-in".
+        /// Override to return true if the host implements compileOpenCLProgram(); otherwise
+        /// (the default) fetchSuite(kOfxOpenCLProgramSuite, 1) returns NULL.
+        virtual bool supportsOpenCLProgramSuite() const;
+
+        /// @see OfxOpenCLProgramSuiteV1.compileProgram(): compile pszProgramSource and store the
+        /// cl_program in *(cl_program*)pResult. If fOptional is non-zero, the host may skip
+        /// compiling on this call. Only called if supportsOpenCLProgramSuite() returns true.
+        /// The default returns kOfxStatErrUnsupported.
+        virtual OfxStatus compileOpenCLProgram(const char *pszProgramSource, int fOptional, void *pResult);
       };
 
       /// our global host object, set when the plugin cache is created

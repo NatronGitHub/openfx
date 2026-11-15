@@ -78,6 +78,8 @@ namespace MyHost
     _properties.setIntProperty(kOfxImageEffectPropSupportsMultipleClipDepths, 0);
     // MyEffectInstance::newParam() implements MyStrChoiceInstance
     _properties.setIntProperty(kOfxParamHostPropSupportsStrChoice, 1);
+    // MyEffectInstance::newParam() implements MyBytesInstance
+    _properties.setIntProperty(kOfxHostSupportHostPropSupportsBytes, 1);
     _properties.setIntProperty(kOfxImageEffectPropSupportsMultipleClipPARs, 0);
     _properties.setIntProperty(kOfxImageEffectPropSetableFrameRate, 0);
     _properties.setIntProperty(kOfxImageEffectPropSetableFielding, 0);
