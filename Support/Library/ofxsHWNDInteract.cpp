@@ -276,11 +276,21 @@ namespace OFX {
         // figure the actions
         if (action == kOfxActionDescribe) {
           OfxPropertySetHandle propHandle;
-          OfxStatus stat = OFX::Private::gInteractSuite->interactGetPropertySet(handle, &propHandle);
-          throwSuiteStatusException(stat);
+          // don't shadow the outer stat, which is returned to the host
+          OfxStatus getStat = OFX::Private::gInteractSuite->interactGetPropertySet(handle, &propHandle);
+          throwSuiteStatusException(getStat);
           PropertySet interactProperties(propHandle);
           desc.setPropertySet(&interactProperties);
-          desc.describe();
+          try {
+            desc.describe();
+          } catch (...) {
+            desc.setPropertySet(NULL);
+            throw;
+          }
+          // interactProperties is a local: don't leave the descriptor pointing to it
+          desc.setPropertySet(NULL);
+          // the action was trapped and all was well
+          stat = kOfxStatOK;
         }
         else if (action == kOfxActionCreateInstance) 
         {
