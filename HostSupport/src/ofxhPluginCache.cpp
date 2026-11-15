@@ -629,6 +629,21 @@ static void elementEndHandler(void *userData, const XML_Char *name) {
   }
 }
 
+/// 64-bit safe conversions for the binary modification time and size in the cache:
+/// writing them as int truncated mtimes after 2038 and sizes above 2GB, so that such
+/// binaries were considered changed (and described again) at every launch.
+static long long cacheStringToInt64(const std::string &s)
+{
+  return strtoll(s.c_str(), NULL, 10);
+}
+
+static std::string cacheInt64ToString(long long v)
+{
+  std::ostringstream o;
+  o << v;
+  return o.str();
+}
+
 static bool mapHasAll(const std::map<std::string, std::string> &attmap, const char **atts) {
   while (*atts) {
     if (attmap.find(*atts) == attmap.end()) {
@@ -680,8 +695,8 @@ void PluginCache::elementBeginCallback(void */*userData*/, const XML_Char *name,
 
     std::string fname = attmap["path"];
     std::string bname = attmap["bundle_path"];
-    time_t mtime = OFX::Host::Property::stringToInt(attmap["mtime"]);
-    off_t size = OFX::Host::Property::stringToInt(attmap["size"]);
+    time_t mtime = (time_t)cacheStringToInt64(attmap["mtime"]);
+    off_t size = (off_t)cacheStringToInt64(attmap["size"]);
 
     PluginBinary* pb;
 #ifdef OFX_USE_STATIC_PLUGINS
@@ -881,8 +896,8 @@ void PluginCache::writePluginCache(std::ostream &os) const {
        << XML::attribute("static_bin", int(b->isStaticallyLinkedPlugin()))
        << XML::attribute("bundle_path", b->getBundlePath())
        << XML::attribute("path", b->getFilePath())
-       << XML::attribute("mtime", int(b->getFileModificationTime()))
-       << XML::attribute("size", int(b->getFileSize())) << "/>\n";
+       << XML::attribute("mtime", cacheInt64ToString((long long)b->getFileModificationTime()))
+       << XML::attribute("size", cacheInt64ToString((long long)b->getFileSize())) << "/>\n";
     
     for (int j=0;j<(int)plugins.size();j++) {
       Plugin *p = plugins[j];
