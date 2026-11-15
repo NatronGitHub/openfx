@@ -1,3 +1,4 @@
+.. SPDX-License-Identifier: CC-BY-4.0
 .. _ImageEffectClipPreferences:
 
 Image Effect Clip Preferences
@@ -21,7 +22,7 @@ clip, some on both. These are:
 -  the fielding of the output clip
 -  the premultiplication state of the output clip
 -  whether the output clip varys from frame to frame, even if no
-   parameters or input images change over time,
+   parameters or input images change over time
 -  whether the output clip can be sampled at sub-frame times and produce
    different images
 
@@ -129,7 +130,7 @@ The bitdepth must be one of:
 * .. doxygendefine:: kOfxBitDepthNone
 
 Specifying Pixel Components
----------------------
+---------------------------
 
 A plugin specifies what components it is willing to accept on a clip via
 the
@@ -209,7 +210,7 @@ The default value of the output clip's fielding is host dependent, but
 in general,
 
 -  if any of the input clips are fielded, so will the output clip
--  the output clip may be fielded irregardless of the input clips (for
+-  the output clip may be fielded regardless of the input clips (for
    example, in a fielded project).
 
 If the host allows a plugin to specify the fielding of the output clip,
@@ -230,7 +231,7 @@ host property indicates if a plugin is able to change the frame rate of
 the output clip from the default.
 
 The default value of the output clip's frame rate is host dependent, but
-in general, it will be based on the input clips frame rates.
+in general, it will be based on the input clips' frame rates.
 
 If the host allows a plugin to specify the frame rate of the output
 clip, then a plugin may do so during the
@@ -250,7 +251,7 @@ frames on output.
        FIELDED SOURCE       0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 4.5 ....
        DEINTERLACED OUTPUT  0   1   2   3   4   5   6   7   8   9
 
-The mapping of the number of output frames is...
+The mapping of the number of output frames is as follows:
 
 ::
 
@@ -264,7 +265,7 @@ The mapping of the number of output frames is...
 Specifying Premultiplication
 ----------------------------
 
-All clips have a premultiplication state (see `this <http://www.teamten.com/lawrence/graphics/premultiplication/>`_
+All clips have a premultiplication state (see `this <http://www.teamten.com/lawrence/graphics/premultiplication/>`__
 for a nice explanation).
 An effect cannot map the premultiplication state of the
 input clips, but it can specify the premultiplication state of the

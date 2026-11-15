@@ -1,17 +1,108 @@
+# NatronGitHub fork
+
+This is [NatronGitHub/openfx](https://github.com/NatronGitHub/openfx), the fork of
+[AcademySoftwareFoundation/openfx](https://github.com/AcademySoftwareFoundation/openfx)
+used by Natron and the openfx-misc, openfx-io, openfx-arena, openfx-gmic and
+openfx-supportext plug-ins. It implements OpenFX 1.5.1, plus the post-1.5.1
+additions listed in `release-notes-next.md`, and keeps the Natron, Nuke, Vegas,
+Resolve and TuttleOFX extension headers. See the documentation page
+*Extensions in the NatronGitHub fork* (`Documentation/sources/Reference/ofxForkExtensions.rst`).
+
+The OFX 1.5 port, all additive and source-compatible with existing plug-ins and hosts:
+
+- #57: OFX 1.5 headers (`ofxGPURender.h`, `ofxColour.h`, `ofxDrawSuite.h`, new definitions; `ofxOpenGLRender.h` kept as a shim)
+- #59, #62: Support API (ChoiceOrder, OpenCL buffers/images, upstream spelling aliases, Obsolete, CPU render, thumbnail render, display time offset, param colour management, interpolation type)
+- #60, #61: HostSupport declares the OFX 1.5 effect, clip, image, action and param properties with their spec defaults
+- #55: StrChoice parameters (standard since 1.5, no longer behind `OFX_EXTENSIONS_RESOLVE`)
+- #70: HostSupport API for thumbnail renders
+- #71: Metal texture render (Support)
+- #72: Bytes parameters
+- #73: OpenCL program suite
+- #74: DrawSuite and OverlayInteractV2
+- #75: colour management (`ofxColour.h`)
+- #84: `@propdef`/`@propset`/`@actiondef` metadata in the headers, `scripts/check-props.py`
+- documentation port (#83): OpenFX 1.5.1 reference, generated property reference, fork extensions
+
+Fixes in HostSupport and Support since the last upstream merge are listed in the
+pull requests of NatronGitHub/openfx (#23–#58), e.g. expat 2.10.0, property
+dimension checks, exception safety at the C API boundary, and plugin cache robustness.
 # OpenFX image processing plug-in API
 
-This is the latest release of OFX, the Open Effects image-processing plug-in standard API.
+This is the release 1.5.1 of OFX, the Open Effects image-processing plug-in standard API.
 
 Documentation and more info can be found at:
 
-* [The OFX Association website](http://openeffects.org)
-* [OFX Programming Guide By Example](https://github.com/ofxa/openfx/tree/master/Guide)
-* [OFX API v. 1.4 Reference](http://openeffects.org/documentation/api_doc)
-* [OFX API Programming Guide](http://openeffects.org/documentation/guide)
-* [OFX API Programming Reference](http://openeffects.org/documentation/reference)
-* [OFX Discussion Google Group](https://groups.google.com/forum/#!forum/ofx-discussion)
+* [The OpenFX website](https://openeffects.org)
+* [OpenFX Documentation](https://openfx.readthedocs.io/en/latest) - start here
+* [OpenFX Documentation: Reference](https://openfx.readthedocs.io/en/latest/Reference)
+* [OFX Programming Guide By Example](https://openfx.readthedocs.io/en/latest/Guide)
+* [OpenFX Wiki](https://lf-aswf.atlassian.net/wiki/spaces/OFX/overview)
 
-# Release Notes
+# Release Notes - 1.5.1
+
+This is version 1.5.1 of the OpenFX API, a minor release with bug fixes and improvements.
+
+## Key Features of OpenFX Version 1.5.1:
+
+- **CPU Render Support**: Added `kOfxImageEffectPropCPURenderSupported` property to allow plugins to declare CPU rendering capability (or rather lack thereof).
+- **Thumbnail Rendering**: Added `kOfxImageEffectPropThumbnailRender` property to support efficient thumbnail generation.
+- **Spatial Awareness**: Added `kOfxImageEffectPropNoSpatialAwareness`. Allows the host and plugin to coordinate a render that ensures no spatial changes to the image.
+
+
+## Fixes in OpenFX Version 1.5.1:
+
+- Fix LICENSE.md to conform to Github template for BSD 3-Clause (issue #194).
+- Use predefined `_WIN32` macro everywhere instead of defining `WINDOWS`, improving Windows portability.
+- Fix CI build problems with conan version, expat dependency, and compiler compatibility.
+- Restore older CentOS 7 builds for vfx-2021 & 2022 compatibility.
+- Clarify that Image Effect Hosts property `kOfxPropType` must have the value
+  `kOfxTypeImageEffectHost`, and fix host support lib to implement that.
+
+## Documentation Improvements
+
+- Significantly cleaned up documentation for Interacts, including DrawSuite and Overlay Interacts interaction.
+- Fixed documentation for `clipGetRegionOfDefinition`.
+- Updated colourspace example for more complete coverage.
+- Fixed numerous typos throughout Documentation, include, Support, and HostSupport directories (via codespell).
+- Corrected copyright notice with explanation in CONTRIBUTING.md (addresses issues #110, #206).
+- Updated documentation footer and build script to support `uv` package manager.
+- Removed stray references to old OFX Association.
+
+## Deprecations
+
+None
+
+## Detailed List of Changes
+
+- Add `kOfxImageEffectPropCPURenderSupported` (issue #212) - Property to indicate CPU rendering support.
+- Add `kOfxImageEffectPropThumbnailRender` (issue #193) - Property for thumbnail rendering mode.
+
+# Release Notes - 1.5
+
+This is version 1.5 of the OFX API.
+
+## Key Features of OpenFX Version 1.5:
+- Color Management: Enhanced color management APIs to ensure accurate and consistent color rendering across different source media, devices and platforms.
+- DrawSuite: On-screen drawing capabilities to allow hosts and plugins to work together without requiring OpenGL.
+- GPU Support: Comprehensive GPU support between hosts and plugins, including OpenCL, CUDA, and Metal, for accelerated performance and smoother rendering.
+- Choice Params: Improved parameter handling with the addition of choice parameters, allowing for more intuitive and organized user interfaces.
+- Binary Data: Support for binary data to facilitate the handling of plugin-specific data types and improve processing efficiency.
+- Windows ARM64: Version 1.6 enables future compatibility with Windows ARM64, expanding the range of supported devices and platforms.
+- Houdini Support: SideFX has announced support for OpenFX in their upcoming version 20.5 of Houdini, in the new Copernicus image-processing node.
+
+## Deprecations
+
+None
+
+## Detailed List of Changes
+
+- Add `OfxSetHost` call
+- Add `OfxDrawSuite` for drawing image overlays without use of OpenGL
+- Add OpenCL, CUDA and Metal support for direct GPU rendering
+- Add :c:macro:`kOfxParamPropChoiceOrder` for reordering Choice Params
+- Colour management is in [[ofxColour.h][include/ofxColour.h]]
+
+# Release Notes - 1.4
 
 This is version 1.4 of the OFX API.  Significant additions include a
 Dialog Suite for plugins to request the host to allow them to put up a
@@ -32,7 +123,7 @@ previous releases have now been moved to a new header file, `include/oldOfx.h`.
 To continue to support those old tags, whether as a plugin or a host,
 you'll need to include oldOfx.h.
 
-# Detailed List of Changes
+## Detailed List of Changes
 
 * _removed_ = final stage of deprecation: moved to oldOfx.h
 * _added_ = new property or tag
@@ -62,7 +153,7 @@ ofxParam.h:
 * removed - kOfxParamDoubleTypeNormalisedXYAbsolute
 * modified - kOfxParamPropInteractMinimumSize is now a double (matches kOfxParamPropInteractSize)
 * modified - changed comments with regards to OfxParameterSuiteV1 (i.e. no Analysis action anymore)
-* refined - paramGetValue, paramSetValue: precision about when it's safe to use - i.e. Instance Changed domain only)
+* refined - paramGetValue, paramSetValue: precision about when it's safe to use - i.e. Instance Changed domain only
 
 ofxPixels.h:
 

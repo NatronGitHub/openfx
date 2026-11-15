@@ -1,3 +1,4 @@
+.. SPDX-License-Identifier: CC-BY-4.0
 .. _OfxPropertySuiteV1:
 OfxPropertySuiteV1
 ==================
@@ -40,8 +41,7 @@ to them. The scheme is,
 
 OfxPropertySetHandle
 OfxPropertySetHandle
-Blind data type used to hold sets of properties
-    ::
+Blind data type used to hold sets of properties::
 
         #include "ofxCore.h"
         typedef struct OfxPropertySetStruct *OfxPropertySetHandle; 

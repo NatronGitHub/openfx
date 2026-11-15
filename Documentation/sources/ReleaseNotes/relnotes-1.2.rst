@@ -1,5 +1,6 @@
-Changes to the API for 1.2
-==========================
+.. SPDX-License-Identifier: CC-BY-4.0
+OpenFX Release Notes for V1.2
+=============================
 
 Introduction
 ------------
@@ -124,10 +125,10 @@ example, if you want to set something to be explicitly '20', there is no
 way of doing that. The main problem stems from normalised params
 conflating two separate issues, flagging to the host that a parameter
 was spatial, and being able to specify defaults in a normalised
-co-ordinate system.
+coordinate system.
 
 With 1.2 new :ref:`spatial double
-parameter <ParameterPropertiesDoubleTypesSpatial>` types are defined.
+parameter <ParameterPropertiesDoubleTypesStrictlySpatial>` types are defined.
 These have their values manipulated in canonical coordinates, however,
 they have an option to specify their default values in a normalise
 coordinate system. These are....
@@ -155,7 +156,7 @@ Specifies the coordinate system the default value is being specified in.
 Plugins can check :c:macro:`kOfxPropAPIVersion` to see if
 these new parameter types are supported
 
-.. APIChanges_1_2_Native_Overlay_Handles:
+.. _APIChanges_1_2_Native_Overlay_Handles:
 
 Native Overlay Handles
 ----------------------

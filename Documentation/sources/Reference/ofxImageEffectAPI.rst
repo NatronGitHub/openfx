@@ -1,3 +1,4 @@
+.. SPDX-License-Identifier: CC-BY-4.0
 The Image Effect API
 ====================
 
@@ -25,26 +26,28 @@ Image Effect API Header Files
 
 The header files used to define the OFX Image Effect API are...
 
--  `ofxCore.h <https://github.com/ofxa/openfx/blob/master/include/ofxCore.h>`_
+-  `ofxCore.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxCore.h>`__
    Provides the core definitions of the general OFX architecture that
    allow the bootstrapping of specific APIs, as well as several core actions,
--  `ofxProperty.h <https://github.com/ofxa/openfx/blob/master/include/ofxProperty.h>`_
+-  `ofxProperty.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxProperty.h>`__
     Provides generic property fetching suite used to get and set values about objects in the API,
--  `ofxParam.h <https://github.com/ofxa/openfx/blob/master/include/ofxParam.h>`_
+-  `ofxParam.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxParam.h>`__
    Provides the suite for defining user visible parameters to an
    effect
--  `ofxMultiThread.h <https://github.com/ofxa/openfx/blob/master/include/ofxMultiThread.h>`_
+-  `ofxMultiThread.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxMultiThread.h>`__
    Provides the suite for basic multi-threading capabilities
--  `ofxInteract.h <https://github.com/ofxa/openfx/blob/master/include/ofxInteract.h>`_ 
+-  `ofxInteract.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxInteract.h>`__
    Provides the suite that allows a plug-in to use OpenGL to draw their own interactive GUI tools
--  `ofxKeySyms.h <https://github.com/ofxa/openfx/blob/master/include/ofxKeySyms.h>`_ 
+-  `ofxKeySyms.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxKeySyms.h>`__
    Provides key symbols used by 'Interacts' to represent keyboard events
--  `ofxMemory.h <https://github.com/ofxa/openfx/blob/master/include/ofxMemory.h>`_
+-  `ofxMemory.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxMemory.h>`__
    Provides a simple memory allocation suite,
--  `ofxMessage.h <https://github.com/ofxa/openfx/blob/master/include/ofxMessage.h>`_
+-  `ofxMessage.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxMessage.h>`__
    Provides a simple messaging suite to communicate with an end user
--  `ofxImageEffect.h <https://github.com/ofxa/openfx/blob/master/include/ofxImageEffect.h>`_ 
+-  `ofxImageEffect.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxImageEffect.h>`__
    Defines a suite and set of actions that draws all the above together to create an visual effect plug-in.
+-  `ofxDrawSuite.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxDrawSuite.h>`__
+   Provides an optional suite that allows a plug-in to draw their own interactive GUI tools without using OpenGL
 
 These contain the suite definitions, property definitions and action
 definitions that are used by the API.
@@ -164,7 +167,7 @@ Host Descriptors
 The host descriptor is represented by the properties found on the host property set handle in the
 :ref:`OfxHost struct<OfxHost>`. The complete set of read only
 properties are found in the section :ref:`Properties on the Image Effect
-Host <ImageEffectHostProperties>`.
+Host <propset_ImageEffectHost>`.
 
 These sets of properties are there to describe the capabilities of the
 host to a plug-in, thus giving a plug-in the ability to modify its
@@ -187,7 +190,7 @@ argument:
 
 The functions that directly manipulate an image effect handle are
 specified in the :cpp:class:`OfxImageEffectSuiteV1` found
-in the header file `ofxImageEffect.h <https://github.com/ofxa/openfx/blob/master/include/ofxImageEffect.h>`_.
+in the header file `ofxImageEffect.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxImageEffect.h>`_.
 
 Effect Descriptors
 ^^^^^^^^^^^^^^^^^^
@@ -215,7 +218,7 @@ Effect descriptors are only valid in a effect for the duration of the
 instance they were passed into.
 
 The properties on an effect descriptor can be found in the section
-:ref:`Properties on an Effect Descriptor <EffectDescriptorProperties>`.
+:ref:`Properties on an Effect Descriptor <propset_EffectDescriptor>`.
 
 Effect Instances
 ^^^^^^^^^^^^^^^^
@@ -242,7 +245,7 @@ Effect instances are valid between the calls to
 is passed as the ``handle`` argument.
 
 The properties on an effect instance can be found in the section
-:ref:`Properties on an Effect Instance <EffectInstanceProperties>`.
+:ref:`Properties on an Effect Instance <propset_EffectInstance>`.
 
 Clips
 ~~~~~
@@ -264,7 +267,7 @@ A clip descriptor is only valid for the duration of the action it was
 created in.
 
 The properties on a clip descriptor can be found in the section
-:ref:`Properties on a Clip Descriptor <ClipDescriptorProperties>`.
+:ref:`Properties on a Clip Descriptor <propset_ClipDescriptor>`.
 
 Clip Instances
 ^^^^^^^^^^^^^^
@@ -279,7 +282,7 @@ A variety of functions in the :cpp:class:`OfxImageEffectSuiteV1` are used to man
 A clip instance is valid while the related effect instance is valid.
 
 The properties on a clip instance can be found in the section
-:ref:`Properties on a Clip Instance <ClipInstanceProperties>`.
+:ref:`Properties on a Clip Instance <propset_ClipInstance>`.
 
 Parameters
 ~~~~~~~~~~
@@ -295,7 +298,7 @@ Parameter sets are the collection of parameters that an effect has
 associated with it. They are represented by the type
 :cpp:type:`OfxParamSetHandle`. The contents of an effect's parameter set are
 defined during the
-:c:macro:`kOfxImageEffectActionDescribeInContext action.
+:c:macro:`kOfxImageEffectActionDescribeInContext` action.
 Parameters cannot be dynamically added to, or deleted from an effect instance.
 
 Parameters can be of a wide range of types, each of which have their own
@@ -304,10 +307,10 @@ differs from a boolean parameter.
 
 Parameters and parameter sets are manipulated via the calls and
 properties in the :cpp:class:`OfxParameterSuiteV1` specified
-in `ofxParam.h <https://github.com/ofxa/openfx/blob/master/include/ofxParam.h>`_.
+in `ofxParam.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxParam.h>`_.
 The properties on parameter instances and
-descriptors can be found in the section :ref:`Properties on Parameter
-Descriptors and Instances <ParameterProperties>`.
+descriptors, one set for each parameter type, can be found in the
+:ref:`Property Sets Reference <propertySetReferenceGenerated>`.
 
 Parameter Set Descriptors
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -377,7 +380,7 @@ on the property handle. The effect *must* release all fetched images
 before it returns from the action.
 
 The set of properties that make up an image can be found in the section
-:ref:`Properties on an Image <ImageProperties>`.
+:ref:`Properties on an Image <propset_Image>`.
 
 Interacts
 ~~~~~~~~~
@@ -392,7 +395,7 @@ pointer property on an OFX object, for example the
 property on an effect descriptor.
 
 The functions that directly manipulate interacts are in the :cpp:class:`OfxInteractSuiteV1` found in the header file
-`ofxInteract.h <https://github.com/ofxa/openfx/blob/master/include/ofxInteract.h>`_ , as well as the properties and specific actions that
+`ofxInteract.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxInteract.h>`_ , as well as the properties and specific actions that
 apply to interacts.
 
 Interact Descriptors
@@ -402,7 +405,7 @@ Interact descriptors are blind handles passed to the :c:macro:`kOfxActionDescrib
 main entry point. They should be cast to the type :cpp:type:`OfxInteractHandle`.
 
 The properties found on a descriptor are found in section :ref:`Properties on
-Interact Descriptors <InteractDescriptorProperties>`.
+Interact Descriptors <propset_InteractDescriptor>`.
 
 Interact Instances
 ^^^^^^^^^^^^^^^^^^
@@ -415,4 +418,4 @@ separate main entry point. They should be cast to the type
 .. doxygentypedef:: OfxInteractHandle
 
 The properties found on an instance are found in section :ref:`Properties on
-Interact Instance <InteractInstanceProperties>`.
+Interact Instance <propset_InteractInstance>`.

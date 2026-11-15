@@ -1,3 +1,4 @@
+.. SPDX-License-Identifier: CC-BY-4.0
 .. _suitesReference:
 
 OpenFX suites reference
@@ -7,7 +8,7 @@ This table list all suites available in the OpenFX standard
 
 .. toctree::
     :maxdepth: 1
-   
+
     ofxPropertySuiteReference
     ofxImageEffectSuiteReference
     ofxProgressSuiteReference
@@ -20,4 +21,4 @@ This table list all suites available in the OpenFX standard
     ofxMessageSuiteV1Reference
     ofxMessageSuiteV2Reference
     ofxOpenGLRenderSuiteReference
-    
+    ofxDrawSuiteReference

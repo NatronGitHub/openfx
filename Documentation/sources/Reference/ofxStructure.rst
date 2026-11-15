@@ -1,3 +1,4 @@
+.. SPDX-License-Identifier: CC-BY-4.0
 Structure of The OFX and the Image Effect API
 =============================================
 
@@ -46,7 +47,7 @@ Properties are typed value/name pairs that exist on the various OFX
 objects and are action argument values to the plug-in's main entry
 point. They are how a plug-in and host pass individual values back and
 forth to each other. The property suite, defined inside
-`ofxProperty.h <https://github.com/ofxa/openfx/blob/master/include/ofxProperty.h>`_
+`ofxProperty.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxProperty.h>`__
 is used to do this.
 
 OFX APIs
@@ -63,11 +64,11 @@ API, however many are actually quite generic and could be reused by
 other APIs. The property suite definitely has to be used by all other
 APIs, while the memory allocation suite, the parameter suite and several
 others would probably be useful for all other APIs. For example the
-parameter suite could be re-used to specify user visible parameters to
+parameter suite could be reused to specify user visible parameters to
 the other APIs.
 
 Several types are common to all OFX APIs, and as such are defined in
-`ofxCore.h <https://github.com/ofxa/openfx/blob/master/include/ofxCore.h>`_.
+`ofxCore.h <https://github.com/AcademySoftwareFoundation/openfx/blob/main/include/ofxCore.h>`_.
 Most objects passed back to a plug-in are generally
 specified by blind data handles, for example:
 
@@ -108,8 +109,8 @@ distinction between...
    
 *  Instances
    
-    Which hosts and plug-ins use to control the behaviour of a specific
-    **live** object.
+   Which hosts and plug-ins use to control the behaviour of a specific
+   **live** object.
    
 
 In most APIs descriptors are typically passed from a host to a plug-in
@@ -129,3 +130,27 @@ images, state the value of a set of parameters and get a resulting image
 back. However how it does this is somewhat complicated, as the plug-in
 and host have to negotiate what kind of images are handled, how they can
 be processed and much more.
+
+Extending OFX
+-------------
+
+Since items are named using strings, private extensions to OFX can
+be done simply by `#define`-ing a new string value in a header that
+is used by both the host and the plug-in. However, to prevent naming
+collisions, it is important to prefix your new string with a unique
+identifier. The recommended format is the reverse domain name format of
+the developer, for example "uk.co.thefoundry", followed by the new item
+name.
+
+This applies to anything which could collide, such as suite names,
+actions, parameter types, pixel depths, image components, contexts, etc.
+Function names used inside a suite do not need a prefix.
+
+If a private extension is later suggested as and promoted to a standard
+part of OFX, the standard name will not use a prefix, and it is often
+the case that during standardization details of the extension might change.
+
+For details on extending the OFX standard, see 
+[Contributing to OpenFX](https://github.com/AcademySoftwareFoundation/openfx/blob/main/CONTRIBUTING.md),
+[OpenFX Standard Update Process](https://github.com/AcademySoftwareFoundation/openfx/blob/main/STANDARD_PROCESS.md),
+and [OpenFX Project Governance](https://github.com/AcademySoftwareFoundation/openfx/blob/main/GOVERNANCE.md).
