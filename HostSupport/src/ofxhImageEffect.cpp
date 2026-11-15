@@ -2952,7 +2952,7 @@ namespace OFX {
       bool Instance::isInViewportParam(const std::string& paramName) const
       {
         int nDim = getProps().getDimension(kNatronOfxImageEffectPropInViewerContextParamsOrder);
-        for (int i = 0; nDim; ++i) {
+        for (int i = 0; i < nDim; ++i) {
           const std::string& p = getProps().getStringProperty(kNatronOfxImageEffectPropInViewerContextParamsOrder, i);
           if (paramName == p) {
             return true;
