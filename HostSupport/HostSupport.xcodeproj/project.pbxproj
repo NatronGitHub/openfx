@@ -87,6 +87,8 @@
 		1E3CB8CD179935430032B538 /* xmltok_impl.h in Headers */ = {isa = PBXBuildFile; fileRef = 1E3CB8BF179935430032B538 /* xmltok_impl.h */; };
 		1E3CB8CE179935430032B538 /* xmltok_ns.c in Sources */ = {isa = PBXBuildFile; fileRef = 1E3CB8C0179935430032B538 /* xmltok_ns.c */; };
 		1E3CB8CF179935430032B538 /* xmltok.c in Sources */ = {isa = PBXBuildFile; fileRef = 1E3CB8C1179935430032B538 /* xmltok.c */; };
+		A1B2C3D4E5F60718293A4B11 /* xcs.c in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B01 /* xcs.c */; };
+		A1B2C3D4E5F60718293A4B12 /* random_arc4random_buf.c in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B02 /* random_arc4random_buf.c */; };
 		1E3CB8D01799364A0032B538 /* libexpat.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E3CB8AF179934420032B538 /* libexpat.a */; };
 		1E3CB8D1179936810032B538 /* libexpat.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1E3CB8AF179934420032B538 /* libexpat.a */; };
 		1EF4C7091B6D3C4700D6746A /* ofxDialog.h in Headers */ = {isa = PBXBuildFile; fileRef = 1EF4C7081B6D3C4700D6746A /* ofxDialog.h */; };
@@ -243,6 +245,9 @@
 		1E3CB8BF179935430032B538 /* xmltok_impl.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = xmltok_impl.h; sourceTree = "<group>"; };
 		1E3CB8C0179935430032B538 /* xmltok_ns.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = xmltok_ns.c; sourceTree = "<group>"; };
 		1E3CB8C1179935430032B538 /* xmltok.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = xmltok.c; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B01 /* xcs.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = xcs.c; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B02 /* random_arc4random_buf.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = random_arc4random_buf.c; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B03 /* random_arc4random_buf.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = random_arc4random_buf.h; sourceTree = "<group>"; };
 		1E742FEA17992CF9007D295B /* libofxHost.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libofxHost.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		1EF4C7081B6D3C4700D6746A /* ofxDialog.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ofxDialog.h; sourceTree = "<group>"; };
 		ACC09C6C200CAD170054AED3 /* index.rst */ = {isa = PBXFileReference; lastKnownFileType = text; path = index.rst; sourceTree = "<group>"; };
@@ -451,6 +456,9 @@
 				1E3CB8BF179935430032B538 /* xmltok_impl.h */,
 				1E3CB8C0179935430032B538 /* xmltok_ns.c */,
 				1E3CB8C1179935430032B538 /* xmltok.c */,
+				A1B2C3D4E5F60718293A4B01 /* xcs.c */,
+				A1B2C3D4E5F60718293A4B02 /* random_arc4random_buf.c */,
+				A1B2C3D4E5F60718293A4B03 /* random_arc4random_buf.h */,
 			);
 			name = "Expat Sources";
 			path = "expat-2.10.0/lib";
@@ -754,6 +762,8 @@
 				1E3CB8CC179935430032B538 /* xmltok_impl.c in Sources */,
 				1E3CB8CE179935430032B538 /* xmltok_ns.c in Sources */,
 				1E3CB8CF179935430032B538 /* xmltok.c in Sources */,
+				A1B2C3D4E5F60718293A4B11 /* xcs.c in Sources */,
+				A1B2C3D4E5F60718293A4B12 /* random_arc4random_buf.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
