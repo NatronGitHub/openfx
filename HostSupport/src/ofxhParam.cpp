@@ -668,17 +668,6 @@ namespace OFX {
         if(!isStandardType(paramType)) 
           return NULL; /// << EEK! This is bad.
 
-#ifdef OFX_EXTENSIONS_RESOLVE
-        // The type is known, but the host application may not implement it
-        // (it must then not be instantiated, see newParam()): paramDefine
-        // returns kOfxStatErrUnsupported, "if the type is known but unsupported".
-        if (std::string(paramType) == kOfxParamTypeStrChoice &&
-            !(ImageEffect::gImageEffectHost &&
-              ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxParamHostPropSupportsStrChoice) != 0)) {
-          return NULL;
-        }
-#endif
-
         Descriptor *desc = new Descriptor(paramType, name); 
         desc->addStandardParamProps(paramType);
         addParam(name, desc);
@@ -2128,6 +2117,22 @@ namespace OFX {
 #         endif
           return kOfxStatErrBadHandle;
         }
+
+#ifdef OFX_EXTENSIONS_RESOLVE
+        // The type is known, but the host application may not implement it (its
+        // newParam() could not instantiate it): "kOfxStatErrUnsupported - if the type
+        // is known but unsupported". This is checked here rather than in the virtual
+        // SetDescriptor::paramDefine(), because host overrides of the latter (e.g.
+        // Natron's) don't expect it to return NULL for a known type.
+        if (paramType && std::string(paramType) == kOfxParamTypeStrChoice &&
+            !(ImageEffect::gImageEffectHost &&
+              ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxParamHostPropSupportsStrChoice) != 0)) {
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << ' ' << StatStr(kOfxStatErrUnsupported) << std::endl;
+#         endif
+          return kOfxStatErrUnsupported;
+        }
+#endif
 
         Descriptor *desc = paramSetDescriptor->paramDefine(paramType, name);
 
