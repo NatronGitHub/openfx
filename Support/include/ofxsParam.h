@@ -63,12 +63,15 @@ each represent the actions that can be carried out on those particular OFX objec
 #include "ofxOld.h" // required for kOfxParamDoubleTypeNormalised*
 
 /** @brief Nasty macro used to define empty protected copy ctors and assign ops */
+// Declared but not defined: these must never be called. (Defining them inline would make
+// the compiler instantiate member destructors, e.g. std::unique_ptr<ParamInteractDescriptor>
+// with an incomplete type, which C++23 libc++ rejects.)
 #define mDeclareProtectedAssignAndCC(CLASS) \
-  CLASS &operator=(const CLASS &) {assert(false); return *this;}	\
-  CLASS(const CLASS &) {assert(false); } 
+  CLASS &operator=(const CLASS &); \
+  CLASS(const CLASS &);
 #define mDeclareProtectedAssignAndCCBase(CLASS,BASE) \
-  CLASS &operator=(const CLASS &) {assert(false); return *this;}	\
-  CLASS(const CLASS &c) : BASE(c) {assert(false); }
+  CLASS &operator=(const CLASS &); \
+  CLASS(const CLASS &);
 
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
  */
@@ -383,7 +386,7 @@ namespace OFX {
     class ValueParamDescriptor : public ParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(ValueParamDescriptor,ParamDescriptor);
-        ValueParamDescriptor(void) {assert(false);}
+        ValueParamDescriptor(void); // not defined: must never be called
 
     protected :
         /** @brief hidden constructor */
@@ -963,7 +966,7 @@ namespace OFX {
     {
     protected:
         mDeclareProtectedAssignAndCCBase(ParametricParamDescriptor,ParamDescriptor);
-        ParametricParamDescriptor(void) {assert(false);}
+        ParametricParamDescriptor(void); // not defined: must never be called
 
     protected:
         /** @brief hidden constructor */
