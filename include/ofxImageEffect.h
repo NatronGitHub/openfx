@@ -2090,6 +2090,12 @@ it will be bypassed during LUT generation.
 #define kOfxImageEffectPropNoSpatialAwareness "OfxImageEffectPropNoSpatialAwareness"
 #endif // OFX_EXTENSIONS_RESOLVE
 
+#ifndef kOfxImageEffectPropNoSpatialAwareness
+/** @brief kOfxImageEffectPropNoSpatialAwareness is standard since OFX 1.5.1 (see the definition
+    under OFX_EXTENSIONS_RESOLVE above for its documentation): define it in every build. */
+#define kOfxImageEffectPropNoSpatialAwareness "OfxImageEffectPropNoSpatialAwareness"
+#endif
+
 /** String used to label imagery as having no fields */
 #define kOfxImageFieldNone "OfxFieldNone"
 /** String used to label the lower field (scan lines 0,2,4...) of fielded imagery */

@@ -32,6 +32,19 @@ generated_source_header = """// Copyright OpenFX and contributors to the OpenFX 
 """
 
 
+
+# C++ keywords that generated accessor method names must avoid
+CPP_KEYWORDS = {
+    "alignas", "alignof", "and", "asm", "auto", "bool", "break", "case", "catch", "char",
+    "class", "const", "constexpr", "continue", "decltype", "default", "delete", "do",
+    "double", "else", "enum", "explicit", "export", "extern", "false", "float", "for",
+    "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace", "new",
+    "noexcept", "not", "nullptr", "operator", "or", "private", "protected", "public",
+    "register", "return", "short", "signed", "sizeof", "static", "struct", "switch",
+    "template", "this", "throw", "true", "try", "typedef", "typeid", "typename", "union",
+    "unsigned", "using", "virtual", "void", "volatile", "while",
+}
+
 def getPropertiesFromFile(path):
     """Get all OpenFX property definitions from C header file.
 
@@ -807,6 +820,8 @@ public:
 
                 prop_def = props_metadata[propname]
                 method_name = prop_to_method_name(propname)
+                # a getter can't be named like a C++ keyword (kOfxParamPropDefault -> "default")
+                getter_name = method_name + "Value" if method_name in CPP_KEYWORDS else method_name
                 prop_id = get_prop_id(propname)
 
                 # Skip if we've already generated this method
@@ -861,7 +876,7 @@ public:
                         if dimension == 1:
                             # Dimension 1: exactly one value, no index needed
                             outfile.write(
-                                f"    T {method_name}(bool error_if_missing = {error_default}) const {{\n"
+                                f"    T {getter_name}(bool error_if_missing = {error_default}) const {{\n"
                             )
                             outfile.write(
                                 f"        return props_.get<PropId::{prop_id}, T>(0, error_if_missing);\n"
@@ -869,7 +884,7 @@ public:
                         else:
                             # Dimension 0 or > 1: include index parameter
                             outfile.write(
-                                f"    T {method_name}(int index = 0, bool error_if_missing = {error_default}) const {{\n"
+                                f"    T {getter_name}(int index = 0, bool error_if_missing = {error_default}) const {{\n"
                             )
                             outfile.write(
                                 f"        return props_.get<PropId::{prop_id}, T>(index, error_if_missing);\n"
@@ -880,7 +895,7 @@ public:
                         if dimension != 1:  # dimension 0 or > 1
                             outfile.write(f"    template<typename T>\n")
                             outfile.write(
-                                f"    std::vector<T> {method_name}All() const {{\n"
+                                f"    std::vector<T> {getter_name}All() const {{\n"
                             )
                             outfile.write(
                                 f"        return props_.getAll<PropId::{prop_id}, T>();\n"
@@ -891,7 +906,7 @@ public:
                         if dimension == 1:
                             # Dimension 1: exactly one value, no index needed
                             outfile.write(
-                                f"    {cpp_type} {method_name}(bool error_if_missing = {error_default}) const {{\n"
+                                f"    {cpp_type} {getter_name}(bool error_if_missing = {error_default}) const {{\n"
                             )
                             outfile.write(
                                 f"        return props_.get<PropId::{prop_id}>(0, error_if_missing);\n"
@@ -900,7 +915,7 @@ public:
                         elif dimension == 0:
                             # Dimension 0: variable dimension, include index
                             outfile.write(
-                                f"    {cpp_type} {method_name}(int index = 0, bool error_if_missing = {error_default}) const {{\n"
+                                f"    {cpp_type} {getter_name}(int index = 0, bool error_if_missing = {error_default}) const {{\n"
                             )
                             outfile.write(
                                 f"        return props_.get<PropId::{prop_id}>(index, error_if_missing);\n"
@@ -910,7 +925,7 @@ public:
                             # Dimension > 1: array getter
                             array_type = get_cpp_type(prop_def, include_array=True)
                             outfile.write(
-                                f"    {array_type} {method_name}() const {{\n"
+                                f"    {array_type} {getter_name}() const {{\n"
                             )
                             outfile.write(
                                 f"        return props_.getAll<PropId::{prop_id}>();\n"
