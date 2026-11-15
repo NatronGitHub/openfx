@@ -410,6 +410,45 @@ namespace OFX {
       /// a map used to specify clip components on clips
       typedef std::map<ClipInstance*,std::list<std::string> > ComponentsMap;
 #endif
+
+      /// OFX 1.5.1 thumbnail renders (kOfxImageEffectPropThumbnailRender).
+      ///
+      /// The spec puts kOfxImageEffectPropThumbnailRender ("true"/"false") in the
+      /// inArgs of BeginInstanceChanged, InstanceChanged, BeginSequenceRender,
+      /// Render, GetRegionOfDefinition, GetRegionsOfInterest, GetFramesNeeded and
+      /// IsIdentity. The action wrappers of Instance (beginInstanceChangedAction,
+      /// paramInstanceChangedAction, ClipInstance::instanceChangedAction,
+      /// beginRenderAction, renderAction, getRegionOfDefinitionAction,
+      /// getRegionOfInterestAction, getFrameNeededAction, isIdentityAction) set it
+      /// to "true" while a ThumbnailRenderScope(true) is alive in the calling thread,
+      /// and to "false" otherwise.
+      ///
+      /// The flag is per thread rather than per instance, so that a host can render
+      /// a thumbnail of an effect on one thread while the same instance renders full
+      /// images on other threads, without changing the signatures of the wrappers:
+      ///
+      ///     {
+      ///       OFX::Host::ImageEffect::ThumbnailRenderScope thumbnail(true);
+      ///       effect->getRegionOfDefinitionAction(...);
+      ///       effect->renderAction(...);
+      ///     }
+      class ThumbnailRenderScope {
+      public:
+        explicit ThumbnailRenderScope(bool thumbnail = true);
+        ~ThumbnailRenderScope();
+      private:
+        bool _previous;
+        ThumbnailRenderScope(const ThumbnailRenderScope &); // not copyable
+        ThumbnailRenderScope &operator=(const ThumbnailRenderScope &);
+      };
+
+      /// whether actions called from the current thread are thumbnail renders
+      bool isThumbnailRenderThread();
+
+      /// set kOfxImageEffectPropThumbnailRender in action inArgs according to
+      /// isThumbnailRenderThread() (the property must already exist in inArgs)
+      void setThumbnailRenderArg(Property::Set &inArgs);
+
       /// an image effect plugin instance.
       ///
       /// Client code needs to filling the pure virtuals in this.
