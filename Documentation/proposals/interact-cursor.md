@@ -32,7 +32,7 @@ The cursor names are the CSS cursor keywords (`default`, `none`, `pointer`, `cro
 
 **Reporting: the plug-in's own report decides.** The cursor properties are the plug-in's report of the cursor it wants in that view.
 - After every pen or key action (PenMotion, PenDown, PenUp, KeyDown, KeyUp, KeyRepeat) that does not fail, the host reads that instance's cursor properties. "Does not fail" means it returned `kOfxStatOK` (the event was trapped) or `kOfxStatReplyDefault` (not trapped).
-- PenMotion is "issued whether the pen is currently up or down". So a plug-in sets a cursor when the pen hovers over a handle (and traps that motion), and sets `default` again when the pen moves off it (without trapping). Reading the properties only after trapped events would leave a resize or grab cursor stuck after the pen leaves the handle.
+- PenMotion is "issued whether the pen is currently up or down". So a plug-in sets a cursor when the pen hovers over a handle, and sets `default` again when the pen moves off it. Setting the cursor doesn't require trapping the event: plug-ins keep their existing return values. Trapping is optional, and only gives priority in arbitration. Reading the properties only after trapped events would leave a resize or grab cursor stuck after the pen leaves the handle.
 
 **Arbitration: the host decides between interacts.** Several interacts can share a view (overlays of several effects, host overlays). Recommended policy:
 1. the cursor of the interact that trapped the event (`kOfxStatOK`) wins. This extends the existing PenMotion postcondition ("if the instance returns kOfxStatOK the host should not pass the pen motion to any other interactive object ... that shares the same view");

@@ -164,9 +164,11 @@ kOfxInteractActionKeyRepeat that does not fail (whether it returns kOfxStatOK,
 i.e. the event was trapped, or kOfxStatReplyDefault), the host reads
 ::kOfxInteractPropCursor (and the related properties) on that interact instance.
 Since kOfxInteractActionPenMotion is also issued while the pen is up, a plug-in
-typically sets a cursor when the pen hovers over one of its handles (and traps
-that motion), and sets ::kOfxInteractCursorDefault again when it moves off the
-handle (without trapping it).
+typically sets a cursor when the pen hovers over one of its handles, and sets
+::kOfxInteractCursorDefault again when it moves off the handle. Setting the
+cursor does not require trapping the event: the plug-in keeps returning
+whatever it returned before. Trapping is optional, and only gives the request
+priority in the arbitration below.
 
 Arbitration: several interacts may share a view (overlays of several effects,
 host overlays), so the host decides which request to display. The recommended
