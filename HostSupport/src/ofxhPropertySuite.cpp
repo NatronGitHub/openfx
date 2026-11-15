@@ -270,6 +270,11 @@ namespace OFX {
       // get multiple values
       template<class T> 
       void PropertyTemplate<T>::getValueN(typename T::APIType *values, int count) const OFX_EXCEPTION_SPEC {
+        if (count < 0) {
+          // checked here too, since get hooks (e.g. the default GetHook::*PropertyN,
+          // which memsets count values) may not check it
+          throw Exception(kOfxStatErrBadIndex);
+        }
         if (_getHook) {
           _getHook->getPropertyN<T>(_name, values, count);
         } 
