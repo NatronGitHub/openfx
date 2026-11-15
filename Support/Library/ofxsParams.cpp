@@ -1071,7 +1071,30 @@ namespace OFX {
   }
 
   /** @brief set the default value */
+
+  /// set the UI order of option nth (kOfxParamPropChoiceOrder, OFX 1.5), if requested.
+  /// The host may not support this property: don't throw.
+  static void setChoiceOrder(PropertySet &props, int nth, int order)
+  {
+    if (order != INT_MIN) {
+      props.propSetInt(kOfxParamPropChoiceOrder, order, nth, false);
+    }
+  }
+
+  /// clear kOfxParamPropChoiceOrder, if the host knows it and it was set
+  static void resetChoiceOrder(PropertySet &props)
+  {
+    if (props.propGetDimension(kOfxParamPropChoiceOrder, false) > 0) {
+      props.propReset(kOfxParamPropChoiceOrder);
+    }
+  }
+
   void ChoiceParamDescriptor::appendOption(const std::string &optionLabel, const std::string& optionHint, const std::string& optionEnum)
+  {
+    appendOption(optionLabel, optionHint, optionEnum, INT_MIN);
+  }
+
+  void ChoiceParamDescriptor::appendOption(const std::string &optionLabel, const std::string& optionHint, const std::string& optionEnum, int order)
   {
     int nCurrentValues = _paramProps.propGetDimension(kOfxParamPropChoiceOption);
     if(!optionHint.empty()) {
@@ -1105,12 +1128,14 @@ namespace OFX {
     unused(optionEnum);
 #endif
     _paramProps.propSetString(kOfxParamPropChoiceOption, optionLabel, nCurrentValues);
+    setChoiceOrder(_paramProps, nCurrentValues, order);
   }
 
   /** @brief set the default value */
   void ChoiceParamDescriptor::resetOptions(void)
   {
     _paramProps.propReset(kOfxParamPropChoiceOption);
+    resetChoiceOrder(_paramProps);
 #ifdef OFX_EXTENSIONS_TUTTLE
     if (_paramProps.propGetDimension(kOfxParamPropChoiceLabelOption, false) > 0) {
       _paramProps.propReset(kOfxParamPropChoiceLabelOption);
@@ -1130,6 +1155,8 @@ namespace OFX {
                                            const std::vector<std::string>& newEntriesHint,
                                            const std::vector<std::string>& newEntriesEnum)
   {
+    // the new entries have no UI order
+    resetChoiceOrder(_paramProps);
     assert(newEntries.size() == newEntriesHint.size() || newEntriesHint.empty());
     assert(newEntries.size() == newEntriesEnum.size() || newEntriesEnum.empty());
 
@@ -1199,13 +1226,14 @@ namespace OFX {
   }
 
   /** @brief append an option */
-  void StrChoiceParamDescriptor::appendOption(const std::string& p_Enum, const std::string& p_Option)
+  void StrChoiceParamDescriptor::appendOption(const std::string& p_Enum, const std::string& p_Option, int order)
   {
       const int numOptions = _paramProps.propGetDimension(kOfxParamPropChoiceOption);
       assert(numOptions == _paramProps.propGetDimension(kOfxParamPropChoiceEnum));
 
       _paramProps.propSetString(kOfxParamPropChoiceEnum, p_Enum, numOptions);
       _paramProps.propSetString(kOfxParamPropChoiceOption, p_Option, numOptions);
+      setChoiceOrder(_paramProps, numOptions, order);
   }
 
   /** @brief how many options do we have */
@@ -1222,6 +1250,7 @@ namespace OFX {
   {
       _paramProps.propReset(kOfxParamPropChoiceEnum);
       _paramProps.propReset(kOfxParamPropChoiceOption);
+      resetChoiceOrder(_paramProps);
   }
 #endif
 
@@ -3416,6 +3445,11 @@ namespace OFX {
   /** @brief add another option */
   void ChoiceParam::appendOption(const std::string &optionLabel, const std::string& optionHint, const std::string& optionEnum)
   {
+    appendOption(optionLabel, optionHint, optionEnum, INT_MIN);
+  }
+
+  void ChoiceParam::appendOption(const std::string &optionLabel, const std::string& optionHint, const std::string& optionEnum, int order)
+  {
     int nCurrentValues = _paramProps.propGetDimension(kOfxParamPropChoiceOption);
     if(!optionHint.empty()) {
 #ifdef OFX_EXTENSIONS_TUTTLE
@@ -3449,6 +3483,7 @@ namespace OFX {
     unused(optionEnum);
 #endif
     _paramProps.propSetString(kOfxParamPropChoiceOption, optionLabel, nCurrentValues);
+    setChoiceOrder(_paramProps, nCurrentValues, order);
   }
 
   /** @brief set the string of a specific option */
@@ -3462,6 +3497,8 @@ namespace OFX {
                                  const std::vector<std::string>& newEntriesHint,
                                  const std::vector<std::string>& newEntriesEnum)
   {
+    // the new entries have no UI order
+    resetChoiceOrder(_paramProps);
     assert(newEntries.size() == newEntriesHint.size() || newEntriesHint.empty());
     assert(newEntries.size() == newEntriesEnum.size() || newEntriesEnum.empty());
 
@@ -3544,13 +3581,14 @@ namespace OFX {
   }
 
   /** @brief add another option */
-  void StrChoiceParam::appendOption(const std::string& p_Enum, const std::string& p_Option)
+  void StrChoiceParam::appendOption(const std::string& p_Enum, const std::string& p_Option, int order)
   {
       const int numOptions = _paramProps.propGetDimension(kOfxParamPropChoiceOption);
       assert(numOptions == _paramProps.propGetDimension(kOfxParamPropChoiceEnum));
 
       _paramProps.propSetString(kOfxParamPropChoiceEnum, p_Enum, numOptions);
       _paramProps.propSetString(kOfxParamPropChoiceOption, p_Option, numOptions);
+      setChoiceOrder(_paramProps, numOptions, order);
   }
 
   /** @brief set the string of a specific option */
@@ -3598,6 +3636,7 @@ namespace OFX {
   {
       _paramProps.propReset(kOfxParamPropChoiceEnum);
       _paramProps.propReset(kOfxParamPropChoiceOption);
+      resetChoiceOrder(_paramProps);
   }
 #endif
 

@@ -390,6 +390,9 @@ namespace OFX {
         /** @brief set whether the param is persistent, defaults to true */
         void setIsPersistent(bool v);
 
+        /** @brief upstream (AcademySoftwareFoundation/openfx) spelling of setIsPersistent() */
+        void setIsPersistant(bool v) { setIsPersistent(v); }
+
         /** @brief Set's whether the value of the param is significant (ie: affects the rendered image), defaults to true */
         void setEvaluateOnChange(bool v);
     
@@ -781,7 +784,17 @@ namespace OFX {
          @param name The unique identifier for that option. If empty this is by default set to the label.
          */
         void appendOption(const std::string &label, const std::string& hint = "", const std::string& name = "");
-    
+
+        /** @brief append an option, with its UI order (kOfxParamPropChoiceOrder, OFX 1.5)
+         @param order the position of the option in the host UI, see kOfxParamPropChoiceOrder.
+                Pass INT_MIN to not set it. If used, it should be given for every option.
+                Ignored by hosts that don't support kOfxParamPropChoiceOrder.
+         */
+        void appendOption(const std::string &label, const std::string& hint, const std::string& name, int order);
+
+        /** @brief append an option with its UI order, upstream (AcademySoftwareFoundation/openfx) signature */
+        void appendOption(const std::string &label, const std::string& hint, int order) { appendOption(label, hint, std::string(), order); }
+
         /** @brief how many options do we have */
         int getNOptions(void);
 
@@ -820,8 +833,8 @@ namespace OFX {
         /** @brief set the default value */
         void setDefault(const std::string& p_DefaultValue);
 
-        /** @brief append an option */
-        void appendOption(const std::string& p_Enum, const std::string& p_Option);
+        /** @brief append an option. order: UI position (kOfxParamPropChoiceOrder, OFX 1.5), INT_MIN to not set it */
+        void appendOption(const std::string& p_Enum, const std::string& p_Option, int order = INT_MIN);
 
         /** @brief how many options do we have */
         int getNOptions();
@@ -1301,6 +1314,9 @@ namespace OFX {
     
         /** @brief is the param animating */
         bool getIsPersistent(void) const;
+
+        /** @brief upstream (AcademySoftwareFoundation/openfx) spelling of getIsPersistent() */
+        bool getIsPersistant(void) const { return getIsPersistent(); }
     
         /** @brief Get's whether the value of the param is significant (ie: affects the rendered image) */
         bool getEvaluateOnChange(void) const;
@@ -1916,6 +1932,12 @@ namespace OFX {
         /** @brief append an option, default is to have not there */
         void appendOption(const std::string &label, const std::string& hint = "", const std::string& name = "");
 
+        /** @brief append an option with its UI order (kOfxParamPropChoiceOrder, OFX 1.5), INT_MIN to not set it */
+        void appendOption(const std::string &label, const std::string& hint, const std::string& name, int order);
+
+        /** @brief append an option with its UI order, upstream (AcademySoftwareFoundation/openfx) signature */
+        void appendOption(const std::string &label, const std::string& hint, int order) { appendOption(label, hint, std::string(), order); }
+
         /** @brief set an option label */
         void setOption(int item, const std::string &str);
     
@@ -1989,8 +2011,8 @@ namespace OFX {
         /** @brief how many options do we have */
         int getNOptions();
 
-        /** @brief append an option */
-        void appendOption(const std::string& p_Enum, const std::string& p_Option);
+        /** @brief append an option. order: UI position (kOfxParamPropChoiceOrder, OFX 1.5), INT_MIN to not set it */
+        void appendOption(const std::string& p_Enum, const std::string& p_Option, int order = INT_MIN);
 
         /** @brief set an option */
         void setOption(const std::string& p_Index, const std::string& p_Option);

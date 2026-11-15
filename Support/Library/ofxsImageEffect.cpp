@@ -55,6 +55,7 @@ England
 #ifdef OFX_SUPPORTS_OPENGLRENDER
 #include "ofxOpenGLRender.h"
 #endif
+#include "ofxGPURender.h" // OFX 1.5 GPU render extension properties
 #include "ofxsCore.h"
 
 #if defined __APPLE__ || defined __linux__ || defined __FreeBSD__
@@ -1359,6 +1360,20 @@ namespace OFX {
   }
 #endif
 
+  /** @brief Does the plugin support OpenCL Buffers render */
+  void ImageEffectDescriptor::setSupportsOpenCLBuffersRender(bool v)
+  {
+    // host may not know this property (OFX 1.5): don't throw
+    _effectProps.propSetString(kOfxImageEffectPropOpenCLRenderSupported, (v ? "true" : "false"), false);
+  }
+
+  /** @brief Does the plugin support OpenCL Images render */
+  void ImageEffectDescriptor::setSupportsOpenCLImagesRender(bool v)
+  {
+    // host may not know this property (OFX 1.5): don't throw
+    _effectProps.propSetString(kOfxImageEffectPropOpenCLSupported, (v ? "true" : "false"), false);
+  }
+
 #ifdef OFX_EXTENSIONS_RESOLVE
   /** @brief Does the plugin support OpenCL Render */
   void ImageEffectDescriptor::setSupportsOpenCLRender(bool v)
@@ -1602,7 +1617,9 @@ namespace OFX {
     OFX::Validation::validateImageBaseProperties(props);
 
     // and fetch all the properties
-    _rowBytes         = _imageProps.propGetInt(kOfxImagePropRowBytes);
+    // "the kOfxImagePropRowBytes property is not required to be set by the host" for OpenCL Images (ofxGPURender.h)
+    const bool isOpenCLImage = _imageProps.propGetPointer(kOfxImageEffectPropOpenCLImage, false) != NULL;
+    _rowBytes         = _imageProps.propGetInt(kOfxImagePropRowBytes, !isOpenCLImage);
     _pixelAspectRatio = _imageProps.propGetDouble(kOfxImagePropPixelAspectRatio);;
       
     std::string str  = _imageProps.propGetString(kOfxImageEffectPropComponents);
@@ -1764,8 +1781,10 @@ namespace OFX {
     OFX::Validation::validateImageProperties(props);
 
     // and fetch all the properties
+    // OFX 1.5: images passed as OpenCL Images have kOfxImageEffectPropOpenCLImage instead of kOfxImagePropData
+    _OpenCLImage = _imageProps.propGetPointer(kOfxImageEffectPropOpenCLImage, /*throwOnFailure*/false);
     // should throw if it is not an image
-    _pixelData = _imageProps.propGetPointer(kOfxImagePropData);
+    _pixelData = _imageProps.propGetPointer(kOfxImagePropData, /*throwOnFailure*/!_OpenCLImage);
   }
 
   Image::~Image()

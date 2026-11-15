@@ -791,8 +791,14 @@ namespace OFX {
     /** @brief If the slave  param changes the clip preferences need to be re-evaluated */
     void addClipPreferencesSlaveParam(ParamDescriptor &p);
 
+    /** @brief Does the plugin support OpenCL Buffers render (kOfxImageEffectPropOpenCLRenderSupported, OFX 1.5), defaults to false */
+    void setSupportsOpenCLBuffersRender(bool v);
+
+    /** @brief Does the plugin support OpenCL Images render (kOfxImageEffectPropOpenCLSupported, OFX 1.5), defaults to false */
+    void setSupportsOpenCLImagesRender(bool v);
+
 #ifdef OFX_EXTENSIONS_RESOLVE
-    /** @brief Does the plugin support OpenCL Render, defaults to false */
+    /** @brief Does the plugin support OpenCL Render, defaults to false (same as setSupportsOpenCLBuffersRender) */
     void setSupportsOpenCLRender(bool v);
 
     /** @brief Does the plugin support CUDA Render, defaults to false */
@@ -1042,6 +1048,7 @@ namespace OFX {
   class Image : public ImageBase {
   protected :
     void     *_pixelData;                    /**< @brief the base address of the image */
+    void     *_OpenCLImage;                  /**< @brief the OpenCL Image handle (cl_mem), or NULL (OFX 1.5) */
 
   public :
     /** @brief ctor */
@@ -1055,6 +1062,13 @@ namespace OFX {
 
     /** @brief get the pixel data for this image */
     const void *getPixelData(void) const { return _pixelData;}
+
+    /** @brief get the OpenCL Image handle (cl_mem) if the host passes the image as an OpenCL Image
+     (kOfxImageEffectPropOpenCLImage, OFX 1.5), else NULL. In that case getPixelData() is not used. */
+    void *getOpenCLImage(void) { return _OpenCLImage;}
+
+    /** @brief get the OpenCL Image handle (cl_mem), or NULL */
+    const void *getOpenCLImage(void) const { return _OpenCLImage;}
 
     /** @brief return a pixel pointer, returns NULL if (x,y) is outside the image bounds
 
@@ -1772,6 +1786,9 @@ namespace OFX {
     Defaults to false. 
     */
     void setOutputHasContinuousSamples(bool v);
+
+    /** @brief upstream (AcademySoftwareFoundation/openfx) spelling of setOutputHasContinuousSamples() */
+    void setOutputHasContinousSamples(bool v) { setOutputHasContinuousSamples(v); }
 
     /** @brief Sets whether the effect will produce different images in all frames, even if the no params or input images are varying (eg: a noise generator).
 
