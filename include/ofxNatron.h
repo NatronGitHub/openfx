@@ -544,7 +544,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
          2 meaning that the selection is finilized by the user (i.e: during pen up)
     The property kNatronOfxImageEffectSelectionRectangle will be updated prior to calling the kOfxActionInstanceChanged action for this parameter by the host, indicating the region covered by the selection rectangle. 
 
- 8) The host application cursor can be controled by the plug-in via a secret String parameter with the name kNatronOfxParamCursorName. If this parameter is found, the host should display a cursor depending on the value of this parameter.  The value of the parameter should be the name of the cursor. Several default cursor can be made available by the host as advertised by the kNatronOfxImageEffectPropDefaultCursors property. The plug-in may also embed custom cursors as PNG files located in the Resources directory of the plug-in bundle. To specify one the image in the plug-in bundle as an icon, you may set the value of this parameter to the filename of the image without any leading path. This is up to the host to figure out the path to the plug-in bundle Resources directory.
+ 8) DEPRECATED, see kNatronOfxParamCursorName. The host application cursor can be controled by the plug-in via a secret String parameter with the name kNatronOfxParamCursorName. If this parameter is found, the host should display a cursor depending on the value of this parameter.  The value of the parameter should be the name of the cursor. Several default cursor can be made available by the host as advertised by the kNatronOfxImageEffectPropDefaultCursors property. The plug-in may also embed custom cursors as PNG files located in the Resources directory of the plug-in bundle. To specify one the image in the plug-in bundle as an icon, you may set the value of this parameter to the filename of the image without any leading path. This is up to the host to figure out the path to the plug-in bundle Resources directory.
      Whenever an event is sent to overlay interacts (PenDown, PenMotion, PenUp, KeyDown, KeyUp, KeyRepeat, GainFocus, LoseFocus, the OFX Host should set the cursor to the one of the first interact which catches the event by returning kOfxStatOK to the corresponding action. If no overlay interact returns kOfxStatOK, the cursor should be set to the default cursor.
  
  9) It may be useful to show a dialog to a user to request a little information before doing a task such as an analysis.
@@ -668,6 +668,33 @@ property is set to 1.
 
 /**
  The name of the string parameter that should be used to implement host cursors. See 8) of the extension description.
+
+ DEPRECATED: replaced by the interact cursor extension (InteractCursor group in ofxInteract.h:
+ kOfxInteractHostPropSupportedCursors, kOfxInteractPropCursor, kOfxInteractPropCursorImage,
+ kOfxInteractPropCursorHotSpot), proposed for standardization in NatronGitHub/openfx#4. That
+ extension sets the cursor on the interact instance (one per view) instead of through a
+ persistent, undoable parameter shared by all views, uses CSS cursor names, and supports a hot
+ spot for custom images. New plug-ins should use OFX::Interact::setCursor() instead. Kept for
+ existing plug-ins and hosts.
+
+ Mapping of the kNatronOfx*Cursor names to the kOfxInteractCursor* (CSS) names:
+ | kNatronOfx*Cursor                   | kOfxInteractCursor*                  |
+ |-------------------------------------|--------------------------------------|
+ | DefaultCursor, ArrowCursor          | Default ("default")                  |
+ | BlankCursor ("kNatronOfxBlankCursor") | None ("none")                      |
+ | CrossCursor                         | Crosshair ("crosshair")              |
+ | IBeamCursor                         | Text ("text")                        |
+ | WaitCursor / BusyCursor             | Wait ("wait") / Progress ("progress") |
+ | ForbiddenCursor                     | NotAllowed ("not-allowed")           |
+ | PointingHandCursor                  | Pointer ("pointer")                  |
+ | WhatsThisCursor                     | Help ("help")                        |
+ | SizeVerCursor / SizeHorCursor       | NSResize ("ns-resize") / EWResize ("ew-resize") |
+ | SizeBDiagCursor / SizeFDiagCursor   | NESWResize ("nesw-resize") / NWSEResize ("nwse-resize") |
+ | SizeAllCursor                       | Move ("move")                        |
+ | SplitVCursor / SplitHCursor         | RowResize ("row-resize") / ColResize ("col-resize") |
+ | OpenHandCursor / ClosedHandCursor   | Grab ("grab") / Grabbing ("grabbing") |
+ | UpArrowCursor                       | (no equivalent)                      |
+ | custom PNG file name                | Custom, with kOfxInteractPropCursorImage and kOfxInteractPropCursorHotSpot |
  */
 #define kNatronOfxParamCursorName "NatronOfxParamCursorName"
 
@@ -684,6 +711,11 @@ property is set to 1.
 
 /** 
  string property indicating for a host, which are the default cursors provided to the plug-in and for a plug-in which are the cursor that it provides a drawing for.
+
+ DEPRECATED, together with the kNatronOfx*Cursor values below: replaced by
+ kOfxInteractHostPropSupportedCursors and the kOfxInteractCursor* names (InteractCursor group in
+ ofxInteract.h, NatronGitHub/openfx#4). See kNatronOfxParamCursorName for the name mapping.
+
  - Type - string x N
  - Property Set -  host descriptor (read only)
  - Default - kNatronOfxDefaultCursor
@@ -699,6 +731,8 @@ property is set to 1.
 #define kNatronOfxImageEffectPropDefaultCursors "NatronOfxImageEffectPropDefaultCursors"
 
 // Default cursors that can be defined by a host, see http://doc.qt.io/qt-4.8/qcursor.html for an illustration to how they could look
+// DEPRECATED: use the kOfxInteractCursor* (CSS) names of the InteractCursor extension (ofxInteract.h,
+// NatronGitHub/openfx#4); see kNatronOfxParamCursorName for the mapping
 #define kNatronOfxDefaultCursor "NatronOfxDefaultCursor"
 #define kNatronOfxBlankCursor "kNatronOfxBlankCursor"
 #define kNatronOfxArrowCursor "NatronOfxArrowCursor"
