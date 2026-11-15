@@ -1,6 +1,8 @@
 NatronGitHub/openfx: the OpenFX image effect API, headers and C++ libraries
 ===========================================================================
 
+[![Build](https://github.com/NatronGitHub/openfx/actions/workflows/build.yml/badge.svg)](https://github.com/NatronGitHub/openfx/actions/workflows/build.yml)
+
 This is [NatronGitHub/openfx](https://github.com/NatronGitHub/openfx), the fork of the official OpenFX repository
 [AcademySoftwareFoundation/openfx](https://github.com/AcademySoftwareFoundation/openfx) used by
 [Natron](https://github.com/NatronGitHub/Natron) and by the
