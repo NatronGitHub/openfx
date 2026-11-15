@@ -410,7 +410,7 @@ namespace OFX {
   class CLASS : public OFX::PluginFactoryHelper<CLASS<majorVersion> > \
   { \
   public: \
-  CLASS<majorVersion>(const std::string& id, unsigned int verMin):OFX::PluginFactoryHelper<CLASS>(id, majorVersion, verMin){} \
+  CLASS(const std::string& id, unsigned int verMin):OFX::PluginFactoryHelper<CLASS<majorVersion> >(id, majorVersion, verMin){} \
   virtual void load() LOADFUNCDEF ;\
   virtual void unload() UNLOADFUNCDEF ;\
   virtual void describe(OFX::ImageEffectDescriptor &desc); \
@@ -477,6 +477,7 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_RESOLVE
     bool supportsOpenCLRender;
     bool supportsCudaRender;
+    bool supportsCudaStream;
     bool supportsMetalRender;
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -797,6 +798,9 @@ namespace OFX {
 
     /** @brief Does the plugin support CUDA Render, defaults to false */
     void setSupportsCudaRender(bool v);
+
+    /** @brief Does the plugin support CUDA Render, defaults to false */
+    void setSupportsCudaStream(bool v);
 
     /** @brief Does the plugin support Metal Render, defaults to false */
     void setSupportsMetalRender(bool v);
@@ -1441,6 +1445,7 @@ namespace OFX {
     bool      isEnabledCudaRender;
     bool      isEnabledMetalRender;
     void*     pOpenCLCmdQ;
+    void*     pCudaStream;
     void*     pMetalCmdQ;
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -1489,6 +1494,7 @@ namespace OFX {
     bool      isEnabledCudaRender;
     bool      isEnabledMetalRender;
     void*     pOpenCLCmdQ;
+    void*     pCudaStream;
     void*     pMetalCmdQ;
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -1514,6 +1520,7 @@ namespace OFX {
     bool      isEnabledCudaRender;
     bool      isEnabledMetalRender;
     void*     pOpenCLCmdQ;
+    void*     pCudaStream;
     void*     pMetalCmdQ;
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -1942,6 +1949,9 @@ namespace OFX {
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     /** @brief Does the plugin support OpenGL accelerated rendering (but is also capable of CPU rendering) ? Can only be called from changedParam or changedClip (OFX 1.4). */
     void setSupportsOpenGLRender(bool v);
+
+    /** @brief Does the plugin require OpenGL accelerated rendering ? Can only be called from changedParam or changedClip. */
+    void setNeedsOpenGLRender(bool v);
 #endif
 
     /** @brief notify host that the internal data structures need syncing back to parameters for persistence and so on.  This is reset by the host after calling SyncPrivateData. */

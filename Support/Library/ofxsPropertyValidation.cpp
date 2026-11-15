@@ -366,6 +366,7 @@ namespace OFX {
 
       // Pointer props with defaults that can be checked against
       PropertyDescription(kOfxImageEffectPluginPropOverlayInteractV1,      OFX::ePointer, 1, eDescDefault, NULLPTR, eDescFinished),
+      PropertyDescription(kOfxImageEffectPluginPropOverlayInteractV2,      OFX::ePointer, 1, eDescDefault, NULLPTR, eDescFinished),
 
       // string props that have variable dimension, and can't be checked against for defaults
       PropertyDescription(kOfxImageEffectPropSupportedContexts,  OFX::eString, -1, eDescFinished),
@@ -539,6 +540,11 @@ namespace OFX {
       // double props
       PropertyDescription(kOfxImageEffectPropRenderScale,       OFX::eDouble, 2, eDescFinished),
       PropertyDescription(kOfxImagePropPixelAspectRatio,        OFX::eDouble, 1, eDescFinished),
+
+#ifdef OFX_EXTENSIONS_RESOLVE
+      // pointer props
+      PropertyDescription(kOfxImagePropData,                    OFX::ePointer, 1, eDescFinished),
+#endif
 
       // int props
       PropertyDescription(kOfxImagePropBounds,                  OFX::eInt, 4, eDescFinished),
@@ -1411,7 +1417,7 @@ namespace OFX {
         gStrChoiceParamPropSet.addProperty(desc, true);
 #endif
 
-        // do choice params animate      
+        // do boolean params animate
         desc = new PropertyDescription(kOfxParamPropAnimates, OFX::eInt, 1,
           eDescDefault, int(getImageEffectHostDescription()->supportsBooleanAnimation),
           eDescFinished);

@@ -1360,6 +1360,11 @@ namespace OFX {
       _effectProps.propSetString(kOfxImageEffectPropCudaRenderSupported, (v ? "true" : "false"), false);
   }
 
+  /** @brief Does the plugin support CUDA Stream */
+  void ImageEffectDescriptor::setSupportsCudaStream(bool v)
+  {
+      _effectProps.propSetString(kOfxImageEffectPropCudaStreamSupported, (v ? "true" : "false"));
+  }
 
   /** @brief Does the plugin support Metal Render */
   void ImageEffectDescriptor::setSupportsMetalRender(bool v)
@@ -2644,6 +2649,13 @@ namespace OFX {
       _effectProps.propSetString(kOfxImageEffectPropOpenGLRenderSupported, (v ? "true" : "false"), false); // read/write from OFX 1.4
     }
   }
+
+  /** @brief Does the plugin require OpenGL accelerated rendering ? Can only be called from changedParam or changedClip. */
+  void ImageEffect::setNeedsOpenGLRender(bool v) {
+    if (gHostDescription.supportsOpenGLRender) {
+      _effectProps.propSetString(kOfxImageEffectPropOpenGLRenderSupported, (v ? "needed" : "false"), false); // read/write from OFX 1.4
+    }
+  }
 #endif
     
 
@@ -3852,6 +3864,7 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_RESOLVE
         gHostDescription.supportsOpenCLRender        = hostProps.propGetString(kOfxImageEffectPropOpenCLRenderSupported, 0, false) == "true";
         gHostDescription.supportsCudaRender          = hostProps.propGetString(kOfxImageEffectPropCudaRenderSupported, 0, false) == "true";
+        gHostDescription.supportsCudaStream          = hostProps.propGetString(kOfxImageEffectPropCudaStreamSupported, 0, false) == "true";
         gHostDescription.supportsMetalRender         = hostProps.propGetString(kOfxImageEffectPropMetalRenderSupported, 0, false) == "true";
 #endif
         gHostDescription.supportsRenderQualityDraft = hostProps.propGetInt(kOfxImageEffectPropRenderQualityDraft, false) != 0; // appeared in OFX 1.4
@@ -4152,6 +4165,7 @@ namespace OFX {
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
       args.isEnabledMetalRender  = inArgs.propGetInt(kOfxImageEffectPropMetalEnabled, false) != 0;
       args.pOpenCLCmdQ           = inArgs.propGetPointer(kOfxImageEffectPropOpenCLCommandQueue, false);
+      args.pCudaStream           = inArgs.propGetPointer(kOfxImageEffectPropCudaStream, false);
       args.pMetalCmdQ            = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 #endif
 
@@ -4256,6 +4270,7 @@ namespace OFX {
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
       args.isEnabledMetalRender  = inArgs.propGetInt(kOfxImageEffectPropMetalEnabled, false) != 0;
       args.pOpenCLCmdQ           = inArgs.propGetPointer(kOfxImageEffectPropOpenCLCommandQueue, false);
+      args.pCudaStream           = inArgs.propGetPointer(kOfxImageEffectPropCudaStream, false);
       args.pMetalCmdQ            = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 #endif
 
@@ -4298,6 +4313,7 @@ namespace OFX {
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
       args.isEnabledMetalRender  = inArgs.propGetInt(kOfxImageEffectPropMetalEnabled, false) != 0;
       args.pOpenCLCmdQ           = inArgs.propGetPointer(kOfxImageEffectPropOpenCLCommandQueue, false);
+      args.pCudaStream           = inArgs.propGetPointer(kOfxImageEffectPropCudaStream, false);
       args.pMetalCmdQ            = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 #endif
       args.renderScale.x = args.renderScale.y = 1.;
