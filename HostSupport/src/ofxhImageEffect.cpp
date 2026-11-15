@@ -999,7 +999,8 @@ namespace OFX {
           std::cout << "OFX: "<<id<<"("<<(void*)ofxp<<")->"<<kOfxActionCreateInstance<<"()->"<<StatStr(st)<<std::endl;
 #       endif
 
-        if (st == kOfxStatOK) {
+        // kOfxStatReplyDefault: "the action was ignored, but all was well anyway"
+        if (st == kOfxStatOK || st == kOfxStatReplyDefault) {
           _created = true;
         }
 
@@ -1020,9 +1021,10 @@ namespace OFX {
 #         ifdef OFX_DEBUG_ACTIONS
             std::cout << "OFX: "<<id<<"("<<(void*)ofxp<<")->"<<kOfxActionDestroyInstance<<"()->"<<StatStr(st)<<std::endl;
 #         endif
-          if (st == kOfxStatOK) {
-            _created = false;
-          }
+          // "what is returned is moot, a bit like throwing an exception in a C++
+          // destructor, so the host should continue destruction of the instance
+          // regardless": never send kOfxActionDestroyInstance twice.
+          _created = false;
         }
 
         return st;
