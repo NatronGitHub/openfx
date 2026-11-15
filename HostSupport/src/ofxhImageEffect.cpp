@@ -4637,6 +4637,11 @@ namespace OFX {
         { kOfxImageEffectPropSetableFrameRate, Property::eInt, 1, true, "0" },
         { kOfxImageEffectPropSetableFielding, Property::eInt, 1, true, "0"  },
         { kOfxParamHostPropSupportsCustomInteract, Property::eInt, 1, true, "0" },
+#     ifdef OFX_EXTENSIONS_NATRON
+        // proposed interact cursor extension (NatronGitHub/openfx#4): empty, i.e. not
+        // supported, unless the host application lists the cursors it can display
+        { kOfxInteractHostPropSupportedCursors, Property::eString, 0, true, "" },
+#     endif
         { kOfxParamHostPropSupportsStringAnimation, Property::eInt, 1, true, "0" },
         { kOfxParamHostPropSupportsChoiceAnimation, Property::eInt, 1, true, "0"  },
         { kOfxParamHostPropSupportsStrChoiceAnimation, Property::eInt, 1, true, "0"  },

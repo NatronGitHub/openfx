@@ -284,6 +284,27 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NATRON
     /** @brief Sets wether the interact uses an additional colour picking value in the inArgs of its actions. */
     void setColourPicking(bool useColourPicking);
+
+    /** @brief Request a window-system cursor for this interact's view (proposed extension
+        NatronGitHub/openfx#4), e.g. kOfxInteractCursorPointer, or kOfxInteractCursorNone to hide
+        the cursor when the interact draws its own.
+
+        Call it during a pen or key action, and return true (kOfxStatOK) from that action: the
+        host displays the cursor of the interact that last trapped a pen or key event. Set
+        kOfxInteractCursorDefault to give the host's cursor back.
+
+        @returns false, and does nothing, if the host does not support interact cursors or does not
+        list that cursor in kOfxInteractHostPropSupportedCursors. Never throws.
+    */
+    bool setCursor(const std::string &name);
+
+    /** @brief Request a custom cursor image (kOfxInteractCursorCustom): a PNG file, with an alpha
+        channel, in the Contents/Resources directory of the plug-in bundle (an optional "@2x" variant
+        may be used on high-density displays), with its hot spot in image pixels from the top-left.
+
+        @returns false, and does nothing, if the host does not support custom cursors. Never throws.
+    */
+    bool setCustomCursor(const std::string &pngFileName, int hotSpotX, int hotSpotY);
 #endif
 
     ////////////////////////////////////////////////////////////////////////////////
