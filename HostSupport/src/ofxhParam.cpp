@@ -576,7 +576,8 @@ namespace OFX {
                                     || dim == 0
 #endif
                                     )) {
-          static const Property::PropSpec all2D3D[] = {
+          // not static: depends on dim, which varies between param types
+          const Property::PropSpec all2D3D[] = {
             { kOfxParamPropDimensionLabel,  Property::eString, dim, false, "" },
             Property::propSpecEnd
           };  
@@ -601,7 +602,8 @@ namespace OFX {
 
         /// if a multi dimensional param
         if (isColourParam(type)) {
-          static const Property::PropSpec allColor[] = {
+          // not static: depends on dim, which varies between param types
+          const Property::PropSpec allColor[] = {
             { kOfxParamPropDimensionLabel,  Property::eString, dim, false, "" },
             Property::propSpecEnd
           };  

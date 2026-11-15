@@ -1957,6 +1957,113 @@ They range from 1000 until 1999
 /*@}*/
 /*@}*/
 
+
+/** @name OFX 1.5 additions
+ Imported from the AcademySoftwareFoundation/openfx standard (main 4249fe1b).
+ Values are identical to upstream, so that plug-ins and hosts built against
+ either header set interoperate.
+ @{
+*/
+
+/** @brief Indicates whether the plugin should be hidden in the host's OFX browser UI.
+
+If set to 1, this indicates the plugin has been made obsolete by a different version of the same plugin contained in the same bundle (i.e. same pluginIdentifier but different pluginVersionMajor and/or pluginVersionMinor). At least one version of the plugin in the bundle (typically the newest) must have this property omitted or set to 0.
+
+   - Valid Values -
+       - 0 - the host will show the plugin in its OFX browser UI,
+       - 1 - the host will not show the plugin in its OFX browser UI.
+    @propdef
+    type: bool
+    dimension: 1
+*/
+#define kOfxImageEffectPluginPropObsolete "OfxImageEffectPluginPropObsolete"
+
+/** @brief Indicates whether the render is what the host considers a "thumbnail" render
+
+This property indicates that the host considers the render to be a "thumbnail", defined as a low-resolution image for use in the host's user interface.
+A plugin could react to this property by
+- rendering a badge rather than a detailed effect unlikely to be visible in a thumbnail
+- turning itself off in kOfxImageEffectActionIsIdentity
+- disabling temporal inputs in kOfxImageEffectActionGetFramesNeeded
+
+  @version added in version 1.5.1.
+
+    - Valid Values - This must be one of
+      - "false"  - the host does not consider this render a thumbnail
+      - "true"   - the host considers this render a thumbnail
+    @propdef
+    type: enum
+    dimension: 1
+    values:
+      - "false"
+      - "true"
+    introduced: "1.5.1"
+ */
+#define kOfxImageEffectPropThumbnailRender "OfxImageEffectPropThumbnailRender"
+
+/** @brief Clip property which indicates the display start frame of the clip
+
+   - Default - 0
+
+This is the frame number the host shows the user for time 0, in the same units
+as ::kOfxPropTime. For example, a host whose session starts at frame 1001 sets
+this to 1001.
+
+Plugins should add this value to internal OFX frame numbers when displayed in a
+plugin user interface, so the user will see the same frame numbers as they see
+in the host's UI, and subtract it from frame numbers the user enters.
+
+The property's string value keeps its leading "k" for compatibility with
+existing hosts and plugins.
+
+   @propdef
+   type: double
+   dimension: 1
+*/
+#define kOfxImageClipPropDisplayTimeOffset "kOfxImageClipPropDisplayTimeOffset"
+
+/**  @brief The host's behaviour when the plug-in is unlicensed
+
+If the plug-in determines that it is unlicensed during a \ref
+kOfxImageEffectActionBeginSequenceRender or \ref kOfxImageEffectActionRender
+action, it should check this property.
+
+If \ref kOfxImageEffectPropBehaviourWhenUnlicensed is not set
+(indicating the host has not implemented this functionality):
+
+- plug-in should render an image (typically watermarked or
+  a placeholder) and return \ref kOfxStatOK.
+
+If \ref kOfxImageEffectPropBehaviourWhenUnlicensed is set to
+\ref kOfxUnlicensedContinue:
+
+- plug-in should render an image (typically watermarked or a
+  placeholder) and return \ref kOfxStatUnlicensed, which allows the
+  host to (for example) warn the user, or fail an offline render.
+
+If \ref kOfxImageEffectPropBehaviourWhenUnlicensed is set to
+\ref kOfxUnlicensedFail:
+
+- plug-in should return \ref kOfxStatUnlicensed and may do this
+  without any rendering, because it knows the host will fail the
+  render.
+
+    @propdef
+    type: enum
+    dimension: 1
+    values:
+      - OfxUnlicensedContinue
+      - OfxUnlicensedFail
+*/
+#define kOfxImageEffectPropBehaviourWhenUnlicensed "OfxImageEffectPropBehaviourWhenUnlicensed"
+
+/** Strings used by \ref kOfxImageEffectPropBehaviourWhenUnlicensed */
+#define kOfxUnlicensedContinue "OfxUnlicensedContinue"
+
+#define kOfxUnlicensedFail "OfxUnlicensedFail"
+
+/** @} */
+
 #ifdef __cplusplus
 }
 #endif

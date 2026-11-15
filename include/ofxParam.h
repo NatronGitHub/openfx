@@ -1253,6 +1253,202 @@ changes a keyframe.  The keyframe indices will not change within a single action
   OfxStatus (*paramEditEnd)(OfxParamSetHandle paramSet);
  } OfxParameterSuiteV1;
 
+
+/** @name OFX 1.5 additions
+ Imported from the AcademySoftwareFoundation/openfx standard (main 4249fe1b).
+ Values are identical to upstream, so that plug-ins and hosts built against
+ either header set interoperate.
+ @{
+*/
+
+/** @brief String to identify a param as a Plug-in defined opaque data parameter */
+#define kOfxParamTypeBytes "OfxParamTypeBytes"
+
+/** @brief Indicates if the host supports the StrChoice param type.
+
+\since Version 1.5
+    @propdef
+    type: bool
+    dimension: 1
+    introduced: "1.5"
+*/
+#define kOfxParamHostPropSupportsStrChoice "OfxParamHostPropSupportsStrChoice"
+
+/** @brief Set values the host should store for a choice parameter.
+
+(read/write),
+`OfxParamPropChoiceOption`
+
+This property specifies the order in which the options are presented.
+See @ref "Choice Parameters" for more details.
+This property is optional; if not set, the host will present the options in
+their natural order.
+
+This property is useful when changing order of choice param options, or adding
+new options in the middle, in a new version of the plugin.
+
+  @verbatim
+  Plugin v1:
+  Option = {"OptA", "OptB", "OptC"}
+  Order = {1, 2, 3}
+
+  Plugin v2:
+  // will be shown as OptA / OptB / NewOpt / OptC
+  Option = {"OptA", "OptB", "OptC", NewOpt"}
+  Order = {1, 2, 4, 3}
+  @endverbatim
+
+Note that this only affects the host UI's display order; the project still
+stores the index of the selected option as always. Plugins should never
+reorder existing options if they desire backward compatibility.
+
+Values may be arbitrary 32-bit integers. Behavior is undefined if the same
+value occurs twice in the list; plugins should not do that.
+
+\since Version 1.5
+    
+    @propdef
+    type: int
+    dimension: N
+*/
+#define kOfxParamPropChoiceOrder "OfxParamPropChoiceOrder"
+
+/** @brief Declares how an RGB or RGBA parameter's colour values are encoded,
+so that a host can interpret, convert and display them correctly.
+
+This property applies only to parameters of type ::kOfxParamTypeRGB and
+::kOfxParamTypeRGBA. It governs the colourspace of *every* value exchanged for
+the parameter through the parameter suite, including its default
+(::kOfxParamPropDefault), its current value, and any keyframes. It does not
+change the parameter's type, dimension, or numeric API: values are still 3 or 4
+doubles passed through the ordinary ::OfxParameterSuiteV1 calls.
+
+   - Valid Values - This must be one of
+      - ::kOfxParamColourManagementNone - the parameter is not colour-managed;
+        its values are interpreted as they always have been (the legacy,
+        unmanaged behaviour). This is the default.
+      - ::kOfxParamColourManagementManaged - the parameter's values are in the
+        ACES2065-1 (AP0) reference colourspace. The values are scene-linear and
+        are not constrained to the [0..1] range.
+      - ::kOfxParamColourManagementSRGB - the parameter's values are in the sRGB
+        colourspace (IEC 61966-2-1, i.e. "web" RGB, with the sRGB transfer
+        function), constrained to the [0..1] range. This is intended for
+        display-referred user-interface colours such as overlay and on-screen
+        control colours drawn with the Draw Suite, not for processing image
+        pixels.
+
+ACES2065-1 is the reference colourspace of the OFX native colour management
+config (see @ref ofxColour.h), chosen because it is a single, well-specified,
+scene-referred linear space wide enough to carry any colour the host or plug-in
+may need without clamping. Restricting the managed encoding to this one space
+(rather than an arbitrary colourspace name) keeps both hosts and plug-ins simple
+and makes stored colours portable between applications.
+
+A plug-in MUST set this property, if at all, only during the describe-in-context
+/ parameter-definition stage, before the parameter instance exists. A plug-in
+MUST NOT change it on a parameter instance, and in particular MUST NOT change it
+during a render or other action in order to influence a subsequent read: hosts
+may evaluate parameters concurrently, and the encoding is a fixed property of
+the parameter, not a per-read mode.
+
+A plug-in MUST check the status returned when setting this property. A host that
+does not implement it will fail the set; in that case the plug-in MUST fall back
+to ::kOfxParamColourManagementNone behaviour (old-style, unmanaged values). A
+plug-in that sets ::kOfxParamColourManagementManaged or
+::kOfxParamColourManagementSRGB MUST supply every value it sets (defaults
+included) in the declared colourspace, and MUST interpret every value it reads
+as being in that colourspace.
+
+This property does not require the host to advertise any particular
+::kOfxImageEffectPropColourManagementStyle: the managed and sRGB encodings are
+fully specified by this spec and need no OCIO config. A host that supports this
+property MUST accept all three values; a host SHOULD convert the parameter's
+colour from its declared encoding into whatever space it needs (for example to
+draw an accurate swatch, to feed the value to the Draw Suite, or to hand a
+wide-gamut colour to the plug-in at render time).
+
+A host SHOULD store ::kOfxParamColourManagementManaged values as ACES2065-1 and
+::kOfxParamColourManagementSRGB values as sRGB in its project files, so that
+colour params are portable between applications and across versions. When a host
+first loads a project saved before the parameter became colour-managed, it
+SHOULD convert the previously stored values into the parameter's declared
+colourspace (assuming the legacy values were sRGB if it has no better
+information).
+
+The property is ignored on parameter types other than RGB and RGBA. It defaults
+to ::kOfxParamColourManagementNone, so existing plug-ins are unaffected.
+
+    @propdef
+    type: enum
+    dimension: 1
+    introduced: "1.5.1"
+    values:
+      - OfxParamColourManagementNone
+      - OfxParamColourManagementManaged
+      - OfxParamColourManagementSRGB
+*/
+#define kOfxParamPropColourManagement "OfxParamPropColourManagement"
+
+/** @brief Value for ::kOfxParamPropColourManagement: the colour parameter is
+not colour-managed; its values are interpreted as in legacy OpenFX. This is the
+default. */
+#define kOfxParamColourManagementNone "OfxParamColourManagementNone"
+
+/** @brief Value for ::kOfxParamPropColourManagement: the colour parameter's
+values (defaults, current value and keyframes) are in the ACES2065-1 (AP0)
+reference colourspace, scene-linear and not constrained to [0..1]. */
+#define kOfxParamColourManagementManaged "OfxParamColourManagementManaged"
+
+/** @brief Value for ::kOfxParamPropColourManagement: the colour parameter's
+values are in the sRGB colourspace, constrained to [0..1], intended for
+display-referred user-interface colours such as Draw Suite overlays. */
+#define kOfxParamColourManagementSRGB "OfxParamColourManagementSRGB"
+
+/** @brief Sets the default interpolation type of a Integer or Double parameter.
+
+   - Type - C string X 1
+   - Default - ::kOfxParamInterpTypeLinear
+   - Property Set - 1D integer and double plugin parameter descriptor (read/write) and instance (read only)
+   - Valid Values - This must be one of
+      - ::kOfxParamInterpTypeConstantStep - constant/hold/step interpolation,
+      - ::kOfxParamInterpTypeLinear - linear interpolation,
+      - ::kOfxParamInterpTypeSmooth - some kind of smooth (bezier, hermite, cardinal, etc) interpolation
+
+This allows a plugin to indicate how a number-type parameter should be interpolated by default. This is useful if a parameter
+is used to encode a keyed set of interesting frame numbers to be used as markers or retime points without the host animating them.
+*/
+#define kOfxParamInterpType             "OfxParamInterpType"
+
+/** @brief value for the ::kOfxParamInterpType property, indicating a constant/hold/step interpolation type. See \ref ::kOfxParamInterpType. */
+#define kOfxParamInterpTypeConstantStep "OfxParamInterpTypeConstantStep"
+
+/** @brief value for the ::kOfxParamInterpType property, indicating a linear interpolation type. See \ref ::kOfxParamInterpType. */
+#define kOfxParamInterpTypeLinear       "OfxParamInterpTypeLinear"
+
+/** @brief value for the ::kOfxParamInterpType property, indicating some kind of smooth interpolation type. See \ref ::kOfxParamInterpType. */
+#define kOfxParamInterpTypeSmooth       "OfxParamInterpTypeSmooth"
+
+/** @brief Flags whether the value of a parameter should persist.
+
+This is used to tell the host whether the value of the parameter is important and should be save in any description of the plug-in.
+    @propdef
+    type: bool
+    dimension: 1
+*/
+#define kOfxParamPropPersistant "OfxParamPropPersistant" // upstream spelling; same value as kOfxParamPropPersistent
+
+/** @brief Provides information for a parameter of type kOfxParamTypeBytes
+ */
+typedef struct OfxBytes
+{
+    /** @brief a pointer to the data buffer */
+    const unsigned char *data;
+    /** @brief the length of the data buffer, in bytes */
+    size_t length;
+} OfxBytes;
+
+/** @} */
+
 #ifdef __cplusplus
 }
 #endif

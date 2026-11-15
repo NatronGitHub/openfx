@@ -969,6 +969,19 @@ General status codes start at 1 and continue until 999
 
 /*@}*/
 
+
+/** @name OFX 1.5 additions
+ Imported from the AcademySoftwareFoundation/openfx standard (main 4249fe1b).
+ Values are identical to upstream, so that plug-ins and hosts built against
+ either header set interoperate.
+ @{
+*/
+
+/** @brief OfxStatus returned indicating that the plug-in is unlicensed (see \ref kOfxImageEffectPropBehaviourWhenUnlicensed) */
+#define kOfxStatUnlicensed ((int) 15)
+
+/** @} */
+
 #ifdef __cplusplus
 }
 #endif
