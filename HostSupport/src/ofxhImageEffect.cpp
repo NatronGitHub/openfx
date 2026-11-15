@@ -1601,7 +1601,7 @@ namespace OFX {
                                              int view,
                                              std::string& clip,
                                              double transform[9])
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -1652,6 +1652,11 @@ namespace OFX {
 
         return st;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
 #endif // OFX_EXTENSIONS_NUKE
 
 #ifdef OFX_EXTENSIONS_NATRON
@@ -1666,7 +1671,7 @@ namespace OFX {
                                               void** distortionFunctionData,
                                               int* distortionFunctionDataSize,
                                               OfxInverseDistortionDataFreeFunctionV1* freeDataFunction)
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -1724,6 +1729,11 @@ namespace OFX {
         }
 
         return st;
+      }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
       }
 #endif // OFX_EXTENSIONS_NATRON
 
@@ -1860,7 +1870,7 @@ namespace OFX {
                                                       int view,
 #endif
                                                       OfxRectD &rod)
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -1919,6 +1929,11 @@ namespace OFX {
           
         return stat;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
 
       /// get the region of interest for each input and return it in the given std::map
       OfxStatus Instance::getRegionOfInterestAction(OfxTime  time,
@@ -1928,7 +1943,7 @@ namespace OFX {
 #endif
                                                     const OfxRectD &roi,
                                                     std::map<ClipInstance *, OfxRectD>& rois) 
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -2065,6 +2080,11 @@ namespace OFX {
         }
         return stat;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
 
 #ifdef OFX_EXTENSIONS_NUKE
       OfxStatus Instance::getClipComponentsAction(OfxTime time,
@@ -2073,7 +2093,7 @@ namespace OFX {
                                                   ClipInstance*& passThroughClip,
                                                   OfxTime& passThroughTime,
                                                   int& passThroughView)
-      {
+      try {
           if ( OFX::IsNaN(time) ) {
               return kOfxStatFailed;
           }
@@ -2196,11 +2216,16 @@ namespace OFX {
           }
           return stat;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
         
       OfxStatus Instance::getFrameViewsNeeded(OfxTime time,
                                               int view,
                                               ViewsRangeMap& rangeMap)
-      {
+      try {
           if ( OFX::IsNaN(time) ) {
               return kOfxStatFailed;
           }
@@ -2325,13 +2350,18 @@ namespace OFX {
           }
           return stat;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
 #endif
 
       ////////////////////////////////////////////////////////////////////////////////
       /// see how many frames are needed from each clip to render the indicated frame
       OfxStatus Instance::getFrameNeededAction(OfxTime time, 
                                                RangeMap &rangeMap)
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -2450,6 +2480,11 @@ namespace OFX {
 
         return stat;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
 
       OfxStatus Instance::isIdentityAction(OfxTime     &time,
                                            const std::string &  field,
@@ -2460,7 +2495,7 @@ namespace OFX {
                                            std::string& plane,
 #endif
                                            std::string &clip)
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -2534,6 +2569,11 @@ namespace OFX {
         }
         
         return st;
+      }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
       }
 
       /// Get whether the component is a supported 'chromatic' component (RGBA or alpha) in
@@ -2844,7 +2884,7 @@ namespace OFX {
       /// flag when clip prefs is dirty.      
       /// call the clip preferences action
       bool Instance::getClipPreferences()
-      {      
+      try {
         /// create the out args with the stuff that does not depend on individual clips
         Property::Set outArgs;
 
@@ -2906,6 +2946,11 @@ namespace OFX {
         _clipPrefsDirty  = false;
 
         return true;
+      }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return false;
       }
 
       /// find the most chromatic components out of the two. Override this if you define
@@ -2995,7 +3040,7 @@ namespace OFX {
       }
 
       OfxStatus Instance::getTimeDomainAction(OfxRangeD& range)
-      {
+      try {
         static const Property::PropSpec outStuff[] = {
           { kOfxImageEffectPropFrameRange , Property::eDouble, 2, false, "0.0" },
           Property::propSpecEnd
@@ -3024,6 +3069,11 @@ namespace OFX {
         range.max = outArgs.getDoubleProperty(kOfxImageEffectPropFrameRange,1);
 
         return kOfxStatOK;
+      }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
       }
 
  #ifdef OFX_SUPPORTS_DIALOG
