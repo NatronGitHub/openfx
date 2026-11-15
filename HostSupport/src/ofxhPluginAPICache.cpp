@@ -31,6 +31,7 @@
 
 #include <string>
 #include <map>
+#include <stdexcept>
 
 // ofx
 #include "ofxCore.h"
@@ -67,6 +68,9 @@ namespace OFX
           std::string propName = map["name"];
           std::string propType = map["type"];
           int dimension = atoi(map["dimension"].c_str());
+          if (dimension < 0) {
+            throw std::runtime_error("malformed plugin cache: negative property dimension");
+          }
           
           currentProp = set.fetchProperty(propName, false);
           
@@ -79,14 +83,25 @@ namespace OFX
               currentProp = new Property::Double(propName, dimension, false, 0);
             } else if (propType == "pointer") {
               currentProp = new Property::Pointer(propName, dimension, false, 0);
+            } else {
+              // unknown property type: ignore the property and its values
+              return;
             }
             set.addProperty(currentProp);
           }
           return;
         }
         
-        if (el == "value" && currentProp) {
+        if (el == "value" && !currentProp) {
+          // value of an ignored property
+          return;
+        }
+
+        if (el == "value") {
           int index = atoi(map["index"].c_str());
+          if (index < 0) {
+            throw std::runtime_error("malformed plugin cache: negative property index");
+          }
           std::string value = map["value"];
           
           switch (currentProp->getType()) {
