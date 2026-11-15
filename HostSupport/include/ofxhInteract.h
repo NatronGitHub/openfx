@@ -114,6 +114,12 @@ namespace OFX {
         State         _state;       ///< how is it feeling today
         void         *_effectInstance; ///< this is ugly, we need a base class to all plugin instances at some point.
         Property::Set _argProperties;
+#ifdef OFX_EXTENSIONS_NATRON
+        // last cursor reported through cursorChanged() (proposed extension, NatronGitHub/openfx#4)
+        std::string   _lastCursor;
+        std::string   _lastCursorImage;
+        int           _lastCursorHotSpot[2];
+#endif
 
         /// initialise the argument properties
         void initArgProp(Property::Set& props,
@@ -141,9 +147,9 @@ namespace OFX {
         /// true if the host descriptor lists at least one kOfxInteractHostPropSupportedCursors
         static bool hostSupportsCursors();
 
-        /// called after a pen or key action returned kOfxStatOK: tell the host the cursor
-        /// requested by this interact (see cursorChanged())
-        void notifyCursor();
+        /// called after a pen or key action: if it did not fail and the cursor requested
+        /// by this interact changed since the last report, call cursorChanged()
+        void notifyCursor(OfxStatus actionStatus);
 #endif
         
       public:
@@ -381,20 +387,36 @@ namespace OFX {
         /// Proposed interact cursor extension (NatronGitHub/openfx#4).
         ///
         /// Called by HostSupport, only if the host descriptor lists
-        /// kOfxInteractHostPropSupportedCursors, after a pen or key action
-        /// (PenMotion, PenDown, PenUp, KeyDown, KeyUp, KeyRepeat) returned kOfxStatOK,
-        /// with the values of kOfxInteractPropCursor, kOfxInteractPropCursorImage and
-        /// kOfxInteractPropCursorHotSpot on this instance, and with kOfxInteractCursorDefault
-        /// after kOfxInteractActionLoseFocus. The host should display that cursor in
-        /// this interact's view. An unsupported value should be displayed as
-        /// kOfxInteractCursorDefault. If a pen motion is trapped by no interact of a view,
-        /// the host should restore its own cursor there.
+        /// kOfxInteractHostPropSupportedCursors, after a pen or key action (PenMotion, PenDown,
+        /// PenUp, KeyDown, KeyUp, KeyRepeat) that did not fail (any status other than
+        /// kOfxStatFailed and kOfxStatErr*), when the values of kOfxInteractPropCursor,
+        /// kOfxInteractPropCursorImage or kOfxInteractPropCursorHotSpot on this instance differ
+        /// from the last ones reported; and with kOfxInteractCursorDefault after
+        /// kOfxInteractActionLoseFocus.
+        ///
+        /// actionStatus is the status of the triggering action. Several interacts may share a
+        /// view, so the host arbitrates between them, e.g.: the interact that trapped the event
+        /// (actionStatus == kOfxStatOK) wins; otherwise the most recent non-default cursor;
+        /// otherwise the host's own cursor. getCursor() gives the current request of any
+        /// interact, e.g. to re-evaluate after dispatching an event to all interacts of a view.
+        /// An unsupported value should be displayed as kOfxInteractCursorDefault.
+        ///
+        /// Destruction: this cannot be called from ~Instance (the derived class is already
+        /// destroyed), so the host must itself restore the view's cursor when an interact that
+        /// owns it is destroyed.
         ///
         /// The default implementation does nothing.
-        virtual void cursorChanged(const std::string &cursor,
+        virtual void cursorChanged(OfxStatus actionStatus,
+                                   const std::string &cursor,
                                    const std::string &image,
                                    int hotSpotX,
                                    int hotSpotY);
+
+        /// the cursor currently requested by this interact (kOfxInteractPropCursor,
+        /// kOfxInteractPropCursorImage, kOfxInteractPropCursorHotSpot), or
+        /// kOfxInteractCursorDefault, "", 0, 0 if the host does not support interact cursors.
+        /// image and hot spot are "" and 0, 0 unless cursor is kOfxInteractCursorCustom.
+        void getCursor(std::string &cursor, std::string &image, int &hotSpotX, int &hotSpotY) const;
 #endif
       };
 

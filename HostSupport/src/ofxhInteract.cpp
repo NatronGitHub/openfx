@@ -192,6 +192,8 @@ namespace OFX {
         if (hostSupportsCursors()) {
           _properties.addProperties(interactCursorStuffs);
         }
+        _lastCursor = kOfxInteractCursorDefault;
+        _lastCursorHotSpot[0] = _lastCursorHotSpot[1] = 0;
 #endif
         _argProperties.setGetHook(kOfxInteractPropPixelScale, this);
         _argProperties.setGetHook(kOfxInteractPropBackgroundColour,this);
@@ -478,9 +480,7 @@ namespace OFX {
         setPenArgProps(penPos, penPosViewport, pressure);
         OfxStatus st = callEntry(kOfxInteractActionPenMotion,&_argProperties);
 #ifdef OFX_EXTENSIONS_NATRON
-        if (st == kOfxStatOK) {
-          notifyCursor();
-        }
+        notifyCursor(st);
 #endif
         return st;
       }
@@ -513,9 +513,7 @@ namespace OFX {
         setPenArgProps(penPos, penPosViewport, pressure);
         OfxStatus st = callEntry(kOfxInteractActionPenUp,&_argProperties);
 #ifdef OFX_EXTENSIONS_NATRON
-        if (st == kOfxStatOK) {
-          notifyCursor();
-        }
+        notifyCursor(st);
 #endif
         return st;
       }
@@ -548,9 +546,7 @@ namespace OFX {
         setPenArgProps(penPos, penPosViewport, pressure);
         OfxStatus st = callEntry(kOfxInteractActionPenDown,&_argProperties);
 #ifdef OFX_EXTENSIONS_NATRON
-        if (st == kOfxStatOK) {
-          notifyCursor();
-        }
+        notifyCursor(st);
 #endif
         return st;
       }
@@ -582,9 +578,7 @@ namespace OFX {
         setKeyArgProps(key, keyString);
         OfxStatus st = callEntry(kOfxInteractActionKeyDown,&_argProperties);
 #ifdef OFX_EXTENSIONS_NATRON
-        if (st == kOfxStatOK) {
-          notifyCursor();
-        }
+        notifyCursor(st);
 #endif
         return st;
       }
@@ -616,9 +610,7 @@ namespace OFX {
         setKeyArgProps(key, keyString);
         OfxStatus st = callEntry(kOfxInteractActionKeyUp,&_argProperties);
 #ifdef OFX_EXTENSIONS_NATRON
-        if (st == kOfxStatOK) {
-          notifyCursor();
-        }
+        notifyCursor(st);
 #endif
         return st;
       }
@@ -650,9 +642,7 @@ namespace OFX {
         setKeyArgProps(key, keyString);
         OfxStatus st = callEntry(kOfxInteractActionKeyRepeat,&_argProperties);
 #ifdef OFX_EXTENSIONS_NATRON
-        if (st == kOfxStatOK) {
-          notifyCursor();
-        }
+        notifyCursor(st);
 #endif
         return st;
       }
@@ -707,8 +697,11 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NATRON
         // the interact no longer owns the cursor
         if (hostSupportsCursors()) {
+          _lastCursor = kOfxInteractCursorDefault;
+          _lastCursorImage.clear();
+          _lastCursorHotSpot[0] = _lastCursorHotSpot[1] = 0;
           try {
-            cursorChanged(kOfxInteractCursorDefault, "", 0, 0);
+            cursorChanged(st, kOfxInteractCursorDefault, "", 0, 0);
           } catch (...) {
           }
         }
@@ -790,23 +783,62 @@ namespace OFX {
                ImageEffect::gImageEffectHost->getProperties().getDimension(kOfxInteractHostPropSupportedCursors) > 0;
       }
 
-      void Instance::notifyCursor()
+      void Instance::getCursor(std::string &cursor, std::string &image, int &hotSpotX, int &hotSpotY) const
       {
+        cursor = kOfxInteractCursorDefault;
+        image.clear();
+        hotSpotX = hotSpotY = 0;
+        if (!_properties.fetchProperty(kOfxInteractPropCursor)) {
+          return; // host does not support interact cursors
+        }
+        try {
+          const std::string &c = _properties.getStringProperty(kOfxInteractPropCursor);
+          if (!c.empty()) {
+            cursor = c;
+          }
+          // the image and hot spot are only meaningful for kOfxInteractCursorCustom
+          if (cursor == kOfxInteractCursorCustom) {
+            image = _properties.getStringProperty(kOfxInteractPropCursorImage);
+            int hotSpot[2] = {0, 0};
+            _properties.getIntPropertyN(kOfxInteractPropCursorHotSpot, hotSpot, 2);
+            hotSpotX = hotSpot[0];
+            hotSpotY = hotSpot[1];
+          }
+        } catch (...) {
+        }
+      }
+
+      void Instance::notifyCursor(OfxStatus actionStatus)
+      {
+        // errors: kOfxStatFailed and kOfxStatErr*; kOfxStatOK, kOfxStatReplyDefault (event not
+        // trapped, e.g. a hover moving off a handle) and the other replies are reported
+        if (actionStatus != kOfxStatOK && actionStatus != kOfxStatReplyDefault &&
+            actionStatus != kOfxStatReplyYes && actionStatus != kOfxStatReplyNo) {
+          return;
+        }
         if (!hostSupportsCursors()) {
           return;
         }
+        std::string cursor, image;
+        int hotSpotX, hotSpotY;
+        getCursor(cursor, image, hotSpotX, hotSpotY);
+        if (cursor == _lastCursor && image == _lastCursorImage &&
+            hotSpotX == _lastCursorHotSpot[0] && hotSpotY == _lastCursorHotSpot[1]) {
+          return; // nothing changed: no redundant cursor updates in the host
+        }
+        _lastCursor = cursor;
+        _lastCursorImage = image;
+        _lastCursorHotSpot[0] = hotSpotX;
+        _lastCursorHotSpot[1] = hotSpotY;
         try {
-          const std::string &cursor = _properties.getStringProperty(kOfxInteractPropCursor);
-          const std::string &image = _properties.getStringProperty(kOfxInteractPropCursorImage);
-          int hotSpot[2] = {0, 0};
-          _properties.getIntPropertyN(kOfxInteractPropCursorHotSpot, hotSpot, 2);
-          cursorChanged(cursor.empty() ? std::string(kOfxInteractCursorDefault) : cursor, image, hotSpot[0], hotSpot[1]);
+          cursorChanged(actionStatus, cursor, image, hotSpotX, hotSpotY);
         } catch (...) {
           // never let the host's cursor handling break the action
         }
       }
 
-      void Instance::cursorChanged(const std::string &/*cursor*/,
+      void Instance::cursorChanged(OfxStatus /*actionStatus*/,
+                                   const std::string &/*cursor*/,
                                    const std::string &/*image*/,
                                    int /*hotSpotX*/,
                                    int /*hotSpotY*/)
