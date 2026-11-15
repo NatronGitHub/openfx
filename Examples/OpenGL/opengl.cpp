@@ -34,6 +34,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdio>
 #include <cstring>
 #include <cstdarg>
+#ifdef _WIN32
+#include <windows.h> // must precede GL/gl.h on Windows
+#endif
 #ifdef __APPLE__
 #include <OpenGL/gl.h>
 #else

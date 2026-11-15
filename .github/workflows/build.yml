@@ -26,6 +26,10 @@ jobs:
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        # Support/include/osxDeploy.sh (release bundles) needs GNU sed
+        run: brew install gnu-sed
       - name: Keep the bundled expat's autotools files up to date
         # git checkout gives the files arbitrary mtimes, which may make expat's
         # Makefile try to re-run aclocal/automake
@@ -80,9 +84,12 @@ jobs:
           -DOFX_EXTENSIONS_NATRON=${{ matrix.extensions }} -DOFX_EXTENSIONS_NUKE=${{ matrix.extensions }}
           -DOFX_EXTENSIONS_VEGAS=${{ matrix.extensions }} -DOFX_EXTENSIONS_TUTTLE=${{ matrix.extensions }}
           -DOFX_EXTENSIONS_RESOLVE=${{ matrix.extensions }}
+          -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins"
       - name: Build
         run: cmake --build build --config ${{ matrix.config }} --parallel
       - name: Install
+        # PLUGIN_INSTALLDIR defaults to the system OFX folder; keep everything in the prefix here
+        shell: bash
         run: cmake --install build --config ${{ matrix.config }} --prefix install
       - name: Load the plug-ins with cacheDemo
         if: runner.os != 'Windows'
