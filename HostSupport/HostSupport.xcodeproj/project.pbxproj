@@ -42,6 +42,7 @@
 		1E3CB83617992E520032B538 /* ofxhUtilities.h in Headers */ = {isa = PBXBuildFile; fileRef = 1E3CB82717992E520032B538 /* ofxhUtilities.h */; };
 		1E3CB83717992E520032B538 /* ofxhXml.h in Headers */ = {isa = PBXBuildFile; fileRef = 1E3CB82817992E520032B538 /* ofxhXml.h */; };
 		A1B2C3D4E5F60718293A4C11 /* ofxhPlatformDefines.h in Headers */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C01 /* ofxhPlatformDefines.h */; };
+		A1B2C3D4E5F60718293A4D11 /* ofxhArchDirs.h in Headers */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4D01 /* ofxhArchDirs.h */; };
 		1E3CB84417992E990032B538 /* ofxCore.h in Headers */ = {isa = PBXBuildFile; fileRef = 1E3CB83917992E990032B538 /* ofxCore.h */; };
 		1E3CB84517992E990032B538 /* ofxImageEffect.h in Headers */ = {isa = PBXBuildFile; fileRef = 1E3CB83A17992E990032B538 /* ofxImageEffect.h */; };
 		1E3CB84617992E990032B538 /* ofxInteract.h in Headers */ = {isa = PBXBuildFile; fileRef = 1E3CB83B17992E990032B538 /* ofxInteract.h */; };
@@ -196,6 +197,7 @@
 		1E3CB82717992E520032B538 /* ofxhUtilities.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ofxhUtilities.h; sourceTree = "<group>"; };
 		1E3CB82817992E520032B538 /* ofxhXml.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ofxhXml.h; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4C01 /* ofxhPlatformDefines.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ofxhPlatformDefines.h; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4D01 /* ofxhArchDirs.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ofxhArchDirs.h; sourceTree = "<group>"; };
 		1E3CB83917992E990032B538 /* ofxCore.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ofxCore.h; sourceTree = "<group>"; };
 		1E3CB83A17992E990032B538 /* ofxImageEffect.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ofxImageEffect.h; sourceTree = "<group>"; };
 		1E3CB83B17992E990032B538 /* ofxInteract.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ofxInteract.h; sourceTree = "<group>"; };
@@ -375,6 +377,7 @@
 				1E3CB82717992E520032B538 /* ofxhUtilities.h */,
 				1E3CB82817992E520032B538 /* ofxhXml.h */,
 				A1B2C3D4E5F60718293A4C01 /* ofxhPlatformDefines.h */,
+				A1B2C3D4E5F60718293A4D01 /* ofxhArchDirs.h */,
 			);
 			name = Headers;
 			path = include;
@@ -614,6 +617,7 @@
 				1E3CB83617992E520032B538 /* ofxhUtilities.h in Headers */,
 				1E3CB83717992E520032B538 /* ofxhXml.h in Headers */,
 				A1B2C3D4E5F60718293A4C11 /* ofxhPlatformDefines.h in Headers */,
+				A1B2C3D4E5F60718293A4D11 /* ofxhArchDirs.h in Headers */,
 				1E3CB84417992E990032B538 /* ofxCore.h in Headers */,
 				1E3CB84517992E990032B538 /* ofxImageEffect.h in Headers */,
 				1E3CB84617992E990032B538 /* ofxInteract.h in Headers */,

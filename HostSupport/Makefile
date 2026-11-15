@@ -60,6 +60,7 @@ ifeq ($(OS),Darwin)
 endif
 
 HEADERS = include/ofxhBinary.h                  \
+	include/ofxhArchDirs.h               \
    include/ofxhClip.h                           \
    include/ofxhHost.h                           \
    include/ofxhImageEffect.h                    \
