@@ -147,13 +147,25 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
   } else {
     int pluginCount = (*_getNumberOfPlugins)();
     _plugins.clear();
+    if (pluginCount < 0) {
+      // a broken binary must not abort the whole scan
+      pluginCount = 0;
+    }
     _plugins.reserve(pluginCount);
     
     for (int i=0;i<pluginCount;i++) {
       OfxPlugin *plug = (*_getPluginFunc)(i);
+      if (!plug || !plug->pluginApi || !plug->pluginIdentifier) {
+        std::cerr << "OFX: " << _filePath << ": OfxGetPlugin(" << i << ") returned an invalid plug-in, ignoring it" << std::endl;
+        continue;
+      }
       
+      // "if the plug-in's API or its version are not supported, the plug-in
+      // is ignored and we skip to the next one"
       APICache::PluginAPICacheI *api = cache->findApiHandler(plug->pluginApi, plug->apiVersion);
-      assert(api);
+      if (!api) {
+        continue;
+      }
       
       _plugins.push_back(api->newPlugin(this, i, plug));
     }
