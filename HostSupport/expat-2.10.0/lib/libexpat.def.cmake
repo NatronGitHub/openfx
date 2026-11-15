@@ -1,7 +1,7 @@
 ; DEF file for MS VC++
 
-LIBRARY
 EXPORTS
+; added some time before version 1.95.4
   XML_DefaultCurrent @1
   XML_ErrorString @2
   XML_ExpatVersion @3
@@ -56,8 +56,8 @@ EXPORTS
   XML_SetUserData @52
   XML_SetXmlDeclHandler @53
   XML_UseParserAsHandlerArg @54
-; added with version 1.95.3
   XML_ParserReset @55
+; added with version 1.95.4
   XML_SetSkippedEntityHandler @56
 ; added with version 1.95.5
   XML_GetFeatureList @57
@@ -71,10 +71,29 @@ EXPORTS
   XML_StopParser @63
   XML_ResumeParser @64
   XML_GetParsingStatus @65
-; added with version 2.1.1
+; added with version 2.1.0
 ; XML_GetAttributeInfo @66
   XML_SetHashSalt @67
 ; internal @68 removed with version 2.3.1
 ; added with version 2.4.0
-  XML_SetBillionLaughsAttackProtectionActivationThreshold @69
-  XML_SetBillionLaughsAttackProtectionMaximumAmplification @70
+@_EXPAT_COMMENT_DTD_OR_GE@ XML_SetBillionLaughsAttackProtectionActivationThreshold @69
+@_EXPAT_COMMENT_DTD_OR_GE@ XML_SetBillionLaughsAttackProtectionMaximumAmplification @70
+; added with version 2.6.0
+  XML_SetReparseDeferralEnabled @71
+; added with version 2.7.2
+@_EXPAT_COMMENT_DTD_OR_GE@ XML_SetAllocTrackerMaximumAmplification @72
+@_EXPAT_COMMENT_DTD_OR_GE@ XML_SetAllocTrackerActivationThreshold @73
+; added with version 2.8.0
+  XML_SetHashSalt16Bytes @74
+; added with version 2.9.0
+  XML_GetCurrentByteCount64 @75
+  XML_GetCurrentByteIndex64 @76
+  XML_GetCurrentColumnNumber64 @77
+  XML_GetCurrentLineNumber64 @78
+  XML_GetInputContext64 @79
+  XML_GetPropertyBool @80
+  XML_GetPropertyDouble @81
+  XML_GetPropertyUInt64 @82
+  XML_SetPropertyBool @83
+  XML_SetPropertyDouble @84
+  XML_SetPropertyUInt64 @85

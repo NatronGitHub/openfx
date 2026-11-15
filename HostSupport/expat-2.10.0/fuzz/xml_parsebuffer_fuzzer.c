@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,6 +15,7 @@
  */
 
 #include <assert.h>
+#include <limits.h> // for INT_MAX
 #include <stdint.h>
 #include <string.h>
 
@@ -34,7 +35,8 @@
 #endif
 
 // 16-byte deterministic hash key.
-static unsigned char hash_key[16] = "FUZZING IS FUN!";
+static unsigned char hash_key_1[16] = "FUZZING IS FUN?";
+static unsigned char hash_key_2[16] = "FUZZING IS FUN!";
 
 static void XMLCALL
 start(void *userData, const XML_Char *name, const XML_Char **atts) {
@@ -48,24 +50,79 @@ end(void *userData, const XML_Char *name) {
   (void)name;
 }
 
+static void XMLCALL
+may_stop_character_handler(void *userData, const XML_Char *s, int len) {
+  XML_Parser parser = (XML_Parser)userData;
+  if (len > 1 && s[0] == 's') {
+    XML_StopParser(parser, s[1] == 'r' ? XML_FALSE : XML_TRUE);
+  }
+}
+
+static void
+ParseOneInput(XML_Parser p, const uint8_t *data, size_t size) {
+  // Set the hash salt using siphash to generate a deterministic hash.
+  // The salt is 16 bytes and siphash24 produces 8, so the input is hashed
+  // under two keys.
+  const uint64_t first = siphash24(data, size, sip_keyof(hash_key_1));
+  const uint64_t second = siphash24(data, size, sip_keyof(hash_key_2));
+  uint8_t entropy[16];
+  memcpy(entropy, &first, sizeof(first));
+  memcpy(entropy + sizeof(first), &second, sizeof(second));
+  XML_SetHashSalt16Bytes(p, entropy);
+  (void)sip24_valid;
+
+  XML_SetUserData(p, p);
+  XML_SetElementHandler(p, start, end);
+  XML_SetCharacterDataHandler(p, may_stop_character_handler);
+  assert(size <= INT_MAX);
+  void *buf = XML_GetBuffer(p, (int)size);
+  assert(buf);
+  memcpy(buf, data, size);
+  XML_ParseBuffer(p, (int)size, 0);
+  buf = XML_GetBuffer(p, (int)size);
+  if (buf == NULL) {
+    return;
+  }
+  memcpy(buf, data, size);
+  if (XML_ParseBuffer(p, (int)size, 1) == XML_STATUS_ERROR) {
+    XML_ErrorString(XML_GetErrorCode(p));
+  }
+  XML_GetCurrentLineNumber64(p);
+  if (size % 2) {
+    XML_ParserReset(p, NULL);
+  }
+}
+
 int
 LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   if (size == 0)
     return 0;
 
-  XML_Parser p = XML_ParserCreate(xstr(ENCODING_FOR_FUZZING));
-  assert(p);
-  XML_SetElementHandler(p, start, end);
+  XML_Parser parentParser = XML_ParserCreate(xstr(ENCODING_FOR_FUZZING));
+  assert(parentParser);
+  ParseOneInput(parentParser, data, size);
+  // not freed yet, but used later and freed then
 
-  // Set the hash salt using siphash to generate a deterministic hash.
-  struct sipkey *key = sip_keyof(hash_key);
-  XML_SetHashSalt(p, (unsigned long)siphash24(data, size, key));
+  XML_Parser namespaceParser = XML_ParserCreateNS(NULL, '!');
+  assert(namespaceParser);
+  ParseOneInput(namespaceParser, data, size);
+  XML_ParserFree(namespaceParser);
 
-  void *buf = XML_GetBuffer(p, size);
-  assert(buf);
+  XML_Parser externalEntityParser
+      = XML_ExternalEntityParserCreate(parentParser, "e1", NULL);
+  if (externalEntityParser != NULL) {
+    ParseOneInput(externalEntityParser, data, size);
+    XML_ParserFree(externalEntityParser);
+  }
 
-  memcpy(buf, data, size);
-  XML_ParseBuffer(p, size, size == 0);
-  XML_ParserFree(p);
+  XML_Parser externalDtdParser
+      = XML_ExternalEntityParserCreate(parentParser, NULL, NULL);
+  if (externalDtdParser != NULL) {
+    ParseOneInput(externalDtdParser, data, size);
+    XML_ParserFree(externalDtdParser);
+  }
+
+  // finally frees this parser which served as parent
+  XML_ParserFree(parentParser);
   return 0;
 }
