@@ -38,6 +38,7 @@ England
 
 #include "ofxsSupportPrivate.h"
 #include <algorithm> // for find, min, max
+#include <cmath> // for floor, ceil
 #include <cstring> // for strlen
 #include <sstream> // stringstream
 #include <set>
@@ -1288,11 +1289,12 @@ namespace OFX {
    */
   OfxRectI ImageEffectDescriptor::getSelectionRectangle()
   {
+    // kNatronOfxImageEffectSelectionRectangle is a double x 4 property (see ofxNatron.h)
     OfxRectI bounds = { 0, 0, 0, 0 };
-    bounds.x1 = _effectProps.propGetInt(kNatronOfxImageEffectSelectionRectangle, 0, false);
-    bounds.y1 = _effectProps.propGetInt(kNatronOfxImageEffectSelectionRectangle, 1, false);
-    bounds.x2 = _effectProps.propGetInt(kNatronOfxImageEffectSelectionRectangle, 2, false);
-    bounds.y2 = _effectProps.propGetInt(kNatronOfxImageEffectSelectionRectangle, 3, false);
+    bounds.x1 = (int)std::floor(_effectProps.propGetDouble(kNatronOfxImageEffectSelectionRectangle, 0, false));
+    bounds.y1 = (int)std::floor(_effectProps.propGetDouble(kNatronOfxImageEffectSelectionRectangle, 1, false));
+    bounds.x2 = (int)std::ceil(_effectProps.propGetDouble(kNatronOfxImageEffectSelectionRectangle, 2, false));
+    bounds.y2 = (int)std::ceil(_effectProps.propGetDouble(kNatronOfxImageEffectSelectionRectangle, 3, false));
 
     return bounds;
   }
@@ -2534,6 +2536,15 @@ namespace OFX {
     // fetch the context
     std::string ctxt = _effectProps.propGetString(kOfxImageEffectPropVegasContext, false);
     return mapToVegasContextEnum(ctxt);
+  }
+#endif
+
+#ifdef OFX_EXTENSIONS_NATRON
+  OfxRectD ImageEffect::getSelectionRectangle() const
+  {
+    OfxRectD bounds = { 0., 0., 0., 0. };
+    _effectProps.propGetDoubleN(kNatronOfxImageEffectSelectionRectangle, &bounds.x1, 4, false);
+    return bounds;
   }
 #endif
 

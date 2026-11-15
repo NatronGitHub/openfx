@@ -1941,6 +1941,13 @@ namespace OFX {
 
     /** @brief Returns a list of planes that were created by the user on the host side*/
     void getExtraneousPlanesCreated(std::vector<std::string>* planes) const;
+
+    /** @brief The current selection rectangle drawn by the user on the host viewport, in canonical coordinates.
+
+     This property is refreshed whenever the host calls the kOfxActionInstanceChanged action
+     for the parameter kNatronOfxParamSelectionRectangleState.
+     */
+    OfxRectD getSelectionRectangle() const;
 #endif
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
