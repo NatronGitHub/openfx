@@ -1,5 +1,14 @@
 #ifndef _ofxsInteract_H_
 #define _ofxsInteract_H_
+
+/** @brief Feature macro: defined when this Support library has the OFX 1.5 DrawSuite C++ API
+    (OFX::DrawContext, OFX::DrawArgs::drawContext and
+    OFX::ImageEffectDescriptor::setOverlayInteractDescriptorV2()).
+
+    Test this rather than kOfxDrawSuite: kOfxDrawSuite only says that the C header
+    ofxDrawSuite.h is available, and upstream's Support library defines it without this API.
+*/
+#define OFXS_SUPPORT_HAS_DRAWCONTEXT 1
 /*
 OFX Support Library, a library that skins the OFX plug-in API with C++ classes.
 Copyright (C) 2004-2005 The Open Effects Association Ltd
