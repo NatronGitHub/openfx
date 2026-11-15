@@ -463,9 +463,8 @@ namespace OFX {
     bool supportsStringAnimation;
     bool supportsCustomInteract;
     bool supportsChoiceAnimation;
-#ifdef OFX_EXTENSIONS_RESOLVE
     bool supportsStrChoiceAnimation;
-#endif
+    bool supportsStrChoice; ///< kOfxParamHostPropSupportsStrChoice: check before defining a StrChoice param
     bool supportsBooleanAnimation;
     bool supportsCustomAnimation;
     void* osHandle;
