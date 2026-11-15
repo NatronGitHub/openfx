@@ -35,6 +35,9 @@ England
 */
 
 #include "ofxsSupportPrivate.h"
+#include "ofxsLog.h"
+#include <new> // bad_alloc
+#include <vector>
 
 namespace OFX {
 
@@ -53,14 +56,53 @@ namespace OFX {
     {
     }
 
-    /** @brief Function to pass to the multi thread suite */
+    namespace {
+      /** @brief argument passed through the multi thread suite to staticMultiThreadFunction */
+      struct ThreadArgs {
+        Processor *processor;
+        // one slot per thread, so that no synchronization is needed
+        std::vector<OfxStatus> status;
+      };
+    }
+
+    /** @brief Function to pass to the multi thread suite
+
+     This is called from host threads through a C function pointer, so no
+     exception may escape from it: exceptions are caught here, recorded per
+     thread, and rethrown from multiThread() in the calling thread.
+     */
     void Processor::staticMultiThreadFunction(unsigned int threadIndex, unsigned int threadMax, void *customArg)
     {
-      // cast the custom arg to one of me
-      Processor *me = (Processor *)  customArg;
-
-      // and call my thread function
-      me->multiThreadFunction(threadIndex, threadMax);
+      ThreadArgs *args = (ThreadArgs *) customArg;
+      OfxStatus stat = kOfxStatOK;
+      try {
+        // and call my thread function
+        args->processor->multiThreadFunction(threadIndex, threadMax);
+      }
+      // same mapping as in OFX::Private::mainEntryStr()
+      catch (const OFX::Exception::Suite &ex) {
+        stat = ex.status();
+      }
+      catch (const OFX::Exception::HostInadequate &) {
+        stat = kOfxStatErrMissingHostFeature;
+      }
+      catch (const OFX::Exception::PropertyUnknownToHost &) {
+        stat = kOfxStatErrMissingHostFeature;
+      }
+      catch (std::bad_alloc &) {
+        stat = kOfxStatErrMemory;
+      }
+      catch (...) {
+        stat = kOfxStatFailed;
+      }
+      if (stat != kOfxStatOK) {
+        if (threadIndex < args->status.size()) {
+          args->status[threadIndex] = stat;
+        } else {
+          // the host launched more threads than requested, should not happen
+          OFX::Log::error(true, "multiThread: thread index %u out of range [0..%u)", threadIndex, (unsigned)args->status.size());
+        }
+      }
     }
 
     /** @brief Function to pass to the multi thread suite */
@@ -77,12 +119,23 @@ namespace OFX {
       else {
         // OK do it
           OfxStatus stat = kOfxStatFailed;
+          ThreadArgs args;
+          args.processor = this;
+          args.status.resize(nCPUs, kOfxStatOK);
           if(OFX::Private::gThreadSuite){
-              stat = OFX::Private::gThreadSuite->multiThread(staticMultiThreadFunction, nCPUs, (void *)this);
+              stat = OFX::Private::gThreadSuite->multiThread(staticMultiThreadFunction, nCPUs, (void *)&args);
           }
 
         // did we do it?
         throwSuiteStatusException(stat);
+
+        // rethrow the first failure from the threads, if any
+        for (std::size_t i = 0; i < args.status.size(); ++i) {
+          if (args.status[i] != kOfxStatOK) {
+            throwSuiteStatusException(args.status[i]);
+            // kOfxStatReply* statuses are not errors for throwSuiteStatusException()
+          }
+        }
       }
     }
 

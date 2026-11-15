@@ -372,29 +372,43 @@ namespace OFX {
           return components;
       }
 #endif
+
+      /// Copy the first n values of a dim-dimensional hooked property to the
+      /// caller's buffer: propGet*N only gives room for indices 0..n-1.
+      template<class T>
+      static void copyHookValuesN(T *dst, const T *src, int n, int dim)
+      {
+        if (n < 0 || n > dim) {
+          throw Property::Exception(kOfxStatErrBadIndex);
+        }
+        for (int i = 0; i < n; ++i) {
+          dst[i] = src[i];
+        }
+      }
+
       // get the virutals for viewport size, pixel scale, background colour
       void ClipInstance::getDoublePropertyN(const std::string &name, double *values, int n) const OFX_EXCEPTION_SPEC
       {
-        if(n<=0) throw Property::Exception(kOfxStatErrValue);
+        double v[2];
         if(name==kOfxImagePropPixelAspectRatio){
-          if(n>1) throw Property::Exception(kOfxStatErrValue);
-          *values = getAspectRatio();
+          v[0] = getAspectRatio();
+          copyHookValuesN(values, v, n, 1);
         }
         else if(name==kOfxImageEffectPropFrameRate){
-          if(n>1) throw Property::Exception(kOfxStatErrValue);
-          *values = getFrameRate();
+          v[0] = getFrameRate();
+          copyHookValuesN(values, v, n, 1);
         }
         else if(name==kOfxImageEffectPropFrameRange){
-          if(n>2) throw Property::Exception(kOfxStatErrValue);
-          getFrameRange(values[0], values[1]);
+          getFrameRange(v[0], v[1]);
+          copyHookValuesN(values, v, n, 2);
         }
         else if(name==kOfxImageEffectPropUnmappedFrameRate){
-          if(n>1) throw Property::Exception(kOfxStatErrValue);
-          *values =  getUnmappedFrameRate();
+          v[0] = getUnmappedFrameRate();
+          copyHookValuesN(values, v, n, 1);
         }
         else if(name==kOfxImageEffectPropUnmappedFrameRange){
-          if(n>2) throw Property::Exception(kOfxStatErrValue);
-          getUnmappedFrameRange(values[0], values[1]);
+          getUnmappedFrameRange(v[0], v[1]);
+          copyHookValuesN(values, v, n, 2);
         }
         else
           throw Property::Exception(kOfxStatErrValue);
@@ -404,25 +418,25 @@ namespace OFX {
       double ClipInstance::getDoubleProperty(const std::string &name, int n) const OFX_EXCEPTION_SPEC
       {
         if(name==kOfxImagePropPixelAspectRatio){
-          if(n!=0) throw Property::Exception(kOfxStatErrValue);
+          if(n!=0) throw Property::Exception(kOfxStatErrBadIndex);
           return getAspectRatio();
         }
         else if(name==kOfxImageEffectPropFrameRate){
-          if(n!=0) throw Property::Exception(kOfxStatErrValue);
+          if(n!=0) throw Property::Exception(kOfxStatErrBadIndex);
           return getFrameRate();
         }
         else if(name==kOfxImageEffectPropFrameRange){
-          if(n>1) throw Property::Exception(kOfxStatErrValue);
+          if(n<0 || n>1) throw Property::Exception(kOfxStatErrBadIndex);
           double range[2];
           getFrameRange(range[0], range[1]);
           return range[n];
         }
         else if(name==kOfxImageEffectPropUnmappedFrameRate){
-          if(n>0) throw Property::Exception(kOfxStatErrValue);
+          if(n!=0) throw Property::Exception(kOfxStatErrBadIndex);
           return getUnmappedFrameRate();
         }
         else if(name==kOfxImageEffectPropUnmappedFrameRange){
-          if(n>1) throw Property::Exception(kOfxStatErrValue);
+          if(n<0 || n>1) throw Property::Exception(kOfxStatErrBadIndex);
           double range[2];
           getUnmappedFrameRange(range[0], range[1]);
           return range[n];
@@ -435,9 +449,11 @@ namespace OFX {
       int ClipInstance::getIntProperty(const std::string &name, int n) const OFX_EXCEPTION_SPEC
       {
         if(name==kOfxImageClipPropConnected){
+          if(n!=0) throw Property::Exception(kOfxStatErrBadIndex);
           return getConnected();
         }
         else if(name==kOfxImageClipPropContinuousSamples){
+          if(n!=0) throw Property::Exception(kOfxStatErrBadIndex);
           return getContinuousSamples();
         }
 #ifdef OFX_EXTENSIONS_NATRON
@@ -464,21 +480,16 @@ namespace OFX {
       // get the virutals for viewport size, pixel scale, background colour
       void ClipInstance::getIntPropertyN(const std::string &name, int *values, int n) const OFX_EXCEPTION_SPEC
       {
-        if(n<=0) throw Property::Exception(kOfxStatErrValue);
 #ifdef OFX_EXTENSIONS_NATRON
         if(name==kOfxImageClipPropFormat){
-          if (n != 4) {
-            throw Property::Exception(kOfxStatErrBadIndex);
-          }
           OfxRectI format = getFormat();
-          values[0] = format.x1;
-          values[1] = format.y1;
-          values[2] = format.x2;
-          values[3] = format.y2;
+          int v[4] = { format.x1, format.y1, format.x2, format.y2 };
+          copyHookValuesN(values, v, n, 4);
         } else
 #endif
         {
-          *values = getIntProperty(name, 0);
+          int v = getIntProperty(name, 0);
+          copyHookValuesN(values, &v, n, 1);
         }
       }
 
@@ -495,7 +506,7 @@ namespace OFX {
             }
         }
 #endif
-        if(n!=0) throw Property::Exception(kOfxStatErrValue);
+        if(n!=0) throw Property::Exception(kOfxStatErrBadIndex);
         if(name==kOfxImageEffectPropPixelDepth){
           return getPixelDepth();
         }
@@ -521,7 +532,8 @@ namespace OFX {
       // fetch  multiple values in a multi-dimension property
       void ClipInstance::getStringPropertyN(const std::string &name, const char** values, int count) const OFX_EXCEPTION_SPEC
       {
-          if (count <= 0) throw Property::Exception(kOfxStatErrValue);
+          if (count < 0) throw Property::Exception(kOfxStatErrBadIndex);
+          if (count == 0) return;
 #ifdef OFX_EXTENSIONS_NUKE
           if (name==kFnOfxImageEffectPropComponentsPresent) {
               const std::vector<std::string>& componentsPresents = getComponentsPresent();
@@ -529,10 +541,13 @@ namespace OFX {
               for (int i = 0; i < minCount; ++i) {
                   values[i] = componentsPresents[i].c_str();
               }
+              if (count > (int)componentsPresents.size()) {
+                  throw Property::Exception(kOfxStatErrBadIndex);
+              }
               return;
           }
 #endif
-          if(count!=1) throw Property::Exception(kOfxStatErrValue);
+          if(count!=1) throw Property::Exception(kOfxStatErrBadIndex);
           if(name==kOfxImageEffectPropPixelDepth){
               values[0] = getPixelDepth().c_str();
           }

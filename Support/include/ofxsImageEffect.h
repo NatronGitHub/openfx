@@ -1493,6 +1493,7 @@ namespace OFX {
     bool      isEnabledCudaRender;
     bool      isEnabledMetalRender;
     void*     pOpenCLCmdQ;
+    void*     pCudaStream;
     void*     pMetalCmdQ;
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -1518,6 +1519,7 @@ namespace OFX {
     bool      isEnabledCudaRender;
     bool      isEnabledMetalRender;
     void*     pOpenCLCmdQ;
+    void*     pCudaStream;
     void*     pMetalCmdQ;
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -1941,11 +1943,21 @@ namespace OFX {
 
     /** @brief Returns a list of planes that were created by the user on the host side*/
     void getExtraneousPlanesCreated(std::vector<std::string>* planes) const;
+
+    /** @brief The current selection rectangle drawn by the user on the host viewport, in canonical coordinates.
+
+     This property is refreshed whenever the host calls the kOfxActionInstanceChanged action
+     for the parameter kNatronOfxParamSelectionRectangleState.
+     */
+    OfxRectD getSelectionRectangle() const;
 #endif
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     /** @brief Does the plugin support OpenGL accelerated rendering (but is also capable of CPU rendering) ? Can only be called from changedParam or changedClip (OFX 1.4). */
     void setSupportsOpenGLRender(bool v);
+
+    /** @brief Does the plugin require OpenGL accelerated rendering ? Can only be called from changedParam or changedClip. */
+    void setNeedsOpenGLRender(bool v);
 #endif
 
     /** @brief notify host that the internal data structures need syncing back to parameters for persistence and so on.  This is reset by the host after calling SyncPrivateData. */
