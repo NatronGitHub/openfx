@@ -37,6 +37,7 @@
 #include "ofxhUtilities.h"
 
 #include <iostream>
+#include <set>
 #include <string.h>
 
 namespace OFX {
@@ -218,6 +219,36 @@ namespace OFX {
         }
       }
 
+      static PluginReadOnlyPolicyEnum gPluginReadOnlyPolicy = ePluginReadOnlyEnforce;
+
+      void setPluginReadOnlyPolicy(PluginReadOnlyPolicyEnum policy) { gPluginReadOnlyPolicy = policy; }
+      PluginReadOnlyPolicyEnum getPluginReadOnlyPolicy() { return gPluginReadOnlyPolicy; }
+
+      /// true if a plug-in write through the property suite to prop must be refused.
+      /// "Property Set - ... (read only)": the property may only be written by the host.
+      /// The suite's set functions document kOfxStatErrValue as their error for invalid
+      /// writes, so that is what the caller returns.
+      static bool refusePluginWrite(Property *prop)
+      {
+        if (!prop->getPluginReadOnly()) {
+          return false;
+        }
+        switch (gPluginReadOnlyPolicy) {
+        case ePluginReadOnlyIgnore:
+          return false;
+        case ePluginReadOnlyWarn: {
+          static std::set<std::string> warned; // only touched when the warn policy is set
+          if (warned.insert(prop->getName()).second) {
+            std::cerr << "OFX: warning: a plug-in wrote the read-only property " << prop->getName() << std::endl;
+          }
+          return false;
+        }
+        case ePluginReadOnlyEnforce:
+        default:
+          return true;
+        }
+      }
+
       inline int castToAPIType(int i) { return i; }
       inline void *castToAPIType(void *v) { return v; }
       inline double castToAPIType(double d) { return d; }
@@ -225,9 +256,9 @@ namespace OFX {
 
       template<class T> PropertyTemplate<T>::PropertyTemplate(const std::string &name,					    
         int dimension,													    
-        bool /*pluginReadOnly*/,
+        bool pluginReadOnly,
         APIType defaultValue)												    
-        : Property(name, T::typeCode, dimension)									    
+        : Property(name, T::typeCode, dimension, pluginReadOnly)							    
       {															    
 															    
         if (dimension) {												    
@@ -832,6 +863,12 @@ namespace OFX {
 #           endif
             return kOfxStatErrUnknown;
           }
+          if (refusePluginWrite(prop)) {
+#           ifdef OFX_DEBUG_PROPERTIES
+            std::cout << ' ' << StatStr(kOfxStatErrValue) << " (read-only)" << std::endl;
+#           endif
+            return kOfxStatErrValue;
+          }
           prop->setValue(value, index);
         } catch (const Exception& e) {
 #         ifdef OFX_DEBUG_PROPERTIES
@@ -878,6 +915,12 @@ namespace OFX {
             std::cout << ' ' << StatStr(kOfxStatErrUnknown) << std::endl;
 #           endif
             return kOfxStatErrUnknown;
+          }
+          if (refusePluginWrite(prop)) {
+#           ifdef OFX_DEBUG_PROPERTIES
+            std::cout << ' ' << StatStr(kOfxStatErrValue) << " (read-only)" << std::endl;
+#           endif
+            return kOfxStatErrValue;
           }
           prop->setValueN(values, count);
         } catch (const Exception& e) {
@@ -1005,6 +1048,12 @@ namespace OFX {
             std::cout << ' ' << StatStr(kOfxStatErrUnknown) << std::endl;
 #           endif
             return kOfxStatErrUnknown;
+          }
+          if (refusePluginWrite(prop)) {
+#           ifdef OFX_DEBUG_PROPERTIES
+            std::cout << ' ' << StatStr(kOfxStatErrValue) << " (read-only)" << std::endl;
+#           endif
+            return kOfxStatErrValue;
           }
           prop->reset();
 #         ifdef OFX_DEBUG_PROPERTIES

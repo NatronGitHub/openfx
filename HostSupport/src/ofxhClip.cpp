@@ -98,11 +98,12 @@ namespace OFX {
       ClipBase::ClipBase(const ClipBase &v)
         : _properties(v._properties) 
       {
-        /// we are an instance, we need to reset the props to read only
+        /// we are an instance, we need to reset the props to read only: the clip descriptor
+        /// properties are "clip descriptor (read/write), clip instance (read only)"
         const Property::PropertyMap &map = _properties.getProperties();
         Property::PropertyMap::const_iterator i;
         for(i = map.begin(); i != map.end(); ++i) {
-          (*i).second->setPluginReadOnly(false);
+          (*i).second->setPluginReadOnly(true);
         } 
       }
 

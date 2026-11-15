@@ -135,28 +135,28 @@ namespace OFX {
         { kOfxImageEffectPropHelpContextID,     Property::eInt,        1, false, "0" },
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
-        { kNatronOfxImageEffectPluginUsesMultipleThread, Property::eInt, 1, true, "0" },
-        { kNatronOfxImageEffectPropChannelSelector, Property::eString, 1, true, kOfxImageComponentRGBA },
-        { kNatronOfxImageEffectPropHostMasking, Property::eInt, 1, true, "0" },
-        { kNatronOfxImageEffectPropHostMixing, Property::eInt, 1, true, "0" },
-        { kNatronOfxImageEffectPropDeprecated, Property::eInt, 1, true, "0" },
+        { kNatronOfxImageEffectPluginUsesMultipleThread, Property::eInt, 1, false, "0" },
+        { kNatronOfxImageEffectPropChannelSelector, Property::eString, 1, false, kOfxImageComponentRGBA },
+        { kNatronOfxImageEffectPropHostMasking, Property::eInt, 1, false, "0" },
+        { kNatronOfxImageEffectPropHostMixing, Property::eInt, 1, false, "0" },
+        { kNatronOfxImageEffectPropDeprecated, Property::eInt, 1, false, "0" },
         { kNatronOfxImageEffectPropProjectId, Property::eString, 1, true, "" },
         { kNatronOfxImageEffectPropGroupId, Property::eString, 1, true, "" },
         { kNatronOfxImageEffectPropInstanceId, Property::eString, 1, true, "" },
         { kNatronOfxPropDescriptionIsMarkdown, Property::eInt,     1, false, "0" },
-        { kNatronOfxImageEffectSelectionRectangle, Property::eDouble,     4, true, "" },
+        { kNatronOfxImageEffectSelectionRectangle, Property::eDouble,     4, false, "" },
         { kNatronOfxImageEffectPropDefaultCursors, Property::eString,     0, true, "" },
         { kNatronOfxImageEffectPropInViewerContextParamsOrder, Property::eString,     0, false, "" },
-        { kNatronOfxImageEffectPropInViewerContextDefaultShortcuts, Property::eString, 0, true, "" },
-        { kNatronOfxImageEffectPropInViewerContextShortcutSymbol, Property::eInt, 0, true, "" },
-        { kNatronOfxImageEffectPropInViewerContextShortcutHasControlModifier, Property::eInt, 0, true, "" },
-        { kNatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier, Property::eInt, 0, true, "" },
-        { kNatronOfxImageEffectPropInViewerContextShortcutHasAltModifier, Property::eInt, 0, true, "" },
-        { kNatronOfxImageEffectPropInViewerContextShortcutHasMetaModifier, Property::eInt, 0, true, "" },
-        { kNatronOfxImageEffectPropInViewerContextShortcutHasKeypadModifier, Property::eInt, 0, true, "" },
+        { kNatronOfxImageEffectPropInViewerContextDefaultShortcuts, Property::eString, 0, false, "" },
+        { kNatronOfxImageEffectPropInViewerContextShortcutSymbol, Property::eInt, 0, false, "" },
+        { kNatronOfxImageEffectPropInViewerContextShortcutHasControlModifier, Property::eInt, 0, false, "" },
+        { kNatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier, Property::eInt, 0, false, "" },
+        { kNatronOfxImageEffectPropInViewerContextShortcutHasAltModifier, Property::eInt, 0, false, "" },
+        { kNatronOfxImageEffectPropInViewerContextShortcutHasMetaModifier, Property::eInt, 0, false, "" },
+        { kNatronOfxImageEffectPropInViewerContextShortcutHasKeypadModifier, Property::eInt, 0, false, "" },
         { kNatronOfxPropNativeOverlays, Property::eString, 0, false, ""},
-        { kOfxImageEffectPropCanDistort, Property::eInt, 1, true, "0" },
-        { kOfxImageEffectPropRenderAllPlanes, Property::eInt, 1, true, "0"},
+        { kOfxImageEffectPropCanDistort, Property::eInt, 1, false, "0" },
+        { kOfxImageEffectPropRenderAllPlanes, Property::eInt, 1, false, "0"},
 #endif
         // OFX 1.5 / 1.5.1 plug-in descriptor properties, with their spec defaults.
         // These describe what the plug-in can do; they don't advertise any host capability.
@@ -2663,8 +2663,8 @@ namespace OFX {
           { kOfxPropTime, Property::eDouble, 1, false, "0.0" },
           { kOfxPropName, Property::eString, 1, false, "" },
 #ifdef OFX_EXTENSIONS_NUKE
-          { kFnOfxImageEffectPropView, Property::eInt, 1, true, "0" },
-          { kOfxImageEffectPropIdentityPlane, Property::eString, 1, true, ""},
+          { kFnOfxImageEffectPropView, Property::eInt, 1, false, "0" },
+          { kOfxImageEffectPropIdentityPlane, Property::eString, 1, false, ""},
 #endif
           Property::propSpecEnd
         };
