@@ -7,7 +7,7 @@ LDFLAGS_ADD = $(OPENCL_LIBS)
 
 include ../Makefile.master
 
-ifeq ($(OS),$(filter $(OS),MINGW64_NT-6.1 MINGW32_NT-6.1))
+ifneq ($(MINGW_OS),)
   OPENCL_LIBS= -L$(OPENCL_HOME)/lib -lOpenCL
 endif
 ifeq ($(OS),Linux)
