@@ -3949,15 +3949,17 @@ namespace OFX {
     /** @brief Library side load action, this fetches all the suite pointers */
     void loadAction(void)
     {
-      gLoadCount++;  
-
       //OfxStatus status = kOfxStatOK;
 
       // fetch the suites
       OFX::Log::error(gHost == 0, "Host pointer has not been set.");
       if(!gHost) throw OFX::Exception::Suite(kOfxStatErrBadHandle);
 
-      if(gLoadCount == 1) {
+      // Only count this load once it succeeded: if anything below throws (e.g. a
+      // mandatory suite is missing), the host will not send kOfxActionUnload, and the
+      // next plugin in this binary must fetch the suites again instead of assuming
+      // they were fetched.
+      if(gLoadCount == 0) {
         gEffectSuite    = (OfxImageEffectSuiteV1 *) fetchSuite(kOfxImageEffectSuite, 1);
         gPropSuite      = (OfxPropertySuiteV1 *)    fetchSuite(kOfxPropertySuite, 1);
         gParamSuite     = (OfxParameterSuiteV1 *)   fetchSuite(kOfxParameterSuite, 1);
@@ -4012,6 +4014,7 @@ namespace OFX {
       // validate the host
       OFX::Validation::validateHostProperties(gHost);
 
+      gLoadCount++;
     }
 
     /** @brief Library side unload action, this fetches all the suite pointers */
