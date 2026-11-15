@@ -34,8 +34,10 @@
 /* 2005, re-editted by B. Nicoletti to be C++ and to carry the seed with it */
 
 
-#if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
-#define uint32_t unsigned int
+#if defined(_MSC_VER) && _MSC_VER < 1600
+// MSVC before 2010 has no <stdint.h>. A typedef, not a macro: a two-word
+// macro would break functional casts such as uint32_t(x).
+typedef unsigned int uint32_t;
 #else
 #include <stdint.h> // for uint32_t
 #endif
