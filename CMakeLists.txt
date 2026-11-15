@@ -50,7 +50,7 @@ set(OFX_EXTRA_DEFINITIONS "" CACHE STRING
 option(OFX_USE_SYSTEM_EXPAT "HostSupport: use the system expat (find_package(EXPAT)) instead of the bundled HostSupport/expat-2.10.0" OFF)
 
 option(BUILD_EXAMPLE_PLUGINS "Build the example plug-ins (Examples/, Support/Plugins/, Support/PropTester/)" OFF)
-option(BUILD_EXAMPLE_HOSTS "Build the example hosts (HostSupport/examples: hostDemo, cacheDemo)" OFF)
+option(BUILD_EXAMPLE_HOSTS "Build the example hosts (HostSupport/examples: hostDemo, cacheDemo, propsetDump)" OFF)
 set(PLUGIN_INSTALLDIR "" CACHE PATH "Location to install plug-ins (default depends on OS)")
 
 # ---------------------------------------------------------------------------

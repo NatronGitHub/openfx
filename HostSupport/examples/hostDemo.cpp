@@ -75,6 +75,11 @@ modification, are permitted provided that the following conditions are met:
 
 void exportToPPM(const std::string& fname, MyHost::MyImage* im)
 {
+  if (!im) {
+    // the plug-in did not fetch the output image (e.g. a test plug-in that doesn't render)
+    std::cerr << "No output image to export to " << fname << std::endl;
+    return;
+  }
   std::ofstream op(fname.c_str());
   OfxRectI rod = im->getROD();
   op << "P3" << "\t# FORMAT" << std::endl;
