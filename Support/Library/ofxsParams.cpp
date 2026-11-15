@@ -481,9 +481,58 @@ namespace OFX {
   // int param descriptor
 
   /** @brief ctor */
+
+  /// set a string property that the host may not know, and report whether the host accepted it
+  static bool propSetStringIfSupported(PropertySet &props, const char *property, const std::string &value)
+  {
+    try {
+      props.propSetString(property, value);
+      return true;
+    } catch (const OFX::Exception::PropertyUnknownToHost &) {
+      return false;
+    } catch (const OFX::Exception::PropertyValueIllegalToHost &) {
+      return false;
+    } catch (const OFX::Exception::Suite &) {
+      return false;
+    }
+  }
+
+  static const char *mapInterpTypeEnumToStr(InterpTypeEnum v)
+  {
+    switch (v) {
+    case eInterpTypeConstantStep: return kOfxParamInterpTypeConstantStep;
+    case eInterpTypeSmooth: return kOfxParamInterpTypeSmooth;
+    case eInterpTypeLinear:
+    default: return kOfxParamInterpTypeLinear;
+    }
+  }
+
+  static const char *mapColourManagementEnumToStr(ColourManagementEnum v)
+  {
+    switch (v) {
+    case eColourManagementManaged: return kOfxParamColourManagementManaged;
+    case eColourManagementSRGB: return kOfxParamColourManagementSRGB;
+    case eColourManagementNone:
+    default: return kOfxParamColourManagementNone;
+    }
+  }
+
+  static ColourManagementEnum mapStrToColourManagementEnum(const std::string &s)
+  {
+    if (s == kOfxParamColourManagementManaged) return eColourManagementManaged;
+    if (s == kOfxParamColourManagementSRGB) return eColourManagementSRGB;
+    return eColourManagementNone; // absent, empty or unknown
+  }
+
   IntParamDescriptor::IntParamDescriptor(const std::string &name, OfxPropertySetHandle props)
     : ValueParamDescriptor(name, eIntParam, props)
   {
+  }
+
+  /** @brief set the default interpolation (kOfxParamInterpType, OFX 1.5) */
+  bool IntParamDescriptor::setInterpType(InterpTypeEnum v)
+  {
+    return propSetStringIfSupported(_paramProps, kOfxParamInterpType, mapInterpTypeEnumToStr(v));
   }
 
   /** @brief set the default value, default is 0 */
@@ -723,6 +772,12 @@ namespace OFX {
   {
   }
 
+  /** @brief set the default interpolation (kOfxParamInterpType, OFX 1.5) */
+  bool DoubleParamDescriptor::setInterpType(InterpTypeEnum v)
+  {
+    return propSetStringIfSupported(_paramProps, kOfxParamInterpType, mapInterpTypeEnumToStr(v));
+  }
+
   /** @brief set the default value, default is 0 */
   void 
     DoubleParamDescriptor::setDefault(double v)
@@ -886,6 +941,13 @@ namespace OFX {
   {
   }
 
+  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, OFX 1.5.1).
+   "A plug-in MUST check the status returned when setting this property", hence the return value. */
+  bool RGBParamDescriptor::setColourManagement(ColourManagementEnum v)
+  {
+    return propSetStringIfSupported(_paramProps, kOfxParamPropColourManagement, mapColourManagementEnumToStr(v));
+  }
+
   /** @brief set the default value */
   void  RGBParamDescriptor::setDefault(double r, double g, double b)
   {
@@ -951,6 +1013,13 @@ namespace OFX {
   RGBAParamDescriptor::RGBAParamDescriptor(const std::string &name, OfxPropertySetHandle props)
     : ValueParamDescriptor(name, eRGBAParam, props)
   {
+  }
+
+  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, OFX 1.5.1).
+   "A plug-in MUST check the status returned when setting this property", hence the return value. */
+  bool RGBAParamDescriptor::setColourManagement(ColourManagementEnum v)
+  {
+    return propSetStringIfSupported(_paramProps, kOfxParamPropColourManagement, mapColourManagementEnumToStr(v));
   }
 
   /** @brief set the default value */
@@ -3027,6 +3096,12 @@ namespace OFX {
   {
   }
 
+  /** @brief encoding of the colour values (kOfxParamPropColourManagement), eColourManagementNone if absent */
+  ColourManagementEnum RGBParam::getColourManagement(void) const
+  {
+    return mapStrToColourManagementEnum(_paramProps.propGetString(kOfxParamPropColourManagement, false));
+  }
+
   /** @brief set the default value */
   void RGBParam::setDefault(double r, double g, double b)
   {
@@ -3102,6 +3177,12 @@ namespace OFX {
   RGBAParam::RGBAParam(const ParamSet *paramSet, const std::string &name, OfxParamHandle handle)
     : ValueParam(paramSet, name, eRGBAParam, handle)
   {
+  }
+
+  /** @brief encoding of the colour values (kOfxParamPropColourManagement), eColourManagementNone if absent */
+  ColourManagementEnum RGBAParam::getColourManagement(void) const
+  {
+    return mapStrToColourManagementEnum(_paramProps.propGetString(kOfxParamPropColourManagement, false));
   }
 
   /** @brief set the default value */
