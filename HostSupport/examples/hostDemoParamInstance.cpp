@@ -203,12 +203,49 @@ namespace MyHost {
   // MyDoubleInstance
   //
 
+  // Spatial double params may give their default in normalised coordinates
+  // (kOfxParamPropDefaultCoordinateSystem, OFX 1.2): convert it to canonical
+  // coordinates, using the project size, plus the project offset for positions.
+  static void
+  defaultToCanonical(const OFX::Host::Param::Descriptor& descriptor,
+                     const MyEffectInstance* effect,
+                     double* v, int n)
+  {
+    if (!effect || descriptor.getDefaultCoordinateSystem() != kOfxParamCoordinatesNormalised) {
+      return;
+    }
+    const std::string& type = descriptor.getDoubleType();
+    double w, h, ox, oy;
+    effect->getProjectSize(w, h);
+    effect->getProjectOffset(ox, oy);
+    if (n == 1) {
+      if (type == kOfxParamDoubleTypeX) {
+        v[0] *= w;
+      } else if (type == kOfxParamDoubleTypeXAbsolute) {
+        v[0] = v[0] * w + ox;
+      } else if (type == kOfxParamDoubleTypeY) {
+        v[0] *= h;
+      } else if (type == kOfxParamDoubleTypeYAbsolute) {
+        v[0] = v[0] * h + oy;
+      }
+    } else if (n == 2) {
+      if (type == kOfxParamDoubleTypeXY) {
+        v[0] *= w;
+        v[1] *= h;
+      } else if (type == kOfxParamDoubleTypeXYAbsolute) {
+        v[0] = v[0] * w + ox;
+        v[1] = v[1] * h + oy;
+      }
+    }
+  }
+
   MyDoubleInstance::MyDoubleInstance(MyEffectInstance* effect, 
                                      const std::string& /*name*/, 
                                      OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::DoubleInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
     _d = _descriptor.getProperties().getDoubleProperty(kOfxParamPropDefault);
+    defaultToCanonical(_descriptor, _effect, &_d, 1);
   }
 
   OfxStatus MyDoubleInstance::get(double& d)
@@ -336,6 +373,9 @@ namespace MyHost {
 
   OfxStatus MyChoiceInstance::set(int i)
   {
+    if ( i < 0 || i >= (int)_descriptor.getProperties().getDimension(kOfxParamPropChoiceOption) ) {
+      return kOfxStatErrValue;
+    }
     _i = i;
     return kOfxStatOK;
   }
@@ -440,8 +480,11 @@ namespace MyHost {
     : OFX::Host::Param::Double2DInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
     const OFX::Host::Property::Set& props = _descriptor.getProperties();
-    _x = props.getDoubleProperty(kOfxParamPropDefault, 0);
-    _y = props.getDoubleProperty(kOfxParamPropDefault, 1);
+    double v[2] = { props.getDoubleProperty(kOfxParamPropDefault, 0),
+                    props.getDoubleProperty(kOfxParamPropDefault, 1) };
+    defaultToCanonical(_descriptor, _effect, v, 2);
+    _x = v[0];
+    _y = v[1];
   }
 
   OfxStatus MyDouble2DInstance::get(double& x, double& y)

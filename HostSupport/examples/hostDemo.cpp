@@ -28,6 +28,8 @@ modification, are permitted provided that the following conditions are met:
 */
 
 
+#include <cerrno>
+#include <climits>
 #include <iostream>
 #include <fstream>
 #include <cassert>
@@ -79,7 +81,8 @@ modification, are permitted provided that the following conditions are met:
 //
 // There is no file io to work with this.
 
-void exportToPPM(const std::string& fname, MyHost::MyImage* im)
+// returns false (after printing an error) if the file couldn't be written
+bool exportToPPM(const std::string& fname, MyHost::MyImage* im)
 {
   if (!im) {
     // the plug-in did not fetch the output image (e.g. a test plug-in that doesn't render)
@@ -87,6 +90,10 @@ void exportToPPM(const std::string& fname, MyHost::MyImage* im)
     return;
   }
   std::ofstream op(fname.c_str());
+  if (!op) {
+    std::cerr << "Error: cannot open " << fname << " for writing" << std::endl;
+    return false;
+  }
   OfxRectI rod = im->getROD();
   op << "P3" << "\t# FORMAT" << std::endl;
   op << rod.x2 - rod.x1 << "\t#WIDTH" << std::endl;
@@ -104,6 +111,12 @@ void exportToPPM(const std::string& fname, MyHost::MyImage* im)
         op << "0 0 0" << std::endl;
     }
   }
+  op.close();
+  if (!op) {
+    std::cerr << "Error: cannot write " << fname << std::endl;
+    return false;
+  }
+  return true;
 }
 
 static void usage(const char* prog)
@@ -158,9 +171,13 @@ static bool parseInt(const std::string& s, int& i)
     return false;
   }
   char* end = NULL;
+  errno = 0;
   long l = std::strtol(s.c_str(), &end, 10);
+  if (errno == ERANGE || end == NULL || *end != '\0' || l < INT_MIN || l > INT_MAX) {
+    return false;
+  }
   i = (int)l;
-  return end != NULL && *end == '\0';
+  return true;
 }
 
 static bool parseBool(const std::string& s, bool& b)
@@ -556,7 +573,10 @@ int main(int argc, char **argv)
 
           std::ostringstream ss;
           ss << outputPrefix << "." << t << "l.ppm";
-          exportToPPM(ss.str(), outputImage);
+          if (!exportToPPM(ss.str(), outputImage)) {
+            ret = 1;
+            break;
+          }
         }
         {  // right view
           stat = instance->renderAction(t,kOfxImageFieldBoth,renderWindow, renderScale, /*sequential=*/true, /*interactive=*/false,
@@ -585,7 +605,10 @@ int main(int argc, char **argv)
 
           std::ostringstream ss;
           ss << outputPrefix << "." << t << "r.ppm";
-          exportToPPM(ss.str(), outputImage);
+          if (!exportToPPM(ss.str(), outputImage)) {
+            ret = 1;
+            break;
+          }
         }
 #else
         // render a frame
@@ -629,7 +652,10 @@ int main(int argc, char **argv)
 
         std::ostringstream ss;
         ss << outputPrefix << "." << t << ".ppm";
-        exportToPPM(ss.str(), outputImage);
+        if (!exportToPPM(ss.str(), outputImage)) {
+          ret = 1;
+          break;
+        }
 #endif
       }
 
