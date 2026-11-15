@@ -3174,6 +3174,16 @@ namespace OFX {
         ImageEffect::Descriptor *effectDescriptor = dynamic_cast<ImageEffect::Descriptor*>(effectBase);
         
         if(effectDescriptor){ 
+          const std::map<std::string, ClipDescriptor*> &clips = effectDescriptor->getClips();
+          std::map<std::string, ClipDescriptor*>::const_iterator found = clips.find(name);
+          if (found != clips.end()) {
+            // clip names are unique: don't define a second clip with the same name
+            // (it was leaked and instantiated twice). Return the existing clip
+            // properties so that a plug-in ignoring the status keeps working.
+            *h2 = found->second->getPropHandle();
+
+            return kOfxStatErrExists;
+          }
           ClipDescriptor *clip = effectDescriptor->defineClip(name);
           *h2 = clip->getPropHandle();
 

@@ -2030,6 +2030,15 @@ namespace OFX {
           return kOfxStatErrBadHandle;
         }
 
+        if (name && paramSetDescriptor->getParams().count(name)) {
+          // "kOfxStatErrExists - if a parameter of that name exists already in this plugin"
+          // (defining it twice would make every instance of the effect fail in populate())
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << ' ' << StatStr(kOfxStatErrExists) << std::endl;
+#         endif
+          return kOfxStatErrExists;
+        }
+
         Descriptor *desc = paramSetDescriptor->paramDefine(paramType, name);
 
         if(desc) {
