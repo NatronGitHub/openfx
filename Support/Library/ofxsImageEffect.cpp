@@ -4991,8 +4991,12 @@ namespace OFX {
       try {
 
         OfxPlugInfoMap::iterator it = plugInfoMap.find(plugname);
-        if(it==plugInfoMap.end())
-          throw;
+        if(it==plugInfoMap.end()) {
+          // e.g. an action was sent after kOfxActionUnload. Don't use a bare "throw;" here:
+          // there is no active exception, so it would call std::terminate().
+          OFX::Log::error(true, "Action '%s' sent to unknown or unloaded plugin '%s'.", actionRaw, plugname);
+          throw OFX::Exception::Suite(kOfxStatFailed);
+        }
 
         OFX::PluginFactory* factory = it->second._factory;
 
@@ -5598,8 +5602,12 @@ We call the plugin side defined OFX::Plugin::getPluginIDs function to find out w
 EXPORT OfxPlugin* OfxGetPlugin(int nth)
 {
   init();
-  int numPlugs = (int)OFX::plugInfoMap.size();
-  OFX::Log::error(nth >= numPlugs, "Host attempted to get plugin %d, when there is only %d plugin(s), so it should have asked for 0.", nth, numPlugs);
+  // ofxPlugs has one entry per plugin returned by OfxGetNumberOfPlugins (plugInfoMap shrinks on unload)
+  int numPlugs = (int)OFX::ofxPlugs.size();
+  if (nth < 0 || nth >= numPlugs) {
+    OFX::Log::error(true, "Host attempted to get plugin %d, when there is only %d plugin(s).", nth, numPlugs);
+    return NULL;
+  }
   if(OFX::ofxPlugs[nth] == 0)
   {
     std::string newID;
