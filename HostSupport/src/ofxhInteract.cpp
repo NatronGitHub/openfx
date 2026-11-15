@@ -188,8 +188,11 @@ namespace OFX {
 
       Instance::~Instance()
       {
-        /// call it directly incase CI failed and we should always tidy up after create instance
-        callEntry(kOfxActionDestroyInstance,  NULL);
+        // kOfxActionDestroyInstance requires that "kOfxActionCreateInstance has been called on the handle":
+        // only tidy up an instance that was successfully created.
+        if (_state == eCreated) {
+          callEntry(kOfxActionDestroyInstance,  NULL);
+        }
       }
 
       /// call the entry point in the descriptor with action and the given args
@@ -239,8 +242,23 @@ namespace OFX {
         // no-op
       }
 
+
+      /// Copy the first n values of a dim-dimensional hooked property to the
+      /// caller's buffer: propGet*N only gives room for indices 0..n-1.
+      template<class T>
+      static void copyHookValuesN(T *dst, const T *src, int n, int dim)
+      {
+        if (n < 0 || n > dim) {
+          throw Property::Exception(kOfxStatErrBadIndex);
+        }
+        for (int i = 0; i < n; ++i) {
+          dst[i] = src[i];
+        }
+      }
+
       double Instance::getDoubleProperty(const std::string &name, int index) const OFX_EXCEPTION_SPEC
       {   
+        if (index < 0) throw Property::Exception(kOfxStatErrBadIndex);
         if(name == kOfxInteractPropPixelScale){
           if(index>=2) throw Property::Exception(kOfxStatErrBadIndex);
           double first[2];
@@ -274,6 +292,7 @@ namespace OFX {
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
         else if (name == kOfxInteractPropScreenPixelRatio) {
+          if(index>=1) throw Property::Exception(kOfxStatErrBadIndex);
           return getScreenPixelRatio();
         }
 #endif
@@ -283,27 +302,34 @@ namespace OFX {
 
       void Instance::getDoublePropertyN(const std::string &name, double *first, int n) const OFX_EXCEPTION_SPEC
       {
+        double values[3];
         if(name == kOfxInteractPropPixelScale){
-          if(n>2) throw Property::Exception(kOfxStatErrBadIndex);
-          getPixelScale(first[0],first[1]);
+          getPixelScale(values[0],values[1]);
+          copyHookValuesN(first, values, n, 2);
         }
         else if(name == kOfxInteractPropBackgroundColour){
-          if(n>3) throw Property::Exception(kOfxStatErrBadIndex);
-          getBackgroundColour(first[0],first[1],first[2]);
+          getBackgroundColour(values[0],values[1],values[2]);
+          copyHookValuesN(first, values, n, 3);
         }
         else if(name == kOfxInteractPropSuggestedColour
 #ifdef OFX_EXTENSIONS_NUKE
                 || name == kOfxPropOverlayColour
 #endif
                 ){
-          if(n>3) throw Property::Exception(kOfxStatErrBadIndex);
-          bool stat = getSuggestedColour(first[0],first[1],first[2]);
+          bool stat = getSuggestedColour(values[0],values[1],values[2]);
           if (!stat) throw Property::Exception(kOfxStatReplyDefault);
+          copyHookValuesN(first, values, n, 3);
         }
 #ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
         else if(name == kOfxInteractPropViewportSize){
-          if(n>2) throw Property::Exception(kOfxStatErrBadIndex);
-          getViewportSize(first[0],first[1]);
+          getViewportSize(values[0],values[1]);
+          copyHookValuesN(first, values, n, 2);
+        }
+#endif
+#ifdef OFX_EXTENSIONS_NATRON
+        else if (name == kOfxInteractPropScreenPixelRatio) {
+          values[0] = getScreenPixelRatio();
+          copyHookValuesN(first, values, n, 1);
         }
 #endif
         else

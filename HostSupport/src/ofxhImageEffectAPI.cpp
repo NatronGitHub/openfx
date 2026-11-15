@@ -200,6 +200,14 @@ namespace OFX {
           } CatchAllSetStatus(stat, gImageEffectHost, op, kOfxActionDescribe);
 
           if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+            // kOfxActionLoad succeeded, so the plug-in may have allocated global
+            // resources: it must get kOfxActionUnload before being dropped.
+            // ("kOfxStatErrMissingHostFeature, in which the plugin will be unloaded and ignored")
+            OfxStatus unloadStat;
+            try {
+              unloadStat = op->mainEntry(kOfxActionUnload, 0, 0, 0);
+            } CatchAllSetStatus(unloadStat, gImageEffectHost, op, kOfxActionUnload);
+            (void)unloadStat;
             _pluginHandle.reset(NULL);
             return 0;
           }
@@ -231,6 +239,10 @@ namespace OFX {
         OFX::Host::Property::Set inarg(inargspec);
 
         PluginHandle *ph = getPluginHandle();
+        if (!ph) {
+          // kOfxActionLoad or kOfxActionDescribe failed: no further actions may be passed to the plug-in
+          return 0;
+        }
         auto_ptr<ImageEffect::Descriptor> newContext( gImageEffectHost->makeDescriptor(getDescriptor(), this));
 
         OfxStatus stat;
@@ -269,7 +281,15 @@ namespace OFX {
                                                                           this,
                                                                           *desc,
                                                                           context);
-          instance->populate();
+          if (!instance) {
+            return 0;
+          }
+          OfxStatus st = instance->populate();
+          if (st != kOfxStatOK) {
+            // clips or params could not be created: the instance is unusable
+            delete instance;
+            return 0;
+          }
           return instance;
         }
         return 0;
@@ -434,6 +454,12 @@ namespace OFX {
 
         if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
           std::cerr << "describe failed on plugin " << op->getIdentifier() << std::endl;          
+          // kOfxActionLoad succeeded: balance it with kOfxActionUnload
+          OfxStatus unloadStat;
+          try {
+            unloadStat = plug->mainEntry(kOfxActionUnload, 0, 0, 0);
+          } CatchAllSetStatus(unloadStat, gImageEffectHost, plug, kOfxActionUnload);
+          (void)unloadStat;
           return;
         }
 
@@ -545,6 +571,12 @@ namespace OFX {
 
       void PluginCache::endXmlParsing() {
         _currentPlugin = 0;
+        // these point into the plugin descriptors, which may be deleted
+        // if the cache is discarded
+        _currentContext = 0;
+        _currentParam = 0;
+        _currentClip = 0;
+        _currentProp = 0;
       }
 
       void PluginCache::saveXML(Plugin *ip, std::ostream &os) const {

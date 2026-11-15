@@ -38,6 +38,7 @@ England
 
 #include "ofxsSupportPrivate.h"
 #include <algorithm> // for find, min, max
+#include <cmath> // for floor, ceil
 #include <cstring> // for strlen
 #include <sstream> // stringstream
 #include <set>
@@ -1288,11 +1289,22 @@ namespace OFX {
    */
   OfxRectI ImageEffectDescriptor::getSelectionRectangle()
   {
+    // kNatronOfxImageEffectSelectionRectangle is a double x 4 property (see ofxNatron.h)
     OfxRectI bounds = { 0, 0, 0, 0 };
-    bounds.x1 = _effectProps.propGetInt(kNatronOfxImageEffectSelectionRectangle, 0, false);
-    bounds.y1 = _effectProps.propGetInt(kNatronOfxImageEffectSelectionRectangle, 1, false);
-    bounds.x2 = _effectProps.propGetInt(kNatronOfxImageEffectSelectionRectangle, 2, false);
-    bounds.y2 = _effectProps.propGetInt(kNatronOfxImageEffectSelectionRectangle, 3, false);
+    double r[4];
+    for (int i = 0; i < 4; ++i) {
+      r[i] = _effectProps.propGetDouble(kNatronOfxImageEffectSelectionRectangle, i, false);
+      // clamp before converting: converting NaN or an out-of-range double to int is undefined
+      if (!(r[i] >= (double)kOfxFlagInfiniteMin)) {
+        r[i] = (double)kOfxFlagInfiniteMin; // also catches NaN
+      } else if (r[i] > (double)kOfxFlagInfiniteMax) {
+        r[i] = (double)kOfxFlagInfiniteMax;
+      }
+    }
+    bounds.x1 = (int)std::floor(r[0]);
+    bounds.y1 = (int)std::floor(r[1]);
+    bounds.x2 = (int)std::ceil(r[2]);
+    bounds.y2 = (int)std::ceil(r[3]);
 
     return bounds;
   }
@@ -1681,7 +1693,7 @@ namespace OFX {
       _field = eFieldLower;
     }
     else if(str == kOfxImageFieldUpper) {
-      _field = eFieldLower;
+      _field = eFieldUpper;
     }
     else {
       OFX::Log::error(true, "Unknown field state '%s' reported on an image", str.c_str());
@@ -1718,7 +1730,7 @@ namespace OFX {
         _transformIsIdentity = (_transform[1] == 0. && _transform[2] == 0. &&
                                 _transform[3] == 0. && _transform[5] == 0. &&
                                 _transform[6] == 0. && _transform[7] == 0. &&
-                                _transform[0] == _transform[2] && _transform[0] == _transform[8]);
+                                _transform[0] == _transform[4] && _transform[0] == _transform[8]);
       }
     }
 #endif
@@ -1734,7 +1746,7 @@ namespace OFX {
         _transformIsIdentity = (_transform[1] == 0. && _transform[2] == 0. &&
                                 _transform[3] == 0. && _transform[5] == 0. &&
                                 _transform[6] == 0. && _transform[7] == 0. &&
-                                _transform[0] == _transform[2] && _transform[0] == _transform[8]);
+                                _transform[0] == _transform[4] && _transform[0] == _transform[8]);
       }
     }
 #endif
@@ -2160,6 +2172,21 @@ namespace OFX {
   }
 #endif
 
+  /** @brief wrap an image handle fetched from the host in an Image.
+
+      If the Image constructor throws (e.g. a mandatory image property is missing or invalid, or out
+      of memory), the destructor is not run, so release the handle here: the spec requires the image
+      handle to be disposed of by clipReleaseImage before the action returns. */
+  static Image* newImageOrRelease(OfxPropertySetHandle imageHandle)
+  {
+    try {
+      return new Image(imageHandle);
+    } catch (...) {
+      OFX::Private::gEffectSuite->clipReleaseImage(imageHandle);
+      throw;
+    }
+  }
+
   /** @brief fetch an image */
   Image *Clip::fetchImage(double t)
   {
@@ -2176,7 +2203,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
 
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
 
   /** @brief fetch an image, with a specific region in cannonical coordinates */
@@ -2195,7 +2222,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
 
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
     
 #ifdef OFX_EXTENSIONS_NUKE
@@ -2236,7 +2263,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
       
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
     
   Image* Clip::fetchImagePlane(double t, const char* plane)
@@ -2261,7 +2288,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
       
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
     
   Image* Clip::fetchImagePlane(double t, int view, const char* plane, const OfxRectD& bounds)
@@ -2283,7 +2310,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
 
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
     
   Image* Clip::fetchImagePlane(double t, const char* plane, const OfxRectD& bounds)
@@ -2309,7 +2336,7 @@ namespace OFX {
     else
       throwSuiteStatusException(stat);
 
-    return new Image(imageHandle);
+    return newImageOrRelease(imageHandle);
   }
     
   void Clip::getPlanesPresent(std::vector<std::string>* components) const
@@ -2342,7 +2369,7 @@ namespace OFX {
       } else {
         throwSuiteStatusException(stat);
       }
-      return new Image(imageHandle);
+      return newImageOrRelease(imageHandle);
     }
     else
 #endif
@@ -2377,7 +2404,13 @@ namespace OFX {
     if (stat != kOfxStatOK) {
       throwSuiteStatusException(stat);
     }
-    return new Texture(hTex);
+    try {
+      return new Texture(hTex);
+    } catch (...) {
+      // the destructor is not run if the constructor throws: free the texture, as required by the spec
+      Private::gOpenGLRenderSuite->clipFreeTexture(hTex);
+      throw;
+    }
   }
 #endif
 
@@ -2534,6 +2567,15 @@ namespace OFX {
     // fetch the context
     std::string ctxt = _effectProps.propGetString(kOfxImageEffectPropVegasContext, false);
     return mapToVegasContextEnum(ctxt);
+  }
+#endif
+
+#ifdef OFX_EXTENSIONS_NATRON
+  OfxRectD ImageEffect::getSelectionRectangle() const
+  {
+    OfxRectD bounds = { 0., 0., 0., 0. };
+    _effectProps.propGetDoubleN(kNatronOfxImageEffectSelectionRectangle, &bounds.x1, 4, false);
+    return bounds;
   }
 #endif
 
@@ -3018,32 +3060,30 @@ namespace OFX {
     return none;
   }
 
+  /// rank of a bit depth, from shallowest to deepest (-1 if unknown)
+  static int BitDepthRank(const std::string &s)
+  {
+    if (s == kOfxBitDepthNone) return 0;
+    if (s == kOfxBitDepthByte) return 1;
+    if (s == kOfxBitDepthShort) return 2;
+    if (s == kOfxBitDepthHalf) return 3;
+    if (s == kOfxBitDepthFloat) return 4;
+    return -1;
+  }
+
+  /// get me deepest bit depth (same as OFX::FindDeepestBitDepth in HostSupport)
   static std::string FindDeepestBitDepth(const std::string &s1, const std::string &s2)
   {
-    if(s1 == kOfxBitDepthNone) {
-      return s2;
+    const int r1 = BitDepthRank(s1);
+    const int r2 = BitDepthRank(s2);
+    if (r1 <= 0) {
+      return s2; // none or unknown
     }
-    else if(s1 == kOfxBitDepthByte) {
-      if(s2 == kOfxBitDepthShort || s2 == kOfxBitDepthFloat)
-        return s2;
+    if (r2 < 0) {
       return s1;
     }
-    else if(s1 == kOfxBitDepthShort) {
-      if(s2 == kOfxBitDepthFloat)
-        return s2;
-      return s1;
-    }
-    else if(s1 == kOfxBitDepthHalf) {
-      if(s2 == kOfxBitDepthFloat)
-        return s2;
-      return s1;
-    }
-    else if(s1 == kOfxBitDepthFloat) {
-      return s1;
-    }
-    else {
-      return s2; // oooh this might be bad dad.
-    }
+    // Byte < Short < Half < Float
+    return (r2 > r1) ? s2 : s1;
   }
 
   static const std::string& findBestSupportedPixelDepth(const std::set<std::string>& supportedPixelDepths, const std::string &depth)
@@ -3957,15 +3997,17 @@ namespace OFX {
     /** @brief Library side load action, this fetches all the suite pointers */
     void loadAction(void)
     {
-      gLoadCount++;  
-
       //OfxStatus status = kOfxStatOK;
 
       // fetch the suites
       OFX::Log::error(gHost == 0, "Host pointer has not been set.");
       if(!gHost) throw OFX::Exception::Suite(kOfxStatErrBadHandle);
 
-      if(gLoadCount == 1) {
+      // Only count this load once it succeeded: if anything below throws (e.g. a
+      // mandatory suite is missing), the host will not send kOfxActionUnload, and the
+      // next plugin in this binary must fetch the suites again instead of assuming
+      // they were fetched.
+      if(gLoadCount == 0) {
         gEffectSuite    = (OfxImageEffectSuiteV1 *) fetchSuite(kOfxImageEffectSuite, 1);
         gPropSuite      = (OfxPropertySuiteV1 *)    fetchSuite(kOfxPropertySuite, 1);
         gParamSuite     = (OfxParameterSuiteV1 *)   fetchSuite(kOfxParameterSuite, 1);
@@ -4020,6 +4062,7 @@ namespace OFX {
       // validate the host
       OFX::Validation::validateHostProperties(gHost);
 
+      gLoadCount++;
     }
 
     /** @brief Library side unload action, this fetches all the suite pointers */
@@ -4029,6 +4072,9 @@ namespace OFX {
       gLoadCount--;
       if (gLoadCount<0) {
         OFX::Log::warning(true, "OFX Plugin '%s' is already unloaded.", id);
+        // e.g. a host that sends kOfxActionUnload after a failed kOfxActionLoad: keep the
+        // count at 0, so that the next load fetches the suites again
+        gLoadCount = 0;
         return;
       }
 
@@ -4438,6 +4484,29 @@ namespace OFX {
       return false;
     }
 
+    /** @brief find the descriptor stored by kOfxImageEffectActionDescribeInContext for this plugin and context.
+
+        Uses find() rather than operator[], which would insert a NULL entry (and then crash) if the
+        descriptor is missing. Lookups must not modify the map, since they happen on render threads. */
+    static
+    ImageEffectDescriptor*
+      getEffectDescriptor(const char* plugname, unsigned int majorVersion, unsigned int minorVersion, ContextEnum context)
+    {
+      OFX::Private::VersionIDKey key;
+      key.id = plugname;
+      key.majorVersion = majorVersion;
+      key.minorVersion = minorVersion;
+      EffectDescriptorMap::const_iterator it = gEffectDescriptors.find(key);
+      if (it != gEffectDescriptors.end()) {
+        EffectContextMap::const_iterator it2 = it->second.find(context);
+        if (it2 != it->second.end() && it2->second) {
+          return it2->second;
+        }
+      }
+      OFX::Log::error(true, "No descriptor for plugin '%s' %u.%u in context %d: kOfxImageEffectActionDescribeInContext was not called for this context.", plugname, majorVersion, minorVersion, (int)context);
+      throw OFX::Exception::Suite(kOfxStatFailed);
+    }
+
     /** @brief Library side get regions of interest function */
     static
     bool
@@ -4495,11 +4564,7 @@ namespace OFX {
 #endif
 
       // make a roi setter object
-      OFX::Private::VersionIDKey key;
-      key.id = plugname;
-      key.majorVersion = majorVersion;
-      key.minorVersion = minorVersion;
-      ActualROISetter setRoIs(outArgs, gEffectDescriptors[key][effectInstance->getContext()]->getClipROIPropNames());
+      ActualROISetter setRoIs(outArgs, getEffectDescriptor(plugname, majorVersion, minorVersion, effectInstance->getContext())->getClipROIPropNames());
 
       // and call the plugin client code
       effectInstance->getRegionsOfInterest(args, setRoIs);
@@ -4581,11 +4646,7 @@ namespace OFX {
       args.time = inArgs.propGetDouble(kOfxPropTime);
 
       // make a roi setter object
-      OFX::Private::VersionIDKey key;
-      key.id = plugname;
-      key.majorVersion = majorVersion;
-      key.minorVersion = minorVersion;
-      ActualSetter setFrames(outArgs, gEffectDescriptors[key][effectInstance->getContext()]->getClipFrameRangePropNames());
+      ActualSetter setFrames(outArgs, getEffectDescriptor(plugname, majorVersion, minorVersion, effectInstance->getContext())->getClipFrameRangePropNames());
 
       // and call the plugin client code
       effectInstance->getFramesNeeded(args, setFrames);
@@ -4676,11 +4737,7 @@ namespace OFX {
       ImageEffect *effectInstance = retrieveImageEffectPointer(handle);
 
       // set up our clip preferences setter
-      OFX::Private::VersionIDKey key;
-      key.id = plugname;
-      key.majorVersion = majorVersion;
-      key.minorVersion = minorVersion;
-      ImageEffectDescriptor* desc = gEffectDescriptors[key][effectInstance->getContext()];
+      ImageEffectDescriptor* desc = getEffectDescriptor(plugname, majorVersion, minorVersion, effectInstance->getContext());
       ClipPreferencesSetter prefs(outArgs, desc->getClipDepthPropNames(), desc->getClipComponentPropNames(), desc->getClipPARPropNames());
 
       // and call the plug-in client code
@@ -4809,11 +4866,7 @@ namespace OFX {
         args.view = inArgs.propGetInt(kFnOfxImageEffectPropView, 0, false);
         
         
-        OFX::Private::VersionIDKey key;
-        key.id = plugname;
-        key.majorVersion = majorVersion;
-        key.minorVersion = minorVersion;
-        ImageEffectDescriptor* desc = gEffectDescriptors[key][effectInstance->getContext()];
+        ImageEffectDescriptor* desc = getEffectDescriptor(plugname, majorVersion, minorVersion, effectInstance->getContext());
         FrameViewsNeededSetter setter(outArgs,desc->getClipFrameViewsPropNames());
         effectInstance->getFrameViewsNeeded(args,setter);
         if (setter.setOutProperties()) {
@@ -4831,11 +4884,7 @@ namespace OFX {
         args.time = inArgs.propGetDouble(kOfxPropTime);
         args.view = inArgs.propGetInt(kFnOfxImageEffectPropView, 0, false);
         
-        OFX::Private::VersionIDKey key;
-        key.id = plugname;
-        key.majorVersion = majorVersion;
-        key.minorVersion = minorVersion;
-        ImageEffectDescriptor* desc = gEffectDescriptors[key][effectInstance->getContext()];
+        ImageEffectDescriptor* desc = getEffectDescriptor(plugname, majorVersion, minorVersion, effectInstance->getContext());
         ClipComponentsSetter setter(outArgs,desc->getClipPlanesPropNames());
         OfxStatus stat = effectInstance->getClipComponents(args,setter);
         if (!setter.setOutProperties()) {
@@ -5002,8 +5051,12 @@ namespace OFX {
       try {
 
         OfxPlugInfoMap::iterator it = plugInfoMap.find(plugname);
-        if(it==plugInfoMap.end())
-          throw;
+        if(it==plugInfoMap.end()) {
+          // e.g. an action was sent after kOfxActionUnload. Don't use a bare "throw;" here:
+          // there is no active exception, so it would call std::terminate().
+          OFX::Log::error(true, "Action '%s' sent to unknown or unloaded plugin '%s'.", actionRaw, plugname);
+          throw OFX::Exception::Suite(kOfxStatFailed);
+        }
 
         OFX::PluginFactory* factory = it->second._factory;
 
@@ -5452,6 +5505,9 @@ namespace OFX {
         std::string output = effectInstance->interpolateCustomParam(interpArgs, paramName);
 
         outArgs.propSetString(kOfxParamPropCustomValue, output);
+
+        // the value was interpolated and set: report success, not kOfxStatReplyDefault ("the action was ignored")
+        stat = kOfxStatOK;
       }
 
       // catch suite exceptions
@@ -5609,8 +5665,12 @@ We call the plugin side defined OFX::Plugin::getPluginIDs function to find out w
 EXPORT OfxPlugin* OfxGetPlugin(int nth)
 {
   init();
-  int numPlugs = (int)OFX::plugInfoMap.size();
-  OFX::Log::error(nth >= numPlugs, "Host attempted to get plugin %d, when there is only %d plugin(s), so it should have asked for 0.", nth, numPlugs);
+  // ofxPlugs has one entry per plugin returned by OfxGetNumberOfPlugins (plugInfoMap shrinks on unload)
+  int numPlugs = (int)OFX::ofxPlugs.size();
+  if (nth < 0 || nth >= numPlugs) {
+    OFX::Log::error(true, "Host attempted to get plugin %d, when there is only %d plugin(s).", nth, numPlugs);
+    return NULL;
+  }
   if(OFX::ofxPlugs[nth] == 0)
   {
     std::string newID;

@@ -270,6 +270,11 @@ namespace OFX {
       // get multiple values
       template<class T> 
       void PropertyTemplate<T>::getValueN(typename T::APIType *values, int count) const OFX_EXCEPTION_SPEC {
+        if (count < 0) {
+          // checked here too, since get hooks (e.g. the default GetHook::*PropertyN,
+          // which memsets count values) may not check it
+          throw Exception(kOfxStatErrBadIndex);
+        }
         if (_getHook) {
           _getHook->getPropertyN<T>(_name, values, count);
         } 
@@ -297,6 +302,9 @@ namespace OFX {
       template<class T> 
       void PropertyTemplate<T>::getValueNRaw(APIType *value, int count) const OFX_EXCEPTION_SPEC
       {
+        if (count < 0) {
+          throw Exception(kOfxStatErrBadIndex);
+        }
         size_t size = count;
         if (size > _value.size()) {
           size = _value.size();
@@ -305,12 +313,17 @@ namespace OFX {
         for (size_t i=0;i<size;i++) {
           value[i] = castToAPIType(_value[i]);
         }
+        if ((size_t)count > _value.size()) {
+          // indices count..size()-1 do not exist: don't silently leave them uninitialized
+          throw Exception(kOfxStatErrBadIndex);
+        }
       }
 
       /// set one value
       template<class T> void PropertyTemplate<T>::setValue(const typename T::Type &value, int index) OFX_EXCEPTION_SPEC 
       {
-        if (index < 0 || ((size_t)index > _value.size() && _dimension)) {
+        // a fixed-dimension property cannot grow
+        if (index < 0 || (_dimension && index >= _dimension)) {
           throw Exception(kOfxStatErrBadIndex);
         }
 
@@ -325,10 +338,16 @@ namespace OFX {
       /// set multiple values
       template<class T> void PropertyTemplate<T>::setValueN(const typename T::APIType *value, int count) OFX_EXCEPTION_SPEC
       {
-        if (_dimension && ((size_t)count > _value.size())) {
+        if (count < 0 || (_dimension && count > _dimension)) {
           throw Exception(kOfxStatErrBadIndex);              
         }
-        if (_value.size() != (size_t)count) {
+        if (_dimension) {
+          // fixed dimension: set indices 0..count-1, never shrink
+          if (_value.size() < (size_t)_dimension) {
+            _value.resize(_dimension);
+          }
+        } else if (_value.size() != (size_t)count) {
+          // variable dimension: the property now holds exactly count values
           _value.resize(count);
         }
         for (int i=0;i<count;i++) {

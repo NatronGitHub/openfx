@@ -752,9 +752,24 @@ namespace OFX {
         throw Property::Exception(kOfxStatErrMissingHostFeature);
       }
 
+
+      /// Copy the first n values of a dim-dimensional hooked property to the
+      /// caller's buffer: propGet*N only gives room for indices 0..n-1.
+      template<class T>
+      static void copyHookValuesN(T *dst, const T *src, int n, int dim)
+      {
+        if (n < 0 || n > dim) {
+          throw Property::Exception(kOfxStatErrBadIndex);
+        }
+        for (int i = 0; i < n; ++i) {
+          dst[i] = src[i];
+        }
+      }
+
       // get the virutals for viewport size, pixel scale, background colour
       double Instance::getDoubleProperty(const std::string &name, int index) const OFX_EXCEPTION_SPEC
       {
+        if (index < 0) throw Property::Exception(kOfxStatErrBadIndex);
         if(name==kOfxImageEffectPropProjectSize){
           if(index>=2) throw Property::Exception(kOfxStatErrBadIndex);
           double values[2];
@@ -791,29 +806,30 @@ namespace OFX {
 
       void Instance::getDoublePropertyN(const std::string &name, double* first, int n) const OFX_EXCEPTION_SPEC
       {
+        double values[2];
         if(name==kOfxImageEffectPropProjectSize){
-          if(n>2) throw Property::Exception(kOfxStatErrBadIndex);
-          getProjectSize(first[0],first[1]);
+          getProjectSize(values[0],values[1]);
+          copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectOffset){
-          if(n>2) throw Property::Exception(kOfxStatErrBadIndex);
-          getProjectOffset(first[0],first[1]);
+          getProjectOffset(values[0],values[1]);
+          copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectExtent){
-          if(n>2) throw Property::Exception(kOfxStatErrBadIndex);
-          getProjectExtent(first[0],first[1]);
+          getProjectExtent(values[0],values[1]);
+          copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectPixelAspectRatio){
-          if(n>1) throw Property::Exception(kOfxStatErrBadIndex);
-          *first = getProjectPixelAspectRatio();
+          values[0] = getProjectPixelAspectRatio();
+          copyHookValuesN(first, values, n, 1);
         }
         else if(name==kOfxImageEffectInstancePropEffectDuration){
-          if(n>1) throw Property::Exception(kOfxStatErrBadIndex);
-          *first = getEffectDuration();
+          values[0] = getEffectDuration();
+          copyHookValuesN(first, values, n, 1);
         }
         else if(name==kOfxImageEffectPropFrameRate){
-          if(n>1) throw Property::Exception(kOfxStatErrBadIndex);
-          *first = getFrameRate();
+          values[0] = getFrameRate();
+          copyHookValuesN(first, values, n, 1);
         }
         else
           throw Property::Exception(kOfxStatErrUnknown);
@@ -821,7 +837,7 @@ namespace OFX {
 
       const std::string &Instance::getStringProperty(const std::string &name, int n) const OFX_EXCEPTION_SPEC
       {
-#ifdef OFX_EXTENSIONS_NUKE
+#ifdef OFX_EXTENSIONS_NATRON // kNatronOfxExtraCreatedPlanes and getUserCreatedPlanes() are Natron extensions
         if (name==kNatronOfxExtraCreatedPlanes) {
           const std::vector<std::string>& userPlanes = getUserCreatedPlanes();
           if (n >= 0 && n < (int)userPlanes.size()) {
@@ -830,19 +846,27 @@ namespace OFX {
             throw Property::Exception(kOfxStatErrBadIndex);
           }
         }
+#else
+        (void)name;
+        (void)n;
 #endif
         throw Property::Exception(kOfxStatErrValue);
       }
 
       void Instance::getStringPropertyN(const std::string &name, const char** values, int count) const OFX_EXCEPTION_SPEC
       {
-        if (count <= 0) throw Property::Exception(kOfxStatErrValue);
+        if (count < 0) throw Property::Exception(kOfxStatErrBadIndex);
+        if (count == 0) return;
 #ifdef OFX_EXTENSIONS_NATRON
         if (name==kNatronOfxExtraCreatedPlanes) {
-          const std::vector<std::string>& componentsPresents = getUserCreatedPlanes();
-          int minCount = (int)componentsPresents.size() < count ? (int)componentsPresents.size() : count;
+          const std::vector<std::string>& userPlanes = getUserCreatedPlanes();
+          int minCount = (int)userPlanes.size() < count ? (int)userPlanes.size() : count;
           for (int i = 0; i < minCount; ++i) {
-            values[i] = componentsPresents[i].c_str();
+            values[i] = userPlanes[i].c_str();
+          }
+          if (count > (int)userPlanes.size()) {
+            // don't leave the rest of the caller's buffer uninitialised
+            throw Property::Exception(kOfxStatErrBadIndex);
           }
           return;
         }
@@ -1001,7 +1025,8 @@ namespace OFX {
           std::cout << "OFX: "<<id<<"("<<(void*)ofxp<<")->"<<kOfxActionCreateInstance<<"()->"<<StatStr(st)<<std::endl;
 #       endif
 
-        if (st == kOfxStatOK) {
+        // kOfxStatReplyDefault: "the action was ignored, but all was well anyway"
+        if (st == kOfxStatOK || st == kOfxStatReplyDefault) {
           _created = true;
         }
 
@@ -1022,9 +1047,10 @@ namespace OFX {
 #         ifdef OFX_DEBUG_ACTIONS
             std::cout << "OFX: "<<id<<"("<<(void*)ofxp<<")->"<<kOfxActionDestroyInstance<<"()->"<<StatStr(st)<<std::endl;
 #         endif
-          if (st == kOfxStatOK) {
-            _created = false;
-          }
+          // "what is returned is moot, a bit like throwing an exception in a C++
+          // destructor, so the host should continue destruction of the instance
+          // regardless": never send kOfxActionDestroyInstance twice.
+          _created = false;
         }
 
         return st;
@@ -1586,7 +1612,7 @@ namespace OFX {
                                              int view,
                                              std::string& clip,
                                              double transform[9])
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -1637,6 +1663,11 @@ namespace OFX {
 
         return st;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
 #endif // OFX_EXTENSIONS_NUKE
 
 #ifdef OFX_EXTENSIONS_NATRON
@@ -1651,7 +1682,7 @@ namespace OFX {
                                               void** distortionFunctionData,
                                               int* distortionFunctionDataSize,
                                               OfxInverseDistortionDataFreeFunctionV1* freeDataFunction)
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -1709,6 +1740,11 @@ namespace OFX {
         }
 
         return st;
+      }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
       }
 #endif // OFX_EXTENSIONS_NATRON
 
@@ -1845,7 +1881,7 @@ namespace OFX {
                                                       int view,
 #endif
                                                       OfxRectD &rod)
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -1872,6 +1908,23 @@ namespace OFX {
 #endif
         inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
 
+        // "kOfxImageEffectPropRegionOfDefinition the calculated region of definition,
+        // initially set by the host to the default RoD"
+        OfxRectD defaultRod = {0., 0., 0., 0.};
+        bool hasDefaultRod = false;
+        try {
+          defaultRod = calcDefaultRegionOfDefinition(time, renderScale
+#                                                    ifdef OFX_EXTENSIONS_NUKE
+                                                     ,
+                                                     view
+#                                                    endif
+                                                     );
+          hasDefaultRod = true;
+          outArgs.setDoublePropertyN(kOfxImageEffectPropRegionOfDefinition, &defaultRod.x1, 4);
+        } catch (const Property::Exception &) {
+          // no default RoD available (e.g. unknown context): leave it to zero
+        }
+
 #       ifdef OFX_DEBUG_ACTIONS
           OfxPlugin *ofxp = _plugin->getPluginHandle()->getOfxPlugin();
           const char* id = ofxp->pluginIdentifier;
@@ -1885,12 +1938,12 @@ namespace OFX {
           outArgs.getDoublePropertyN(kOfxImageEffectPropRegionOfDefinition, &rod.x1, 4);
         }
         else if(stat == kOfxStatReplyDefault) {
-          rod = calcDefaultRegionOfDefinition(time, renderScale
-#                                             ifdef OFX_EXTENSIONS_NUKE
-                                              ,
-                                              view
-#                                             endif
-                                              );
+          rod = hasDefaultRod ? defaultRod : calcDefaultRegionOfDefinition(time, renderScale
+#                                                                          ifdef OFX_EXTENSIONS_NUKE
+                                                                           ,
+                                                                           view
+#                                                                          endif
+                                                                           );
         }
 
 
@@ -1904,6 +1957,11 @@ namespace OFX {
           
         return stat;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
 
       /// get the region of interest for each input and return it in the given std::map
       OfxStatus Instance::getRegionOfInterestAction(OfxTime  time,
@@ -1913,7 +1971,7 @@ namespace OFX {
 #endif
                                                     const OfxRectD &roi,
                                                     std::map<ClipInstance *, OfxRectD>& rois) 
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -2050,6 +2108,11 @@ namespace OFX {
         }
         return stat;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
 
 #ifdef OFX_EXTENSIONS_NUKE
       OfxStatus Instance::getClipComponentsAction(OfxTime time,
@@ -2058,7 +2121,7 @@ namespace OFX {
                                                   ClipInstance*& passThroughClip,
                                                   OfxTime& passThroughTime,
                                                   int& passThroughView)
-      {
+      try {
           if ( OFX::IsNaN(time) ) {
               return kOfxStatFailed;
           }
@@ -2181,11 +2244,16 @@ namespace OFX {
           }
           return stat;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
         
       OfxStatus Instance::getFrameViewsNeeded(OfxTime time,
                                               int view,
                                               ViewsRangeMap& rangeMap)
-      {
+      try {
           if ( OFX::IsNaN(time) ) {
               return kOfxStatFailed;
           }
@@ -2310,13 +2378,18 @@ namespace OFX {
           }
           return stat;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
 #endif
 
       ////////////////////////////////////////////////////////////////////////////////
       /// see how many frames are needed from each clip to render the indicated frame
       OfxStatus Instance::getFrameNeededAction(OfxTime time, 
                                                RangeMap &rangeMap)
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -2435,6 +2508,11 @@ namespace OFX {
 
         return stat;
       }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
+      }
 
       OfxStatus Instance::isIdentityAction(OfxTime     &time,
                                            const std::string &  field,
@@ -2445,7 +2523,7 @@ namespace OFX {
                                            std::string& plane,
 #endif
                                            std::string &clip)
-      {
+      try {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatFailed;
         }
@@ -2519,6 +2597,11 @@ namespace OFX {
         }
         
         return st;
+      }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
       }
 
       /// Get whether the component is a supported 'chromatic' component (RGBA or alpha) in
@@ -2829,7 +2912,7 @@ namespace OFX {
       /// flag when clip prefs is dirty.      
       /// call the clip preferences action
       bool Instance::getClipPreferences()
-      {      
+      try {
         /// create the out args with the stuff that does not depend on individual clips
         Property::Set outArgs;
 
@@ -2891,6 +2974,11 @@ namespace OFX {
         _clipPrefsDirty  = false;
 
         return true;
+      }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return false;
       }
 
       /// find the most chromatic components out of the two. Override this if you define
@@ -2963,7 +3051,7 @@ namespace OFX {
       bool Instance::isInViewportParam(const std::string& paramName) const
       {
         int nDim = getProps().getDimension(kNatronOfxImageEffectPropInViewerContextParamsOrder);
-        for (int i = 0; nDim; ++i) {
+        for (int i = 0; i < nDim; ++i) {
           const std::string& p = getProps().getStringProperty(kNatronOfxImageEffectPropInViewerContextParamsOrder, i);
           if (paramName == p) {
             return true;
@@ -2980,7 +3068,7 @@ namespace OFX {
       }
 
       OfxStatus Instance::getTimeDomainAction(OfxRangeD& range)
-      {
+      try {
         static const Property::PropSpec outStuff[] = {
           { kOfxImageEffectPropFrameRange , Property::eDouble, 2, false, "0.0" },
           Property::propSpecEnd
@@ -3009,6 +3097,11 @@ namespace OFX {
         range.max = outArgs.getDoubleProperty(kOfxImageEffectPropFrameRange,1);
 
         return kOfxStatOK;
+      }
+      catch (const Property::Exception &) {
+        // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
+        // kOfxStatErrValue): the action failed, but the exception must not reach the host
+        return kOfxStatFailed;
       }
 
  #ifdef OFX_SUPPORTS_DIALOG
@@ -3185,6 +3278,16 @@ namespace OFX {
         ImageEffect::Descriptor *effectDescriptor = dynamic_cast<ImageEffect::Descriptor*>(effectBase);
         
         if(effectDescriptor){ 
+          const std::map<std::string, ClipDescriptor*> &clips = effectDescriptor->getClips();
+          std::map<std::string, ClipDescriptor*>::const_iterator found = clips.find(name);
+          if (found != clips.end()) {
+            // clip names are unique: don't define a second clip with the same name
+            // (it was leaked and instantiated twice). Return the existing clip
+            // properties so that a plug-in ignoring the status keeps working.
+            *h2 = found->second->getPropHandle();
+
+            return kOfxStatErrExists;
+          }
           ClipDescriptor *clip = effectDescriptor->defineClip(name);
           *h2 = clip->getPropHandle();
 
@@ -3797,26 +3900,39 @@ namespace OFX {
       };
 #   endif
 
+      /// Map a message suite handle to an effect instance.
+      /// The handle may be NULL, a descriptor or an instance (see ofxMessage.h),
+      /// so it must not be blindly cast to ImageEffect::Instance.
+      static ImageEffect::Instance *messageHandleToInstance(void *handle, bool &isValidEffect)
+      {
+        ImageEffect::Base *effectBase = reinterpret_cast<ImageEffect::Base*>(handle);
+        isValidEffect = effectBase && effectBase->verifyMagic();
+        if (!isValidEffect) {
+          return NULL;
+        }
+        return dynamic_cast<ImageEffect::Instance*>(effectBase);
+      }
+
       /// message suite function for an image effect
       static OfxStatus message(void *handle, const char *type, const char *id, const char *format, ...)
       {
         try {
-        ImageEffect::Instance *effectInstance = reinterpret_cast<ImageEffect::Instance*>(handle);
-        OfxStatus stat;
-        if(effectInstance){
+          bool isValidEffect;
+          ImageEffect::Instance *effectInstance = messageHandleToInstance(handle, isValidEffect);
+          OfxStatus stat;
           va_list args;
           va_start(args,format);
-          stat = effectInstance->vmessage(type,id,format,args);
+          if (effectInstance) {
+            stat = effectInstance->vmessage(type,id,format,args);
+          } else if (gImageEffectHost) {
+            // NULL handle or descriptor handle: post the message on the host
+            stat = gImageEffectHost->vmessage(type,id,format,args);
+          } else {
+            vprintf(format,args);
+            stat = kOfxStatOK;
+          }
           va_end(args);
-        }
-        else{
-          va_list args;
-          va_start(args,format);
-          vprintf(format,args);
-          va_end(args);
-          stat = kOfxStatErrBadHandle;
-        }
-        return stat;
+          return stat;
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -3825,21 +3941,19 @@ namespace OFX {
       static OfxStatus setPersistentMessage(void *handle, const char *type, const char *id, const char *format, ...)
       {
         try {
-          ImageEffect::Instance *effectInstance = reinterpret_cast<ImageEffect::Instance*>(handle);
+          bool isValidEffect;
+          ImageEffect::Instance *effectInstance = messageHandleToInstance(handle, isValidEffect);
           OfxStatus stat;
-          if(effectInstance){
-            va_list args;
-            va_start(args,format);
+          va_list args;
+          va_start(args,format);
+          if (effectInstance) {
             stat = effectInstance->setPersistentMessage(type,id,format,args);
-            va_end(args);
-          }
-          else{
-            va_list args;
-            va_start(args,format);
+          } else {
+            // the handle must be an effect instance handle, "may NOT be null"
             vprintf(format,args);
-            va_end(args);
             stat = kOfxStatErrBadHandle;
           }
+          va_end(args);
           return stat;
         } catch (...) {
           return kOfxStatFailed;
@@ -3849,15 +3963,13 @@ namespace OFX {
       static OfxStatus clearPersistentMessage(void *handle)
       {
         try {
-          ImageEffect::Instance *effectInstance = reinterpret_cast<ImageEffect::Instance*>(handle);
-          OfxStatus stat;
-          if(effectInstance){
-            stat = effectInstance->clearPersistentMessage();
+          bool isValidEffect;
+          ImageEffect::Instance *effectInstance = messageHandleToInstance(handle, isValidEffect);
+          if (effectInstance) {
+            return effectInstance->clearPersistentMessage();
           }
-          else{
-            stat = kOfxStatErrBadHandle;
-          }
-          return stat;
+          // a descriptor never has persistent messages: nothing to clear
+          return isValidEffect ? kOfxStatOK : kOfxStatErrBadHandle;
         } catch (...) {
           return kOfxStatFailed;
         }
