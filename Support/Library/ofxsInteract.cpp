@@ -164,6 +164,36 @@ namespace OFX {
   {
     _interactProperties.propSetInt(kNatronOfxInteractColourPicking, (int)useColourPicking, 0, false);
   }
+
+  static bool hostSupportsCursor(const std::string &name)
+  {
+    const std::vector<std::string> &cursors = OFX::getImageEffectHostDescription()->supportedCursors;
+    return std::find(cursors.begin(), cursors.end(), name) != cursors.end();
+  }
+
+  bool
+    Interact::setCursor(const std::string &name)
+  {
+    // kOfxInteractCursorCustom must be set through setCustomCursor()
+    if (name == kOfxInteractCursorCustom || !hostSupportsCursor(name)) {
+      return false;
+    }
+    OfxStatus stat = OFX::Private::gPropSuite->propSetString(_interactProperties.propSetHandle(), kOfxInteractPropCursor, 0, name.c_str());
+    return stat == kOfxStatOK;
+  }
+
+  bool
+    Interact::setCustomCursor(const std::string &pngFileName, int hotSpotX, int hotSpotY)
+  {
+    if (pngFileName.empty() || !hostSupportsCursor(kOfxInteractCursorCustom)) {
+      return false;
+    }
+    OfxPropertySetHandle h = _interactProperties.propSetHandle();
+    int hotSpot[2] = { hotSpotX, hotSpotY };
+    return OFX::Private::gPropSuite->propSetString(h, kOfxInteractPropCursorImage, 0, pngFileName.c_str()) == kOfxStatOK &&
+           OFX::Private::gPropSuite->propSetIntN(h, kOfxInteractPropCursorHotSpot, 2, hotSpot) == kOfxStatOK &&
+           OFX::Private::gPropSuite->propSetString(h, kOfxInteractPropCursor, 0, kOfxInteractCursorCustom) == kOfxStatOK;
+  }
 #endif
 
   /** @brief Request a redraw */
