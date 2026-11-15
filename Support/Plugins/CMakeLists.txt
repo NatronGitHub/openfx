@@ -11,7 +11,7 @@ set(PLUGINS
 	Tester
 	Transition)
 # MultiplyGPU needs the Resolve GPU extensions, and so a Support library built with them
-# (the extension defines change Support's class layouts, so they must match).
+# (OFX_EXTENSIONS_RESOLVE changes the layout of Support's classes, so the plug-in and the library must agree).
 option(BUILD_EXAMPLE_MULTIPLYGPU "Build the MultiplyGPU example (needs OFX_EXTENSIONS_RESOLVE)" ON)
 if(OFX_EXTENSIONS_RESOLVE AND BUILD_EXAMPLE_MULTIPLYGPU)
 	list(APPEND PLUGINS MultiplyGPU)
