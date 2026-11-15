@@ -11,10 +11,8 @@ set(PLUGINS
 	Tester
 	Transition)
 # MultiplyGPU needs the Resolve GPU extensions, and so a Support library built with them
-# (the extension defines change Support's class layouts, so they must match). It currently
-# fails to compile, with the Makefile too ("call to 'unused' is ambiguous": its own unused()
-# template clashes with OFX::unused), so it is only built on request.
-option(BUILD_EXAMPLE_MULTIPLYGPU "Build the MultiplyGPU example (needs OFX_EXTENSIONS_RESOLVE)" OFF)
+# (the extension defines change Support's class layouts, so they must match).
+option(BUILD_EXAMPLE_MULTIPLYGPU "Build the MultiplyGPU example (needs OFX_EXTENSIONS_RESOLVE)" ON)
 if(OFX_EXTENSIONS_RESOLVE AND BUILD_EXAMPLE_MULTIPLYGPU)
 	list(APPEND PLUGINS MultiplyGPU)
 endif()

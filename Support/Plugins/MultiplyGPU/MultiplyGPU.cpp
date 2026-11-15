@@ -41,10 +41,6 @@ namespace { // use anonymous namespace
 #define kParamValueLabel "Value"
 #define kParamValueHint  "Constant to multiply with the selected channels."
 
-template<typename T>
-static inline void
-unused(const T&) {}
-
 class MultiplyProcessorBase
 : public ImageProcessor
 {
@@ -217,7 +213,7 @@ private:
 
 template <class PIX, int nComponents, int maxValue>
 void
-MultiplyProcessor<PIX,nComponents,maxValue>::multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& renderScale)
+MultiplyProcessor<PIX,nComponents,maxValue>::multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& /*renderScale*/)
 {
   assert(nComponents == 1 || nComponents == 3 || nComponents == 4);
   assert(_dstImg);
@@ -318,9 +314,8 @@ MultiplyPlugin::setupAndProcess(MultiplyProcessorBase &processor,
     setPersistentMessage(Message::eMessageError, "", "OFX Host gave image with wrong depth or components");
     throwSuiteStatusException(kOfxStatFailed);
   }
-  if ( (dst->getRenderScale().x != args.renderScale.x) ||
-      ( dst->getRenderScale().y != args.renderScale.y) ||
-      ( ( dst->getField() != eFieldNone) /* for DaVinci Resolve */ && ( dst->getField() != args.fieldToRender) ) ) {
+  checkBadRenderScale(dst, args);
+  if ( ( dst->getField() != eFieldNone) /* for DaVinci Resolve */ && ( dst->getField() != args.fieldToRender) ) {
     setPersistentMessage(Message::eMessageError, "", "OFX Host gave image with wrong scale or field properties");
     throwSuiteStatusException(kOfxStatFailed);
   }
@@ -329,9 +324,8 @@ MultiplyPlugin::setupAndProcess(MultiplyProcessorBase &processor,
                                  _srcClip->fetchImage(time) : 0 );
 #ifndef NDEBUG
   if ( src.get() ) {
-    if ( (src->getRenderScale().x != args.renderScale.x) ||
-        ( src->getRenderScale().y != args.renderScale.y) ||
-        ( ( src->getField() != eFieldNone) /* for DaVinci Resolve */ && ( src->getField() != args.fieldToRender) ) ) {
+    checkBadRenderScale(src, args);
+    if ( ( src->getField() != eFieldNone) /* for DaVinci Resolve */ && ( src->getField() != args.fieldToRender) ) {
       setPersistentMessage(Message::eMessageError, "", "OFX Host gave image with wrong scale or field properties");
       throwSuiteStatusException(kOfxStatFailed);
     }
