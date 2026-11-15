@@ -67,6 +67,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         config: [Release]
         extensions: ['ON', 'OFF']
+        cxx: ['']   # default standard; the include entries below add C++20/23 jobs
         include:
           - os: ubuntu-latest
             config: Debug
