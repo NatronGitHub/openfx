@@ -1,2 +1,4 @@
+sphinx<7
 breathe
-sphinxjp.themes.basicstrap
+sphinx_rtd_theme
+pyyaml>=6.0

@@ -1,30 +1,7 @@
 #! /bin/bash
 
-# Copyright (c) 2020, The Open Effects Association Ltd. All rights reserved.
-
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-
-#     * Redistributions of source code must retain the above copyright notice,
-#       this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above copyright notice,
-#       this list of conditions and the following disclaimer in the documentation
-#       and/or other materials provided with the distribution.
-#     * Neither the name The Open Effects Association Ltd, nor the names of its
-#       contributors may be used to endorse or promote products derived from this
-#       software without specific prior written permission.
-
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-# ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
+# Copyright OpenFX and contributors to the OpenFX project.
+# SPDX-License-Identifier: BSD-3-Clause
 
 #########################
 # Build OFX documentation
@@ -40,37 +17,59 @@ catch() {
 
 # Check for prereqs
 
-if [ ! -f genPropertiesReference.py ] ; then
+if [ ! -f build.sh ] ; then
     echo "This script must be run in the Documentation directory."
     exit 1
 fi
 
-if ! command -v sphinx-build > /dev/null 2>&1 ; then
-    echo "Python can't import required modules; did you set up the prereqs?"
-    echo "Check the README.md."
-    exit 1
+if command -v uvx > /dev/null 2>&1; then
+    USE_UV=1
+    SPHINX_BUILD="uv run --with-requirements pipreq.txt sphinx-build"
+    UV_RUN="uv run"
+else
+    USE_UV=
+    SPHINX_BUILD="sphinx-build"
+    UV_RUN=""
 fi
 
 rm -rf build
 
-# Generate references
-EXPECTED_ERRS="unable to resolve reference|explicit link request|found in multiple"
-python genPropertiesReference.py \
-       -i ../include -o sources/Reference/ofxPropertiesReference.rst -r \
-       > /tmp/ofx-doc-build.out 2>&1
-egrep -v "$EXPECTED_ERRS" /tmp/ofx-doc-build.out || true
+# Generate property documentation from inline @propdef metadata in headers
+cd ..
+if command -v uv > /dev/null 2>&1; then
+    uv run scripts/gen-props-doc.py -v >> /tmp/ofx-doc-build.out 2>&1
+else
+    # Fall back to regular python if uv is not available
+    python scripts/gen-props-doc.py -v >> /tmp/ofx-doc-build.out 2>&1
+fi
+cd Documentation
 
-# Build the Doxygen docs
+# Doxygen 1.18 writes function-pointer struct members (every suite function) in a form
+# Breathe cannot parse, so they lose their declarations and link targets.
+DOXYGEN_VERSION=$(doxygen --version | cut -d ' ' -f 1)
+if [[ $(printf '%s\n' 1.18 "$DOXYGEN_VERSION" | sort -V | head -1) == 1.18 ]]; then
+    echo "WARNING: Doxygen $DOXYGEN_VERSION breaks the suite function docs; use Doxygen 1.17 or earlier."
+fi
+
+# Build the Doxygen docs into $TOP/Documentation/doxygen_build
 EXPECTED_ERRS="malformed hyperlink target|Duplicate explicit|Definition list ends|unable to resolve|could not be resolved"
 cd ../include
 doxygen ofx.doxy > /tmp/ofx-doc-build.out 2>&1
-egrep -v "$EXPECTED_ERRS" /tmp/ofx-doc-build.out || true
+grep -v -E "$EXPECTED_ERRS" /tmp/ofx-doc-build.out || true
 cd -
 
+# Use breathe.apidoc to collect the Doxygen API docs
+rm -rf sources/Reference/api
+if [[ $USE_UV ]]; then
+    $UV_RUN --with breathe python -m breathe.apidoc -p 'ofx_reference' -m --force -g class,interface,struct,union,file,namespace,group -o sources/Reference/api doxygen_build/xml
+else
+    python -m breathe.apidoc -p 'ofx_reference' -m --force -g class,interface,struct,union,file,namespace,group -o sources/Reference/api doxygen_build/xml
+fi
+
 # Build the Sphinx docs
-EXPECTED_ERRS="Explicit markup ends without|Duplicate declaration|cpp:func targets a member|undefined label"
-sphinx-build -b html sources build > /tmp/ofx-doc-build.out 2>&1
-egrep -v "$EXPECTED_ERRS" /tmp/ofx-doc-build.out || true
+EXPECTED_ERRS='Explicit markup ends without|Duplicate C.*declaration|Declaration is|cpp:func targets a member'
+$SPHINX_BUILD -b html sources build > /tmp/ofx-doc-build.out 2>&1
+grep -v -E "$EXPECTED_ERRS" /tmp/ofx-doc-build.out || true
 
 echo "Documentation build complete."
 echo "Open file:///$PWD/build/index.html in your browser"

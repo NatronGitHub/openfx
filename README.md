@@ -1,7 +1,16 @@
 OpenFX effects API [![Build Status](https://api.travis-ci.org/devernay/openfx.png?branch=master)](https://travis-ci.org/devernay/openfx) [![Coverage Status](https://coveralls.io/repos/devernay/openfx/badge.png?branch=master)](https://coveralls.io/r/devernay/openfx?branch=master) [![Coverity Scan Build Status](https://scan.coverity.com/projects/15151/badge.svg)](https://scan.coverity.com/projects/15151 "Coverity Badge")
 ==================
 
-A fork from the official openfx repository https://github.com/ofxa/openfx with bug fixes and enhancements.
+This is [NatronGitHub/openfx](https://github.com/NatronGitHub/openfx), the fork of the official OpenFX repository
+[AcademySoftwareFoundation/openfx](https://github.com/AcademySoftwareFoundation/openfx) used by Natron and the
+openfx-misc, openfx-io, openfx-arena, openfx-gmic and openfx-supportext plug-ins, with bug fixes and enhancements.
+
+It implements **OpenFX 1.5.1** (plus the post-1.5.1 additions in `release-notes-next.md`) and keeps the Natron, Nuke,
+Vegas, Resolve and TuttleOFX extension headers. See `release-notes.md` for the list of changes, and the documentation
+([upstream rendering](https://openfx.readthedocs.io/en/latest); build this fork's with `cd Documentation && ./build.sh`),
+including the page on the fork's extensions.
+
+The sections below are historical notes about the OpenFX 1.4 spec; most of these questions are answered by OpenFX 1.5.
 
 Things that need to be clarified in the OpenFX 1.4 spec
 -------------------------------------------------------

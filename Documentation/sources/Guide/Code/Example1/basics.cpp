@@ -1,31 +1,5 @@
-/*
-Software License :
-
-Copyright (c) 2014, The Open Effects Association Ltd. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-    * Redistributions of source code must retain the above copyright notice,
-      this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright notice,
-      this list of conditions and the following disclaimer in the documentation
-      and/or other materials provided with the distribution.
-    * Neither the name The Open Effects Association Ltd, nor the names of its
-      contributors may be used to endorse or promote products derived from this
-      software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+// Copyright OpenFX and contributors to the OpenFX project.
+// SPDX-License-Identifier: BSD-3-Clause
 
 /*
   Author : Bruno Nicoletti (2014)
@@ -49,14 +23,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // the one OFX header we need, it includes the others necessary
 #include "ofxImageEffect.h"
-
-#if defined __APPLE__ || defined __linux__ || defined __FreeBSD__
-#  define EXPORT __attribute__((visibility("default")))
-#elif defined _WIN32
-#  define EXPORT OfxExport
-#else
-#  error Not building on your operating system quite yet
-#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 // macro to write a labelled message to stderr with
@@ -112,7 +78,9 @@ namespace {
   int  gNumInstancesLiving = 0;
 
   ////////////////////////////////////////////////////////////////////////////////
-  // The first _action_ called after the binary is loaded (three boot strapper functions will be howeever)
+  // The first _action_ called after the binary is loaded (bootstrapper
+  // functions (e.g., `OfxGetNumberOfPlugins`) are, however, called before any
+  // action is called.)
   OfxStatus LoadAction(void)
   {
     ERROR_ABORT_IF(gHost == NULL, "The OfxHost pointer has not been set, it should have been set in 'setHostFunc' before any action is called.");
@@ -131,14 +99,14 @@ namespace {
   }
 
   ////////////////////////////////////////////////////////////////////////////////
-  // last action called before a plugin binary is unloaded.
+  // The last action called before a plugin binary is unloaded.
   OfxStatus UnloadAction(void)
   {
     // make sure no instances have been left alive
     ERROR_IF(gNumInstancesLiving != 0, "kOfxActionUnload called while there are still %d instances of the plugin extant.", gNumInstancesLiving);
 
     // check that we had a load called first
-    ERROR_IF(gInLoadedState != true, "kOfxActionUnload callewd without preceding kOfxAcrtionLoad.");
+    ERROR_IF(gInLoadedState != true, "kOfxActionUnload called without preceding kOfxActionLoad.");
     gInLoadedState = false;
 
     return kOfxStatOK;
@@ -178,7 +146,7 @@ namespace {
     const char *context;
     gPropertySuite->propGetString(inArgs, kOfxImageEffectPropContext, 0, &context);
 
-    ERROR_IF(strcmp(context, kOfxImageEffectContextFilter) != 0, "DescribeInContextAction called on unsupported contex %s", context);
+    ERROR_IF(strcmp(context, kOfxImageEffectContextFilter) != 0, "DescribeInContextAction called on unsupported context %s", context);
 
     OfxPropertySetHandle props;
     // define the mandated single output clip
@@ -235,8 +203,8 @@ namespace {
   }
 
   // are the settings of the effect making it redundant and so not do anything to the image data
-  OfxStatus IsIdentityAction(OfxImageEffectHandle /*instance*/,
-                             OfxPropertySetHandle /*inArgs*/,
+  OfxStatus IsIdentityAction(OfxImageEffectHandle instance,
+                             OfxPropertySetHandle inArgs,
                              OfxPropertySetHandle outArgs)
   {
     // we set the name of the input clip to pull data from
@@ -278,7 +246,7 @@ namespace {
       returnStatus = DescribeAction(effect);
     }
     else if(strcmp(action, kOfxImageEffectActionDescribeInContext) == 0) {
-      // the second action called to describe what the plugin does
+      // the second action called to describe what the plugin does in a specific context
       returnStatus = DescribeInContextAction(effect, inArgs);
     }
     else if(strcmp(action, kOfxActionCreateInstance) == 0) {
@@ -326,7 +294,7 @@ namespace {
 static OfxPlugin effectPluginStruct =
 {
   kOfxImageEffectPluginApi,                // The API this plugin satisfies.
-  1,                                       // The version of the API it satisifes.
+  1,                                       // The version of the API it satisfies.
   "org.openeffects:BasicsExamplePlugin",   // The unique ID of this plugin.
   1,                                       // The major version number of this plugin.
   0,                                       // The minor version number of this plugin.
@@ -335,23 +303,23 @@ static OfxPlugin effectPluginStruct =
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-// The first of the two functions that a host application will look for
+// The first of the two required functions that a host application will look for
 // after loading the binary, this function returns the number of plugins within
 // this binary.
 //
 // This will be the first function called by the host.
-EXPORT int OfxGetNumberOfPlugins(void)
+int OfxGetNumberOfPlugins(void)
 {
   return 1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// The second of the two functions that a host application will look for
-// after loading the binary, this function returns the 'nth' plugin declared in
-// this binary.
+// The second of the two required functions that a host application will look
+// for after loading the binary, this function returns the 'nth' plugin declared
+// in this binary.
 //
 // This will be called multiple times by the host, once for each plugin present.
-EXPORT OfxPlugin * OfxGetPlugin(int nth)
+OfxPlugin * OfxGetPlugin(int nth)
 {
   if(nth == 0)
     return &effectPluginStruct;

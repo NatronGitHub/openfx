@@ -1,4 +1,5 @@
-OpenFX reference 
+.. SPDX-License-Identifier: CC-BY-4.0
+OpenFX reference
 ================
 
 This is a mostly complete reference guide to the OFX image effect plugin
@@ -21,13 +22,15 @@ the API. The changes to the API are listed in an addendum.
     ofxCoordSystem
     ofxImageClip
     ofxParameter
-    ofxRendering 
+    ofxRendering
     ofxInteracts
     ofxClipPreferences
     ofxImageEffectActions
     ofxInteractActions
     suites/ofxSuiteReference
-    ofxPropertiesByObject
-    ofxPropertiesReference
+    ofxPropertiesReferenceGenerated
+    ofxPropertySetsGenerated
+    DoxygenIndex
     ofxStatusCodes
-    apiChanges_1_2_Chapter
+    ofxForkExtensions
+    ofxInteractCursors

@@ -1,9 +1,9 @@
-
+.. SPDX-License-Identifier: CC-BY-4.0
 Rendering
 =========
 
 The :c:macro:`kOfxImageEffectActionRender`
-action is passed to plugins, when the host requires them to render an
+action is passed to plugins when the host requires them to render an
 output frame.
 
 All calls to the
@@ -17,11 +17,10 @@ long sequences by setting up any tables etc.. it may need.
 
 The
 :c:macro:`kOfxImageEffectActionBeginSequenceRender`
-will indicate the frame range that is to be renderred, and whether this
+will indicate the frame range that is to be rendered, and whether this
 is purely a single frame render due to interactive feedback from a user
 in a GUI.
 
-The render action is used in conjunction with the optional
 
 Identity Effects
 ----------------
@@ -70,7 +69,7 @@ returned will be based on this (usually be clipped to the input's region
 of definition). Generally a plugin should not use the *region* parameter
 in the render action, but should leave it to the 'default' region.
 
-.. ImageEffectsMultiThreadingRendering:
+.. _ImageEffectsMultiThreadingRendering:
 
 Multi-threaded Rendering
 ------------------------
@@ -92,10 +91,10 @@ Indicating that any instance can have a single 'render' action at any one time
 
 Indicating that any instance of a plugin can have multiple renders running simultaneously
 
-.. ImageEffectsSMPRendering:
+.. _ImageEffectsSMPRendering:
 
 Rendering in a Symmetric Multi Processing Environment
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 When rendering on computers that have more that once CPU (or this
 new-fangled hyperthreading), hosts and effects will want to take
@@ -124,7 +123,7 @@ host works with it's render farm, it may have multiple copies on an
 instance spread over the farm rendering separate frame ranges, 1-100 on
 station A, 101 to 200 on station B and so on...
 
-.. ImageEffectsSequentialRendering:
+.. _ImageEffectsSequentialRendering:
 
 Rendering Sequential Effects
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -168,11 +167,11 @@ For plug-ins this can be one of three values...
 
 For hosts, this property takes three values...
 
--  0, which indicates thet the host can never guarantee sequential
+-  0, which indicates that the host can never guarantee sequential
    rendering,
--  1, which indicates thet the host can guarantee sequential rendering
+-  1, which indicates that the host can guarantee sequential rendering
    for plugins that request it,
--  2, which indicates thet the host can sometimes perform sequential
+-  2, which indicates that the host can sometimes perform sequential
    rendering.
 
 When rendering, a host will set the in args property on
@@ -233,44 +232,24 @@ and image instance property can be...
 
 .. doxygendefine:: kOfxImageFieldNone
 
-The material is unfielded
-
 .. doxygendefine:: kOfxImageFieldLower
 
-The material is fielded, with scan line 0,2,4.... occurring first in a frame
-
 .. doxygendefine:: kOfxImageFieldUpper
-
-The material is fielded, with scan line 1,3,5.... occurring first in a frame
 
 Images extracted from a clip flag what their fieldedness is with the
 property :c:macro:`kOfxImagePropField`, this can
 be....
 
-.. doxygendefine:: kOfxImageFieldNone
-
-The image is an unfielded frame
+-  :c:macro:`kOfxImageFieldNone`
 
 .. doxygendefine:: kOfxImageFieldBoth
 
-The image is fielded and contains both interlaced fields
+-  :c:macro:`kOfxImageFieldLower`
+-  :c:macro:`kOfxImageFieldUpper`
 
-.. doxygendefine:: kOfxImageFieldLower
+The plugin specifies how it deals with fielded imagery by setting this property:
 
-The image is fielded and contains a single field, being the lower field (lines 0,2,4...)
-
-.. doxygendefine:: kOfxImageFieldUpper
-
-The image is fielded and contains a single field, being the upper field (lines 1,3,5...)
-
-The plugin specifies how it deals with fielded imagery by setting the
-:c:macro:`kOfxImageEffectPluginPropFieldRenderTwiceAlways`
-property. This can be,
-
--  0 - the plugin is to have it's render function called twice only if
-   there is animation in any of it's parameters
--  1 - the plugin is to have it's render function called twice always
-   (default)
+.. doxygendefine:: kOfxImageEffectPluginPropFieldRenderTwiceAlways
 
 The reason for this is an optimisation. Imagine a text generator with no
 animation being asked to render into a fielded output clip, it can treat
@@ -292,7 +271,7 @@ tells the effect which field it should render, this can be one of...
 -  :c:macro:`kOfxImageFieldNone`
    - there are no fields to deal with, the image is full frame
 -  :c:macro:`kOfxImageFieldBoth`
-   - the imagery is fielded and both scan lines should be renderred
+   - the imagery is fielded and both scan lines should be rendered
 -  :c:macro:`kOfxImageFieldLower`
    - the lower field is being rendered (lines 0,2,4...)
 -  :c:macro:`kOfxImageFieldUpper`
@@ -338,15 +317,15 @@ input. The .0 and .5 mean first and second temporal fields.
 
         output 0       1       2       3
         source 0       0       1       1
-            
+
 
     ::
 
         Behaviour with fielded footage
 
-        output 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5            
+        output 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5
         source 0.0 0.0 0.5 0.5 1.0 1.0 1.5 1.5
-            
+
 
 NOTE
 
@@ -359,7 +338,7 @@ NOTE
    the returned image to twice the normal value, and maybe tweak the
    start address by a scanline.
 
-.. ImageEffectsRenderingAndGUIS:
+.. _ImageEffectsRenderingAndGUIS:
 
 Rendering In An Interactive Environment
 ---------------------------------------
@@ -368,9 +347,19 @@ Any host with an interface will most likely have an interactive thread
 and a rendering thread. This allows an effect to be manipulated while
 having renders batched off to a background thread. This will mean that
 some degree of locking will go on to prevent simultaneous read/writes
-occurring, see :ref:`this section <ImageEffectsThreadSafety>` for more on thread safety.
+occurring, see :ref:`this section <threadRecursionSafety>` for more on thread safety.
 
 A host may need to abort a backgrounded render, typically in response to
 a user changing a parameter value. An effect should occasionally poll
 the :cpp:func:`OfxImageEffectSuiteV1::abort`
 function to see if it should give up on rendering.
+
+.. _gpu-rendering:
+
+Rendering on GPU
+----------------
+
+.. doxygenpage:: ofxOpenGLRender
+.. doxygengroup:: CudaRender
+.. doxygengroup:: MetalRender
+.. doxygengroup:: OpenClRender
