@@ -329,6 +329,9 @@ namespace OFX {
           { kNatronOfxParamPropChoiceCascading,         Property::eInt, 1,    false,    "0"},
           { kNatronOfxParamPropChoiceHostCanAddOptions, Property::eInt, 1,    false,    "0"},
 #endif
+          // OFX 1.5: UI order of the options; "if not set, the host will present the
+          // options in their natural order"
+          { kOfxParamPropChoiceOrder,    Property::eInt,       0,    false,    "" },
           Property::propSpecEnd
         };
 
@@ -336,6 +339,8 @@ namespace OFX {
         static const Property::PropSpec allStrChoice[] = {
           { kOfxParamPropChoiceEnum,      Property::eString,    0,    false,    "" },
           { kOfxParamPropChoiceOption,    Property::eString,    0,    false,    "" },
+          // OFX 1.5: "StrChoice parameters may also be reordered using kOfxParamPropChoiceOrder"
+          { kOfxParamPropChoiceOrder,     Property::eInt,       0,    false,    "" },
           Property::propSpecEnd
         };
 #endif
@@ -539,6 +544,16 @@ namespace OFX {
         };
 
         _properties.addProperties(allNumeric);
+
+        /// OFX 1.5: default interpolation of 1D integer and double params
+        /// ("Default - kOfxParamInterpTypeLinear")
+        if (dim == 1 && (isDoubleParam(type) || isIntParam(type))) {
+          static const Property::PropSpec all1DInterp[] = {
+            { kOfxParamInterpType, Property::eString, 1, false, kOfxParamInterpTypeLinear },
+            Property::propSpecEnd
+          };
+          _properties.addProperties(all1DInterp);
+        }
 
         /// if any double or a colour
         if (valueType == Property::eDouble) {
