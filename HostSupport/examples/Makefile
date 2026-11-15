@@ -1,10 +1,10 @@
 DEBUG ?= false
-EXPAT_INCLUDE ?= expat-2.2.7/lib
+EXPAT_INCLUDE ?= expat-2.10.0/lib
 OBJSUF ?= .o
 LIBSUF ?= .a
 LIBPREFIX ?= lib
 LIBNAME ?= ofxHost
-EXPAT_LIB_PATH ?= .
+EXPAT_LIB_PATH ?= ../$(DST_DIR)
 OS = $(shell uname)
 DEBUG ?= false
 OFXSLIB = $(LIBPREFIX)$(LIBNAME)$(LIBSUF)

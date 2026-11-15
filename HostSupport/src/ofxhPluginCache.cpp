@@ -761,8 +761,14 @@ void PluginCache::readCache(std::istream &ifs) {
 
     if (XML_Parse(xP, buf, n, done) == XML_STATUS_ERROR) {
       XML_Error errorCode = XML_GetErrorCode(xP);
+#if XML_MAJOR_VERSION > 2 || (XML_MAJOR_VERSION == 2 && XML_MINOR_VERSION >= 9)
+      // expat >= 2.9.0 deprecates the XML_Size variants (prone to 32-bit wrap-around)
+      uint64_t errorLine = XML_GetCurrentLineNumber64(xP);
+      uint64_t errorCol = XML_GetCurrentColumnNumber64(xP);
+#else
       XML_Size errorLine = XML_GetCurrentLineNumber(xP);
       XML_Size errorCol = XML_GetCurrentColumnNumber(xP);
+#endif
       const XML_LChar *errorString = XML_ErrorString(errorCode);
       std::stringstream errorDesc;
       errorDesc << "XML parsing error at line " << errorLine << ":" << errorCol;
