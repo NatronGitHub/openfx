@@ -234,6 +234,11 @@ Interface Module Level 4" (https://www.w3.org/TR/css-ui-4/#cursor), which have
 well-known equivalents on all window systems. A host lists those it can display;
 it must list at least ::kOfxInteractCursorDefault and should list
 ::kOfxInteractCursorNone.
+
+    @propdef
+    type: string
+    dimension: N
+    extension: natron
 */
 #define kOfxInteractHostPropSupportedCursors "OfxInteractHostPropSupportedCursors"
 
@@ -248,6 +253,11 @@ it must list at least ::kOfxInteractCursorDefault and should list
 
 May be set by the plug-in during any interact action. It is read by the host as
 described in @ref InteractCursor.
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: natron
 */
 #define kOfxInteractPropCursor "OfxInteractPropCursor"
 
@@ -264,6 +274,11 @@ If a file with the same name and an "@2x" suffix before the extension exists
 (e.g. "Rotate@2x.png"), the host may use it on high-density displays. The host
 may scale or refuse images larger than 32x32 points. If the image cannot be
 loaded, the host displays ::kOfxInteractCursorDefault.
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: natron
 */
 #define kOfxInteractPropCursorImage "OfxInteractPropCursorImage"
 
@@ -279,6 +294,11 @@ When the host uses the "@2x" variant of ::kOfxInteractPropCursorImage on a
 high-density display, the hot spot in that image's pixels is twice this value
 (e.g. with Qt, load the @2x image in a QPixmap, call setDevicePixelRatio(2),
 and pass this hot spot unchanged to QCursor).
+
+    @propdef
+    type: int
+    dimension: 2
+    extension: natron
 */
 #define kOfxInteractPropCursorHotSpot "OfxInteractPropCursorHotSpot"
 
