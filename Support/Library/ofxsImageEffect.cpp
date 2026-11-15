@@ -1718,7 +1718,7 @@ namespace OFX {
         _transformIsIdentity = (_transform[1] == 0. && _transform[2] == 0. &&
                                 _transform[3] == 0. && _transform[5] == 0. &&
                                 _transform[6] == 0. && _transform[7] == 0. &&
-                                _transform[0] == _transform[2] && _transform[0] == _transform[8]);
+                                _transform[0] == _transform[4] && _transform[0] == _transform[8]);
       }
     }
 #endif
@@ -1734,7 +1734,7 @@ namespace OFX {
         _transformIsIdentity = (_transform[1] == 0. && _transform[2] == 0. &&
                                 _transform[3] == 0. && _transform[5] == 0. &&
                                 _transform[6] == 0. && _transform[7] == 0. &&
-                                _transform[0] == _transform[2] && _transform[0] == _transform[8]);
+                                _transform[0] == _transform[4] && _transform[0] == _transform[8]);
       }
     }
 #endif
