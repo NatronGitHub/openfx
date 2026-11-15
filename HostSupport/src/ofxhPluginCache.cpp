@@ -155,7 +155,7 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
     
     for (int i=0;i<pluginCount;i++) {
       OfxPlugin *plug = (*_getPluginFunc)(i);
-      if (!plug || !plug->pluginApi || !plug->pluginIdentifier) {
+      if (!plug || !plug->pluginApi || !plug->pluginIdentifier || !plug->setHost || !plug->mainEntry) {
         std::cerr << "OFX: " << _filePath << ": OfxGetPlugin(" << i << ") returned an invalid plug-in, ignoring it" << std::endl;
         continue;
       }
