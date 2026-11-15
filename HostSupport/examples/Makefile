@@ -31,10 +31,10 @@ HOST_DEMO_FILES = $(DST_DIR)/hostDemo.o \
 	$(DST_DIR)/hostDemoHostDescriptor.o   \
 	$(DST_DIR)/hostDemoParamInstance.o    
 
-all : $(DST_DIR)/hostDemo $(DST_DIR)/cacheDemo
+all : $(DST_DIR)/hostDemo $(DST_DIR)/cacheDemo $(DST_DIR)/propsetDump
 
 clean :
-	rm -f $(DST_DIR)/*.o $(DST_DIR)/cacheDemo $(DST_DIR)/hostDemo
+	rm -f $(DST_DIR)/*.o $(DST_DIR)/cacheDemo $(DST_DIR)/hostDemo $(DST_DIR)/propsetDump
 	cd ..; make clean DEBUG=$(DEBUG) EXPAT_INCLUDE=$(EXPAT_INCLUDE) OBJSUF=$(OBJSUF) LIBSUF=$(LIBSUF) \
 	LIBPREFIX=$(LIBPREFIX) LIBNAME=$(LIBNAME); 
 
@@ -54,3 +54,18 @@ $(DST_DIR)/cacheDemo : cacheDemo.cpp $(OFXSLIB)
 $(DST_DIR)/hostDemo : $(HOST_DEMO_FILES)  $(OFXSLIB)
 	mkdir -p $(DST_DIR)
 	$(CXX) $(CXXFLAGS) $(HOST_DEMO_FILES) -o $(DST_DIR)/hostDemo -L../$(DST_DIR) -lofxHost -L$(EXPAT_LIB_PATH) -lexpat -ldl
+
+# propsetDump: dump the property sets HostSupport creates (used by scripts/audit-propsets.py)
+PROPSET_DUMP_FILES = $(DST_DIR)/propsetDump.o \
+	$(DST_DIR)/hostDemoClipInstance.o     \
+	$(DST_DIR)/hostDemoEffectInstance.o   \
+	$(DST_DIR)/hostDemoHostDescriptor.o   \
+	$(DST_DIR)/hostDemoParamInstance.o
+
+$(DST_DIR)/propsetDump.o : propsetDump.cpp
+	mkdir -p $(DST_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(DST_DIR)/propsetDump : $(PROPSET_DUMP_FILES) $(OFXSLIB)
+	mkdir -p $(DST_DIR)
+	$(CXX) $(CXXFLAGS) $(PROPSET_DUMP_FILES) -o $(DST_DIR)/propsetDump -L../$(DST_DIR) -lofxHost -L$(EXPAT_LIB_PATH) -lexpat -ldl

@@ -809,8 +809,9 @@ static OfxStatus pluginMain(const char *action, const void *handle,
       checkMainHandles(action, handle, inArgsHandle, outArgsHandle, false,
                        false, false);
     } else if (!strcmp(action, kOfxImageEffectActionGetClipPreferences)) {
+      // "@param inArgs is redundant and is set to NULL" (ofxImageEffect.h)
       checkMainHandles(action, handle, inArgsHandle, outArgsHandle, false,
-                       false, false);
+                       true, false);
       stat = getClipPreferences(effectHandle, inArgsHandle, outArgsHandle);
     } else if (!strcmp(action, kOfxImageEffectActionIsIdentity)) {
       checkMainHandles(action, handle, inArgsHandle, outArgsHandle, false,

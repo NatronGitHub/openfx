@@ -60,6 +60,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ofxhHost.h"
 #include "ofxhImageEffectAPI.h"
 #include "ofxhUtilities.h"
+#include "ofxParametricParam.h" // kOfxParamHostPropSupportsParametricAnimation, declared by every host
 #ifdef OFX_SUPPORTS_PARAMETRIC
 #include "ofxhParametricParam.h"
 #endif
@@ -106,8 +107,9 @@ namespace OFX {
         { kOfxImageEffectInstancePropSequentialRender, Property::eInt, 1, false, "0" },
         { kOfxImageEffectPropRenderQualityDraft, Property::eInt, 1, false, "0" },
         { kOfxPluginPropFilePath, Property::eString, 1, true, ""},
+        // OFX 1.3, required by the spec on every host: "false" unless the plug-in says otherwise
+        { kOfxImageEffectPropOpenGLRenderSupported, Property::eString, 1, false, "false"},
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-        { kOfxImageEffectPropOpenGLRenderSupported, Property::eString, 1, false, "false"}, // OFX 1.3
         { kOfxOpenGLPropPixelDepth, Property::eString,  0, false, "" }, 
 #endif
 #ifdef OFX_EXTENSIONS_RESOLVE
@@ -4652,8 +4654,9 @@ namespace OFX {
         { kOfxParamHostPropSupportsBooleanAnimation, Property::eInt, 1, true, "0" },
         { kOfxParamHostPropSupportsCustomAnimation, Property::eInt, 1, true, "0" },
         { kOfxPropHostOSHandle, Property::ePointer, 1, true, NULL },
-#     ifdef OFX_SUPPORTS_PARAMETRIC
+        // "0" is also right for hosts without parametric parameters
         { kOfxParamHostPropSupportsParametricAnimation, Property::eInt, 1, true, "0"},
+#     ifdef OFX_SUPPORTS_PARAMETRIC
 #      ifdef OFX_SUPPORTS_PARAMETRIC_V2
         { kOfxHostPropSupportedParametricInterpolations, Property::eString, 0, true, ""},
 #      endif
@@ -4662,11 +4665,10 @@ namespace OFX {
         { kOfxParamHostPropMaxPages, Property::eInt, 1, true, "0" },
         { kOfxParamHostPropPageRowColumnCount, Property::eInt, 2, true, "0" },
         { kOfxImageEffectInstancePropSequentialRender, Property::eInt, 1, true, "0" }, // OFX 1.2
-#     ifdef OFX_SUPPORTS_OPENGLRENDER
-        { kOfxImageEffectPropOpenGLRenderSupported, Property::eString, 1, true, "false"}, // OFX 1.3
-#     endif
+        // OFX 1.3, required by the spec on every host: "false" unless the host can render with OpenGL
+        { kOfxImageEffectPropOpenGLRenderSupported, Property::eString, 1, true, "false"},
         { kOfxImageEffectPropRenderQualityDraft, Property::eInt, 1, true, "0" }, // OFX 1.4
-        { kOfxImageEffectHostPropNativeOrigin, Property::eString, 0, true, kOfxHostNativeOriginBottomLeft }, // OFX 1.4
+        { kOfxImageEffectHostPropNativeOrigin, Property::eString, 1, true, kOfxHostNativeOriginBottomLeft }, // OFX 1.4
 #     ifdef OFX_EXTENSIONS_RESOLVE
         { kOfxImageEffectPropOpenCLRenderSupported, Property::eString, 1, false, "false"},
         { kOfxImageEffectPropCudaRenderSupported, Property::eString, 1, false, "false" },

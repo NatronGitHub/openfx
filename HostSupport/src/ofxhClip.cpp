@@ -263,7 +263,7 @@ namespace OFX {
         { kOfxImageClipPropThumbnail, Property::eInt, 1, true, "0" },
 #endif
 #ifdef OFX_EXTENSIONS_VEGAS
-        { kOfxImagePropPixelOrder, Property::eInt, 1, true, kOfxImagePixelOrderRGBA },
+        { kOfxImagePropPixelOrder, Property::eString, 1, true, kOfxImagePixelOrderRGBA }, // a string enum, not an int
 #endif
 #ifdef OFX_EXTENSIONS_NUKE
         { kFnOfxImageEffectPropComponentsPresent, Property::eString, 0, true, kOfxImageComponentNone},
