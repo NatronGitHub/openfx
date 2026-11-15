@@ -106,6 +106,10 @@ namespace OFX {
 
     /** @brief Pointer to the optional keyframe suite */
     extern OfxVegasKeyframeSuiteV1 *gVegasKeyframeSuite;
+#if defined(WIN32) || defined(WIN64)
+    /** @brief Pointer to the optional HWND interact suite (defined in ofxsImageEffect.cpp) */
+    extern OfxHWNDInteractSuiteV1 *gHWNDInteractSuite;
+#endif
 #endif
 
     /** @brief Support lib function called on an ofx load action */
