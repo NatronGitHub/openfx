@@ -2649,6 +2649,13 @@ namespace OFX {
       _effectProps.propSetString(kOfxImageEffectPropOpenGLRenderSupported, (v ? "true" : "false"), false); // read/write from OFX 1.4
     }
   }
+
+  /** @brief Does the plugin require OpenGL accelerated rendering ? Can only be called from changedParam or changedClip. */
+  void ImageEffect::setNeedsOpenGLRender(bool v) {
+    if (gHostDescription.supportsOpenGLRender) {
+      _effectProps.propSetString(kOfxImageEffectPropOpenGLRenderSupported, (v ? "needed" : "false"), false); // read/write from OFX 1.4
+    }
+  }
 #endif
     
 
@@ -3846,7 +3853,7 @@ namespace OFX {
         gHostDescription.supportsCustomInteract     = hostProps.propGetInt(kOfxParamHostPropSupportsCustomInteract) != 0;
         gHostDescription.supportsChoiceAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsChoiceAnimation) != 0;
 #ifdef OFX_EXTENSIONS_RESOLVE
-        gHostDescription.supportsStrChoiceAnimation = hostProps.propGetInt(kOfxParamHostPropSupportsStrChoiceAnimation, false) != 0;
+        gHostDescription.supportsStrChoiceAnimation = hostProps.propGetInt(kOfxParamHostPropSupportsStrChoiceAnimation, false);
 #endif
         gHostDescription.supportsBooleanAnimation   = hostProps.propGetInt(kOfxParamHostPropSupportsBooleanAnimation) != 0;
         gHostDescription.supportsCustomAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsCustomAnimation) != 0;
@@ -4157,6 +4164,7 @@ namespace OFX {
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
       args.isEnabledMetalRender  = inArgs.propGetInt(kOfxImageEffectPropMetalEnabled, false) != 0;
       args.pOpenCLCmdQ           = inArgs.propGetPointer(kOfxImageEffectPropOpenCLCommandQueue, false);
+      args.pCudaStream           = inArgs.propGetPointer(kOfxImageEffectPropCudaStream, false);
       args.pMetalCmdQ            = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 #endif
 
@@ -4261,6 +4269,7 @@ namespace OFX {
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
       args.isEnabledMetalRender  = inArgs.propGetInt(kOfxImageEffectPropMetalEnabled, false) != 0;
       args.pOpenCLCmdQ           = inArgs.propGetPointer(kOfxImageEffectPropOpenCLCommandQueue, false);
+      args.pCudaStream           = inArgs.propGetPointer(kOfxImageEffectPropCudaStream, false);
       args.pMetalCmdQ            = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 #endif
 
@@ -4303,6 +4312,7 @@ namespace OFX {
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
       args.isEnabledMetalRender  = inArgs.propGetInt(kOfxImageEffectPropMetalEnabled, false) != 0;
       args.pOpenCLCmdQ           = inArgs.propGetPointer(kOfxImageEffectPropOpenCLCommandQueue, false);
+      args.pCudaStream           = inArgs.propGetPointer(kOfxImageEffectPropCudaStream, false);
       args.pMetalCmdQ            = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 #endif
       args.renderScale.x = args.renderScale.y = 1.;
