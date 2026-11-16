@@ -853,9 +853,13 @@ namespace OFX {
     /** @brief Does the plugin support Metal Render, defaults to false */
     void setSupportsMetalRender(bool v);
 
-    /** @brief Does the plugin have no spatial awareness, defaults to false */
-    void setNoSpatialAwareness(bool v);
 #endif
+
+    /** @brief kOfxImageEffectPropNoSpatialAwareness (standard since OFX 1.5.1): the plug-in can render
+        without spatial awareness, i.e. disable its spatial effects when the host sets
+        RenderArguments::isNoSpatialAwareness / BeginSequenceRenderArguments::isNoSpatialAwareness.
+        Defaults to false. Does nothing (and doesn't throw) on hosts that don't know the property. */
+    void setNoSpatialAwareness(bool v);
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     /** @brief Does the plugin support OpenGL accelerated rendering (but is also capable of CPU rendering) ? */
@@ -1581,6 +1585,7 @@ namespace OFX {
     UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5): eUnlicensedBehaviourNotSet if absent */
     bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (OFX 1.5): images are id<MTLTexture>. false if absent */
     void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ, which only exists with OFX_EXTENSIONS_RESOLVE) */
+    bool      isNoSpatialAwareness;  /**< kOfxImageEffectPropNoSpatialAwareness (OFX 1.5.1): the host asks for a render without spatial effects (only if the plug-in declared setNoSpatialAwareness(true)). false if absent */
   };
 
   /** @brief POD struct to pass rendering arguments into @ref OFX::ImageEffect::isIdentity */
@@ -1626,6 +1631,7 @@ namespace OFX {
     UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5): eUnlicensedBehaviourNotSet if absent */
     bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (OFX 1.5): images are id<MTLTexture>. false if absent */
     void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ, which only exists with OFX_EXTENSIONS_RESOLVE) */
+    bool      isNoSpatialAwareness;  /**< kOfxImageEffectPropNoSpatialAwareness (OFX 1.5.1): the host asks for a render without spatial effects (only if the plug-in declared setNoSpatialAwareness(true)). false if absent */
   };
 
   /** @brief POD struct to pass arguments into  @ref OFX::ImageEffect::endSequenceRender */

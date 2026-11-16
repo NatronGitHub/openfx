@@ -1086,6 +1086,20 @@ namespace OFX {
         /// it to return their own per-render state (e.g. from their own thread-local render
         /// arguments).
         virtual bool isThumbnailRender() const;
+
+        /// OFX 1.5.1: should the BeginSequenceRender and Render actions ask the plug-in to render
+        /// without spatial awareness (kOfxImageEffectPropNoSpatialAwareness = "true" in their inArgs)?
+        ///
+        /// Called by beginRenderAction() and renderAction() each time they build their inArgs. The
+        /// default returns false. Hosts that do such renders (e.g. LUT generation) override it to
+        /// return their per-render state. "true" is only sent if the plug-in descriptor set
+        /// kOfxImageEffectPropNoSpatialAwareness to "true"; for other plug-ins, the spec says the
+        /// host "should bypass it for renders that require no spatial awareness".
+        virtual bool isNoSpatialAwarenessRender() const;
+
+        /// set kOfxImageEffectPropNoSpatialAwareness in inArgs (which must contain it), according
+        /// to isNoSpatialAwarenessRender() and the plug-in descriptor.
+        void setNoSpatialAwarenessArg(Property::Set &inArgs) const;
       };
 
       ////////////////////////////////////////////////////////////////////////////////
