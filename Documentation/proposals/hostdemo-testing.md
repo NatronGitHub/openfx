@@ -1,104 +1,83 @@
-# DRAFT: hostDemo as a plug-in test host, and Python bindings (`ofxhost`)
+# DRAFT: hostDemo as a plug-in test host, and a Python test wrapper (`ofxhost`)
 
-Status: design proposal, not implemented. For NatronGitHub/openfx; it doesn't change the OFX API.
+Status: design proposal, revised after two independent reviews. For NatronGitHub/openfx; it doesn't change the OFX API.
 
 ## Goal
 
-Let the plug-in repositories (openfx-misc, openfx-io, openfx-arena, openfx-gmic, and SupportExt-based plug-ins) test their plug-ins without Natron:
+Let the plug-in repositories (openfx-misc, openfx-io, openfx-arena, openfx-gmic, and SupportExt-based plug-ins) test their plug-ins without Natron. A test should be able to:
 - render with chosen inputs, parameters, times and scales;
 - check pixels, RoD, RoI, frames needed and identity;
-- run in CI on the three per-PR builds.
+- run in CI within the frugal policy: three per-PR builds, a nightly extended run.
 
-Today, after #96 and #99, hostDemo can:
-- choose the plug-in, context and parameter values;
-- render 2 frames of a synthetic 720×576 RGBA 8-bit clip;
-- write PPM files.
+It already works for debugging: hostDemo found a real ReadPSD regression from openfx-io #65 (Opaque premultiplication), comparing two builds headlessly.
 
-Its gaps for testing:
-- only one input type (synthetic RGBA byte) and one size;
-- no float/short depths, Alpha or RGB components;
-- no animation, time ranges, render scale or render window;
-- it doesn't call isIdentity, getRegionOfDefinition, getFramesNeeded, getTimeDomain or instanceChanged;
-- the multithread suite runs on one thread (HostSupport's fallback without `OFX_SUPPORTS_MULTITHREAD`), so thread-safety bugs never show;
-- output is 8-bit text PPM, and there are no machine-readable results.
+## Today's hostDemo, and what's wrong with it
 
-## Part A: small hostDemo capabilities (C++, one PR each)
+After #96 and #99, hostDemo:
+- picks a plug-in, a context and parameter values;
+- renders 2 frames of a synthetic 720×576 clip (768×576 canonical, PAR 768/720);
+- writes 8-bit PPM files.
 
-| # | Capability | Options (sketch) | Tests what |
-|---|---|---|---|
-| A1 | **Real inputs** per clip: PPM/PGM and PFM files, or patterns (`solid:r,g,b,a`, `ramp`, `checker:N`, `noise:seed`), with a size and RoD | `-i Source=ramp:1920x1080`, `-i Mask=file.pfm` | filters, generators, transitions, masks, odd RoDs |
-| A2 | **Pixel depths and components**: byte, short, float; RGBA, RGB, Alpha. Follows the clip preferences the plug-in asks for (`getClipPreferences`) | `--depth float --components RGB` | per-depth code paths, clip preference negotiation |
-| A3 | **Exact output**: PFM (float) and 16-bit PPM. `--stats` prints min/max/mean per channel and a checksum, so CI can assert without reference files | `-o out.pfm --stats` | regressions, bit-exactness |
-| A4 | **Time and scale**: frame range, frame rate, render scale, render window, project size and PAR, field | `-t 0-24 --scale 0.5 --window 0,0,256,256` | multi-resolution, tiles, temporal plug-ins |
-| A5 | **Animated parameters**: keys with linear interpolation, plus getDerivative/integrate | `blur@0=1 blur@24=10` | animation-dependent code, frames needed |
-| A6 | **Action report**: call and print, as JSON, isIdentity, RoD, RoI, frames needed, time domain, clip preferences, and instanceChanged when a parameter is set after create | `--report actions.json` | the non-render actions, often the buggiest |
-| A7 | **Messages and progress**: print persistent messages, progress and abort. `--fail-on-error-message` gives a non-zero exit | — | error paths |
-| A8 | **Threads**: a real multithread suite (N std::thread workers), plus `--threads N` and `--repeat N` for timing | `--threads 8 --repeat 10` | thread safety, performance |
-| A9 | **Describe as JSON**: params (type, default, range, choices), clips, contexts and flags | `--describe` | generating test matrices, docs |
-| A10 *(later)* | **Headless overlays**: a DrawSuite (OFX 1.5) that records draw calls, plus scripted pen and key events. Also checks the interact cursor (#63) | `--overlay events.txt` | interacts without a GUI |
+The reviews found blocking problems:
+- **Images ignore clip preferences.** `MyImage` always allocates RGBA bytes (`hostDemoClipInstance.cpp`), while the clip advertises the depth and components negotiated in getClipPreferences. A plug-in that maps a clip to float or Alpha (Merge's Mask) reads the wrong data, or past the buffer. `~MyImage` uses `delete` on `new[]` memory.
+- **The output image** is created once, at time 0 with fixed bounds, pre-filled with the input pattern and never cleared. Unwritten pixels look valid, and render windows, render scales and concurrent renders can't work.
+- **Every clip is connected** (`getConnected()` always returns true), so masks and optional inputs can't be tested.
+- **The host capabilities are hard-coded:** RGBA and Alpha only (no RGB), `SupportsMultiResolution=0`, `SupportsMultipleClipDepths=0`, `SupportsMultipleClipPARs=0`, and no reader, writer or paint contexts. Plug-ins branch on these.
+- **Plug-in loading isn't deterministic.** It scans the system folders (`/Library/OFX/Plugins`, `/usr/OFX/Plugins`), reads and writes `hostDemoPluginCache.xml` in the current directory (so parallel tests race, and a stale cache can hide a rebuilt bundle), and dumps the whole cache to stdout.
+- **Parameters are set before createInstance,** so `instanceChanged` never fires.
+- **No parametric parameters:** `newParam` returns no instance, and `ofxhParametricParam.h` lives in Natron, not HostSupport.
+- **Windows CI doesn't build hostDemo** (`BUILD_EXAMPLE_HOSTS=OFF`).
 
-A1–A3 and A6 matter most. Each is a few hundred lines in `HostSupport/examples/` and doesn't touch the library.
+## Part A: hostDemo as a test host (C++, HostSupport/examples only unless noted)
 
-## Part B: Python bindings
+PRs in this order. Each adds a CI check to the existing per-PR jobs.
 
-### Layering
-1. **`ofxDemoHost` library**: move the hostDemo classes (host descriptor, effect, clip and param instances) out of `hostDemo.cpp`, behind a small C++ façade:
-   ```cpp
-   Host host; host.scan(paths);              // the plug-in cache
-   Effect fx = host.create(id, context);      // describe + create instance
-   fx.setParam("value", {0.5,0.5,0.5,0.5});
-   fx.setInput("Source", Image{w,h,depth,comps,data,rowBytes,rod});
-   Image out = fx.render(time, window, scale);
-   Report r = fx.rod(time); fx.isIdentity(...); fx.framesNeeded(...)
-   ```
-   hostDemo.cpp becomes a thin CLI over it, so the CLI and Python use the same code. HostSupport itself stays C++98. The façade and bindings are C++17 and optional.
-2. **Python module `ofxhost`**: bindings over the façade. Images are NumPy arrays (H×W×C; uint8/uint16/float32), with zero-copy input through the buffer protocol. Parameters are a dict-like view. Each action is a method, and the reports come back as dicts.
-3. **`hostDemo.py`**: the Python CLI (same options as Part A), plus `ofxhost.testing` pytest helpers:
-   - `render(...)`;
-   - `assert_close(img, ref, atol)`;
-   - fixtures to load a bundle;
-   - running each test in a subprocess, so a crashing plug-in doesn't take down pytest.
+1. **Image model and deterministic runs:**
+   - images are allocated with each clip's mapped depth (byte, short, float) and components (RGBA, RGB, Alpha), with the bounds the action asks for (RoI ∩ RoD) and the render scale;
+   - the output image is created per render, and unwritten pixels are filled with a sentinel (NaN for float, 0xCD for integer depths);
+   - inputs per clip: `-i Clip=solid:r,g,b,a | ramp | checker:N | none`, where `none` means disconnected; the content depends on time without wrapping;
+   - `--no-std-paths` (only OFX_PLUGIN_PATH), `--no-cache` / `--cache PATH`, and `--quiet` (no cache dump, so stdout is free for results);
+   - fix `delete[]`; clean exit codes;
+   - CI: Invert on float RGBA, and a disconnected optional clip.
+2. **Exact I/O:** PFM input and output, `--stats` (min, max and mean per channel, plus a checksum), and 16-bit PPM.
+3. **Report:** `--report out.json` with the results of isIdentity, getRegionOfDefinition, getRegionsOfInterest, getFramesNeeded, getTimeDomain and getClipPreferences, plus messages and progress. `--describe` outputs JSON (params with type, default, range and options; clips; contexts; flags). Both share one JSON writer. Parameters can be set after createInstance, which fires `instanceChanged`.
+4. **Host profiles:** `--host minimal | natron-like` sets the advertised capabilities: RGB, multi-resolution, multiple clip depths and PARs, contexts, and explicitly no GPU. Tests run under at least two profiles.
+5. **Time and scale:** frame range, fractional times, render scale, render window, project size/PAR, and field.
+6. **Animation:** keys with linear interpolation, plus getDerivative/integrate. Needed for Transform motion blur.
+7. **Readers and writers:** reader and writer contexts, file paths, and the OCIO configuration (the `OCIO` environment variable). Covers openfx-io and Arena's readers.
+8. **Later:**
+   - multi-plane and multi-view (Nuke/Natron extensions);
+   - concurrent host-side renders, honouring `kOfxImageEffectPluginRenderThreadSafety`. A real multithread suite needs `OFX_SUPPORTS_MULTITHREAD`, which changes HostSupport's `ImageEffect::Host` vtable (9 pure virtuals), so it waits for the suites proposal;
+   - headless overlays: the DrawSuite plumbing in ofxhInteract.cpp, plus pen events and the cursor (#63);
+   - host-side parametric parameters, which are a library change with their own proposal.
+
+Builds use the same extension flags as the consumers (NATRON, NUKE...), so Natron-specific code paths (e.g. Transform's getTransform) are tested.
+
+## Part B: Python test wrapper (`ofxhost`), subprocess first
+
+Each test must run in its own process anyway: HostSupport has process-wide singletons (`PluginCache::getPluginCache()`, `gImageEffectHost`), plug-ins can't be unloaded, and a crashing plug-in would take down the interpreter. So v1 is a pure-Python wrapper around the hostDemo CLI, not in-process bindings:
+- **`ofxhost.py`** (~200 lines): writes a JSON job (plug-in, context, host profile, inputs, parameters, times), runs hostDemo with a timeout, and reads back the PFM images (`numpy.fromfile`) and the JSON report;
+- **`ofxhost.testing`:** pytest helpers (`render(...)`, `assert_close(img, ref, atol)`, bundle fixtures);
+- **image contract:** NumPy arrays are H×W×C and top-down; OFX images are bottom-up, with pixel bounds. The wrapper flips and records `bounds.x1, y1`. Generators get an explicit output window.
 
 ```python
-import numpy as np, ofxhost
-host = ofxhost.Host(["Gamma/Darwin-64-release"])
-fx = host.create("net.sf.openfx.GammaPlugin", "filter")
-fx.params["value"] = (2.2, 2.2, 2.2, 1.0)
-src = np.random.rand(256, 256, 4).astype(np.float32)
-out = fx.render(time=0, inputs={"Source": src})
-assert np.allclose(out[..., :3], src[..., :3] ** (1 / 2.2), atol=1e-5)
+import ofxhost, numpy as np
+r = ofxhost.render("Misc/Misc.ofx.bundle", "net.sf.openfx.GammaPlugin", context="filter",
+                   inputs={"Source": src}, params={"value": (2.2, 2.2, 2.2, 1.0)}, depth="float")
+assert np.allclose(r.output[..., :3], src[..., :3] ** (1 / 2.2), atol=1e-5)
+assert r.report["regionOfDefinition"] == r.report["inputs"]["Source"]["regionOfDefinition"]
 ```
 
-### Binding technology
-| Option | Pros | Cons |
-|---|---|---|
-| **nanobind** (recommended) | small and fast binaries, NumPy ndarray support, stable ABI wheels (Python ≥ 3.12), CMake support | C++17, Python ≥ 3.8 |
-| pybind11 | most widespread, mature | bigger and slower builds; no stable ABI |
-| C ABI + ctypes/cffi | no build-time Python, one binary for every Python | more hand-written glue, so it's more work to keep in sync |
+In-process bindings (nanobind) are deferred until file I/O is a measured bottleneck. Stable-ABI wheels would need Python ≥ 3.12.
 
-Build: CMake option `BUILD_PYTHON_BINDINGS` (default OFF). The Makefiles, which the consumers use, are unchanged. `pip install .` via scikit-build-core. Python comes from:
-- MacPorts on macOS (policy: no Homebrew);
-- the system on Linux;
-- the MSYS2 UCRT64 package on Windows.
+## CI cost (frugal policy)
 
-CI: in the existing three per-PR jobs (no new job, per the policy), build the module and run a pytest smoke test: Invert, MultiplyGPU at 0.5, an RoD check.
-
-### Constraints and risks
-- **One host per process.** HostSupport uses process-wide singletons (`PluginCache::getPluginCache()`, `gImageEffectHost`), and plug-in binaries can't be unloaded safely. `ofxhost.Host` is therefore a singleton. Tests that need a fresh host run in a subprocess.
-- **Crashes and exceptions.** A crashing plug-in kills the interpreter, hence the subprocess helper. C++ exceptions are translated to Python exceptions with the OFX status.
-- **GIL.** The GIL is released during actions, so `--threads` and Python threads work. Host callbacks (messages, progress) take it back.
-- **Scope.** This is a test host, not a production host. No GPU (OpenGL, CUDA, Metal, OpenCL) render paths at first: plug-ins get CPU rendering only.
-
-## Plan
-1. Part A, PRs A1, A2, A3, A6, A4, then A5, A7, A8, A9. hostDemo CLI only; each PR adds a CI check.
-2. Extract `ofxDemoHost` and its façade; hostDemo moves onto it with no change in behaviour.
-3. `ofxhost` bindings, `hostDemo.py` and `ofxhost.testing`; a smoke test in CI.
-4. Consumers adopt it: e.g. openfx-misc adds pytest render tests for a few plug-ins (Gamma, Grade, Transform).
-5. A10, headless overlays.
+- **Per PR:** Part A adds about a minute to the existing Linux and macOS jobs. Turn on `BUILD_EXAMPLE_HOSTS` on Windows (MSYS2), so all three jobs run the checks. Python tests run in the Linux job only, which already sets up Python; no new jobs.
+- **Nightly (extended.yml):** the Python tests on macOS (MacPorts Python and NumPy) and MSYS2, all depths, profiles and scales, and an ASan/UBSan run of hostDemo over the openfx-misc plug-ins.
+- **Consumers:** they build HostSupport and hostDemo from their openfx submodule, cached per OS.
 
 ## Open questions
-- nanobind or pybind11? (Proposed: nanobind.)
-- Minimum Python version. Proposed: 3.10, the same as `scripts/check-props.py`.
-- Is NumPy acceptable as a dependency? (Proposed: yes, as the image type.)
 - Where do plug-in tests live: in each consumer repo (proposed), or a shared test repo?
-- Do we also publish `ofxhost` wheels, or only build it from source?
+- Minimum Python for the wrapper: 3.10 is proposed, the same as `scripts/check-props.py`.
+- Is NumPy acceptable as a test-only dependency? Proposed: yes.
+- Reference images: committed in each consumer repo, or regenerated? Proposed: assertions and `--stats` first, small reference PFMs only where needed.
