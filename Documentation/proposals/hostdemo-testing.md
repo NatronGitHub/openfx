@@ -28,6 +28,15 @@ The reviews found blocking problems:
 - **No parametric parameters:** `newParam` returns no instance, and `ofxhParametricParam.h` lives in Natron, not HostSupport.
 - **Windows CI doesn't build hostDemo** (`BUILD_EXAMPLE_HOSTS=OFF`).
 
+## Design principle: hostDemo lean, orchestration in Python
+
+- **hostDemo (C++) stays small and lean: one node per run.** It renders one effect with the given inputs, at the given times and render window, and reports the actions. It only grows for what must happen inside the plug-in's process, while the plug-in runs its actions: images and clip preferences, parameter values at any time (the plug-in may query other times, e.g. for motion blur), the host's advertised capabilities, and contexts. No graph, no curve types, no sequences, no comparisons.
+- **`ofxhost` / `hostDemo.py` (Python) do the orchestration,** and may be a bit richer:
+  - **tree execution:** a plug-in instance tree, not a DAG. Each node has one parent. `node.render(time, window)` pulls recursively: query the node (RoD, regions of interest, frames needed), render each child at those frames and regions to PFM, then render the node;
+  - **animation:** curves sampled into the linear keys that hostDemo takes;
+  - frame ranges, comparisons with references, and the pytest helpers.
+- `hostDemo.py` is only a sample use of that API, e.g. running a small tree described in JSON.
+
 ## Part A: hostDemo as a test host (C++, HostSupport/examples only unless noted)
 
 PRs in this order. Each adds a CI check to the existing per-PR jobs.
@@ -41,11 +50,12 @@ PRs in this order. Each adds a CI check to the existing per-PR jobs.
    - CI: Invert on float RGBA, and a disconnected optional clip.
 2. **Exact I/O:** PFM input and output (little-endian), with the min, max and mean per channel and a checksum of each output image in the report.
 3. **Report:** `--report out.json` with the results of isIdentity, getRegionOfDefinition, getRegionsOfInterest, getFramesNeeded, getTimeDomain and getClipPreferences, plus messages and progress. `--describe` outputs JSON (params with type, default, range and options; clips; contexts; flags). Both share one JSON writer. Parameters can be set after createInstance, which fires `instanceChanged`.
-4. **Host profiles:** `--host minimal | natron-like` sets the advertised capabilities: RGB, multi-resolution, multiple clip depths and PARs, contexts, and explicitly no GPU. Tests run under at least two profiles.
-5. **Time and scale:** frame range, fractional times, render scale, render window, project size/PAR, and field.
-6. **Animation:** keys with linear interpolation, plus getDerivative/integrate. Needed for Transform motion blur.
-7. **Readers and writers:** reader and writer contexts, file paths, and the OCIO configuration (the `OCIO` environment variable). Covers openfx-io and Arena's readers.
-8. **Later:**
+4. **Node primitives for the Python tree:** `--frames t0,t1,…` (any times, fractional too), `--window x1,y1,x2,y2`, a positioned PFM input (`file:x.pfm@x1,y1`, so a child's output keeps its bounds), and `--query` (the report without rendering: RoD, regions of interest, frames needed). Render scale comes with `--window`.
+5. **Animation keys:** `name@t=value`, linear interpolation only, with getDerivative/integrate. Python samples any richer curve into these keys.
+6. **Host profiles:** one `--host minimal|natron-like` flag for the advertised capabilities (RGB, multi-resolution, multiple clip depths and PARs, contexts, no GPU).
+7. **Readers and writers:** the reader and writer contexts (file paths are just string params), and the `OCIO` environment variable passed through.
+8. **Python (Part B):** `ofxhost.Node(plugin, context, params, inputs={clip: Node | array | pattern})` with `render(time, window)` (tree execution); animation helpers that produce keys; `hostDemo.py` as a sample tree runner.
+9. **Later:**
    - multi-plane and multi-view (Nuke/Natron extensions);
    - concurrent host-side renders, honouring `kOfxImageEffectPluginRenderThreadSafety`. A real multithread suite needs `OFX_SUPPORTS_MULTITHREAD`, which changes HostSupport's `ImageEffect::Host` vtable (9 pure virtuals), so it waits for the suites proposal;
    - headless overlays: the DrawSuite plumbing in ofxhInteract.cpp, plus pen events and the cursor (#63);
