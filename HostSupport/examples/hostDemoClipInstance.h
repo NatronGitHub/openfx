@@ -63,7 +63,7 @@ namespace MyHost {
       eSolid,   ///< "solid:r,g,b,a": a constant colour
       eRamp,    ///< "ramp": r=g=b=a go from 0 (left) to 1 (right of the RoD)
       eChecker, ///< "checker:N": N×N pixel (at render scale 1) squares, alternating 0 and 1 (r=g=b=a)
-      eFile,    ///< "file:path.pfm": a PFM image, the same at all times (see PFMImage)
+      eFile,    ///< "file:path.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]": a PFM image, the same at all times (see PFMImage)
       eNone     ///< "none": the clip is disconnected
     };
     Type   type;
@@ -71,10 +71,23 @@ namespace MyHost {
     int    checkerSize; ///< for eChecker
     std::string path; ///< for eFile
     PFMImage    file; ///< for eFile: the content of the file, read by parseInputSpec
-    InputSpec() : type(eDefault), checkerSize(16) { colour[0] = colour[1] = colour[2] = colour[3] = 0.; }
+    /// for eFile: the pixel coordinates of the file's bottom-left pixel, at the render scale
+    /// fileScale ("@x1,y1"; default 0,0). The file's pixels are clip pixels at that scale, so
+    /// that the output of a render at that scale can be passed, with its bounds, as an input.
+    int         fileX, fileY;
+    /// for eFile: "+alpha.pfm", a Pf file of the same size with the alpha (else PF gives alpha 1)
+    std::string alphaPath;
+    PFMImage    alpha;
+    /// for eFile: "#premult", "#unpremult" or "#opaque", the premultiplication state of the
+    /// input (kOfxImagePreMultiplied...; empty: the default, unpremultiplied unless RGB)
+    std::string premult;
+    double      fileScaleX, fileScaleY; ///< for eFile: hostDemo --scale
+    InputSpec() : type(eDefault), checkerSize(16), fileX(0), fileY(0), fileScaleX(1.), fileScaleY(1.)
+    { colour[0] = colour[1] = colour[2] = colour[3] = 0.; }
   };
 
-  /// parse "solid:r,g,b,a", "ramp", "checker:N", "file:path.pfm", "none" or "default". Returns
+  /// parse "solid:r,g,b,a", "ramp", "checker:N", "file:path.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]",
+  /// "none" or "default". Returns
   /// false if invalid, with the reason in error. "file:" reads the PFM file.
   bool parseInputSpec(const std::string& s, InputSpec& spec, std::string& error);
 

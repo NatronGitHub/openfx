@@ -684,7 +684,7 @@ static void usage(const char* prog)
 {
   std::cout <<
     "Usage: " << prog << " [options] [[-s] name=value[,value...]]...\n"
-    "Render an OFX plug-in found in OFX_PLUGIN_PATH at t=0 and 1 on PAL SD inputs.\n"
+    "Render an OFX plug-in found in OFX_PLUGIN_PATH (default: at t=0 and 1, on PAL SD inputs).\n"
     "  -h                 print this help and exit\n"
     "  -p id              plug-in identifier (default: net.sf.openfx.invertPlugin)\n"
     "  -m major           plug-in major version (default: the highest one)\n"
@@ -692,7 +692,13 @@ static void usage(const char* prog)
     "  -o prefix          write <prefix>.<t>[l|r].ppm|pfm (default: Output)\n"
     "  --format ppm|pfm   output format: plain 8-bit PPM (default), or float PFM\n"
     "  -d byte|short|float  input depth before clip preferences (default: byte)\n"
-    "  -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|file:path.pfm|none\n"
+    "  -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|none, or\n"
+    "                     file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]\n"
+    "  --frames t,...     render (or query) at these times (default: 0,1)\n"
+    "  --scale s[,sy]     render scale, in (0,1] (default: 1)\n"
+    "  --window x1,y1,x2,y2  render window, in pixels at the render scale, clipped to the RoD\n"
+    "                     (default: the RoD clipped to the project)\n"
+    "  --query            only call the query actions (RoD, identity, frames needed, RoI)\n"
     "  -s name=value      set a parameter after createInstance, with instanceChanged\n"
     "  --report file.json write a JSON report of the run (even if it failed)\n"
     "  --describe file.json  describe the plug-in as JSON (no instance, no render)\n"
@@ -906,6 +912,7 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
 // Returns false (after printing an error) on failure.
 static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstance* outputClip,
                         OfxTime t, int view, int nViews, const OfxPointD& renderScale,
+                        const OfxRectI* window, bool query,
                         bool allowUnwritten, const std::string& base, OutputFormat format,
                         Json* rep)
 {
@@ -945,14 +952,14 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
   }
   rodJ["rod"] = rectJson(rod);
 
-  // The render window is in pixel coordinates (render scale and PAR applied): the output RoD,
-  // clipped to the project frame
-  OfxRectI renderWindow = MyHost::intersect(MyHost::canonicalToPixelEnclosing(rod, renderScale, par),
-                                            instance->getProjectPixelRect(renderScale));
+  // The render window is in pixel coordinates (render scale and PAR applied): --window, or
+  // else the project frame, clipped to the output RoD
+  const OfxRectI rodPixels = MyHost::canonicalToPixelEnclosing(rod, renderScale, par);
+  OfxRectI renderWindow = MyHost::intersect(rodPixels, window ? *window : instance->getProjectPixelRect(renderScale));
   if (renderWindow.x2 <= renderWindow.x1 || renderWindow.y2 <= renderWindow.y1) {
     std::cerr << "Warning: the output RoD (" << rod.x1 << "," << rod.y1 << "," << rod.x2 << "," << rod.y2
-              << ") at time " << t << " doesn't intersect the project: nothing to render, "
-              << fname << " not written" << std::endl;
+              << ") at time " << t << " doesn't intersect the " << (window ? "render window" : "project")
+              << ": nothing to render" << (query ? "" : ", " + fname + " not written") << std::endl;
     r["renderWindow"] = Json();
     r["output"] = Json();
     return true;
@@ -1030,6 +1037,12 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
   Json& roiClips = roiJ["clips"] = Json::object();
   for (std::map<OFX::Host::ImageEffect::ClipInstance *, OfxRectD>::const_iterator it = rois.begin(); it != rois.end(); ++it) {
     roiClips[it->first->getName()] = rectJson(it->second);
+  }
+  if (query) {
+    // --query: no render
+    r["render"] = Json();
+    r["output"] = Json();
+    return true;
   }
 
   // each render gets a new output image, filled with the sentinel
@@ -1133,6 +1146,13 @@ static int run(int argc, char **argv)
   bool quiet = false;
   bool allowUnwritten = false;
   OutputFormat format = eFormatPPM;
+  std::vector<double> frames;  ///< --frames (default: 0 and OFXHOSTDEMOCLIPLENGTH)
+  OfxPointD renderScale;       ///< --scale
+  renderScale.x = renderScale.y = 1.;
+  bool haveWindow = false;     ///< --window
+  OfxRectI window;
+  window.x1 = window.y1 = window.x2 = window.y2 = 0;
+  bool query = false;          ///< --query
 
   for (int a = 1; a < argc; ++a) {
     std::string arg = argv[a];
@@ -1147,9 +1167,12 @@ static int run(int argc, char **argv)
       quiet = true;
     } else if (arg == "--allow-unwritten") {
       allowUnwritten = true;
+    } else if (arg == "--query") {
+      query = true;
     } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
                arg == "-d" || arg == "-i" || arg == "--format" ||
-               arg == "--report" || arg == "--describe") {
+               arg == "--report" || arg == "--describe" ||
+               arg == "--frames" || arg == "--scale" || arg == "--window") {
       if (a + 1 >= argc) {
         std::cerr << "Error: option " << arg << " requires an argument" << std::endl;
         usage(argv[0]);
@@ -1200,7 +1223,7 @@ static int run(int argc, char **argv)
         std::string error = "no clip name";
         if (eq == std::string::npos || eq == 0 || !MyHost::parseInputSpec(optarg.substr(eq + 1), spec, error)) {
           std::cerr << "Error: invalid input \"" << optarg << "\" (" << error
-                    << "), expected Clip=default|solid:r,g,b,a|ramp|checker:N|file:path.pfm|none" << std::endl;
+                    << "), expected Clip=default|solid:r,g,b,a|ramp|checker:N|none|file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]" << std::endl;
           return 1;
         }
         inputs.push_back(std::make_pair(optarg.substr(0, eq), spec));
@@ -1209,6 +1232,41 @@ static int run(int argc, char **argv)
         reportPath = optarg;
       } else if (arg == "--describe") {
         describePath = optarg;
+      } else if (arg == "--frames") {
+        const std::vector<std::string> v = splitValues(optarg);
+        frames.clear();
+        for (size_t k = 0; k < v.size(); ++k) {
+          double f = 0.;
+          if (!parseDouble(v[k], f) || std::find(frames.begin(), frames.end(), f) != frames.end()) {
+            std::cerr << "Error: invalid frames \"" << optarg << "\", expected distinct times t0,t1,..." << std::endl;
+            return 1;
+          }
+          frames.push_back(f);
+        }
+      } else if (arg == "--scale") {
+        double s[2];
+        if (parseDoubles(optarg, 1, s)) {
+          s[1] = s[0];
+        } else if (!parseDoubles(optarg, 2, s)) {
+          s[0] = 0.;
+        }
+        if (!(s[0] > 0. && s[0] <= 1. && s[1] > 0. && s[1] <= 1.)) {
+          std::cerr << "Error: invalid render scale \"" << optarg << "\", expected s or sx,sy in (0,1]" << std::endl;
+          return 1;
+        }
+        renderScale.x = s[0];
+        renderScale.y = s[1];
+      } else if (arg == "--window") {
+        int w[4];
+        if (!parseInts(optarg, 4, w) || w[0] >= w[2] || w[1] >= w[3]) {
+          std::cerr << "Error: invalid render window \"" << optarg << "\", expected x1,y1,x2,y2 with x1<x2 and y1<y2" << std::endl;
+          return 1;
+        }
+        haveWindow = true;
+        window.x1 = w[0];
+        window.y1 = w[1];
+        window.x2 = w[2];
+        window.y2 = w[3];
       } else {
         paramAssignments.push_back(optarg);
       }
@@ -1219,6 +1277,16 @@ static int run(int argc, char **argv)
       usage(argv[0]);
       return 1;
     }
+  }
+
+  if (frames.empty()) {
+    frames.push_back(0.);
+    frames.push_back(OFXHOSTDEMOCLIPLENGTH);
+  }
+  // the pixels of a file input are pixels at the render scale
+  for (size_t k = 0; k < inputs.size(); ++k) {
+    inputs[k].second.fileScaleX = renderScale.x;
+    inputs[k].second.fileScaleY = renderScale.y;
   }
 
   if (!reportPath.empty() && !describePath.empty()) {
@@ -1293,6 +1361,15 @@ static int run(int argc, char **argv)
     host["profile"] = "default"; // --host (Part A, PR 4)
   }
   report["depth"] = inputDepth;
+  {
+    Json& fr = report["frames"] = Json::array();
+    for (size_t k = 0; k < frames.size(); ++k) {
+      fr.push(frames[k]);
+    }
+  }
+  report["renderScale"] = pointJson(renderScale.x, renderScale.y);
+  report["window"] = haveWindow ? rectJson(window) : Json();
+  report["query"] = query;
   report["inputs"] = Json::object();
   Json& actions = report["actions"] = Json::array();
   report["clipPreferences"] = Json();
@@ -1495,69 +1572,77 @@ static int run(int argc, char **argv)
 
     if(ret == 0)
     {
-      // current render scale of 1
-      OfxPointD renderScale;
-      renderScale.x = renderScale.y = 1.0;
+      const double firstFrame = *std::min_element(frames.begin(), frames.end());
+      const double lastFrame = *std::max_element(frames.begin(), frames.end());
+      const OfxRectI* win = haveWindow ? &window : NULL;
 
-      int numFramesToRender = OFXHOSTDEMOCLIPLENGTH;
-
-      // say we are about to render a bunch of frames 
-      OfxStatus stat = instance->beginRenderAction(0, numFramesToRender, 1.0, false, renderScale, /*sequential=*/true, /*interactive=*/false,
+      // say we are about to render a bunch of frames (not for --query: the query actions may
+      // be called outside a render sequence)
+      OfxStatus stat = kOfxStatOK;
+      if (!query) {
+        stat = instance->beginRenderAction(firstFrame, lastFrame, 1.0, false, renderScale, /*sequential=*/true, /*interactive=*/false,
 #                                        ifdef OFX_SUPPORTS_OPENGLRENDER
-                                         /*openGLRender=*/false,
+                                           /*openGLRender=*/false,
 #                                        ifdef OFX_EXTENSIONS_NATRON
-                                         /*contextData=*/NULL,
+                                           /*contextData=*/NULL,
 #                                        endif
 #                                        endif
-                                         /*draftRender=*/false
+                                           /*draftRender=*/false
 #                                        ifdef OFX_EXTENSIONS_NUKE
-                                         , 0 /* view*/
+                                           , 0 /* view*/
 #                                        endif
-                                         );
-      actions.push(namedActionJson("beginSequenceRender", actionJson(stat)));
-      if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
-        std::cerr << "Error: begin render action failed (status " << stat << ")" << std::endl;
-        ret = 1;
+                                           );
+        actions.push(namedActionJson("beginSequenceRender", actionJson(stat)));
+        if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+          std::cerr << "Error: begin render action failed (status " << stat << ")" << std::endl;
+          ret = 1;
+        }
       }
 
-      for(int t = 0; ret == 0 && t <= numFramesToRender; ++t) 
+      for (size_t f = 0; ret == 0 && f < frames.size(); ++f)
       {
+        const OfxTime t = frames[f];
+        std::ostringstream tname;
+        tname.precision(12);
+        tname << t;
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
         // render a stereoscopic frame: left and right views
         for (int view = 0; ret == 0 && view < 2; ++view) {
           std::ostringstream ss;
-          ss << outputPrefix << "." << t << (view == 0 ? "l" : "r");
+          ss << outputPrefix << "." << tname.str() << (view == 0 ? "l" : "r");
           Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, allowUnwritten, ss.str(), format, r)) {
+          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, win, query, allowUnwritten, ss.str(), format, r)) {
             ret = 1;
           }
         }
 #else
         std::ostringstream ss;
-        ss << outputPrefix << "." << t;
+        ss << outputPrefix << "." << tname.str();
         Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, allowUnwritten, ss.str(), format, r)) {
+        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, win, query, allowUnwritten, ss.str(), format, r)) {
           ret = 1;
         }
 #endif
       }
 
-      stat = instance->endRenderAction(0, numFramesToRender, 1.0, false, renderScale, /*sequential=*/true, /*interactive=*/false,
+      if (!query) {
+        stat = instance->endRenderAction(firstFrame, lastFrame, 1.0, false, renderScale, /*sequential=*/true, /*interactive=*/false,
 #                               ifdef OFX_SUPPORTS_OPENGLRENDER
-                                /*openGLRender=*/false,
+                                  /*openGLRender=*/false,
 #                               ifdef OFX_EXTENSIONS_NATRON
-                                /*contextData=*/NULL,
+                                  /*contextData=*/NULL,
 #                               endif
 #                               endif
-                                /*draftRender=*/false
+                                  /*draftRender=*/false
 #                               ifdef OFX_EXTENSIONS_NUKE
-                                , 0 /* view*/
+                                  , 0 /* view*/
 #                               endif
-                                );
-      actions.push(namedActionJson("endSequenceRender", actionJson(stat)));
-      if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
-        std::cerr << "Error: end render action failed (status " << stat << ")" << std::endl;
-        ret = 1;
+                                  );
+        actions.push(namedActionJson("endSequenceRender", actionJson(stat)));
+        if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+          std::cerr << "Error: end render action failed (status " << stat << ")" << std::endl;
+          ret = 1;
+        }
       }
       // release the last output image before the instance is destroyed
       outputClip->releaseOutputImage();

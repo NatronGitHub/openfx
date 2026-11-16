@@ -283,11 +283,56 @@ namespace MyHost {
     if (s.compare(0, 5, "file:") == 0) {
       spec.type = InputSpec::eFile;
       spec.path = s.substr(5);
+      // "#premult", "#unpremult" or "#opaque": the premultiplication state
+      const std::string::size_type hash = spec.path.rfind('#');
+      if (hash != std::string::npos) {
+        const std::string p = spec.path.substr(hash + 1);
+        if (p == "premult" || p == "unpremult" || p == "opaque") {
+          spec.premult = p == "premult" ? kOfxImagePreMultiplied : p == "unpremult" ? kOfxImageUnPreMultiplied : kOfxImageOpaque;
+          spec.path.erase(hash);
+        }
+      }
+      // "@x1,y1": the position of the file, if what follows the last '@' is two integers
+      const std::string::size_type at = spec.path.rfind('@');
+      if (at != std::string::npos) {
+        const std::string pos = spec.path.substr(at + 1);
+        const std::string::size_type comma = pos.find(',');
+        int x1 = 0, y1 = 0;
+        if (comma != std::string::npos && parseInteger(pos.substr(0, comma), x1) &&
+            parseInteger(pos.substr(comma + 1), y1)) {
+          if (x1 < -1000000 || x1 > 1000000 || y1 < -1000000 || y1 > 1000000) {
+            error = "file position out of range";
+            return false;
+          }
+          spec.fileX = x1;
+          spec.fileY = y1;
+          spec.path.erase(at);
+        }
+      }
+      // "+alpha.pfm": the alpha file
+      const std::string::size_type plus = spec.path.rfind(".pfm+");
+      if (plus != std::string::npos) {
+        spec.alphaPath = spec.path.substr(plus + 5);
+        spec.path.erase(plus + 4);
+      }
       if (spec.path.empty()) {
         error = "no file name";
         return false;
       }
-      return readPFM(spec.path, spec.file, error);
+      if (!readPFM(spec.path, spec.file, error)) {
+        return false;
+      }
+      if (!spec.alphaPath.empty()) {
+        if (!readPFM(spec.alphaPath, spec.alpha, error)) {
+          return false;
+        }
+        if (spec.file.nComps != 3 || spec.alpha.nComps != 1 ||
+            spec.alpha.width != spec.file.width || spec.alpha.height != spec.file.height) {
+          error = spec.alphaPath + ": the alpha file must be a Pf file of the size of a PF file";
+          return false;
+        }
+      }
+      return true;
     }
     if (s.compare(0, 8, "checker:") == 0) {
       int n = 0;
@@ -377,11 +422,12 @@ namespace MyHost {
         return;
       }
       case InputSpec::eFile: {
-        // the PFM pixel that contains (X,Y): PFM rows are bottom to top, like OFX images.
+        // the PFM pixel that contains (X,Y): the file's pixels are pixels at the render scale
+        // fileScale, starting at (fileX,fileY). PFM rows are bottom to top, like OFX images.
         // "PF" gives (r,g,b,1), "Pf" gives r=g=b=a=value. Outside the file, transparent black.
         const PFMImage& f = spec.file;
-        const double fx = std::floor(X);
-        const double fy = std::floor(Y);
+        const double fx = std::floor(X * spec.fileScaleX) - spec.fileX;
+        const double fy = std::floor(Y * spec.fileScaleY) - spec.fileY;
         rgba[0] = rgba[1] = rgba[2] = rgba[3] = 0.;
         if (fx >= 0 && fy >= 0 && fx < f.width && fy < f.height) {
           const float* pix = &f.data[((size_t)fy * (size_t)f.width + (size_t)fx) * (size_t)f.nComps];
@@ -389,7 +435,7 @@ namespace MyHost {
             rgba[0] = pix[0];
             rgba[1] = pix[1];
             rgba[2] = pix[2];
-            rgba[3] = 1.;
+            rgba[3] = spec.alpha.nComps == 1 ? spec.alpha.data[(size_t)fy * (size_t)f.width + (size_t)fx] : 1.;
           } else {
             rgba[0] = rgba[1] = rgba[2] = rgba[3] = pix[0];
           }
@@ -702,6 +748,9 @@ namespace MyHost {
     if (!getConnected() || getComponents() == kOfxImageComponentRGB) {
       return opaque;
     }
+    if (_input.type == InputSpec::eFile && !_input.premult.empty()) {
+      return _input.premult;
+    }
     return unpremult;
   }
 
@@ -714,9 +763,11 @@ namespace MyHost {
     OfxRectI v;
     v.x1 = v.y1 = 0;
     if (!isOutput() && _input.type == InputSpec::eFile) {
-      // a PFM file: its size in pixels
-      v.x2 = _input.file.width;
-      v.y2 = _input.file.height;
+      // a PFM file: its bounds, in pixels at render scale 1
+      v.x1 = (int)std::floor(_input.fileX / _input.fileScaleX);
+      v.y1 = (int)std::floor(_input.fileY / _input.fileScaleY);
+      v.x2 = (int)std::ceil((_input.fileX + _input.file.width) / _input.fileScaleX);
+      v.y2 = (int)std::ceil((_input.fileY + _input.file.height) / _input.fileScaleY);
       return v;
     }
     /// our clip is pretending to be progressive PAL SD, so return 0<=x<768, 0<=y<576
@@ -840,11 +891,14 @@ namespace MyHost {
       return v; // a disconnected clip has an empty RoD
     }
     if (_input.type == InputSpec::eFile) {
-      // a PFM file: one file pixel per clip pixel at render scale 1, so the RoD is its size
-      // in pixels, times the clip's PAR (the project's, since hostDemo doesn't support
-      // multiple clip PARs) in canonical coordinates
-      v.x2 = _input.file.width * getAspectRatio();
-      v.y2 = _input.file.height;
+      // a PFM file: one file pixel per clip pixel at the render scale fileScale, from
+      // (fileX,fileY), so the RoD is its pixel bounds divided by that scale, times the clip's
+      // PAR (the project's, since hostDemo doesn't support multiple clip PARs) in x
+      const double par = getAspectRatio();
+      v.x1 = _input.fileX / _input.fileScaleX * par;
+      v.y1 = _input.fileY / _input.fileScaleY;
+      v.x2 = (_input.fileX + _input.file.width) / _input.fileScaleX * par;
+      v.y2 = (_input.fileY + _input.file.height) / _input.fileScaleY;
       return v;
     }
     /// our clip is pretending to be progressive PAL SD, so return 0<=x<768, 0<=y<576
