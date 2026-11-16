@@ -502,12 +502,10 @@ namespace OFX {
     bool supportsParametricAnimation;
     bool supportsRenderQualityDraft;
     NativeOriginEnum nativeOrigin;
-#ifdef OFX_EXTENSIONS_RESOLVE
     bool supportsOpenCLRender;
     bool supportsCudaRender;
     bool supportsCudaStream;
     bool supportsMetalRender;
-#endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     bool supportsOpenGLRender;
 #endif
@@ -840,20 +838,18 @@ namespace OFX {
      Ignored by hosts that don't know it. */
     void setSupportsMetalTextureRender(bool v);
 
-#ifdef OFX_EXTENSIONS_RESOLVE
-    /** @brief Does the plugin support OpenCL Render, defaults to false (same as setSupportsOpenCLBuffersRender) */
+    /** @brief Does the plugin support OpenCL Render (kOfxImageEffectPropOpenCLRenderSupported, OFX 1.5), defaults to false (same as setSupportsOpenCLBuffersRender) */
     void setSupportsOpenCLRender(bool v);
 
-    /** @brief Does the plugin support CUDA Render, defaults to false */
+    /** @brief Does the plugin support CUDA Render (kOfxImageEffectPropCudaRenderSupported, OFX 1.5), defaults to false */
     void setSupportsCudaRender(bool v);
 
-    /** @brief Does the plugin support CUDA Render, defaults to false */
+    /** @brief Does the plugin support CUDA streams (kOfxImageEffectPropCudaStreamSupported, OFX 1.5), defaults to false */
     void setSupportsCudaStream(bool v);
 
-    /** @brief Does the plugin support Metal Render, defaults to false */
+    /** @brief Does the plugin support Metal Render (kOfxImageEffectPropMetalRenderSupported, OFX 1.5), defaults to false */
     void setSupportsMetalRender(bool v);
 
-#endif
 
     /** @brief kOfxImageEffectPropNoSpatialAwareness (standard since OFX 1.5.1): the plug-in can render
         without spatial awareness, i.e. disable its spatial effects when the host sets
@@ -1341,7 +1337,7 @@ namespace OFX {
     /** @brief get the RoD for this clip in the cannonical coordinate system */
     OfxRectD getRegionOfDefinition(double t);
 
-#ifdef OFX_EXTENSIONS_RESOLVE
+#ifdef OFX_EXTENSIONS_RESOLVE // kOfxImageClipPropThumbnail is Resolve-specific, not in OFX 1.5
     /** @brief is the clip for thumbnail */
     bool isForThumbnail(void) const;
 #endif
@@ -1552,14 +1548,12 @@ namespace OFX {
     OfxPointD renderScale;
     OfxRectI  renderWindow;
     FieldEnum fieldToRender;
-#ifdef OFX_EXTENSIONS_RESOLVE
     bool      isEnabledOpenCLRender;
     bool      isEnabledCudaRender;
     bool      isEnabledMetalRender;
     void*     pOpenCLCmdQ;
     void*     pCudaStream;
     void*     pMetalCmdQ;
-#endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     bool      openGLEnabled;
 #ifdef OFX_EXTENSIONS_NATRON
@@ -1584,7 +1578,7 @@ namespace OFX {
     bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
     UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5): eUnlicensedBehaviourNotSet if absent */
     bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (OFX 1.5): images are id<MTLTexture>. false if absent */
-    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ, which only exists with OFX_EXTENSIONS_RESOLVE) */
+    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ) */
     bool      isNoSpatialAwareness;  /**< kOfxImageEffectPropNoSpatialAwareness (OFX 1.5.1): the host asks for a render without spatial effects (only if the plug-in declared setNoSpatialAwareness(true)). false if absent */
   };
 
@@ -1607,14 +1601,12 @@ namespace OFX {
     double    frameStep;
     bool      isInteractive;
     OfxPointD renderScale;
-#ifdef OFX_EXTENSIONS_RESOLVE
     bool      isEnabledOpenCLRender;
     bool      isEnabledCudaRender;
     bool      isEnabledMetalRender;
     void*     pOpenCLCmdQ;
     void*     pCudaStream;
     void*     pMetalCmdQ;
-#endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     bool      openGLEnabled;
 #ifdef OFX_EXTENSIONS_NATRON
@@ -1630,7 +1622,7 @@ namespace OFX {
     bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
     UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5): eUnlicensedBehaviourNotSet if absent */
     bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (OFX 1.5): images are id<MTLTexture>. false if absent */
-    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ, which only exists with OFX_EXTENSIONS_RESOLVE) */
+    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ) */
     bool      isNoSpatialAwareness;  /**< kOfxImageEffectPropNoSpatialAwareness (OFX 1.5.1): the host asks for a render without spatial effects (only if the plug-in declared setNoSpatialAwareness(true)). false if absent */
   };
 
@@ -1638,14 +1630,12 @@ namespace OFX {
   struct EndSequenceRenderArguments {
     bool      isInteractive;
     OfxPointD renderScale;
-#ifdef OFX_EXTENSIONS_RESOLVE
     bool      isEnabledOpenCLRender;
     bool      isEnabledCudaRender;
     bool      isEnabledMetalRender;
     void*     pOpenCLCmdQ;
     void*     pCudaStream;
     void*     pMetalCmdQ;
-#endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     bool      openGLEnabled;
 #ifdef OFX_EXTENSIONS_NATRON
@@ -1659,7 +1649,7 @@ namespace OFX {
     int view;
 #endif
     bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (OFX 1.5): images are id<MTLTexture>. false if absent */
-    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ, which only exists with OFX_EXTENSIONS_RESOLVE) */
+    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ) */
   };
 
   /** @brief POD struct to pass arguments into  @ref OFX::ImageEffect::getRegionOfDefinition */

@@ -71,17 +71,14 @@ public:
   }
 
 private:
-#ifdef OFX_EXTENSIONS_RESOLVE
 #ifdef HAVE_CUDA
   virtual void processImagesCUDA();// OVERRIDE FINAL;
 #endif
 #ifdef HAVE_OPENCL
   virtual void processImagesOpenCL();// OVERRIDE FINAL;
 #endif
-#endif // OFX_EXTENSIONS_RESOLVE
 };
 
-#ifdef OFX_EXTENSIONS_RESOLVE
 
 #ifdef HAVE_CUDA
 void MultiplyProcessorBase::processImagesCUDA()
@@ -163,7 +160,6 @@ void MultiplyProcessorBase::processImagesOpenCL()
 }
 #endif
 
-#endif // OFX_EXTENSIONS_RESOLVE
 
 template <class T>
 inline
@@ -345,10 +341,8 @@ MultiplyPlugin::setupAndProcess(MultiplyProcessorBase &processor,
   processor.setDstImg( dst.get() );
   processor.setSrcImg( src.get() );
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   // Setup OpenCL and CUDA Render arguments
   processor.setGPURenderArgs(args);
-#endif // OFX_EXTENSIONS_RESOLVE
 
   // set the render window
   processor.setRenderWindow(args.renderWindow, args.renderScale);
@@ -504,7 +498,6 @@ MultiplyPluginFactory::describe(ImageEffectDescriptor &desc)
   desc.setSupportsMultipleClipDepths(kSupportsMultipleClipDepths);
   desc.setRenderThreadSafety(kRenderThreadSafety);
 
-#ifdef OFX_EXTENSIONS_RESOLVE
   // Setup OpenCL and CUDA render capability flags
 #ifdef HAVE_CUDA
   desc.setSupportsCudaRender(true);
@@ -512,7 +505,6 @@ MultiplyPluginFactory::describe(ImageEffectDescriptor &desc)
 #ifdef HAVE_OPENCL
   desc.setSupportsOpenCLRender(true);
 #endif
-#endif // OFX_EXTENSIONS_RESOLVE
 }
 
 void
