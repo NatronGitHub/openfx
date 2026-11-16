@@ -37,7 +37,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <sstream> // stringstream
 
 #ifndef WINDOWS
-#if __cplusplus < 201103L
+#if !(__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L))
 #define OFX_EXCEPTION_SPEC throw (OFX::Host::Property::Exception)
 #else
 #define OFX_EXCEPTION_SPEC noexcept(false)
