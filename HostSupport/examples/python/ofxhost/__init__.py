@@ -32,7 +32,7 @@ import numpy as np
 from .pfm import encode_pfm, parse_pfm, read_pfm, write_pfm
 
 __all__ = [
-    "render", "describe", "RenderResult", "HostDemoError", "HostDemoNotFound",
+    "render", "describe", "RenderResult", "Image", "HostDemoError", "HostDemoNotFound",
     "find_hostdemo",
     "read_pfm", "write_pfm", "parse_pfm", "encode_pfm",
 ]
@@ -65,6 +65,20 @@ class HostDemoNotFound(FileNotFoundError):
 
 
 @dataclasses.dataclass
+class Image:
+    """An image with its position: what a render outputs, and what an input can be.
+
+    pixels: float32, H x W x C (C = 1, 3 or 4), top-down.
+    bounds: (x1, y1, x2, y2), in pixels at the render scale (OFX pixel coordinates, y up).
+    premult: the OFX premultiplication state (kOfxImagePreMultiplied...), or None for the
+        default (unpremultiplied, opaque for RGB).
+    """
+    pixels: np.ndarray
+    bounds: tuple = (0, 0, 0, 0)
+    premult: str | None = None
+
+
+@dataclasses.dataclass
 class RenderResult:
     """The result of a hostDemo run.
 
@@ -76,6 +90,8 @@ class RenderResult:
         outputs.
     report: the --report JSON (renders[i].output has the size, min, max, mean, nan count
         and crc32 of each output image).
+    images: the same keys as outputs -> Image, with the bounds and the output
+        premultiplication: pass one as an input of another render at the same scale.
     """
     outputs: dict
     alpha: dict
@@ -84,6 +100,7 @@ class RenderResult:
     stdout: str
     stderr: str
     cmd: list
+    images: dict = dataclasses.field(default_factory=dict)
 
     @property
     def output(self) -> np.ndarray:
@@ -170,6 +187,10 @@ def _format_value(v: Any) -> str:
     raise TypeError(f"unsupported parameter value {v!r}")
 
 
+_PREMULT = {"OfxImageAlphaPremultiplied": "premult", "OfxImageAlphaUnPremultiplied": "unpremult",
+            "OfxImageOpaque": "opaque"}
+
+
 def _input_spec(clip: str, value: Any, workdir: Path, index: int) -> str:
     if isinstance(value, os.PathLike):
         return "file:" + str(Path(value).resolve())
@@ -177,24 +198,36 @@ def _input_spec(clip: str, value: Any, workdir: Path, index: int) -> str:
         if value.startswith("file:"):
             return "file:" + str(Path(value[5:]).resolve())
         return value
+    bounds, premult = None, None
+    if isinstance(value, Image):
+        bounds, premult, value = value.bounds, value.premult, value.pixels
     a = np.asarray(value, dtype=np.float32)
-    if a.ndim == 3 and a.shape[2] == 4:
-        # hostDemo's PFM input gives (r,g,b,1): it can't carry an alpha channel
-        if not np.all(a[:, :, 3] == 1.0):
-            raise ValueError(f"input {clip}: RGBA arrays must have alpha == 1 (hostDemo's "
-                             "PFM input is RGB with alpha 1, or grey with r=g=b=a)")
-        a = a[:, :, :3]
-    if not (a.ndim == 2 or (a.ndim == 3 and a.shape[2] in (1, 3))):
+    if a.ndim == 3 and a.shape[2] == 1:
+        a = a[:, :, 0]
+    if not (a.ndim == 2 or (a.ndim == 3 and a.shape[2] in (3, 4))):
         raise ValueError(f"input {clip}: shape {a.shape} (expected H x W, H x W x 1, "
                          "H x W x 3 or H x W x 4)")
     if not np.all(np.isfinite(a)):
         raise ValueError(f"input {clip}: non-finite values")
     path = workdir / f"input{index}.pfm"
+    spec = "file:" + str(path)
+    if a.ndim == 3 and a.shape[2] == 4:
+        # hostDemo reads the alpha of a PF file from a separate Pf file
+        write_pfm(workdir / f"input{index}.alpha.pfm", a[:, :, 3])
+        spec += "+" + str(workdir / f"input{index}.alpha.pfm")
+        a = a[:, :, :3]
     write_pfm(path, a)
-    return "file:" + str(path)
+    if bounds is not None:
+        x1, y1, x2, y2 = (int(v) for v in bounds)
+        if (x2 - x1, y2 - y1) != (a.shape[1], a.shape[0]):
+            raise ValueError(f"input {clip}: bounds {bounds} don't match the size {a.shape[1]}x{a.shape[0]}")
+        spec += f"@{x1},{y1}"
+    if premult is not None:
+        spec += "#" + _PREMULT[premult]
+    return spec
 
 
-_OUTPUT_RE = re.compile(re.escape(OUTPUT_PREFIX) + r"\.(-?\d+(?:\.\d+)?)([lr]?)(\.alpha)?\.pfm$")
+_OUTPUT_RE = re.compile(re.escape(OUTPUT_PREFIX) + r"\.(-?\d+(?:\.\d+)?(?:e[-+]\d+)?)([lr]?)(\.alpha)?\.pfm$")
 
 
 def _read_outputs(workdir: Path) -> tuple[dict, dict]:
@@ -245,20 +278,27 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
            inputs: Mapping[str, Any] | None = None,
            params: Mapping[str, Any] | None = None,
            depth: str = "float",
+           frames: Sequence[float] | None = None, scale: float | Sequence[float] | None = None,
+           window: Sequence[int] | None = None, query: bool = False,
            host_binary: str | os.PathLike | None = None, timeout: float | None = 60,
            extra_args: Sequence[str] = (), check: bool = True) -> RenderResult:
-    """Render a plug-in with hostDemo at frames 0 and 1; return its output images and report.
+    """Render a plug-in with hostDemo (by default at frames 0 and 1); return its output
+    images and report.
 
     bundle_paths: a directory containing .ofx.bundle directories, a bundle path (its parent
         directory is used), or a list of these. They become OFX_PLUGIN_PATH; the standard
         plug-in locations and the plug-in cache are not used.
-    inputs: clip name -> a NumPy array (H x W, H x W x 1, H x W x 3, or H x W x 4 with
-        alpha 1; top-down; written to a PFM file), a pathlib.Path or "file:path.pfm", or a
-        hostDemo spec string: "none" (disconnected), "default", "solid:r,g,b,a", "ramp",
-        "checker:N".
+    inputs: clip name -> a NumPy array (H x W, H x W x 1, H x W x 3 or H x W x 4; top-down;
+        written to PFM files, at pixel 0,0), an Image (positioned at its bounds, with its
+        premultiplication), a pathlib.Path or "file:path.pfm", or a hostDemo spec string:
+        "none" (disconnected), "default", "solid:r,g,b,a", "ramp", "checker:N".
     params: parameter name -> value (number, bool, string, or a sequence for
         multi-dimensional parameters). Passed as -s name=value.
     depth: the input clips' depth before clip preferences: "byte", "short" or "float".
+    frames: the times to render (hostDemo --frames; default 0 and 1).
+    scale: the render scale, s or (sx, sy), in (0,1] (--scale). Image inputs are at that scale.
+    window: the render window (x1, y1, x2, y2), in pixels at the render scale (--window).
+    query: only run the query actions (--query): no output, see .report["renders"].
     check: raise HostDemoError on a non-zero exit status (default).
     """
     if depth not in DEPTHS:
@@ -273,6 +313,14 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
                "-p", plugin_id, "-c", context, "-d", depth, "-o", OUTPUT_PREFIX]
         for i, (clip, value) in enumerate((inputs or {}).items()):
             cmd += ["-i", f"{clip}={_input_spec(clip, value, workdir, i)}"]
+        if frames is not None:
+            cmd += ["--frames", ",".join(_format_value(float(f)) for f in frames)]
+        if scale is not None:
+            cmd += ["--scale", _format_value(scale)]
+        if window is not None:
+            cmd += ["--window", ",".join(str(int(v)) for v in window)]
+        if query:
+            cmd += ["--query"]
         cmd += list(extra_args)
         for name, value in (params or {}).items():
             cmd += ["-s", f"{name}={_format_value(value)}"]
@@ -291,7 +339,29 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
                                 stdout=p.stdout, stderr=p.stderr, cmd=cmd) from None
 
     return RenderResult(outputs=outputs, alpha=alpha, report=report,
-                        returncode=p.returncode, stdout=p.stdout, stderr=p.stderr, cmd=cmd)
+                        returncode=p.returncode, stdout=p.stdout, stderr=p.stderr, cmd=cmd,
+                        images=_images(outputs, report))
+
+
+def _images(outputs: dict, report: dict) -> dict:
+    """outputs -> Image, with the bounds from the report (matched by file name)."""
+    bounds = {}
+    for r in report.get("renders") or []:
+        o = r.get("output")
+        if o and o.get("files"):
+            bounds[Path(o["files"][0]).name] = tuple(o["bounds"])
+    premult = (report.get("clipPreferences") or {}).get("outputPremultiplication")
+    images = {}
+    for key, pixels in outputs.items():
+        t, view = key if isinstance(key, tuple) else (key, "")
+        name = f"{OUTPUT_PREFIX}.{_time_name(t)}{view}.pfm"
+        images[key] = Image(pixels, bounds.get(name, (0, 0, pixels.shape[1], pixels.shape[0])), premult)
+    return images
+
+
+def _time_name(t: float) -> str:
+    """The time as hostDemo writes it in file names (C++ ostream, precision 12)."""
+    return f"{float(t):.12g}"
 
 
 def describe(bundle_paths, plugin_id: str, context: str | None = None,

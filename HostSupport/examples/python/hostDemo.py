@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Render an OFX plug-in with hostDemo through ofxhost at frames 0 and 1, save the outputs
-as <output>.<frame>.npy, and print the report as JSON.
+"""Render an OFX plug-in, or a graph of plug-ins, with hostDemo through ofxhost, and save
+the outputs as <output>.<frame>.npy. For one plug-in, print the report as JSON; for a graph
+(-g graph.json, see ofxhost.graph.load), print the bounds of each output.
 
-Example:
+Examples:
   python hostDemo.py -b Support/Plugins/Invert/Linux-64-release -p net.sf.openfx.invertPlugin \
       -i Source=input.npy -o out
+  python hostDemo.py -b Support/Plugins -g graph.json --frames 0,1 --scale 0.5 -o out
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ofxhost  # noqa: E402
+import ofxhost.graph  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -25,7 +28,11 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-b", "--bundles", action="append", required=True,
                     help="plug-in directory or .ofx.bundle (repeatable)")
-    ap.add_argument("-p", "--plugin", required=True, help="plug-in identifier")
+    ap.add_argument("-p", "--plugin", help="plug-in identifier")
+    ap.add_argument("-g", "--graph", help="render the output node of this JSON graph instead")
+    ap.add_argument("--frames", help="times t0,t1,... (default: 0,1; 0 for a graph)")
+    ap.add_argument("--scale", type=float, help="render scale, in (0,1]")
+    ap.add_argument("--window", help="render window x1,y1,x2,y2, in pixels at the render scale")
     ap.add_argument("-c", "--context", default="filter")
     ap.add_argument("-i", "--input", action="append", default=[], metavar="CLIP=SPEC",
                     help="CLIP=file.npy, CLIP=file.pfm, or a hostDemo spec (none, ramp, "
@@ -35,6 +42,24 @@ def main(argv=None) -> int:
     ap.add_argument("--host", help="hostDemo binary (default: $OFXHOST_HOSTDEMO, build tree)")
     ap.add_argument("params", nargs="*", metavar="name=value")
     args = ap.parse_args(argv)
+    if bool(args.plugin) == bool(args.graph):
+        ap.error("give one of -p PLUGIN or -g GRAPH")
+    frames = [float(f) for f in args.frames.split(",")] if args.frames else None
+    window = [int(v) for v in args.window.split(",")] if args.window else None
+    if args.graph:
+        out, _ = ofxhost.graph.load(args.graph)
+        try:
+            images = ofxhost.graph.execute(out, args.bundles, frames=frames or [0],
+                                           scale=args.scale or 1.0, window=window,
+                                           depth=args.depth, host_binary=args.host)
+        except ofxhost.HostDemoError as e:
+            print(e, file=sys.stderr)
+            return 1
+        for t, img in images.items():
+            np.save(f"{args.output}.{t:g}.npy", img.pixels)
+        print(json.dumps({f"{t:g}": {"bounds": img.bounds, "premult": img.premult}
+                          for t, img in images.items()}, indent=2))
+        return 0
 
     inputs = {}
     for spec in args.input:
@@ -53,7 +78,8 @@ def main(argv=None) -> int:
     params = dict(p.partition("=")[::2] for p in args.params)
     try:
         r = ofxhost.render(args.bundles, args.plugin, context=args.context, inputs=inputs,
-                           params=params, depth=args.depth, host_binary=args.host)
+                           params=params, depth=args.depth, frames=frames, scale=args.scale,
+                           window=window, host_binary=args.host)
     except ofxhost.HostDemoError as e:
         print(e, file=sys.stderr)
         return 1
