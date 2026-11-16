@@ -31,6 +31,7 @@
 
 #include <map>
 #include <string>
+#include <cstdio> // fopen (binaryMatchesHost)
 #include <algorithm> // std::find
 #include <iostream>
 #include <fstream>
@@ -206,6 +207,111 @@ static bool binaryExists(const std::string &path)
 #endif
 }
 
+
+// Does the plug-in binary at path match the host process (word size, CPU)? Reads the ELF, Mach-O (thin or
+// fat) or PE header. Unreadable files and unknown formats count as a match, so that nothing that loaded
+// before is rejected; a mismatch is only reported when the header says so.
+// This lets the host follow the spec's folder order (e.g. Linux-${uname -m}, then MacOS) and still skip a
+// binary it can't load (a 64-bit Linux-aarch64 plug-in in a 32-bit host on an aarch64 kernel, or an
+// arm64-only MacOS binary on an Intel Mac), using the next folder instead.
+static unsigned int rd16(const unsigned char *p, bool le) { return le ? (p[0] | (p[1] << 8)) : ((p[0] << 8) | p[1]); }
+static unsigned long rd32(const unsigned char *p, bool le)
+{
+  return le ? ((unsigned long)p[0] | ((unsigned long)p[1] << 8) | ((unsigned long)p[2] << 16) | ((unsigned long)p[3] << 24))
+            : (((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16) | ((unsigned long)p[2] << 8) | (unsigned long)p[3]);
+}
+
+static bool binaryMatchesHost(const std::string &path)
+{
+  unsigned char h[4096];
+  size_t n = 0;
+#if defined (WINDOWS)
+  FILE *f = _wfopen(OFX::utf8_to_utf16(path).c_str(), L"rb");
+#else
+  FILE *f = fopen(path.c_str(), "rb");
+#endif
+  if (!f) {
+    return true;
+  }
+  n = fread(h, 1, sizeof(h), f);
+  fclose(f);
+  const bool host64 = sizeof(void *) == 8;
+  // ELF (Linux, FreeBSD)
+  if (n >= 20 && h[0] == 0x7f && h[1] == 'E' && h[2] == 'L' && h[3] == 'F') {
+    if ((h[4] == 2) != host64) {
+      return false; // ELFCLASS64 vs ELFCLASS32
+    }
+    const unsigned int m = rd16(h + 18, h[5] == 1);
+#  if defined(__x86_64__) || defined(_M_X64)
+    return m == 62;   // EM_X86_64
+#  elif defined(__i386__) || defined(_M_IX86)
+    return m == 3;    // EM_386
+#  elif defined(__aarch64__)
+    return m == 183;  // EM_AARCH64
+#  elif defined(__arm__)
+    return m == 40;   // EM_ARM
+#  elif defined(__riscv)
+    return m == 243;  // EM_RISCV
+#  elif defined(__powerpc64__)
+    return m == 21;   // EM_PPC64
+#  elif defined(__s390x__)
+    return m == 22;   // EM_S390
+#  elif defined(__loongarch64)
+    return m == 258;  // EM_LOONGARCH
+#  else
+    (void)m;
+    return true;
+#  endif
+  }
+  // Mach-O: CPU types
+#  if defined(__aarch64__) || defined(__arm64__)
+  const unsigned long hostCpu = 0x0100000CUL; // CPU_TYPE_ARM64
+#  elif defined(__x86_64__)
+  const unsigned long hostCpu = 0x01000007UL; // CPU_TYPE_X86_64
+#  elif defined(__i386__)
+  const unsigned long hostCpu = 7UL;          // CPU_TYPE_I386
+#  else
+  const unsigned long hostCpu = 0UL;
+#  endif
+  if (n >= 8 && ((h[0] == 0xCF || h[0] == 0xCE) && h[1] == 0xFA && h[2] == 0xED && h[3] == 0xFE)) {
+    return hostCpu == 0 || rd32(h + 4, true) == hostCpu; // thin, little-endian MH_MAGIC(_64)
+  }
+  if (n >= 8 && h[0] == 0xCA && h[1] == 0xFE && h[2] == 0xBA && (h[3] == 0xBE || h[3] == 0xBF)) {
+    // fat (universal) binary, big-endian headers: fat_arch is 20 bytes, fat_arch_64 is 32 bytes
+    const size_t entry = (h[3] == 0xBE) ? 20 : 32;
+    const unsigned long count = rd32(h + 4, false);
+    if (hostCpu == 0 || count == 0 || count > 64) {
+      return true;
+    }
+    for (unsigned long i = 0; i < count && 8 + (i + 1) * entry <= n; ++i) {
+      if (rd32(h + 8 + i * entry, false) == hostCpu) {
+        return true;
+      }
+    }
+    return false;
+  }
+  // PE (Windows): IMAGE_FILE_HEADER.Machine
+  if (n >= 0x40 && h[0] == 'M' && h[1] == 'Z') {
+    const unsigned long pe = rd32(h + 0x3C, true);
+    if (pe + 6 <= n && h[pe] == 'P' && h[pe + 1] == 'E' && h[pe + 2] == 0 && h[pe + 3] == 0) {
+      const unsigned int m = rd16(h + pe + 4, true);
+#  if defined(_M_ARM64EC) || defined(__arm64ec__)
+      return m == 0x8664 || m == 0xAA64; // x64 and Arm64EC images use AMD64; Arm64X uses ARM64
+#  elif defined(__x86_64__) || defined(_M_X64)
+      return m == 0x8664; // a pure ARM64 DLL can't load in an x64 process (an Arm64X image under
+                          // emulation is still used through the first-existing fallback)
+#  elif defined(__i386__) || defined(_M_IX86)
+      return m == 0x14C;
+#  elif defined(__aarch64__) || defined(_M_ARM64)
+      return m == 0xAA64;
+#  else
+      (void)m;
+      return true;
+#  endif
+    }
+  }
+  return true;
+}
 
 bool OFX::Host::PluginCache::_useStdOFXPluginsLocation = true;
 OFX::Host::PluginCache* OFX::Host::PluginCache::gPluginCachePtr = 0;
@@ -501,16 +607,28 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
         std::string bundlename = dir + DIRSEP + name;
         // The binary in the most preferred ARCHITECTURE directory that has one, or in the most
         // preferred one if none has it (it is then recorded as an invalid binary, as before).
-        // E.g. an x86-64 macOS host checks MacOS-x86-64 then MacOS, an x64 Windows host running
-        // under Arm64 emulation checks Win-arm64ec then win64 (see ofxhArchDirs.h).
+        // E.g. an x86-64 macOS host checks MacOS then MacOS-x86-64, an x64 Windows host running
+        // under Arm64 emulation checks Win-arm64ec then Win64 (see ofxhArchDirs.h).
         const std::string contents = dir + DIRSEP + name + DIRSEP "Contents" DIRSEP;
+        // Use the first folder whose binary matches the host process; if none matches, the first folder
+        // that has a binary (as before).
         std::string binpath = archDirs.empty() ? std::string() : contents + archDirs[0] + DIRSEP + barename;
+        std::string firstExisting;
         for (std::size_t a = 0; a < archDirs.size(); ++a) {
           const std::string candidate = contents + archDirs[a] + DIRSEP + barename;
           if (binaryExists(candidate)) {
-            binpath = candidate;
-            break;
+            if (firstExisting.empty()) {
+              firstExisting = candidate;
+            }
+            if (binaryMatchesHost(candidate)) {
+              binpath = candidate;
+              firstExisting.clear();
+              break;
+            }
           }
+        }
+        if (!firstExisting.empty()) {
+          binpath = firstExisting;
         }
 
         if (binpath.empty()) {

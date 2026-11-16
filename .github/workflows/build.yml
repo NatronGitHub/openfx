@@ -138,6 +138,7 @@ jobs:
           set -eo pipefail
           fail=0
           for f in $(find install -name '*.ofx'); do
-            if objdump -p "$f" | grep -q 'OfxGetPlugin'; then echo "ok: $f"; else echo "NO OfxGetPlugin export: $f"; fail=1; fi
+            # no `objdump | grep -q` under pipefail: grep -q exits early and objdump may die of SIGPIPE
+            if [ "$(objdump -p "$f" | grep -c 'OfxGetPlugin')" -gt 0 ]; then echo "ok: $f"; else echo "NO OfxGetPlugin export: $f"; fail=1; fi
           done
           exit $fail

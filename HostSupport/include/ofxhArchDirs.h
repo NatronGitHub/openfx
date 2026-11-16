@@ -74,7 +74,7 @@ namespace OFX {
       ///
       /// The rules, from the OpenFX packaging reference:
       /// - MacOS: "all MacOS plug-ins should be in MacOS ... There will not be a specific arm64 folder."
-      ///   An x86-64 host still checks the deprecated MacOS-x86-64 folder first, then MacOS.
+      ///   Hosts check MacOS first; x86-64 hosts then check the deprecated MacOS-x86-64 folder as a fallback.
       /// - Windows: "An Arm64EC host should load plug-ins from the Win-arm64ec folder. ... an x64 host should
       ///   detect when it is running under Arm64 emulation and, if so, also check the Win-arm64ec folder when it
       ///   exists, preferring a native Arm64EC plug-in there over the emulated x64 plug-in in Win64."
@@ -87,8 +87,10 @@ namespace OFX {
       ///   existing build systems (e.g. Support/Plugins/Makefile.master before OFX 1.5) installed non-x86
       ///   binaries there, and hosts found them.
       ///
-      /// Windows folder names are returned as HostSupport always used them ("win32", "win64"); Windows file
-      /// names are case-insensitive.
+      /// Windows folder names are returned as the spec spells them ("Win32", "Win64"), followed by the
+      /// lowercase names HostSupport used before ("win32", "win64"), for case-sensitive folders (WSL).
+      /// The plug-in cache uses the first folder whose binary matches the host process (word size, CPU),
+      /// so a folder earlier in the list with a binary the host can't load is skipped.
       inline std::vector<std::string> archDirsFor(OSEnum os, ArchEnum arch, bool x64EmulatedOnArm64, const std::string &machine,
                                                   bool is64Bit = (sizeof(void *) == 8),
                                                   const std::string &unameMachine = std::string())
@@ -104,17 +106,20 @@ namespace OFX {
         case eOSWindows:
           switch (arch) {
           case eArchX86:
-            dirs.push_back("Win32"); // spec names (Windows file names are case-insensitive)
+            dirs.push_back("Win32"); // spec name
+            dirs.push_back("win32"); // previous HostSupport name, for case-sensitive folders
             break;
           case eArchX86_64:
             if (x64EmulatedOnArm64) {
               dirs.push_back("Win-arm64ec"); // prefer a native Arm64EC plug-in over an emulated x64 one
             }
             dirs.push_back("Win64");
+            dirs.push_back("win64");
             break;
           case eArchArm64EC:
             dirs.push_back("Win-arm64ec");
             dirs.push_back("Win64"); // Arm64EC processes can load (emulated) x64 DLLs
+            dirs.push_back("win64");
             break;
           case eArchArm64:
           case eArchOther:
