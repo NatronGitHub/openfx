@@ -45,13 +45,16 @@ ifeq ($(shell getconf LONG_BIT),64)
   BITS := 64
 endif
 OS := $(shell uname -s)
+# MinGW-w64 GCC/Clang toolchains: uname -s is MINGW64_NT-*, MINGW32_NT-*, or, with
+# the MSYS2 UCRT64/CLANG64/CLANG32 environments, UCRT64_NT-*, CLANG64_NT-*, CLANG32_NT-*
+MINGW_OS := $(filter MINGW% UCRT64% CLANG64% CLANG32%,$(OS))
 DEBUGFLAG ?= -g
 DEBUGNAME ?= debug
 ifeq ($(DEBUGFLAG),-O3)
   DEBUGNAME = release
 endif
 
-ifeq ($(OS:MINGW%=MINGW),MINGW)
+ifneq ($(MINGW_OS),)
   PLUGINPATH="C:\\Program Files\\Common Files\\OFX\\Plugins"
 endif
 ifeq ($(OS),Linux)
@@ -89,7 +92,7 @@ install:
 uninstall:
 	rm -rf "$(PLUGINPATH)/$(PLUGINNAME).ofx.bundle"
 
-  ifeq ($(OS:MINGW%=MINGW),MINGW)
+  ifneq ($(MINGW_OS),)
     LINKFLAGS = -shared -fvisibility=hidden -Xlinker --version-script=$(PATHTOROOT)/include/linuxSymbols -lopengl32
     ARCH = Win32
     BITSFLAG = -m32
