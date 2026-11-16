@@ -60,7 +60,69 @@ namespace MyHost {
                                      OFX::Host::ImageEffect::Descriptor& desc,
                                      const std::string& context) 
                                      : OFX::Host::ImageEffect::Instance(plugin,desc,context,false)
+                                     , _rendering(false)
+                                     , _defaultDepth(kOfxBitDepthByte)
   {
+    _renderScale.x = _renderScale.y = 1.;
+    _renderWindow.x1 = _renderWindow.y1 = _renderWindow.x2 = _renderWindow.y2 = 0;
+  }
+
+  void MyEffectInstance::setRenderState(const OfxPointD& renderScale, const OfxRectI& renderWindow,
+                                        const std::map<OFX::Host::ImageEffect::ClipInstance*, OfxRectD>& rois)
+  {
+    _rendering = true;
+    _renderScale = renderScale;
+    _renderWindow = renderWindow;
+    _rois = rois;
+  }
+
+  void MyEffectInstance::clearRenderState()
+  {
+    _rendering = false;
+    _rois.clear();
+  }
+
+  bool MyEffectInstance::getRegionOfInterest(const OFX::Host::ImageEffect::ClipInstance* clip, OfxRectD& roi) const
+  {
+    if (!_rendering) {
+      return false;
+    }
+    std::map<OFX::Host::ImageEffect::ClipInstance*, OfxRectD>::const_iterator it =
+      _rois.find(const_cast<OFX::Host::ImageEffect::ClipInstance*>(clip));
+    if (it == _rois.end()) {
+      return false;
+    }
+    roi = it->second;
+    return true;
+  }
+
+  OfxRectI MyEffectInstance::getProjectPixelRect(const OfxPointD& renderScale) const
+  {
+    double x, y, w, h;
+    getProjectOffset(x, y);
+    getProjectSize(w, h);
+    OfxRectD r;
+    r.x1 = x;
+    r.y1 = y;
+    r.x2 = x + w;
+    r.y2 = y + h;
+    return canonicalToPixelEnclosing(r, renderScale, getProjectPixelAspectRatio());
+  }
+
+  void MyEffectInstance::setDefaultClipPreferences()
+  {
+    OFX::Host::ImageEffect::Instance::setDefaultClipPreferences();
+    // HostSupport maps the output to float when no input is connected; hostDemo uses
+    // the -d depth, as for the inputs
+    for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = _clips.begin(); it != _clips.end(); ++it) {
+      if (!it->second->isOutput() && it->second->getConnected()) {
+        return;
+      }
+    }
+    OFX::Host::ImageEffect::ClipInstance* output = getClip(kOfxImageEffectOutputClipName);
+    if (output && isChromaticComponent(output->getComponents())) {
+      output->setPixelDepth(bestSupportedDepth(_defaultDepth));
+    }
   }
 
   // class member function implementation
@@ -158,7 +220,8 @@ namespace MyHost {
   /// renderScale
   void MyEffectInstance::getRenderScaleRecursive(double &x, double &y) const
   {
-    x = y = 1.0;
+    x = _renderScale.x;
+    y = _renderScale.y;
   }
 
   // make a parameter instance

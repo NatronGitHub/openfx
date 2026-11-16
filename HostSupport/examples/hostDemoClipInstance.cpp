@@ -29,14 +29,23 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <fstream>
 #include <cassert>
-#include <algorithm>
+#include <algorithm> // std::fill (no std::min/std::max: windows.h may define min/max macros)
+#include <cerrno>
+#include <cfloat>
+#include <climits>
 #include <cmath>
 #include <ctime>
+#include <cstdlib>
+#include <limits>
+#include <sstream>
 
 // ofx
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
 #include "ofxPixels.h"
+#ifdef OFX_EXTENSIONS_NUKE
+#include "nuke/fnOfxExtensions.h" // kFnOfxImagePlaneColour
+#endif
 
 // ofx host
 #include "ofxhBinary.h"
@@ -59,10 +68,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // need to enquire things from your host.
 namespace MyHost {
   const double    kPalPixelAspect = double(768)/double(720);
-  const int       kPalSizeXPixels = 720;
-  const int       kPalSizeYPixels = 576;
-  const OfxRectI  kPalRegionPixels = {0, 0, kPalSizeXPixels, kPalSizeYPixels};
-  //const OfxRectD  kPalRegionCanon = {0,0, kPalSizeXPixels * kPalPixelAspect ,kPalSizeYPixels};
 
   // 5x3 bitmaps for digits 0..9 and period
   const char digits[11][5][3] = {
@@ -123,112 +128,354 @@ namespace MyHost {
       {0,1,0} }
   };
 
-  // draw digit d at x,y int the width*height image pointed to by data
-  static void drawDigit(OfxRGBAColourB* data, int width, int height, int d, int x, int y , int scale, OfxRGBAColourB color) {
-    assert(0 <= x && x+3*scale < width);
-    assert(0 <= y && y+5*scale < height);
+  int gImageErrors = 0;
 
-    for (int j = 0; j < 5; ++j) {
-      for (int i = 0; i < 3; ++i) {
-        if (digits[d][j][i]) {
-          for (int jj = 0; jj < scale; ++jj) {
-            for (int ii = 0; ii < scale; ++ii) {
-              int x1 = x + i*scale + ii;
-              int y1 = y + j*scale + jj;
-              data[x1+y1*width] = color;
+  bool parseFiniteDouble(const std::string& s, double& d)
+  {
+    if (s.empty()) {
+      return false;
+    }
+    // only decimal notation: this rejects nan, inf, hexadecimal and spaces, which strtod accepts
+    for (std::string::size_type k = 0; k < s.size(); ++k) {
+      const char c = s[k];
+      if (!((c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.' || c == 'e' || c == 'E')) {
+        return false;
+      }
+    }
+    char* end = NULL;
+    errno = 0;
+    const double v = std::strtod(s.c_str(), &end);
+    if (errno == ERANGE || end == s.c_str() || end == NULL || *end != '\0' || !(v - v == 0.)) {
+      return false;
+    }
+    d = v;
+    return true;
+  }
+
+  bool parseInteger(const std::string& s, int& i)
+  {
+    if (s.empty()) {
+      return false;
+    }
+    for (std::string::size_type k = 0; k < s.size(); ++k) {
+      const char c = s[k];
+      if (!((c >= '0' && c <= '9') || (k == 0 && (c == '+' || c == '-')))) {
+        return false;
+      }
+    }
+    char* end = NULL;
+    errno = 0;
+    const long l = std::strtol(s.c_str(), &end, 10);
+    if (errno == ERANGE || end == s.c_str() || end == NULL || *end != '\0' || l < INT_MIN || l > INT_MAX) {
+      return false;
+    }
+    i = (int)l;
+    return true;
+  }
+
+  bool parseInputSpec(const std::string& s, InputSpec& spec)
+  {
+    spec = InputSpec();
+    if (s == "default") {
+      spec.type = InputSpec::eDefault;
+      return true;
+    }
+    if (s == "none") {
+      spec.type = InputSpec::eNone;
+      return true;
+    }
+    if (s == "ramp") {
+      spec.type = InputSpec::eRamp;
+      return true;
+    }
+    if (s.compare(0, 8, "checker:") == 0) {
+      int n = 0;
+      if (!parseInteger(s.substr(8), n) || n < 1 || n > 1000000) {
+        return false;
+      }
+      spec.type = InputSpec::eChecker;
+      spec.checkerSize = n;
+      return true;
+    }
+    if (s.compare(0, 6, "solid:") == 0) {
+      std::string v = s.substr(6);
+      for (int i = 0; i < 4; ++i) {
+        std::string::size_type comma = v.find(',');
+        if ((i < 3) != (comma != std::string::npos)) {
+          return false; // exactly 4 values
+        }
+        // the values must also fit in a float image
+        if (!parseFiniteDouble(v.substr(0, comma), spec.colour[i]) || std::fabs(spec.colour[i]) > FLT_MAX) {
+          return false;
+        }
+        v = (comma == std::string::npos) ? std::string() : v.substr(comma + 1);
+      }
+      spec.type = InputSpec::eSolid;
+      return true;
+    }
+    return false;
+  }
+
+  // is the full-resolution pixel (px,py) part of digit d drawn at (x0,y0) with the given scale?
+  static bool digitPixel(int d, int x0, int y0, int scale, int px, int py)
+  {
+    if (px < x0 || py < y0) {
+      return false;
+    }
+    int i = (px - x0) / scale;
+    int j = (py - y0) / scale;
+    if (i >= 3 || j >= 5) {
+      return false;
+    }
+    return digits[d][j][i] != 0;
+  }
+
+  // is the full-resolution pixel (px,py) part of the time and view numbers drawn by the default pattern?
+  static bool textPixel(OfxTime time, int view, int px, int py)
+  {
+    const int scale = 5;
+    const int charwidth = 4*scale;
+    // digits of |time| and view (a negative time draws the digits of its absolute value)
+    double at = std::fabs(time);
+    int x = 50;
+    int y = 50;
+    if (digitPixel((int(at)/10)%10, x, y, scale, px, py)) return true;
+    x += charwidth;
+    if (digitPixel(int(at)%10, x, y, scale, px, py)) return true;
+    x += charwidth;
+    if (digitPixel(10, x, y, scale, px, py)) return true;
+    x += charwidth;
+    if (digitPixel(int(at*10)%10, x, y, scale, px, py)) return true;
+    x = 50;
+    y += 8*scale;
+    return digitPixel(std::abs(view)%10, x, y, scale, px, py);
+  }
+
+  // evaluate the input pattern at the full-resolution pixel coordinates (X,Y) (render scale 1),
+  // in an image of full-resolution size W×H pixels
+  static void evalPattern(const InputSpec& spec, OfxTime time, int view, double X, double Y, double W, double H,
+                          double rgba[4])
+  {
+    switch (spec.type) {
+      case InputSpec::eSolid:
+        for (int c = 0; c < 4; ++c) {
+          rgba[c] = spec.colour[c];
+        }
+        return;
+      case InputSpec::eRamp:
+        rgba[0] = rgba[1] = rgba[2] = rgba[3] = (W > 0) ? X / W : 0.;
+        return;
+      case InputSpec::eChecker: {
+        int i = (int)std::floor(X / spec.checkerSize);
+        int j = (int)std::floor(Y / spec.checkerSize);
+        rgba[0] = rgba[1] = rgba[2] = rgba[3] = ((i + j) % 2 != 0) ? 1. : 0.;
+        return;
+      }
+      case InputSpec::eNone:
+      case InputSpec::eDefault:
+      default:
+        break;
+    }
+    (void)H;
+    // the default pattern: the value grows with time, without wrapping (it is clamped
+    // to [0,1] only in integer images): black at t=0 and white at t=OFXHOSTDEMOCLIPLENGTH.
+    double v = time / OFXHOSTDEMOCLIPLENGTH;
+    // the time and the view number are drawn in the reverse colour
+    if (textPixel(time, view, (int)std::floor(X), (int)std::floor(Y))) {
+      v = (v <= 1.) ? 1. - v : 0.;
+    }
+#ifdef OFX_EXTENSIONS_VEGAS
+    rgba[0] = view == 0 ? v : 0.;
+    rgba[1] = view == 1 ? v : 0.;
+    rgba[2] = view == 1 ? v : 0.;
+#else
+    rgba[0] = rgba[1] = rgba[2] = v;
+#endif
+    rgba[3] = 1.;
+  }
+
+  static int componentCount(const std::string& components)
+  {
+    if (components == kOfxImageComponentRGBA) return 4;
+    if (components == kOfxImageComponentRGB) return 3;
+    if (components == kOfxImageComponentAlpha) return 1;
+    return 0;
+  }
+
+  static int bytesPerComponent(const std::string& depth)
+  {
+    if (depth == kOfxBitDepthByte) return 1;
+    if (depth == kOfxBitDepthShort) return 2;
+    if (depth == kOfxBitDepthFloat) return 4;
+    return 0;
+  }
+
+  // clamp to [0,1]; NaN gives 0, so that the conversion to an integer is always defined
+  static double clamp01(double v)
+  {
+    if (!(v > 0.)) {
+      return 0.;
+    }
+    return v > 1. ? 1. : v;
+  }
+
+  // local min/max: std::min and std::max break if windows.h (included by ofxhBinary.h) defines
+  // the min and max macros, i.e. without NOMINMAX
+  static inline double minD(double a, double b) { return a < b ? a : b; }
+  static inline double maxD(double a, double b) { return a > b ? a : b; }
+  static inline int minI(int a, int b) { return a < b ? a : b; }
+  static inline int maxI(int a, int b) { return a > b ? a : b; }
+
+  // the nearest int (NaN gives 0), so that converting huge values (e.g. an infinite RoD) is defined
+  static int clampToInt(double v)
+  {
+    if (!(v == v)) {
+      return 0;
+    }
+    if (v <= (double)INT_MIN) {
+      return INT_MIN;
+    }
+    if (v >= (double)INT_MAX) {
+      return INT_MAX;
+    }
+    return (int)v;
+  }
+
+  bool MyImage::isSupported(const std::string& depth, const std::string& components)
+  {
+    return componentCount(components) > 0 && bytesPerComponent(depth) > 0;
+  }
+
+  MyImage::MyImage(MyClipInstance &clip, OfxTime time, int view,
+                   const OfxRectI& bounds, const OfxRectI& rod, const OfxPointD& renderScale,
+                   bool isOutput)
+    : OFX::Host::ImageEffect::Image(clip) /// this ctor sets the depth, components, premult and PAR from the clip
+    , _data(NULL)
+    , _depth(clip.getPixelDepth())
+    , _components(clip.getComponents())
+    , _nComps(componentCount(_components))
+    , _bytesPerComp(bytesPerComponent(_depth))
+    , _rowBytes(0)
+    , _bounds(bounds)
+  {
+    assert(isSupported(_depth, _components));
+    if (_bounds.x2 < _bounds.x1) _bounds.x2 = _bounds.x1;
+    if (_bounds.y2 < _bounds.y1) _bounds.y2 = _bounds.y1;
+    const int width = _bounds.x2 - _bounds.x1;
+    const int height = _bounds.y2 - _bounds.y1;
+    _rowBytes = width * _nComps * _bytesPerComp;
+    const size_t size = (size_t)_rowBytes * (size_t)height;
+
+    // make some memory (new[] returns memory suitably aligned for float)
+    _data = new unsigned char[size > 0 ? size : 1];
+
+    if (isOutput) {
+      // fill with the sentinel, so that the pixels that the plug-in did not write show
+      if (_depth == kOfxBitDepthFloat) {
+        std::fill(reinterpret_cast<float*>(_data), reinterpret_cast<float*>(_data + size),
+                  std::numeric_limits<float>::quiet_NaN());
+      } else {
+        std::fill(_data, _data + size, (unsigned char)0xCD);
+      }
+    } else {
+      const InputSpec& spec = clip.getInput();
+      // full-resolution size of the RoD, in pixels
+      const double W = (rod.x2 - rod.x1) / renderScale.x;
+      const double H = (rod.y2 - rod.y1) / renderScale.y;
+      double rgba[4];
+      double out[4];
+      for (int y = _bounds.y1; y < _bounds.y2; ++y) {
+        unsigned char* row = _data + (size_t)(y - _bounds.y1) * _rowBytes;
+        // the pixel centre, in full-resolution pixel coordinates
+        const double Y = (y + 0.5) / renderScale.y;
+        for (int x = _bounds.x1; x < _bounds.x2; ++x) {
+          const double X = (x + 0.5) / renderScale.x;
+          // the patterns are unpremultiplied colours (getPremult() is kOfxImageUnPreMultiplied
+          // for RGBA and Alpha); RGB images drop the alpha, and are opaque
+          evalPattern(spec, time, view, X, Y, W, H, rgba);
+          if (_nComps == 1) {
+            out[0] = rgba[3];
+          } else {
+            for (int c = 0; c < _nComps; ++c) {
+              out[c] = rgba[c];
+            }
+          }
+          unsigned char* pix = row + (size_t)(x - _bounds.x1) * _nComps * _bytesPerComp;
+          for (int c = 0; c < _nComps; ++c) {
+            if (_bytesPerComp == 1) {
+              pix[c] = (unsigned char)std::floor(clamp01(out[c]) * 255. + 0.5);
+            } else if (_bytesPerComp == 2) {
+              reinterpret_cast<unsigned short*>(pix)[c] = (unsigned short)std::floor(clamp01(out[c]) * 65535. + 0.5);
+            } else {
+              reinterpret_cast<float*>(pix)[c] = (float)out[c];
             }
           }
         }
       }
     }
-  }
 
-  /// images are always SD PAL progressive full res images for the purpose of this example only
-  MyImage::MyImage(MyClipInstance &clip, OfxTime time, int view)
-    : OFX::Host::ImageEffect::Image(clip) /// this ctor will set basic props on the image
-    , _data(NULL)
-  {
-    // make some memory
-    _data = new OfxRGBAColourB[kPalSizeXPixels * kPalSizeYPixels] ; /// PAL SD RGBA
-    
-    int fillValue = (int)(floor(255.0 * (time/OFXHOSTDEMOCLIPLENGTH))) & 0xff;
-    OfxRGBAColourB color;
-#ifdef OFX_EXTENSIONS_VEGAS
-    color.r = view == 0 ? fillValue : 0;
-    color.g = view == 1 ? fillValue : 0;
-    color.b = view == 1 ? fillValue : 0;
-#else
-    color.r = color.g = color.b = fillValue;
-#endif
-    color.a = 255;
-
-    std::fill(_data, _data + kPalSizeXPixels * kPalSizeYPixels, color);
-    // draw the time and the view number in reverse color
-    const int scale = 5;
-    const int charwidth = 4*scale;
-#ifdef OFX_EXTENSIONS_VEGAS
-    color.r = view == 0 ? 255-fillValue : 0;
-    color.g = view == 1 ? 255-fillValue : 0;
-    color.b = view == 1 ? 255-fillValue : 0;
-#else
-    color.r = color.g = color.b = 255-fillValue;
-#endif
-    int xx = 50;
-    int yy = 50;
-    int d;
-    d = (int(time)/10)%10;
-    drawDigit(_data, kPalSizeXPixels, kPalSizeYPixels, d, xx, yy, scale, color);
-    xx += charwidth;
-    d = int(time)%10;
-    drawDigit(_data, kPalSizeXPixels, kPalSizeYPixels, d, xx, yy, scale, color);
-    xx += charwidth;
-    d = 10;
-    drawDigit(_data, kPalSizeXPixels, kPalSizeYPixels, d, xx, yy, scale, color);
-    xx += charwidth;
-    d = int(time*10)%10;
-    drawDigit(_data, kPalSizeXPixels, kPalSizeYPixels, d, xx, yy, scale, color);
-    xx = 50;
-    yy += 8*scale;
-    d = int(view)%10;
-    drawDigit(_data, kPalSizeXPixels, kPalSizeYPixels, d, xx, yy, scale, color);
-
-    // render scale x and y of 1.0
-    setDoubleProperty(kOfxImageEffectPropRenderScale, 1.0, 0);
-    setDoubleProperty(kOfxImageEffectPropRenderScale, 1.0, 1); 
+    setDoubleProperty(kOfxImageEffectPropRenderScale, renderScale.x, 0);
+    setDoubleProperty(kOfxImageEffectPropRenderScale, renderScale.y, 1);
 
     // data ptr
-    setPointerProperty(kOfxImagePropData,_data);
+    setPointerProperty(kOfxImagePropData, _data);
 
     // bounds and rod
-    setIntProperty(kOfxImagePropBounds, kPalRegionPixels.x1, 0);
-    setIntProperty(kOfxImagePropBounds, kPalRegionPixels.y1, 1);
-    setIntProperty(kOfxImagePropBounds, kPalRegionPixels.x2, 2);
-    setIntProperty(kOfxImagePropBounds, kPalRegionPixels.y2, 3);
-    
-    setIntProperty(kOfxImagePropRegionOfDefinition, kPalRegionPixels.x1, 0);
-    setIntProperty(kOfxImagePropRegionOfDefinition, kPalRegionPixels.y1, 1);
-    setIntProperty(kOfxImagePropRegionOfDefinition, kPalRegionPixels.x2, 2);
-    setIntProperty(kOfxImagePropRegionOfDefinition, kPalRegionPixels.y2, 3);        
+    setIntProperty(kOfxImagePropBounds, _bounds.x1, 0);
+    setIntProperty(kOfxImagePropBounds, _bounds.y1, 1);
+    setIntProperty(kOfxImagePropBounds, _bounds.x2, 2);
+    setIntProperty(kOfxImagePropBounds, _bounds.y2, 3);
+
+    setIntProperty(kOfxImagePropRegionOfDefinition, rod.x1, 0);
+    setIntProperty(kOfxImagePropRegionOfDefinition, rod.y1, 1);
+    setIntProperty(kOfxImagePropRegionOfDefinition, rod.x2, 2);
+    setIntProperty(kOfxImagePropRegionOfDefinition, rod.y2, 3);
 
     // row bytes
-    setIntProperty(kOfxImagePropRowBytes, kPalSizeXPixels * sizeof(OfxRGBAColourB));
+    setIntProperty(kOfxImagePropRowBytes, _rowBytes);
+
+    setStringProperty(kOfxImagePropField, kOfxImageFieldNone);
+    std::ostringstream uid;
+    uid << clip.getName() << ":" << time << ":" << view << (isOutput ? ":output" : "");
+    setStringProperty(kOfxImagePropUniqueIdentifier, uid.str());
   }
 
-  OfxRGBAColourB* MyImage::pixel(int x, int y) const
+  bool MyImage::getPixelRGB8(int x, int y, int rgb[3], bool& notWritten) const
   {
-    OfxRectI bounds = getBounds();
-    if ((x >= bounds.x1) && ( x< bounds.x2) && ( y >= bounds.y1) && ( y < bounds.y2) )
-    {
-      int rowBytes = getIntProperty(kOfxImagePropRowBytes);
-      int offset = (y - bounds.y1) * rowBytes + (x - bounds.x1) * sizeof(OfxRGBAColourB);
-      return reinterpret_cast<OfxRGBAColourB*>(&(reinterpret_cast<char*>(_data)[offset]));
+    notWritten = false;
+    if (x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2) {
+      return false;
     }
-    return 0;
+    const unsigned char* pix = _data + (size_t)(y - _bounds.y1) * _rowBytes + (size_t)(x - _bounds.x1) * _nComps * _bytesPerComp;
+    int v[4];
+    for (int c = 0; c < _nComps; ++c) {
+      if (_bytesPerComp == 1) {
+        v[c] = pix[c];
+      } else if (_bytesPerComp == 2) {
+        v[c] = (reinterpret_cast<const unsigned short*>(pix)[c] * 255 + 32767) / 65535;
+      } else {
+        float f = reinterpret_cast<const float*>(pix)[c];
+        if (f != f) { // NaN
+          notWritten = true;
+          v[c] = 0;
+        } else {
+          v[c] = (int)std::floor(clamp01(f) * 255. + 0.5);
+        }
+      }
+    }
+    if (_nComps == 1) {
+      rgb[0] = rgb[1] = rgb[2] = v[0];
+    } else {
+      rgb[0] = v[0];
+      rgb[1] = v[1];
+      rgb[2] = v[2];
+    }
+    return true;
   }
 
   MyImage::~MyImage() 
   {
-    delete _data;
+    delete [] _data;
   }
 
   MyClipInstance::MyClipInstance(MyEffectInstance* effect, OFX::Host::ImageEffect::ClipDescriptor *desc)
@@ -236,30 +483,57 @@ namespace MyHost {
     , _effect(effect)
     , _name(desc->getName())
     , _outputImage(NULL)
-#ifdef OFX_EXTENSIONS_VEGAS
+    , _input()
+    , _unmappedDepth(kOfxBitDepthByte)
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
     , _view(0)
 #endif
+    , _inRoDAction(false)
   {
   }
 
   MyClipInstance::~MyClipInstance()
   {
-    if(_outputImage)
+    releaseOutputImage();
+  }
+
+  void MyClipInstance::releaseOutputImage()
+  {
+    if(_outputImage) {
       _outputImage->releaseReference();
+      _outputImage = NULL;
+    }
   }
    
-  /// Get the Raw Unmapped Pixel Depth from the host. We are always 8 bits in our example
+  /// Get the Raw Unmapped Pixel Depth from the host: 8 bits by default (hostDemo -d sets it),
+  /// kOfxBitDepthNone if the clip is disconnected ("implying a clip is unconnected image")
   const std::string &MyClipInstance::getUnmappedBitDepth() const
   {
-    static const std::string v(kOfxBitDepthByte);
-    return v;
+    static const std::string none(kOfxBitDepthNone);
+    return getConnected() ? _unmappedDepth : none;
   }
     
-  /// Get the Raw Unmapped Components from the host. In our example we are always RGBA
+  /// Get the Raw Unmapped Components from the host: RGBA, or kOfxImageComponentNone if the
+  /// clip is disconnected ("implying a clip is unconnected, not valid for an image")
   const std::string &MyClipInstance::getUnmappedComponents() const
   {
-    static const std::string v(kOfxImageComponentRGBA);
-    return v;
+    static const std::string rgba(kOfxImageComponentRGBA);
+    static const std::string none(kOfxImageComponentNone);
+    return getConnected() ? rgba : none;
+  }
+
+  /// The mapped pixel depth: kOfxBitDepthNone if the clip is disconnected
+  const std::string &MyClipInstance::getPixelDepth() const
+  {
+    static const std::string none(kOfxBitDepthNone);
+    return getConnected() ? OFX::Host::ImageEffect::ClipInstance::getPixelDepth() : none;
+  }
+
+  /// The mapped components: kOfxImageComponentNone if the clip is disconnected
+  const std::string &MyClipInstance::getComponents() const
+  {
+    static const std::string none(kOfxImageComponentNone);
+    return getConnected() ? OFX::Host::ImageEffect::ClipInstance::getComponents() : none;
   }
 
   // PreMultiplication -
@@ -267,10 +541,21 @@ namespace MyHost {
   //  kOfxImageOpaque - the image is opaque and so has no premultiplication state
   //  kOfxImagePreMultiplied - the image is premultiplied by it's alpha
   //  kOfxImageUnPreMultiplied - the image is unpremultiplied
+  //
+  // The output clip has the premultiplication set by the clip preferences. An RGB input (or
+  // a disconnected one) is opaque: "an image with no alpha is opaque". RGBA and Alpha inputs are
+  // unpremultiplied: the synthetic patterns are unpremultiplied colours.
   const std::string &MyClipInstance::getPremult() const
   {
-    static const std::string v(kOfxImageUnPreMultiplied);
-    return v;
+    static const std::string opaque(kOfxImageOpaque);
+    static const std::string unpremult(kOfxImageUnPreMultiplied);
+    if (isOutput()) {
+      return _effect->getOutputPreMultiplication();
+    }
+    if (!getConnected() || getComponents() == kOfxImageComponentRGB) {
+      return opaque;
+    }
+    return unpremult;
   }
 
 
@@ -331,7 +616,7 @@ namespace MyHost {
   //  Says whether the clip is actually connected at the moment.
   bool MyClipInstance::getConnected() const
   {
-    return true;
+    return isOutput() || _input.type != InputSpec::eNone;
   }
   
   // Unmapped Frame Rate -
@@ -364,17 +649,135 @@ namespace MyHost {
   }
 
 
-  /// override this to return the rod on the clip canonical coords!
+  /// the rod of the clip in canonical coordinates (see getRoD)
   OfxRectD MyClipInstance::getRegionOfDefinition(OfxTime time) const
   {
-    /// our clip is pretending to be progressive PAL SD, so return 0<=x<768, 0<=y<576 
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    return getRoD(time, _view);
+#else
+    return getRoD(time, 0);
+#endif
+  }
+
+  OfxRectD MyClipInstance::getRoD(OfxTime time, int view) const
+  {
+    (void)view;
     OfxRectD v;
-    v.x1 = v.y1 = 0;
+    v.x1 = v.y1 = v.x2 = v.y2 = 0.;
+    if (isOutput()) {
+      // the output RoD is the effect's RoD (the guard protects against a plug-in that
+      // asks for the output RoD in its own RoD action)
+      if (_inRoDAction) {
+        return v;
+      }
+      _inRoDAction = true;
+      OfxRectD rod = v;
+      OfxStatus stat = _effect->getRegionOfDefinitionAction(time, _effect->getRenderScale(),
+#ifdef OFX_EXTENSIONS_NUKE
+                                                            view,
+#endif
+                                                            rod);
+      _inRoDAction = false;
+      if (stat == kOfxStatOK || stat == kOfxStatReplyDefault) {
+        v = rod;
+      }
+      return v;
+    }
+    if (!getConnected()) {
+      return v; // a disconnected clip has an empty RoD
+    }
+    /// our clip is pretending to be progressive PAL SD, so return 0<=x<768, 0<=y<576
     v.x2 = 768;
     v.y2 = 576;
     return v;
   }
   
+  // intersection of two rectangles (may be empty, i.e. x2 <= x1 or y2 <= y1)
+  static OfxRectD intersect(const OfxRectD& a, const OfxRectD& b)
+  {
+    OfxRectD r;
+    r.x1 = maxD(a.x1, b.x1);
+    r.y1 = maxD(a.y1, b.y1);
+    r.x2 = minD(a.x2, b.x2);
+    r.y2 = minD(a.y2, b.y2);
+    return r;
+  }
+
+  OfxRectI intersect(const OfxRectI& a, const OfxRectI& b)
+  {
+    OfxRectI r;
+    r.x1 = maxI(a.x1, b.x1);
+    r.y1 = maxI(a.y1, b.y1);
+    r.x2 = minI(a.x2, b.x2);
+    r.y2 = minI(a.y2, b.y2);
+    return r;
+  }
+
+  OfxRectI canonicalToPixelEnclosing(const OfxRectD& r, const OfxPointD& renderScale, double par)
+  {
+    // the epsilon absorbs rounding errors, e.g. 768 / (768/720) = 720.0000000001
+    const double eps = 1e-6;
+    OfxRectI p;
+    p.x1 = clampToInt(std::floor(r.x1 * renderScale.x / par + eps));
+    p.y1 = clampToInt(std::floor(r.y1 * renderScale.y + eps));
+    p.x2 = clampToInt(std::ceil(r.x2 * renderScale.x / par - eps));
+    p.y2 = clampToInt(std::ceil(r.y2 * renderScale.y - eps));
+    return p;
+  }
+
+  MyImage* MyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds)
+  {
+    if (!getConnected()) {
+      return NULL;
+    }
+    const std::string& depth = getPixelDepth();
+    const std::string& components = getComponents();
+    if (!MyImage::isSupported(depth, components)) {
+      std::cerr << "Error: clip " << _name << ": hostDemo can't make images with pixel depth \"" << depth
+                << "\" and components \"" << components << "\"" << std::endl;
+      ++gImageErrors;
+      return NULL;
+    }
+    const OfxPointD& renderScale = _effect->getRenderScale();
+    const double par = getAspectRatio();
+    const OfxRectD rodCanonical = getRoD(time, view);
+    const OfxRectI rod = canonicalToPixelEnclosing(rodCanonical, renderScale, par);
+
+    if (isOutput()) {
+      if (!_outputImage) {
+        // a new image for each render, covering the render window, i.e. the output RoD
+        // clipped to the project (outside of render, the whole RoD)
+        OfxRectI bounds = _effect->isRendering() ? _effect->getRenderWindow() : intersect(rod, _effect->getProjectPixelRect(renderScale));
+        _outputImage = new MyImage(*this, time, view, bounds, rod, renderScale, /*isOutput=*/true);
+      }
+      // add another reference to the member image for this fetch: as we have a
+      // ref count of 1 due to construction, the image is not deleted when the
+      // plug-in releases it, so that hostDemo can save it after the render.
+      _outputImage->addReference();
+      return _outputImage;
+    }
+
+    // Input clip: fetch on demand, the image is deleted when the plug-in releases it.
+    // The bounds are optionalBounds if given, else the RoI the plug-in asked for in this
+    // render, else the RoD; clipped to the RoD.
+    OfxRectD region = rodCanonical;
+    OfxRectD roi;
+    if (optionalBounds) {
+      region = *optionalBounds;
+    } else if (_effect->getRegionOfInterest(this, roi)) {
+      region = roi;
+    }
+    region = intersect(region, rodCanonical);
+    if (region.x2 <= region.x1 || region.y2 <= region.y1) {
+      return NULL; // nothing to fetch
+    }
+    OfxRectI bounds = intersect(canonicalToPixelEnclosing(region, renderScale, par), rod);
+    if (bounds.x2 <= bounds.x1 || bounds.y2 <= bounds.y1) {
+      return NULL;
+    }
+    return new MyImage(*this, time, view, bounds, rod, renderScale, /*isOutput=*/false);
+  }
+
   /// override this to fill in the image at the given time.
   /// The bounds of the image on the image plane should be 
   /// 'appropriate', typically the value returned in getRegionsOfInterest
@@ -383,39 +786,11 @@ namespace MyHost {
   /// If bounds is not null, fetch the indicated section of the canonical image plane.
   OFX::Host::ImageEffect::Image* MyClipInstance::getImage(OfxTime time, const OfxRectD *optionalBounds)
   {
-    if(_name == "Output") {
-      if(!_outputImage) {
-        // make a new ref counted image
-#ifdef OFX_EXTENSIONS_VEGAS
-        _outputImage = new MyImage(*this, 0, _view);
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    return fetchImage(time, _view, optionalBounds);
 #else
-        _outputImage = new MyImage(*this, 0);
+    return fetchImage(time, 0, optionalBounds);
 #endif
-      }
-     
-      // add another reference to the member image for this fetch
-      // as we have a ref count of 1 due to construction, this will
-      // cause the output image never to delete by the plugin
-      // when it releases the image
-      _outputImage->addReference();
-
-      // return it
-      return _outputImage;
-    }
-    else {
-      // Fetch on demand for the input clip.
-      // It does get deleted after the plugin is done with it as we
-      // have not incremented the auto ref
-      // 
-      // You should do somewhat more sophisticated image management
-      // than this.
-#ifdef OFX_EXTENSIONS_VEGAS
-      MyImage *image = new MyImage(*this, time, _view);
-#else
-      MyImage *image = new MyImage(*this, time);
-#endif
-      return image;
-    }
   }
 
 #ifdef OFX_EXTENSIONS_NUKE
@@ -433,13 +808,17 @@ namespace MyHost {
   ///
   OFX::Host::ImageEffect::Image* MyClipInstance::getImagePlane(OfxTime time, int view, const std::string& plane,const OfxRectD *optionalBounds)
   {
-    return NULL;
+    // only the colour plane
+    if (plane != kFnOfxImagePlaneColour) {
+      return NULL;
+    }
+    return fetchImage(time, view < 0 ? _view : view, optionalBounds);
   }
 
   /// override this to return the rod on the clip for the given view
   OfxRectD MyClipInstance::getRegionOfDefinition(OfxTime time, int view) const
   {
-    return getRegionOfDefinition(time);
+    return getRoD(time, view < 0 ? _view : view);
   }
 #endif
 
@@ -453,31 +832,7 @@ namespace MyHost {
   /// If bounds is not null, fetch the indicated section of the canonical image plane.
   OFX::Host::ImageEffect::Image* MyClipInstance::getStereoscopicImage(OfxTime time, int view, const OfxRectD *optionalBounds)
   {
-    if(_name == "Output") {
-      if(!_outputImage) {
-        // make a new ref counted image
-        _outputImage = new MyImage(*this, 0, view);
-      }
-     
-      // add another reference to the member image for this fetch
-      // as we have a ref count of 1 due to construction, this will
-      // cause the output image never to delete by the plugin
-      // when it releases the image
-      _outputImage->addReference();
-
-      // return it
-      return _outputImage;
-    }
-    else {
-      // Fetch on demand for the input clip.
-      // It does get deleted after the plugin is done with it as we
-      // have not incremented the auto ref
-      // 
-      // You should do somewhat more sophisticated image management
-      // than this.
-      MyImage *image = new MyImage(*this, time, view);
-      return image;
-    }
+    return fetchImage(time, view, optionalBounds);
   }
 #endif
 
@@ -485,10 +840,7 @@ namespace MyHost {
   /// set the default view returned by getImage()
   void MyClipInstance::setView(int view) {
     if (view != _view) {
-      if (_outputImage) {
-        delete _outputImage;
-        _outputImage = NULL;
-      }
+      releaseOutputImage();
       _view = view;
     }
   }

@@ -43,7 +43,10 @@ $(OFXSLIB):
 	LIBPREFIX=$(LIBPREFIX) LIBNAME=$(LIBNAME); 
 
 
-$(HOST_DEMO_FILES) : $(DST_DIR)/%.o : %.cpp
+# the objects depend on the hostDemo headers (MyEffectInstance and MyClipInstance are shared)
+HOST_DEMO_HEADERS = $(wildcard hostDemo*.h)
+
+$(HOST_DEMO_FILES) : $(DST_DIR)/%.o : %.cpp $(HOST_DEMO_HEADERS)
 	mkdir -p $(DST_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
@@ -62,7 +65,7 @@ PROPSET_DUMP_FILES = $(DST_DIR)/propsetDump.o \
 	$(DST_DIR)/hostDemoHostDescriptor.o   \
 	$(DST_DIR)/hostDemoParamInstance.o
 
-$(DST_DIR)/propsetDump.o : propsetDump.cpp
+$(DST_DIR)/propsetDump.o : propsetDump.cpp $(HOST_DEMO_HEADERS)
 	mkdir -p $(DST_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 

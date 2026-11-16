@@ -34,6 +34,14 @@ namespace MyHost {
 
   // class definition
   class MyEffectInstance : public OFX::Host::ImageEffect::Instance {
+  protected:
+    // the render state, set by hostDemo around each renderAction, used by the clips to make images
+    bool      _rendering;
+    OfxPointD _renderScale;
+    OfxRectI  _renderWindow;
+    std::map<OFX::Host::ImageEffect::ClipInstance*, OfxRectD> _rois;
+    std::string _defaultDepth; ///< the depth of the output when no input is connected (hostDemo -d)
+
   public:
     MyEffectInstance(OFX::Host::ImageEffect::ImageEffectPlugin* plugin,
                      OFX::Host::ImageEffect::Descriptor& desc,
@@ -107,6 +115,35 @@ namespace MyHost {
     /// the recursive instanceChangedAction will be fed the correct
     /// renderScale
     virtual void getRenderScaleRecursive(double &x, double &y) const;
+
+    /// the clip instances, by name
+    const std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>& getClipInstances() const { return _clips; }
+
+    /// set the render state before calling renderAction: the render scale, the render window (in pixel
+    /// coordinates) and the regions of interest returned by getRegionOfInterestAction
+    void setRenderState(const OfxPointD& renderScale, const OfxRectI& renderWindow,
+                        const std::map<OFX::Host::ImageEffect::ClipInstance*, OfxRectD>& rois);
+
+    /// call this after renderAction (the render scale is kept)
+    void clearRenderState();
+
+    bool isRendering() const { return _rendering; }
+    const OfxPointD& getRenderScale() const { return _renderScale; }
+    const OfxRectI& getRenderWindow() const { return _renderWindow; }
+
+    /// get the region of interest of a clip (in canonical coordinates) for the current render.
+    /// Returns false outside of render, or if the plug-in did not ask for this clip.
+    bool getRegionOfInterest(const OFX::Host::ImageEffect::ClipInstance* clip, OfxRectD& roi) const;
+
+    /// the project frame (offset and size) in pixel coordinates at the given render scale
+    OfxRectI getProjectPixelRect(const OfxPointD& renderScale) const;
+
+    /// set the depth the clip preferences use when no input clip is connected (default: byte)
+    void setDefaultDepth(const std::string& depth) { _defaultDepth = depth; }
+
+    /// the default clip preferences of HostSupport, except that with no connected input the
+    /// output gets the default depth (the -d option), instead of float
+    virtual void setDefaultClipPreferences();
 
 
     ////////////////////////////////////////////////////////////////////////////////

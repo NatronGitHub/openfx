@@ -32,36 +32,126 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #define OFXHOSTDEMOCLIPLENGTH 1.0
 
+#include <string>
+
 namespace MyHost {
 
   // foward
   class MyClipInstance;
 
-  /// make an image up
+  /// what an input clip contains, set with "hostDemo -i Clip=spec"
+  struct InputSpec {
+    enum Type {
+      eDefault, ///< the synthetic pattern: grey level t/OFXHOSTDEMOCLIPLENGTH, with the time and view drawn in the reverse colour
+      eSolid,   ///< "solid:r,g,b,a": a constant colour
+      eRamp,    ///< "ramp": r=g=b=a go from 0 (left) to 1 (right of the RoD)
+      eChecker, ///< "checker:N": N×N pixel (at render scale 1) squares, alternating 0 and 1 (r=g=b=a)
+      eNone     ///< "none": the clip is disconnected
+    };
+    Type   type;
+    double colour[4]; ///< for eSolid
+    int    checkerSize; ///< for eChecker
+    InputSpec() : type(eDefault), checkerSize(16) { colour[0] = colour[1] = colour[2] = colour[3] = 0.; }
+  };
+
+  /// parse "solid:r,g,b,a", "ramp", "checker:N", "none" or "default". Returns false if invalid.
+  bool parseInputSpec(const std::string& s, InputSpec& spec);
+
+  /// parse a finite decimal number (e.g. "0.5", "-2", "1e3"). Returns false for anything else,
+  /// including nan, inf, hexadecimal and out-of-range (ERANGE) values, and surrounding spaces.
+  bool parseFiniteDouble(const std::string& s, double& d);
+
+  /// parse a decimal integer that fits in an int. Returns false for anything else.
+  bool parseInteger(const std::string& s, int& i);
+
+  /// intersection of two rectangles (may be empty, i.e. x2 <= x1 or y2 <= y1)
+  OfxRectI intersect(const OfxRectI& a, const OfxRectI& b);
+
+  /// the smallest rectangle in pixel coordinates enclosing a rectangle in canonical coordinates
+  /// (coordinates beyond the int range, e.g. of an infinite RoD, are clamped to it)
+  OfxRectI canonicalToPixelEnclosing(const OfxRectD& r, const OfxPointD& renderScale, double par);
+
+  /// number of image fetches that failed because of an unsupported pixel depth or components
+  /// (hostDemo then exits with a non-zero status)
+  extern int gImageErrors;
+
+  /// an image with the clip's (mapped) pixel depth and components, and the given bounds,
+  /// region of definition and render scale.
+  /// Input images are filled with the clip's InputSpec. Output images are filled with
+  /// a sentinel (NaN for float, 0xCD bytes for byte and short), so that unwritten pixels show.
   class MyImage : public OFX::Host::ImageEffect::Image 
   {
   protected :
-    OfxRGBAColourB   *_data; // where we are keeping our image data
+    unsigned char *_data; // where we are keeping our image data, allocated with new[]
+    std::string    _depth;
+    std::string    _components;
+    int            _nComps;
+    int            _bytesPerComp;
+    int            _rowBytes;
+    OfxRectI       _bounds;
   public :
-    explicit MyImage(MyClipInstance &clip, OfxTime t, int view = 0);
-    OfxRGBAColourB* pixel(int x, int y) const;
+    /// returns true if the depth and components are supported by MyImage
+    static bool isSupported(const std::string& depth, const std::string& components);
+
+    /// bounds and rod are in pixel coordinates (at the given render scale)
+    MyImage(MyClipInstance &clip, OfxTime t, int view,
+            const OfxRectI& bounds, const OfxRectI& rod, const OfxPointD& renderScale,
+            bool isOutput);
     ~MyImage();
+
+    const std::string& getDepth() const { return _depth; }
+    const std::string& getComponentsString() const { return _components; }
+    const OfxRectI& getBounds() const { return _bounds; }
+
+    /// get the pixel at (x,y), converted to 8 bits RGB (Alpha images give a grey level).
+    /// Returns false if (x,y) is outside the bounds. notWritten is set if the pixel still
+    /// holds the NaN sentinel (float images only).
+    bool getPixelRGB8(int x, int y, int rgb[3], bool& notWritten) const;
   };
 
   class MyClipInstance : public OFX::Host::ImageEffect::ClipInstance {
   protected:
     MyEffectInstance *_effect;
     std::string       _name;
-    MyImage          *_outputImage; ///< only set for output clips
+    MyImage          *_outputImage; ///< only set for output clips, during a render
+    InputSpec         _input; ///< what the input clip contains
+    std::string       _unmappedDepth; ///< the depth of the input clip, before clip preferences
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
     int               _view; ///< view used by the last renderAction
 #endif
+    mutable bool      _inRoDAction; ///< set while the output clip calls the effect's RoD action
 
   public:
     MyClipInstance(MyEffectInstance* effect, OFX::Host::ImageEffect::ClipDescriptor* desc);
 
     virtual ~MyClipInstance();
+    /// the output image fetched by the plug-in during the last render (NULL if it didn't fetch it)
     MyImage* getOutputImage() { return _outputImage; }
+
+    /// release the output image: call this before each render, so that each render gets a new image
+    void releaseOutputImage();
+
+    void setInput(const InputSpec& input) { _input = input; }
+    const InputSpec& getInput() const { return _input; }
+
+    /// set the depth returned by getUnmappedBitDepth() (byte, short or float)
+    void setUnmappedBitDepth(const std::string& depth) { _unmappedDepth = depth; }
+
+    /// make the image for a fetch at the given time and view: the output image (shared by all fetches
+    /// in a render) covers the render window, an input image covers optionalBounds (or the RoI if none
+    /// was given, or the RoD outside of render) clipped to the RoD. Returns NULL if the clip is
+    /// disconnected or the bounds are empty.
+    MyImage* fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds);
+
+    /// the RoD of the clip at the given time and view, in canonical coordinates: the PAL SD frame
+    /// for a connected input, empty (0,0,0,0) for a disconnected one, and the result of the
+    /// effect's getRegionOfDefinition action for the output clip (empty if the action fails)
+    OfxRectD getRoD(OfxTime time, int view) const;
+
+    /// the mapped pixel depth and components: kOfxBitDepthNone and kOfxImageComponentNone
+    /// if the clip is disconnected ("implying a clip is unconnected")
+    virtual const std::string &getPixelDepth() const;
+    virtual const std::string &getComponents() const;
 
     /// Get the Raw Unmapped Pixel Depth from the host
     ///
