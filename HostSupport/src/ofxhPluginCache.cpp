@@ -292,8 +292,8 @@ static bool binaryMatchesHost(const std::string &path)
   }
   // PE (Windows): IMAGE_FILE_HEADER.Machine
   if (n >= 0x40 && h[0] == 'M' && h[1] == 'Z') {
-    const unsigned long pe = rd32(h + 0x3C, true);
-    if (pe + 6 <= n && h[pe] == 'P' && h[pe + 1] == 'E' && h[pe + 2] == 0 && h[pe + 3] == 0) {
+    const unsigned long pe = rd32(h + 0x3C, true); // e_lfanew, from the file: don't add to it before checking
+    if (pe <= n && n - pe >= 6 && h[pe] == 'P' && h[pe + 1] == 'E' && h[pe + 2] == 0 && h[pe + 3] == 0) {
       const unsigned int m = rd16(h + pe + 4, true);
 #  if defined(_M_ARM64EC) || defined(__arm64ec__)
       return m == 0x8664 || m == 0xAA64; // x64 and Arm64EC images use AMD64; Arm64X uses ARM64
