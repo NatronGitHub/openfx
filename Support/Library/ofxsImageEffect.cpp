@@ -2617,7 +2617,7 @@ namespace OFX {
     // clobber the instance data property on the effect handle
     try {
       _effectProps.propSetPointer(kOfxPropInstanceData, 0, false);
-    } catch (OFX::Exception::Suite&) {
+    } catch (const OFX::Exception::Suite&) {
       // ignore
     }
 
@@ -4582,7 +4582,7 @@ namespace OFX {
         std::string strQuality = inArgs.propGetString(kOfxImageEffectPropRenderQuality, /*throwOnFailure*/false);
         try {
           args.renderQuality = mapToVegasRenderQualityEnum(strQuality);
-        } catch (std::invalid_argument&) {
+        } catch (const std::invalid_argument&) {
           // dud field?
           OFX::Log::error(true, "Unknown render quality '%s'", str.c_str());
         }
@@ -5260,7 +5260,7 @@ namespace OFX {
       try {
         args.fieldToRender = eFieldBoth;
         args.fieldToRender = mapStrToFieldEnum(str);
-      } catch (std::invalid_argument&) {
+      } catch (const std::invalid_argument&) {
         // dud field?
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
 
@@ -5305,7 +5305,7 @@ namespace OFX {
       try {
         args.fieldToRender = eFieldBoth;
         args.fieldToRender = mapStrToFieldEnum(str);
-      } catch (std::invalid_argument&) {
+      } catch (const std::invalid_argument&) {
         // dud field?
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
 
@@ -5889,7 +5889,7 @@ namespace OFX {
       }
 
       // catch memory
-      catch (std::bad_alloc&)
+      catch (const std::bad_alloc&)
       {
         stat = kOfxStatErrMemory;
       }
