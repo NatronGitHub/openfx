@@ -547,7 +547,7 @@ int main(int argc, char **argv)
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
         // render a stereoscopic frame
         { // left view
-          stat = instance->renderAction(t,kOfxImageFieldBoth,renderWindow, renderScale, /*sequential=*/true, /*interactive=*/false,
+          stat = instance->renderAction(t,kOfxImageFieldNone,renderWindow, renderScale, /*sequential=*/true, /*interactive=*/false,
 #                                        ifdef OFX_SUPPORTS_OPENGLRENDER
                                         /*openGLRender=*/false,
 #                                        ifdef OFX_EXTENSIONS_NATRON
@@ -579,7 +579,7 @@ int main(int argc, char **argv)
           }
         }
         {  // right view
-          stat = instance->renderAction(t,kOfxImageFieldBoth,renderWindow, renderScale, /*sequential=*/true, /*interactive=*/false,
+          stat = instance->renderAction(t,kOfxImageFieldNone,renderWindow, renderScale, /*sequential=*/true, /*interactive=*/false,
 #                                ifdef OFX_SUPPORTS_OPENGLRENDER
                                  /*openGLRender=*/false,
 #                                ifdef OFX_EXTENSIONS_NATRON
@@ -617,7 +617,7 @@ int main(int argc, char **argv)
           planes.push_back(kOfxImagePlaneColour);
 #       endif
           stat = instance->renderAction(t, //OfxTime      time,
-                                        kOfxImageFieldBoth, // const std::string &  field,
+                                        kOfxImageFieldNone, // const std::string &  field,
                                         renderWindow, // const OfxRectI &renderRoI,
                                         renderScale, // OfxPointD   renderScale,
                                         true, // bool     sequentialRender,

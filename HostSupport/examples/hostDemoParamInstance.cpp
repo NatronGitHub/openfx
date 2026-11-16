@@ -373,7 +373,7 @@ namespace MyHost {
 
   OfxStatus MyChoiceInstance::set(int i)
   {
-    if ( i < 0 || i >= (int)_descriptor.getProperties().getDimension(kOfxParamPropChoiceOption) ) {
+    if ( i < 0 || i >= (int)getProperties().getDimension(kOfxParamPropChoiceOption) ) {
       return kOfxStatErrValue;
     }
     _i = i;
