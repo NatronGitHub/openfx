@@ -47,6 +47,9 @@ of the direct OFX objects and any library side only functions.
 */
 #include "ofxsParam.h"
 
+#ifndef NOMINMAX
+#define NOMINMAX // no min/max macros: they break std::min, std::max and std::numeric_limits<T>::max()
+#endif
 #include <windows.h>
 
 /** @brief Nasty macro used to define empty protected copy ctors and assign ops */
