@@ -89,7 +89,7 @@ namespace OFX {
       catch (const OFX::Exception::PropertyUnknownToHost &) {
         stat = kOfxStatErrMissingHostFeature;
       }
-      catch (std::bad_alloc &) {
+      catch (const std::bad_alloc&) {
         stat = kOfxStatErrMemory;
       }
       catch (...) {
@@ -234,5 +234,5 @@ namespace OFX {
     }
 #endif
 
-  };
-};
+  }
+}

@@ -61,14 +61,11 @@ England
 
 #if defined __APPLE__ || defined __linux__ || defined __FreeBSD__
 # if __GNUC__ >= 4
-#  define EXPORT __attribute__((visibility("default")))
 #  define LOCAL  __attribute__((visibility("hidden")))
 # else
-#  define EXPORT
 #  define LOCAL
 # endif
 #elif defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
-#  define EXPORT OfxExport
 #  define LOCAL
 #else
 #  error Not building on your operating system quite yet
@@ -307,7 +304,7 @@ namespace OFX {
     // @brief the set of descriptors, one per context used by kOfxActionDescribeInContext,
     //'eContextNone' is the one used by the kOfxActionDescribe
     EffectDescriptorMap gEffectDescriptors;
-  };
+  }
 
   /** @brief map a std::string to a context */
   ContextEnum mapToContextEnum(const std::string &s) OFX_THROW(std::invalid_argument)
@@ -2003,7 +2000,7 @@ namespace OFX {
       }
     }
     // gone wrong ?
-    catch(std::invalid_argument&) {
+    catch (const std::invalid_argument&) {
       OFX::Log::error(true, "Unknown pixel depth property '%s' reported on clip '%s'", str.c_str(), _clipName.c_str());
       e = eBitDepthNone;
     }
@@ -2022,7 +2019,7 @@ namespace OFX {
       }
     }
     // gone wrong ?
-    catch(std::invalid_argument&) {
+    catch (const std::invalid_argument&) {
       OFX::Log::error(true, "Unknown  pixel component type '%s' reported on clip '%s'", str.c_str(), _clipName.c_str());
       e = ePixelComponentNone;
     }
@@ -2041,7 +2038,7 @@ namespace OFX {
       }
     }
     // gone wrong ?
-    catch(std::invalid_argument&) {
+    catch (const std::invalid_argument&) {
       OFX::Log::error(true, "Unknown  pixel component type '%s' reported on clip '%s'", str.c_str(), _clipName.c_str());
       e = ePixelComponentNone;
     }
@@ -2091,7 +2088,7 @@ namespace OFX {
       }
     }
     // gone wrong ?
-    catch(std::invalid_argument&) {
+    catch (const std::invalid_argument&) {
       OFX::Log::error(true, "Unknown unmapped pixel depth property '%s' reported on clip '%s'", str.c_str(), _clipName.c_str());
       e = eBitDepthNone;
     }
@@ -2110,7 +2107,7 @@ namespace OFX {
       }
     }
     // gone wrong ?
-    catch(std::invalid_argument&) {
+    catch (const std::invalid_argument&) {
       OFX::Log::error(true, "Unknown unmapped pixel component type '%s' reported on clip '%s'", str.c_str(), _clipName.c_str());
       e = ePixelComponentNone;
     }
@@ -2126,7 +2123,7 @@ namespace OFX {
       e = mapStrToPreMultiplicationEnum(str);
     }
     // gone wrong ?
-    catch(std::invalid_argument&) {
+    catch (const std::invalid_argument&) {
       OFX::Log::error(true, "Unknown premultiplication type '%s' reported on clip %s!", str.c_str(), _clipName.c_str());
       e = eImageOpaque;
     }
@@ -2144,7 +2141,7 @@ namespace OFX {
         "Field order '%s' reported on a clip %s is invalid, it must be none, lower or upper.", str.c_str(), _clipName.c_str());
     }
     // gone wrong ?
-    catch(std::invalid_argument&) {
+    catch (const std::invalid_argument&) {
       OFX::Log::error(true, "Unknown field order '%s' reported on a clip %s.", str.c_str(), _clipName.c_str());
       e = eFieldNone;
     }
@@ -2620,7 +2617,7 @@ namespace OFX {
     // clobber the instance data property on the effect handle
     try {
       _effectProps.propSetPointer(kOfxPropInstanceData, 0, false);
-    } catch (OFX::Exception::Suite&) {
+    } catch (const OFX::Exception::Suite&) {
       // ignore
     }
 
@@ -4570,7 +4567,7 @@ namespace OFX {
       try {
         args.fieldToRender = mapStrToFieldEnum(str);
       }
-      catch (std::invalid_argument&) {
+      catch (const std::invalid_argument&) {
         // dud field?
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
 
@@ -4585,7 +4582,7 @@ namespace OFX {
         std::string strQuality = inArgs.propGetString(kOfxImageEffectPropRenderQuality, /*throwOnFailure*/false);
         try {
           args.renderQuality = mapToVegasRenderQualityEnum(strQuality);
-        } catch (std::invalid_argument&) {
+        } catch (const std::invalid_argument&) {
           // dud field?
           OFX::Log::error(true, "Unknown render quality '%s'", str.c_str());
         }
@@ -4734,7 +4731,7 @@ namespace OFX {
       try {
         args.fieldToRender = mapStrToFieldEnum(str);
       }
-      catch (std::invalid_argument&) {
+      catch (const std::invalid_argument&) {
         // dud field?
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
 
@@ -5263,7 +5260,7 @@ namespace OFX {
       try {
         args.fieldToRender = eFieldBoth;
         args.fieldToRender = mapStrToFieldEnum(str);
-      } catch (std::invalid_argument&) {
+      } catch (const std::invalid_argument&) {
         // dud field?
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
 
@@ -5308,7 +5305,7 @@ namespace OFX {
       try {
         args.fieldToRender = eFieldBoth;
         args.fieldToRender = mapStrToFieldEnum(str);
-      } catch (std::invalid_argument&) {
+      } catch (const std::invalid_argument&) {
         // dud field?
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
 
@@ -5790,14 +5787,14 @@ namespace OFX {
       }
 
       // catch memory
-      catch (std::bad_alloc&)
+      catch (const std::bad_alloc&)
       {
         stat = kOfxStatErrMemory;
       }
 
       // catch a custom client exception, if defined
 #ifdef OFX_CLIENT_EXCEPTION_TYPE
-      catch (OFX_CLIENT_EXCEPTION_TYPE &ex)
+      catch (const OFX_CLIENT_EXCEPTION_TYPE &ex)
       {
         stat = OFX_CLIENT_EXCEPTION_HANDLER(ex, plugname);
       }
@@ -5865,7 +5862,7 @@ namespace OFX {
       }
 
       // catch suite exceptions
-      catch (OFX::Exception::Suite &ex)
+      catch (const OFX::Exception::Suite &ex)
       {
 #      ifdef DEBUG
         std::cout << "Caught OFX::Exception::Suite" << std::endl;
@@ -5874,7 +5871,7 @@ namespace OFX {
       }
 
       // catch host inadequate exceptions
-      catch (OFX::Exception::HostInadequate)
+      catch (const OFX::Exception::HostInadequate&)
       {
 #      ifdef DEBUG
         std::cout << "Caught OFX::Exception::HostInadequate" << std::endl;
@@ -5883,7 +5880,7 @@ namespace OFX {
       }
 
       // catch exception due to a property being unknown to the host, implies something wrong with host if not caught further down
-      catch (OFX::Exception::PropertyUnknownToHost)
+      catch (const OFX::Exception::PropertyUnknownToHost&)
       {
 #      ifdef DEBUG
         std::cout << "Caught OFX::Exception::PropertyUnknownToHost" << std::endl;
@@ -5892,14 +5889,14 @@ namespace OFX {
       }
 
       // catch memory
-      catch (std::bad_alloc&)
+      catch (const std::bad_alloc&)
       {
         stat = kOfxStatErrMemory;
       }
 
       // catch a custom client exception, if defined
 #ifdef OFX_CLIENT_EXCEPTION_TYPE
-      catch (OFX_CLIENT_EXCEPTION_TYPE &ex)
+      catch (const OFX_CLIENT_EXCEPTION_TYPE &ex)
       {
         stat = OFX_CLIENT_EXCEPTION_HANDLER(ex, plugname);
       }
@@ -5924,7 +5921,7 @@ namespace OFX {
       gHost = host;
     }
 
-  }; // namespace Private
+  } // namespace Private
 
   /** @brief Fetch's a suite from the host and logs errors */
   const void * fetchSuite(const char *suiteName, int suiteVersion, bool optional)
@@ -5956,9 +5953,9 @@ namespace OFX {
     {
       // an empty definition is enough to prevent old code from compiling.
     }
-  };
+  }
 #endif // OFXS_MANUAL_REGISTRATION
-}; // namespace OFX
+} // namespace OFX
 
 static
 OFX::OfxPlugInfo generatePlugInfo(OFX::PluginFactory* factory, std::string& newID)
@@ -6005,7 +6002,7 @@ void init()
 }
 
 /** @brief, mandated function returning the number of plugins, which is always 1 */
-EXPORT int OfxGetNumberOfPlugins(void)
+int OfxGetNumberOfPlugins(void)
 {
   init();
   return (int)OFX::PluginFactories::plugIDs().size();
@@ -6016,7 +6013,7 @@ EXPORT int OfxGetNumberOfPlugins(void)
 We call the plugin side defined OFX::Plugin::getPluginIDs function to find out what to set.
 */
 
-EXPORT OfxPlugin* OfxGetPlugin(int nth)
+OfxPlugin* OfxGetPlugin(int nth)
 {
   init();
   // ofxPlugs has one entry per plugin returned by OfxGetNumberOfPlugins (plugInfoMap shrinks on unload)

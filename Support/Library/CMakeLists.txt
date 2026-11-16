@@ -21,6 +21,11 @@ target_compile_features(OfxSupport PUBLIC cxx_std_11)
 set_target_properties(OfxSupport PROPERTIES CXX_STANDARD ${OFX_CXX_STANDARD} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 target_compile_definitions(OfxSupport PUBLIC ${OFX_DEFINITIONS})
 target_link_libraries(OfxSupport PUBLIC OfxApi)
+# Plugins link this library in and should export only the OFX entry points,
+# which ofxCore.h declares with OfxExport, so hide everything else.
+set_target_properties(OfxSupport PROPERTIES CXX_VISIBILITY_PRESET hidden
+                                            VISIBILITY_INLINES_HIDDEN ON)
+
 # Support/Plugins/include (ofxsProcessing.H, ofxsImageBlender.H...) is used by most plug-ins, and
 # the Makefiles always add it (Support/Plugins/Makefile.master)
 target_include_directories(OfxSupport PUBLIC

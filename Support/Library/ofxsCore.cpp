@@ -145,7 +145,6 @@ namespace OFX {
         OFX::Private::gMemorySuite->memoryFree(ptr);            
     }
 
-  };
+  }
 
-}; // namespace OFX
-
+} // namespace OFX
