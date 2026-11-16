@@ -101,6 +101,7 @@ fails hostdemo-nosource2.log "not optional.*Source" -p net.sf.openfx.basicPlugin
 # Numbers must be finite decimals
 fails hostdemo-nan.log "invalid input" -i Source=solid:nan,0,0,1
 fails hostdemo-hex.log "invalid input" -i Source=checker:0x10
+fails hostdemo-hexf.log "invalid input" -i Source=solid:0x1p-1,0,0,1
 fails hostdemo-inf.log "invalid value" -p net.sf.openfx.basicPlugin -c general scale=inf
 fails hostdemo-erange.log "invalid value" -p net.sf.openfx.basicPlugin -c general scale=1e999
 
