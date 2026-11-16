@@ -120,3 +120,73 @@ expect "Dot.0.ppm: size" "$(ppm Dot.0.ppm | head -1)" "95 100"
 grep -q "OfxBitDepthByte" Dot.0.ppm || { echo "Dot.0.ppm: not a byte image"; head -4 Dot.0.ppm; exit 1; }
 run hostdemo-dot2.log -p net.sf.openfx.dotexample -c general -i Source=none radius=60 position=0,0 -o DotClipped
 expect "DotClipped.0.ppm: size" "$(ppm DotClipped.0.ppm | head -1)" "57 60"
+
+# --stats prints one line per output image on stdout: grep it from the log
+stats() { grep '^stats ' "$1"; }
+# pfmpixel FILE X Y N: the N floats of the pixel (X,Y) of a little-endian PFM file with a 16-byte
+# header ("PF\n720 576\n-1.0\n" or "Pf\n..."), Y up: PFM rows are bottom to top
+# (http://www.pauldebevec.com/Research/HDR/PFM/). od reads floats in the host's byte order, which
+# is little-endian on the CI machines, and prints them in various formats: %g normalizes them.
+pfmpixel() { od -A n -t f4 -j $((16 + ($3 * 720 + $2) * $4 * 4)) -N $(($4 * 4)) "$1" |
+  awk '{ for (i = 1; i <= NF; i++) printf "%s%g", (n++ ? " " : ""), $i } END { print "" }'; }
+
+# --stats on a solid float input through Invert: exact values (Invert also inverts alpha)
+run hostdemo-stats.log -d float -i Source=solid:0.25,0.5,1,1 -o Stats --stats
+expect "--stats: solid float through Invert" "$(stats hostdemo-stats.log | sed 's/ crc32=.*//')" "stats frame=0 view=0 w=720 h=576 bounds=0,0,720,576 depth=float comps=RGBA min=0.75,0.5,0,0 max=0.75,0.5,0,0 mean=0.75,0.5,0,0 nan=0
+stats frame=1 view=0 w=720 h=576 bounds=0,0,720,576 depth=float comps=RGBA min=0.75,0.5,0,0 max=0.75,0.5,0,0 mean=0.75,0.5,0,0 nan=0"
+test -z "$(hostdemo -d float -i Source=solid:0.25,0.5,1,1 -o Stats --stats 2>/dev/null | grep -v '^stats ')" || { echo "hostDemo --quiet --stats: other output on stdout"; exit 1; }
+
+# a deterministic crc32: Invert on the default byte pattern (computed once, checked in). The
+# crc32 of a byte image doesn't depend on the byte order.
+run hostdemo-crc.log -o Crc --stats
+expect "--stats: crc32 of Invert on the default pattern" "$(stats hostdemo-crc.log)" "stats frame=0 view=0 w=720 h=576 bounds=0,0,720,576 depth=byte comps=RGBA min=0,0,0,0 max=255,255,255,0 mean=254.49273,254.49273,254.49273,0 nan=0 crc32=6e0ce805
+stats frame=1 view=0 w=720 h=576 bounds=0,0,720,576 depth=byte comps=RGBA min=0,0,0,0 max=255,255,255,0 mean=0.476526331,0.476526331,0.476526331,0 nan=0 crc32=52af513c"
+
+# 16-bit PPM: P6, maxval 65535, big-endian, top row first. Invert of (0.25,0.5,1) in float is
+# (0.75,0.5,0), i.e. 49151 (0xbfff), 32768 (0x8000) and 0.
+run hostdemo-ppm16.log -d float -i Source=solid:0.25,0.5,1,1 -o P16 --format ppm16
+expect "P16.0.ppm: header" "$(head -c 2 P16.0.ppm; sed -n 4,5p P16.0.ppm | tr '\n' ' ')" "P6720 576 65535 "
+expect "P16.0.ppm: size" "$(wc -c < P16.0.ppm | tr -d ' ')" "$(( $(head -5 P16.0.ppm | wc -c) + 720 * 576 * 6 ))"
+expect "P16.0.ppm: last pixel" "$(tail -c 6 P16.0.ppm | od -A n -t x1 | tr -d ' \n')" "bfff80000000"
+
+# PFM round trip. RT1 = Invert(default pattern), in float: white with the time drawn in black
+# from (50,50). The pixel (57,52) is in the first digit, so it is black, and the pixel at the
+# same place from the top (57,523) is white: this checks that the PFM rows are bottom to top.
+run hostdemo-rt1.log -d float --format pfm -o RT1 --stats
+expect "RT1.0.pfm: header" "$(head -c 16 RT1.0.pfm | tr '\n' ' ')" "PF 720 576 -1.0 "
+expect "RT1.0.pfm: size" "$(wc -c < RT1.0.pfm | tr -d ' ')" "$((16 + 720 * 576 * 12))"
+expect "RT1.0.pfm: pixels (57,52) and (57,523)" "$(pfmpixel RT1.0.pfm 57 52 3) $(pfmpixel RT1.0.pfm 57 523 3)" "0 0 0 1 1 1"
+# the alpha of the RGBA output (1 inverted: 0) goes to a separate Pf file
+expect "RT1.0.alpha.pfm: header" "$(head -c 16 RT1.0.alpha.pfm | tr '\n' ' ')" "Pf 720 576 -1.0 "
+expect "RT1.0.alpha.pfm: size and pixel (57,52)" "$(wc -c < RT1.0.alpha.pfm | tr -d ' ') $(pfmpixel RT1.0.alpha.pfm 57 52 1)" "$((16 + 720 * 576 * 4)) 0"
+# RT2 = Invert(RT1.0.pfm) is the original pattern: black with the time in white; the PF input has
+# alpha 1, which Invert makes 0
+run hostdemo-rt2.log -d float -i Source=file:RT1.0.pfm --format pfm -o RT2 --stats
+expect "RT2.0.pfm: pixels (57,52) and (57,523)" "$(pfmpixel RT2.0.pfm 57 52 3) $(pfmpixel RT2.0.pfm 57 523 3)" "1 1 1 0 0 0"
+expect "RT2: --stats" "$(stats hostdemo-rt2.log | sed -n 1p | sed 's/ mean=.*//')" "stats frame=0 view=0 w=720 h=576 bounds=0,0,720,576 depth=float comps=RGBA min=0,0,0,0 max=1,1,1,0"
+# RT3 = Invert(RT2.0.pfm) is RT1 again, exactly: same stats and crc32 as RT1's frame 0
+run hostdemo-rt3.log -d float -i Source=file:RT2.0.pfm --format pfm -o RT3 --stats
+expect "PFM round trip: --stats of Invert(Invert(RT1)) = RT1" "$(stats hostdemo-rt3.log | sed -n 1p)" "$(stats hostdemo-rt1.log | sed -n 1p)"
+# a PFM read into a byte clip is converted (and clamped) to 8 bits
+run hostdemo-rt4.log -i Source=file:RT1.0.pfm -o RT4
+expect "RT4.0.ppm: pixels (57,52) and (57,523)" "$(pixel RT4.0.ppm 57 52) $(pixel RT4.0.ppm 57 523)" "255 255 255 0 0 0"
+# a Pf file gives r=g=b=a; its size is the clip's RoD (in pixels, at the project PAR)
+printf 'Pf\n3 2\n-1.0\n' > small.pfm; printf '\0\0\0\0\0\0\200\76\0\0\0\77\0\0\100\77\0\0\200\77\0\0\0\0' >> small.pfm
+run hostdemo-small.log -d float -i Source=file:small.pfm -o Small --stats
+expect "Pf input: --stats" "$(stats hostdemo-small.log | sed -n 1p | sed 's/ crc32=.*//')" "stats frame=0 view=0 w=3 h=2 bounds=0,0,3,2 depth=float comps=RGBA min=0,0,0,0 max=1,1,1,1 mean=0.583333333,0.583333333,0.583333333,0.583333333 nan=0"
+# the same file in big-endian (positive scale) gives the same image
+printf 'Pf\n3 2\n1\n' > small-be.pfm; printf '\0\0\0\0\76\200\0\0\77\0\0\0\77\100\0\0\77\200\0\0\0\0\0\0' >> small-be.pfm
+run hostdemo-small-be.log -d float -i Source=file:small-be.pfm -o SmallBE --stats
+expect "Pf big-endian input: --stats" "$(stats hostdemo-small-be.log | sed -n 1p)" "$(stats hostdemo-small.log | sed -n 1p)"
+
+# malformed PFM files are rejected
+head -c 1000 RT1.0.pfm > truncated.pfm
+fails hostdemo-pfm-truncated.log "truncated" -i Source=file:truncated.pfm
+{ cat small.pfm; printf 'x'; } > trailing.pfm
+fails hostdemo-pfm-trailing.log "trailing data" -i Source=file:trailing.pfm
+fails hostdemo-pfm-magic.log "not a PFM file" -i Source=file:P16.0.ppm
+printf 'PF\n0 2\n-1.0\n' > zero.pfm
+fails hostdemo-pfm-zero.log "invalid PFM size" -i Source=file:zero.pfm
+printf 'PF\n1 1\n0\n\0\0\0\0\0\0\0\0\0\0\0\0' > scale0.pfm
+fails hostdemo-pfm-scale.log "invalid PFM scale" -i Source=file:scale0.pfm
+fails hostdemo-pfm-missing.log "cannot open" -i Source=file:missing.pfm

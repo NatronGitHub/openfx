@@ -33,11 +33,28 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define OFXHOSTDEMOCLIPLENGTH 1.0
 
 #include <string>
+#include <vector>
 
 namespace MyHost {
 
   // foward
   class MyClipInstance;
+
+  /// a PFM image (http://www.pauldebevec.com/Research/HDR/PFM/): "PF" (RGB, 3 components) or
+  /// "Pf" (greyscale, 1 component), stored as in the file: "left to right, bottom to top order",
+  /// i.e. data[(y * width + x) * nComps + c], with y = 0 the bottom row, as in OFX images.
+  struct PFMImage {
+    int width;
+    int height;
+    int nComps; ///< 3 (PF) or 1 (Pf)
+    std::vector<float> data;
+    PFMImage() : width(0), height(0), nComps(0) {}
+  };
+
+  /// read a PFM file of either byte order (the sign of the scale; its magnitude is ignored).
+  /// Returns false, with the reason in error, if the file can't be read or is malformed: bad
+  /// identifier, size or scale, or pixel data that doesn't match the size (truncated or trailing).
+  bool readPFM(const std::string& path, PFMImage& image, std::string& error);
 
   /// what an input clip contains, set with "hostDemo -i Clip=spec"
   struct InputSpec {
@@ -46,16 +63,20 @@ namespace MyHost {
       eSolid,   ///< "solid:r,g,b,a": a constant colour
       eRamp,    ///< "ramp": r=g=b=a go from 0 (left) to 1 (right of the RoD)
       eChecker, ///< "checker:N": N×N pixel (at render scale 1) squares, alternating 0 and 1 (r=g=b=a)
+      eFile,    ///< "file:path.pfm": a PFM image, the same at all times (see PFMImage)
       eNone     ///< "none": the clip is disconnected
     };
     Type   type;
     double colour[4]; ///< for eSolid
     int    checkerSize; ///< for eChecker
+    std::string path; ///< for eFile
+    PFMImage    file; ///< for eFile: the content of the file, read by parseInputSpec
     InputSpec() : type(eDefault), checkerSize(16) { colour[0] = colour[1] = colour[2] = colour[3] = 0.; }
   };
 
-  /// parse "solid:r,g,b,a", "ramp", "checker:N", "none" or "default". Returns false if invalid.
-  bool parseInputSpec(const std::string& s, InputSpec& spec);
+  /// parse "solid:r,g,b,a", "ramp", "checker:N", "file:path.pfm", "none" or "default". Returns
+  /// false if invalid, with the reason in error. "file:" reads the PFM file.
+  bool parseInputSpec(const std::string& s, InputSpec& spec, std::string& error);
 
   /// parse a finite decimal number (e.g. "0.5", "-2", "1e3"). Returns false for anything else,
   /// including nan, inf, hexadecimal and out-of-range (ERANGE) values, and surrounding spaces.
@@ -102,6 +123,22 @@ namespace MyHost {
     const std::string& getDepth() const { return _depth; }
     const std::string& getComponentsString() const { return _components; }
     const OfxRectI& getBounds() const { return _bounds; }
+    int getNComponents() const { return _nComps; }
+    int getBytesPerComponent() const { return _bytesPerComp; }
+
+    /// the address of the pixel at (x,y), which must be inside the bounds
+    const unsigned char* getPixelData(int x, int y) const
+    {
+      return _data + (size_t)(y - _bounds.y1) * _rowBytes + (size_t)(x - _bounds.x1) * _nComps * _bytesPerComp;
+    }
+
+    /// component c of the pixel at (x,y) (inside the bounds), in the native range of the depth
+    /// (0..255, 0..65535, or the float value, NaN included)
+    double getComponent(int x, int y, int c) const;
+
+    /// component c of the pixel at (x,y) (inside the bounds), as a float: byte and short values
+    /// are divided by 255 and 65535, float values are unchanged (NaN included)
+    float getComponentFloat(int x, int y, int c) const;
 
     /// get the pixel at (x,y), converted to 8 bits RGB (Alpha images give a grey level).
     /// Returns false if (x,y) is outside the bounds. notWritten is set if the pixel still
@@ -144,7 +181,7 @@ namespace MyHost {
     MyImage* fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds);
 
     /// the RoD of the clip at the given time and view, in canonical coordinates: the PAL SD frame
-    /// for a connected input, empty (0,0,0,0) for a disconnected one, and the result of the
+    /// for a connected input (for a PFM file, its size in pixels at the clip's PAR), empty (0,0,0,0) for a disconnected one, and the result of the
     /// effect's getRegionOfDefinition action for the output clip (empty if the action fails)
     OfxRectD getRoD(OfxTime time, int view) const;
 

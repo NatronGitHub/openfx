@@ -35,7 +35,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <climits>
 #include <cmath>
 #include <ctime>
+#include <cstdio> // fopen (binary files)
 #include <cstdlib>
+#include <cstring> // memcpy
 #include <limits>
 #include <sstream>
 
@@ -173,9 +175,101 @@ namespace MyHost {
     return true;
   }
 
-  bool parseInputSpec(const std::string& s, InputSpec& spec)
+  static bool isPFMSpace(unsigned char c)
+  {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+  }
+
+  // the next whitespace-separated header token of a PFM file, starting at pos
+  static std::string pfmToken(const std::vector<unsigned char>& buf, size_t& pos)
+  {
+    while (pos < buf.size() && isPFMSpace(buf[pos])) {
+      ++pos;
+    }
+    std::string t;
+    while (pos < buf.size() && !isPFMSpace(buf[pos]) && t.size() < 64) {
+      t += (char)buf[pos++];
+    }
+    return t;
+  }
+
+  bool readPFM(const std::string& path, PFMImage& image, std::string& error)
+  {
+    image = PFMImage();
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) {
+      error = "cannot open " + path;
+      return false;
+    }
+    std::vector<unsigned char> buf;
+    unsigned char chunk[65536];
+    size_t n;
+    while ((n = std::fread(chunk, 1, sizeof(chunk), f)) > 0) {
+      buf.insert(buf.end(), chunk, chunk + n);
+    }
+    const bool readError = std::ferror(f) != 0;
+    std::fclose(f);
+    if (readError) {
+      error = "cannot read " + path;
+      return false;
+    }
+    // "PF" or "Pf", whitespace, width, whitespace, height, whitespace, scale (whose sign gives
+    // the byte order), a single whitespace character, then the raster
+    if (buf.size() < 3 || buf[0] != 'P' || (buf[1] != 'F' && buf[1] != 'f') || !isPFMSpace(buf[2])) {
+      error = path + ": not a PFM file (it must start with PF or Pf)";
+      return false;
+    }
+    const int nComps = (buf[1] == 'F') ? 3 : 1;
+    size_t pos = 2;
+    int w = 0, h = 0;
+    double scale = 0.;
+    const std::string ws = pfmToken(buf, pos);
+    const std::string hs = pfmToken(buf, pos);
+    if (!parseInteger(ws, w) || !parseInteger(hs, h) || w <= 0 || h <= 0 || w > 65536 || h > 65536 ||
+        (double)w * (double)h > (double)(1 << 24)) {
+      error = path + ": invalid PFM size \"" + ws + " " + hs + "\" (the width and height must be positive, at most 65536, and at most 2^24 pixels)";
+      return false;
+    }
+    const std::string ss = pfmToken(buf, pos);
+    if (!parseFiniteDouble(ss, scale) || scale == 0.) {
+      error = path + ": invalid PFM scale \"" + ss + "\" (it must be a non-zero number: negative for little-endian, positive for big-endian)";
+      return false;
+    }
+    if (pos >= buf.size() || !isPFMSpace(buf[pos])) {
+      error = path + ": no whitespace after the PFM scale";
+      return false;
+    }
+    ++pos;
+    const size_t expected = (size_t)w * (size_t)h * (size_t)nComps * 4;
+    const size_t found = buf.size() - pos;
+    if (found != expected) {
+      std::ostringstream ss2;
+      ss2 << path << ": a " << w << "x" << h << (nComps == 3 ? " PF" : " Pf") << " file has " << expected
+          << " bytes of pixel data, but there are " << found << (found < expected ? " (truncated)" : " (trailing data)");
+      error = ss2.str();
+      return false;
+    }
+    const bool bigEndian = scale > 0.;
+    image.width = w;
+    image.height = h;
+    image.nComps = nComps;
+    image.data.resize(expected / 4);
+    const unsigned char* p = &buf[pos];
+    for (size_t i = 0; i < image.data.size(); ++i, p += 4) {
+      const unsigned int u = bigEndian ?
+        ((unsigned int)p[0] << 24) | ((unsigned int)p[1] << 16) | ((unsigned int)p[2] << 8) | (unsigned int)p[3] :
+        ((unsigned int)p[3] << 24) | ((unsigned int)p[2] << 16) | ((unsigned int)p[1] << 8) | (unsigned int)p[0];
+      float v;
+      std::memcpy(&v, &u, 4);
+      image.data[i] = v;
+    }
+    return true;
+  }
+
+  bool parseInputSpec(const std::string& s, InputSpec& spec, std::string& error)
   {
     spec = InputSpec();
+    error.clear();
     if (s == "default") {
       spec.type = InputSpec::eDefault;
       return true;
@@ -188,9 +282,19 @@ namespace MyHost {
       spec.type = InputSpec::eRamp;
       return true;
     }
+    if (s.compare(0, 5, "file:") == 0) {
+      spec.type = InputSpec::eFile;
+      spec.path = s.substr(5);
+      if (spec.path.empty()) {
+        error = "no file name";
+        return false;
+      }
+      return readPFM(spec.path, spec.file, error);
+    }
     if (s.compare(0, 8, "checker:") == 0) {
       int n = 0;
       if (!parseInteger(s.substr(8), n) || n < 1 || n > 1000000) {
+        error = "invalid checker size";
         return false;
       }
       spec.type = InputSpec::eChecker;
@@ -202,10 +306,12 @@ namespace MyHost {
       for (int i = 0; i < 4; ++i) {
         std::string::size_type comma = v.find(',');
         if ((i < 3) != (comma != std::string::npos)) {
+          error = "solid takes 4 values";
           return false; // exactly 4 values
         }
         // the values must also fit in a float image
         if (!parseFiniteDouble(v.substr(0, comma), spec.colour[i]) || std::fabs(spec.colour[i]) > FLT_MAX) {
+          error = "invalid number";
           return false;
         }
         v = (comma == std::string::npos) ? std::string() : v.substr(comma + 1);
@@ -213,6 +319,7 @@ namespace MyHost {
       spec.type = InputSpec::eSolid;
       return true;
     }
+    error = "unknown input type";
     return false;
   }
 
@@ -269,6 +376,26 @@ namespace MyHost {
         int i = (int)std::floor(X / spec.checkerSize);
         int j = (int)std::floor(Y / spec.checkerSize);
         rgba[0] = rgba[1] = rgba[2] = rgba[3] = ((i + j) % 2 != 0) ? 1. : 0.;
+        return;
+      }
+      case InputSpec::eFile: {
+        // the PFM pixel that contains (X,Y): PFM rows are bottom to top, like OFX images.
+        // "PF" gives (r,g,b,1), "Pf" gives r=g=b=a=value. Outside the file, transparent black.
+        const PFMImage& f = spec.file;
+        const double fx = std::floor(X);
+        const double fy = std::floor(Y);
+        rgba[0] = rgba[1] = rgba[2] = rgba[3] = 0.;
+        if (fx >= 0 && fy >= 0 && fx < f.width && fy < f.height) {
+          const float* pix = &f.data[((size_t)fy * (size_t)f.width + (size_t)fx) * (size_t)f.nComps];
+          if (f.nComps == 3) {
+            rgba[0] = pix[0];
+            rgba[1] = pix[1];
+            rgba[2] = pix[2];
+            rgba[3] = 1.;
+          } else {
+            rgba[0] = rgba[1] = rgba[2] = rgba[3] = pix[0];
+          }
+        }
         return;
       }
       case InputSpec::eNone:
@@ -473,6 +600,28 @@ namespace MyHost {
     return true;
   }
 
+  double MyImage::getComponent(int x, int y, int c) const
+  {
+    const unsigned char* pix = getPixelData(x, y);
+    if (_bytesPerComp == 1) {
+      return pix[c];
+    } else if (_bytesPerComp == 2) {
+      return reinterpret_cast<const unsigned short*>(pix)[c];
+    }
+    return reinterpret_cast<const float*>(pix)[c];
+  }
+
+  float MyImage::getComponentFloat(int x, int y, int c) const
+  {
+    const unsigned char* pix = getPixelData(x, y);
+    if (_bytesPerComp == 1) {
+      return pix[c] / 255.f;
+    } else if (_bytesPerComp == 2) {
+      return reinterpret_cast<const unsigned short*>(pix)[c] / 65535.f;
+    }
+    return reinterpret_cast<const float*>(pix)[c];
+  }
+
   MyImage::~MyImage() 
   {
     delete [] _data;
@@ -564,9 +713,15 @@ namespace MyHost {
   // The format of the clip or image (in pixel coordinates)
   OfxRectI MyClipInstance::getFormat() const
   {
-    /// our clip is pretending to be progressive PAL SD, so return 0<=x<768, 0<=y<576
     OfxRectI v;
     v.x1 = v.y1 = 0;
+    if (!isOutput() && _input.type == InputSpec::eFile) {
+      // a PFM file: its size in pixels
+      v.x2 = _input.file.width;
+      v.y2 = _input.file.height;
+      return v;
+    }
+    /// our clip is pretending to be progressive PAL SD, so return 0<=x<768, 0<=y<576
     v.x2 = 768;
     v.y2 = 576;
     return v;
@@ -685,6 +840,14 @@ namespace MyHost {
     }
     if (!getConnected()) {
       return v; // a disconnected clip has an empty RoD
+    }
+    if (_input.type == InputSpec::eFile) {
+      // a PFM file: one file pixel per clip pixel at render scale 1, so the RoD is its size
+      // in pixels, times the clip's PAR (the project's, since hostDemo doesn't support
+      // multiple clip PARs) in canonical coordinates
+      v.x2 = _input.file.width * getAspectRatio();
+      v.y2 = _input.file.height;
+      return v;
     }
     /// our clip is pretending to be progressive PAL SD, so return 0<=x<768, 0<=y<576
     v.x2 = 768;
