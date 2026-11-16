@@ -15,21 +15,25 @@ assert np.allclose(r.outputs[0][..., :3], 1 - src, atol=1e-6)
 ```
 
 - `render(bundle_paths, plugin_id, context="filter", inputs=None, params=None, depth="float",
-  host_binary=None, timeout=60, extra_args=(), check=True)` runs hostDemo (which renders
-  frames 0 and 1) with `--no-std-paths --no-cache --quiet --format pfm --report`, and
-  `OFX_PLUGIN_PATH` set from `bundle_paths` (directories, or `.ofx.bundle` paths, which stand
-  for their parent directory).
-  - `inputs`: clip name to a NumPy array (H×W, H×W×1, H×W×3, or H×W×4 with alpha 1; top-down;
-    written to a PFM file), a `pathlib.Path` or `"file:x.pfm"`, or a hostDemo spec:
-    `"none"` (disconnected), `"default"`, `"solid:r,g,b,a"`, `"ramp"`, `"checker:N"`.
-    hostDemo's PFM input is RGB with alpha 1, or grey with r=g=b=a.
+  frames=None, scale=None, window=None, query=False, host_binary=None, timeout=60,
+  extra_args=(), check=True)` runs hostDemo (by default at frames 0 and 1) with
+  `--no-std-paths --no-cache --quiet --format pfm --report`, and `OFX_PLUGIN_PATH` set from
+  `bundle_paths` (directories, or `.ofx.bundle` paths, which stand for their parent
+  directory). `frames`, `scale`, `window` and `query` are hostDemo's `--frames`, `--scale`,
+  `--window` and `--query`.
+  - `inputs`: clip name to a NumPy array (H×W, H×W×1, H×W×3 or H×W×4; top-down; written to
+    PFM files, at pixel 0,0), an `ofxhost.Image` (pixels, bounds at the render scale, and
+    premultiplication: e.g. an output of another render), a `pathlib.Path` or
+    `"file:x.pfm"`, or a hostDemo spec: `"none"` (disconnected), `"default"`,
+    `"solid:r,g,b,a"`, `"ramp"`, `"checker:N"`.
   - `params`: name to value (number, bool, string, or a sequence), passed as `-s name=value`.
   - A non-zero exit or a timeout raises `HostDemoError` (with the command, stdout and stderr),
     unless `check=False`.
 - The result has `.outputs` (frame to float32 H×W×C, top-down; RGBA outputs merge the
   separate alpha file; stereo builds key by `(frame, "l"|"r")`), `.output` (the first frame),
   `.alpha` (frame to H×W), `.report` (the `--report` JSON: `renders[i].output` has the
-  size, min, max, mean, NaN count and crc32 of each output image), `.returncode`, `.stdout`,
+  size, min, max, mean, NaN count and crc32 of each output image), `.images` (the same keys
+  to `Image`, with the bounds and the output premultiplication), `.returncode`, `.stdout`,
   `.stderr` and `.cmd`.
 - `describe(bundle_paths, plugin_id)` returns the `--describe` JSON.
 - `read_pfm` / `write_pfm`: top-down float32 arrays; files are bottom-up, little-endian
@@ -133,6 +137,42 @@ temporalClipAccess, supportsTiles, fieldExtraction, secret}. params, in definiti
 max, displayMin, displayMax, doubleType, choiceOptions, animates, evaluateOnChange,
 children}; a property that the type doesn't have is null, one-dimensional values are
 scalars.
+
+## Graphs
+
+`ofxhost.graph` builds and executes plug-in instance graphs (DAGs: an output may feed several
+inputs). A `Node` has a plug-in, a context, parameters and inputs; an input is another
+`Node`, or anything `render()` takes.
+
+```python
+from ofxhost.graph import Node, execute, load
+src = Node("net.sf.openfx.invertPlugin", inputs={"Source": "ramp"})
+out = Node("net.sf.openfx.basicPlugin", "general", {"scale": 2},
+           inputs={"Source": src, "Mask": src})
+images = execute(out, bundles, frames=[0, 1], scale=0.5, window=(0, 0, 100, 80))
+images[0].pixels, images[0].bounds   # top-down array, pixel bounds at the render scale
+```
+
+`load("graph.json")` reads the same graph from a file, and returns the output node and the
+nodes by name:
+
+```json
+{"output": "b",
+ "nodes": {"a": {"plugin": "net.sf.openfx.invertPlugin", "inputs": {"Source": "ramp"}},
+           "b": {"plugin": "net.sf.openfx.basicPlugin", "context": "general",
+                 "params": {"scale": 2},
+                 "inputs": {"Source": {"node": "a"}, "Mask": {"node": "a"}}}}}
+```
+
+`execute()` sorts the graph topologically. It runs hostDemo `--query` on each node, outputs
+first, to get the frames and regions it needs from its inputs. The requests for the same node
+and time are merged. Then it renders each node once per time, inputs first, and passes each
+output on with its bounds, alpha and premultiplication. Limits:
+- the queries use project-sized inputs, since the real ones aren't rendered yet;
+- a node can use only one frame of each input node, since hostDemo's inputs are the same
+  image at all times.
+
+`python hostDemo.py -b DIR -g graph.json --frames 0,1 --scale 0.5 -o out` runs a graph file.
 
 ## OFX constants and property metadata
 
