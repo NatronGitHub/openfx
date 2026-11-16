@@ -2006,9 +2006,10 @@ namespace OFX {
   /** @brief, set the label properties in a param */
   void Param::setLabels(const std::string &label, const std::string &shortLabel, const std::string &longLabel)
   {
-    setLabel(label);
+    // short and long labels first: hosts may be notified when the label changes
     _paramProps.propSetString(kOfxPropShortLabel, shortLabel, false);
     _paramProps.propSetString(kOfxPropLongLabel, longLabel, false);
+    setLabel(label);
   }
 
   /** @brief set the secretness of the param, defaults to false */

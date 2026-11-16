@@ -331,8 +331,8 @@ namespace OFX {
         // constructor made every instance property read-only for the plug-in (standard OFX: "clip
         // instance (read only)"), so make these three writable again, otherwise the writes are refused.
         // Support's Clip::setLabels also sets the short and long labels, after the label: make them
-        // writable too, without a notify hook. Hosts are notified (setLabel()) when kOfxPropLabel changes,
-        // before the short and long labels are updated, so they must read those when they use them.
+        // writable too, without a notify hook (Support sets them before the label, which notifies the host
+        // through setLabel(); other plug-ins may not, so hosts should read them when they use them).
         static const char* const hooked[] = { kOfxPropLabel, kOfxParamPropSecret, kOfxParamPropHint };
         static const char* const writableOnly[] = { kOfxPropShortLabel, kOfxPropLongLabel };
         for (size_t k = 0; k < sizeof(hooked) / sizeof(hooked[0]); ++k) {

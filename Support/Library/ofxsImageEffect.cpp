@@ -1942,9 +1942,10 @@ namespace OFX {
   void 
     Clip::setLabels(const std::string &label, const std::string &shortLabel, const std::string &longLabel)
   {
-    setLabel(label);
+    // short and long labels first: hosts are notified when the label changes (Natron extension)
     _clipProps.propSetString(kOfxPropShortLabel, shortLabel, false);
     _clipProps.propSetString(kOfxPropLongLabel, longLabel, false);
+    setLabel(label);
   }
 
   /** @brief set the secretness of the param, defaults to false */

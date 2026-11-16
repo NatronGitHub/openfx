@@ -151,8 +151,15 @@ static std::vector<std::string> getArchDirs()
   // differ from the compiled architecture (e.g. an armv6 build on an armv7l kernel): search both.
   {
     struct utsname ku;
-    if (uname(&ku) == 0 && std::string(ku.machine).compare(0, 3, "arm") == 0) {
-      kernelMachine = ku.machine;
+    if (uname(&ku) == 0) {
+      const std::string km = ku.machine;
+      if (km == "aarch64" || km == "armv8l") {
+        // 32-bit userland on a 64-bit kernel: the Makefiles and CMake install 32-bit Arm builds there
+        // to Linux-armv7l
+        kernelMachine = "armv7l";
+      } else if (km.compare(0, 3, "arm") == 0) {
+        kernelMachine = km;
+      }
     }
   }
 #    endif
