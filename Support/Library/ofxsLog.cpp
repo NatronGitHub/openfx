@@ -175,5 +175,5 @@ namespace OFX {
         fflush(gLogFP);
       }  
     }
-  };
-};
+  }
+}

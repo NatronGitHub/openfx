@@ -199,17 +199,17 @@ namespace OFX {
           }
         }
       }
-      catch (OFX::Exception::Suite &e)
+      catch (const OFX::Exception::Suite &e)
       {
         // just catch it, the error will be reported
         _exists = false;
       }
-      catch (OFX::Exception::PropertyUnknownToHost &e)
+      catch (const OFX::Exception::PropertyUnknownToHost &e)
       {
         // just catch it, the error will be reported
         _exists = false;
       }
-      catch (OFX::Exception::PropertyValueIllegalToHost &e)
+      catch (const OFX::Exception::PropertyValueIllegalToHost &e)
       {
         // just catch it, the error will be reported
         _exists = false;
@@ -1431,5 +1431,5 @@ namespace OFX {
       }
 #endif
     }
-  };
-};
+  }
+}

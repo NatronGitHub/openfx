@@ -9,6 +9,8 @@ Patterns:
 - the time domain (general context), from the report.
 """
 
+import math
+
 import pytest
 
 from ofxhost.testing import assert_close
@@ -17,11 +19,11 @@ PLUGIN = "net.sf.openfx.retimer"
 
 
 def test_frames_needed(render):
-    # the sample asks for [t, t+1] (it ignores the speed there)
+    # the frames it fetches: the two around the source time integral(speed, 0, t) = speed * t
     r = render(PLUGIN, inputs={"Source": "default"}, params={"Speed": 0.5})
     for item in r.report["renders"]:
-        t = item["time"]
-        assert item["framesNeeded"]["clips"] == {"Source": [[t, t + 1]]}
+        src = math.floor(0.5 * item["time"])
+        assert item["framesNeeded"]["clips"] == {"Source": [[src, src + 1]]}
 
 
 @pytest.mark.parametrize("speed", [0.0, 0.5, 1.0, 2.0])

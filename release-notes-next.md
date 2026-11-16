@@ -38,6 +38,12 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 - Fixed the `@propdef` metadata of `kOfxParamPropChoiceEnum` (a string array, not a bool) and `kOfxParamPropDimensionLabel` (one label per dimension, not one).
 - Added missing metadata: the `outArgs` of `kOfxImageEffectActionIsIdentity`, and a property set for the OpenGL texture handle returned by `clipLoadTexture` (#263, #276).
 - Fixed the Invert example never releasing its output image (a shadowed handle variable).
+- CMake: the Support library is now built with hidden symbol visibility, so plugins built on it export only the OFX entry points rather than hundreds of C++ symbols. Its `OfxGetPlugin` and `OfxGetNumberOfPlugins` definitions inherit `OfxExport` from `ofxCore.h`.
+- Fixed the Support Noise example giving a different image when a frame is rendered in tiles: it seeded its noise per render call, and now each pixel's noise depends only on its position, the time and the noise level.
+- Fixed the Support Gamma example producing NaNs from negative float input: it now applies the gamma to a value's magnitude and keeps its sign.
+- Fixed the Support Retimer example asking for source frames around the output time rather than the retimed source time it then fetches.
+- Fixed the Test example failing `kOfxImageEffectActionGetClipPreferences` with `kOfxStatErrBadHandle` because it required `inArgs`, which the spec passes as NULL for that action; it now answers `kOfxStatReplyDefault`, since it sets no preferences.
+- Fixed the DepthConverter example asking for an output depth different from its input's on a host that does not support multiple clip depths, and claiming clip preferences it had not set.
 
 ## Documentation Improvements
 

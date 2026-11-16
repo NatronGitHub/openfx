@@ -19,6 +19,12 @@ set_target_properties(OfxSupport PROPERTIES
 target_compile_features(OfxSupport PUBLIC cxx_std_11)
 target_compile_definitions(OfxSupport PUBLIC ${OFX_DEFINITIONS})
 target_link_libraries(OfxSupport PUBLIC OfxApi)
+
+# Plugins link this library in and should export only the OFX entry points,
+# which ofxCore.h declares with OfxExport, so hide everything else.
+set_target_properties(OfxSupport PROPERTIES CXX_VISIBILITY_PRESET hidden
+                                            VISIBILITY_INLINES_HIDDEN ON)
+
 target_include_directories(OfxSupport PUBLIC
 	$<BUILD_INTERFACE:${OFX_SUPPORT_HEADER_DIR}>
 	$<INSTALL_INTERFACE:include/Support>)

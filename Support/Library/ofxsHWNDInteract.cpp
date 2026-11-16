@@ -316,8 +316,8 @@ namespace OFX {
       return stat;
     }
 
-  }; // end namespace private
+  } // end namespace private
 
-}; // end of namespace
+} // end of namespace
 
 #endif // #if defined(OFX_EXTENSIONS_VEGAS) && (defined(_WIN32) || defined(WIN32) || defined(WIN64))

@@ -3597,7 +3597,7 @@ namespace OFX {
       try {
         // this property is an optional extension.
          _paramProps.propSetString(kOfxParamPropChoiceLabelOption, optionHint, nCurrentValues);
-      } catch(std::exception&)
+      } catch (const std::exception&)
 #endif
       {
         // If the kOfxParamPropChoiceLabelOption doesn't exist, we put that information into the Hint.
@@ -4616,4 +4616,4 @@ namespace OFX {
     throwSuiteStatusException(stat);
   }
 
-};
+}
