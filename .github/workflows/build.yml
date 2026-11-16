@@ -3,7 +3,8 @@ name: Build
 # Per push / pull request: exactly three full builds plus tests, one per OS
 # (policy for all Natron-related repos). macOS runs after Linux and Windows pass, and isn't
 # required for merging (macOS arm64 runners are scarce); extended.yml builds it nightly:
-#   - Linux (ubuntu-24.04): Makefiles, plus the header and property metadata checks
+#   - Linux (ubuntu-24.04): Makefiles, plus the header and property metadata checks and the
+#     Python wrapper tests (HostSupport/examples/python)
 #   - macOS 15 arm64: Makefiles, system (Xcode) clang, MacPorts tools, no Homebrew
 #   - Windows: MSYS2 UCRT64, CMake
 # Other variants (C++20/23, CMake on Linux/macOS, MSVC, debug builds) are in
@@ -68,6 +69,10 @@ jobs:
           done
       - name: Build and test
         run: .github/scripts/make-build-test.sh
+      - name: Python wrapper tests (ofxhost)
+        run: |
+          pip install numpy pytest
+          python -m pytest -q -p no:cacheprovider HostSupport/examples/python/tests
 
   macos:
     name: macOS 15 arm64 (Make, Xcode clang, MacPorts)
