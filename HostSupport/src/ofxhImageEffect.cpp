@@ -2948,9 +2948,6 @@ namespace OFX {
         
         /// set the default for those
 
-        /// is there multiple bit depth support? Depends on host, plugin and context
-        bool multiBitDepth = canCurrentlyHandleMultipleClipDepths();
-
         outArgs.setStringProperty(kOfxImageClipPropFieldOrder, _outputFielding);
         outArgs.setStringProperty(kOfxImageEffectPropPreMultiplication, _outputPreMultiplication);
 
@@ -3014,7 +3011,11 @@ namespace OFX {
           outArgs.createProperty(specComp);
           outArgs.setStringProperty(componentParamName.c_str(), clip->getComponents().c_str()); // as it is variable dimension, there is no default value, so we have to set it explicitly
 
-          Property::PropSpec specDep = {depthParamName.c_str(),       Property::eString, 1, !multiBitDepth, clip->getPixelDepth().c_str()};
+          // Writable even if the effect can't handle multiple clip depths: the spec says the plug-in
+          // "must set [it] to one of the pixel depths both the host and plugin supports"
+          // (kOfxImageEffectActionGetClipPreferences), e.g. a generator choosing float for every clip.
+          // Read-only here made such writes fail since plug-in writes to read-only properties are refused (#91).
+          Property::PropSpec specDep = {depthParamName.c_str(),       Property::eString, 1, false, clip->getPixelDepth().c_str()};
           outArgs.createProperty(specDep);
 
           Property::PropSpec specPAR = {parParamName.c_str(),         Property::eDouble, 1, false,          "1"};
