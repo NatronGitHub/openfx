@@ -37,6 +37,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #if defined(UNIX)
 #include <dlfcn.h>
 #elif defined (WINDOWS)
+#ifndef NOMINMAX
+#define NOMINMAX // no min/max macros: they break std::min, std::max and std::numeric_limits<T>::max()
+#endif
 #include "windows.h"
 #include <assert.h>
 #endif
