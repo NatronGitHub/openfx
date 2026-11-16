@@ -102,7 +102,10 @@ uninstall:
     endif
     # mingw64 runtime >=3 or mingw32 runtime>=3.15 is required to get a proper snprintf implementation,
     # which is triggered by the following CPPFLAGS.
-    CPPFLAGS = -U__STRICT_ANSI__ -D__USE_MINGW_ANSI_STDIO=1
+    # (-U__STRICT_ANSI__ was used for M_PI etc. with old mingw; with -std=c++17/c++20, gcc >= 16 rejects
+    # it: "__STRICT_ANSI__ seems to have been undefined; this is not supported". _USE_MATH_DEFINES gives
+    # the math constants in every dialect.)
+    CPPFLAGS = -D_USE_MATH_DEFINES -D__USE_MINGW_ANSI_STDIO=1
     LINKFLAGS := $(LINKFLAGS) $(BITSFLAG)
   endif
   ifeq ($(OS),Linux)
