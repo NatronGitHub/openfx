@@ -68,7 +68,8 @@ the tests when hostDemo isn't built.
   getClipPreferences, each one between begin/end instanceChanged (kOfxChangeUserEdited, time
   0); the clip preferences are run again if a clip preferences slave param changed.
   Multi-dimensional values are comma-separated; booleans take 0/1/true/false, Choice the
-  index or label, String/StrChoice/Custom the whole value.
+  index or label, String/StrChoice/Custom the whole value. Parameters don't animate: the
+  derivative of a Double is 0, its integral from t1 to t2 is value * (t2 - t1).
 - The images have the depth and components that getClipPreferences maps each clip to. The
   output image is filled with NaN (float) or 0xCD bytes before each render; unwritten float
   pixels fail the run unless `--allow-unwritten`.
@@ -126,4 +127,5 @@ python3 -m venv /tmp/ofxhost-venv && /tmp/ofxhost-venv/bin/pip install numpy pyt
 /tmp/ofxhost-venv/bin/python -m pytest -q -p no:cacheprovider HostSupport/examples/python/tests
 ```
 
-CI runs them in the Linux job.
+Support/Plugins/tests has tests of the sample plug-ins, meant as templates for plug-in repos
+(see its README.md). CI runs both in the Linux job.
