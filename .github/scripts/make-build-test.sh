@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build everything with the Makefiles (what the consumers use) and check that
-# the sample plug-ins load (cacheDemo). Used by the Linux and macOS jobs.
+# the sample plug-ins load (cacheDemo). Used by the nightly Makefile jobs (extended.yml); the
+# per-PR jobs use cmake-build-test.sh.
 set -eo pipefail
 cd "$(dirname "$0")/../.."
 

@@ -31,7 +31,7 @@ option(OFX_INSTALL "Install the headers, libraries and CMake package of openfx" 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_STATIC_LIBRARY_PREFIX "lib")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
+if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES AND _ofx_top_level)
   # universal binaries, like the Makefiles; override with -DCMAKE_OSX_ARCHITECTURES=arm64
   set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64")
 endif()
@@ -61,7 +61,11 @@ option(OFX_USE_SYSTEM_EXPAT "HostSupport: use the system expat (find_package(EXP
 
 option(BUILD_EXAMPLE_PLUGINS "Build the example plug-ins (Examples/, Support/Plugins/, Support/PropTester/)" OFF)
 option(BUILD_EXAMPLE_HOSTS "Build the example hosts (HostSupport/examples: hostDemo, cacheDemo, propsetDump)" OFF)
-set(PLUGIN_INSTALLDIR "" CACHE PATH "Location to install plug-ins (default depends on OS)")
+# the example hosts need HostSupport, also when openfx is used with add_subdirectory()
+if(BUILD_EXAMPLE_HOSTS AND NOT OFX_BUILD_HOSTSUPPORT)
+  set(OFX_BUILD_HOSTSUPPORT ON CACHE BOOL "Build the HostSupport library (and the bundled expat)" FORCE)
+endif()
+set(PLUGIN_INSTALLDIR "" CACHE STRING "Where the OFX bundles are installed (relative: to CMAKE_INSTALL_PREFIX; default depends on OS)")
 
 # ---------------------------------------------------------------------------
 # Compile definitions shared by the libraries and anything linking them.
@@ -149,8 +153,8 @@ add_library(openfx::Api ALIAS OfxApi)
 # (they change class layouts), the MinGW definitions of Support/Plugins/Makefile.master, and
 # MSVC's real __cplusplus value.
 target_compile_definitions(OfxApi INTERFACE ${OFX_DEFINITIONS}
-  "$<$<AND:$<PLATFORM_ID:Windows>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:_USE_MATH_DEFINES;__USE_MINGW_ANSI_STDIO=1>")
-target_compile_options(OfxApi INTERFACE "$<$<CXX_COMPILER_ID:MSVC>:/Zc:__cplusplus>")
+  "$<$<AND:$<PLATFORM_ID:Windows>,$<NOT:$<CXX_COMPILER_FRONTEND_VARIANT:MSVC>>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:_USE_MATH_DEFINES;__USE_MINGW_ANSI_STDIO=1>")
+target_compile_options(OfxApi INTERFACE "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/Zc:__cplusplus>")
 
 # ---------------------------------------------------------------------------
 if(OFX_BUILD_HOSTSUPPORT)

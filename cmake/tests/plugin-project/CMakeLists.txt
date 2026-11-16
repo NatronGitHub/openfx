@@ -21,11 +21,17 @@ add_ofx_plugin(TestInvert
   BUNDLE_NAME InvertBundle
   IDENTIFIER org.example.InvertBundle
   VERSION 2.3.4
-  SOURCES "${OFX_SOURCE_DIR}/Support/Plugins/Invert/invert.cpp")
+  SOURCES "${OFX_SOURCE_DIR}/Support/Plugins/Invert/invert.cpp" includes.cpp)
 target_link_libraries(TestInvert PRIVATE openfx::Support)
 ofx_plugin_resources(TestInvert icon.txt)
 ofx_plugin_resources(TestInvert DESTINATION presets preset.txt)
-ofx_target_openmp(TestInvert)
+ofx_plugin_resources(TestInvert shaders) # a directory, copied with its contents
+# REQUIRED on CI (OFX_TEST_REQUIRE_OPENMP), so that the bundled libomp is really checked
+if(OFX_TEST_REQUIRE_OPENMP)
+  ofx_target_openmp(TestInvert REQUIRED)
+else()
+  ofx_target_openmp(TestInvert)
+endif()
 ofx_deploy_bundle(TestInvert)
 
 # the plug-in's own Info.plist, used as-is

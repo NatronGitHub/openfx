@@ -118,12 +118,20 @@ else()
 endif()
 
 # Shared cache variables (Documentation/proposals/cmake-plugins.md)
-set(OFX_CXX_STANDARD 17 CACHE STRING "C++ standard of the plug-ins built with add_ofx_plugin")
+# OFX_CXX_STANDARD defaults to CMAKE_CXX_STANDARD if it is set, else 17
+if(CMAKE_CXX_STANDARD)
+  set(_ofx_std ${CMAKE_CXX_STANDARD})
+else()
+  set(_ofx_std 17)
+endif()
+set(OFX_CXX_STANDARD ${_ofx_std} CACHE STRING "C++ standard of the plug-ins built with add_ofx_plugin, and of openfx::Support")
 option(OFX_USE_OPENMP "ofx_target_openmp(): use OpenMP" ON)
 option(OFX_DEPLOY_BUNDLES "ofx_deploy_bundle(): make the installed bundles self-contained" OFF)
 
 # Where bundles are assembled in the build tree
-set(OFX_PLUGIN_BUILD_DIR "${CMAKE_BINARY_DIR}/Plugins" CACHE PATH "Where the OFX bundles are assembled in the build tree")
+if(NOT OFX_PLUGIN_BUILD_DIR)
+  set(OFX_PLUGIN_BUILD_DIR "${CMAKE_BINARY_DIR}/Plugins" CACHE PATH "Where the OFX bundles are assembled in the build tree")
+endif()
 # Cache variables, so that the functions below work in any directory of a project that uses openfx
 # with add_subdirectory() (these are set in openfx's directory scope)
 set(ARCHDIR "${ARCHDIR}" CACHE INTERNAL "OFX bundle architecture folder (OFX packaging spec)")
@@ -165,8 +173,11 @@ endfunction()
 # - Install rpath: @loader_path/../Frameworks and @loader_path/../Libraries on macOS,
 #   $ORIGIN/../../Libraries on Linux and FreeBSD (libraries bundled by the installers).
 # - DEBUG is defined in Debug builds; CXX_STANDARD is ${OFX_CXX_STANDARD}, without GNU
-#   extensions; /bigobj (MSVC) or -Wa,-mbig-obj (MinGW); MinGW links libgcc and libstdc++
-#   statically.
+#   extensions; /bigobj (MSVC) or -Wa,-mbig-obj (MinGW gcc); MinGW links libgcc and libstdc++
+#   statically (these three are not in Makefile.master: they are what the plug-in repositories
+#   need with CMake).
+# - macOS: the installed binary is signed ad hoc again, since install_name_tool (which adds the
+#   install rpath) invalidates the signature that Xcode builds have.
 # Link the plug-in with openfx::Support (C++ Support library) or openfx::Api (C API only).
 function(add_ofx_plugin TARGET)
   cmake_parse_arguments(PARSE_ARGV 1 OFX "" "DIR;BUNDLE_NAME;INFO_PLIST;IDENTIFIER;VERSION"
@@ -184,11 +195,8 @@ function(add_ofx_plugin TARGET)
     set(OFX_VERSION "1.0.0")
   endif()
 
-  if(APPLE)
-    add_library(${TARGET} MODULE) # build as an OSX bundle
-  else()
-    add_library(${TARGET} SHARED) # build as shared lib/DLL
-  endif()
+  # a loadable module everywhere: an OSX bundle, a DLL without import library, a .so without soname
+  add_library(${TARGET} MODULE)
   set_target_properties(${TARGET} PROPERTIES SUFFIX ".ofx" PREFIX "" OUTPUT_NAME "${OFX_BUNDLE_NAME}")
   if(OFX_SOURCES)
     target_sources(${TARGET} PRIVATE ${OFX_SOURCES})
@@ -232,12 +240,16 @@ function(add_ofx_plugin TARGET)
   if(APPLE)
     list(TRANSFORM _symbols PREPEND "_")
     string(JOIN "\n" _content ${_symbols})
-    file(WRITE "${_exports}" "${_content}\n")
+    file(WRITE "${_exports}.new" "${_content}\n")
+    configure_file("${_exports}.new" "${_exports}" COPYONLY)
     target_link_options(${TARGET} PRIVATE "LINKER:-exported_symbols_list,${_exports}")
+    set_property(TARGET ${TARGET} APPEND PROPERTY LINK_DEPENDS "${_exports}")
   elseif(CMAKE_SYSTEM_NAME MATCHES "Linux|FreeBSD")
     string(JOIN ";\n    " _content ${_symbols})
-    file(WRITE "${_exports}" "OFX_1.0 {\n  global:\n    ${_content};\n  local:\n    *;\n};\n")
+    file(WRITE "${_exports}.new" "OFX_1.0 {\n  global:\n    ${_content};\n  local:\n    *;\n};\n")
+    configure_file("${_exports}.new" "${_exports}" COPYONLY)
     target_link_options(${TARGET} PRIVATE "LINKER:--version-script=${_exports}")
+    set_property(TARGET ${TARGET} APPEND PROPERTY LINK_DEPENDS "${_exports}")
   endif()
 
   # Install rpath, for the libraries that the installers put in the bundle
@@ -253,19 +265,31 @@ function(add_ofx_plugin TARGET)
                                              CXX_STANDARD_REQUIRED ON
                                              CXX_EXTENSIONS OFF)
   if(MSVC)
-    target_compile_options(${TARGET} PRIVATE /bigobj)
-  elseif(MINGW)
+    target_compile_options(${TARGET} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/bigobj>)
+  elseif(MINGW AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(${TARGET} PRIVATE -Wa,-mbig-obj)
+    target_link_options(${TARGET} PRIVATE -static-libgcc -static-libstdc++)
+  elseif(MINGW) # clang (llvm-mingw): -mbig-obj is gcc's assembler option
     target_link_options(${TARGET} PRIVATE -static-libgcc -static-libstdc++)
   endif()
 
   # To install plugins: cmake --install Build
   set(_dest "${PLUGIN_INSTALLDIR}/${OFX_BUNDLE_NAME}.ofx.bundle/Contents")
+  # (on Windows, the import library of the DLL is not installed)
   install(
     TARGETS ${TARGET}
     LIBRARY DESTINATION "${_dest}/${ARCHDIR}"
-    RUNTIME DESTINATION "${_dest}/${ARCHDIR}")
+    RUNTIME DESTINATION "${_dest}/${ARCHDIR}"
+    ARCHIVE DESTINATION "${_dest}/${ARCHDIR}" EXCLUDE_FROM_ALL)
   install(FILES "${_bundle}/Contents/Info.plist" DESTINATION "${_dest}")
+  if(APPLE)
+    if(IS_ABSOLUTE "${_dest}")
+      set(_bin "${_dest}/${ARCHDIR}/${OFX_BUNDLE_NAME}.ofx")
+    else()
+      set(_bin "\${CMAKE_INSTALL_PREFIX}/${_dest}/${ARCHDIR}/${OFX_BUNDLE_NAME}.ofx")
+    endif()
+    install(CODE "execute_process(COMMAND codesign -f -s - \"\$ENV{DESTDIR}${_bin}\" OUTPUT_QUIET ERROR_QUIET)")
+  endif()
 endfunction()
 
 # Add files to the Resources of a plug-in bundle (icons, presets...):
@@ -273,7 +297,7 @@ endfunction()
 #   ofx_plugin_resources(<target> [DESTINATION <subdir>] <file>...)
 #
 # The files are copied to Contents/Resources[/<subdir>] in the build tree (after each build)
-# and installed. Relative paths are relative to the current source directory. Call it as often
+# and installed. A directory is copied with its contents, as `cp -r` in Makefile.master. Relative paths are relative to the current source directory. Call it as often
 # as needed, inside if() for conditional resources; for a configured file, run configure_file()
 # first and pass its output.
 function(ofx_plugin_resources TARGET)
@@ -283,23 +307,46 @@ function(ofx_plugin_resources TARGET)
   if(NOT _bundle)
     message(FATAL_ERROR "ofx_plugin_resources: ${TARGET} was not created by add_ofx_plugin")
   endif()
+  get_target_property(_deployed ${TARGET} OFX_DEPLOYED)
+  if(_deployed)
+    message(FATAL_ERROR "ofx_plugin_resources(${TARGET}): call it before ofx_deploy_bundle(${TARGET}), which signs the installed bundle")
+  endif()
+  # the copies are made by a custom target that runs at each build, so that edited resources are
+  # updated in the build tree too (copy_if_different)
+  get_target_property(_n ${TARGET} OFX_RESOURCE_TARGETS)
+  if(NOT _n)
+    set(_n 0)
+  endif()
+  math(EXPR _n "${_n} + 1")
+  set_target_properties(${TARGET} PROPERTIES OFX_RESOURCE_TARGETS ${_n})
+  set(_rt ${TARGET}_resources_${_n})
   set(_sub "Resources")
   if(OFX_DESTINATION)
     set(_sub "Resources/${OFX_DESTINATION}")
   endif()
   set(_files "")
+  set(_dirs "")
   foreach(_f IN LISTS OFX_UNPARSED_ARGUMENTS)
     get_filename_component(_abs "${_f}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-    list(APPEND _files "${_abs}")
+    if(IS_DIRECTORY "${_abs}")
+      list(APPEND _dirs "${_abs}")
+    else()
+      list(APPEND _files "${_abs}")
+    endif()
   endforeach()
-  if(NOT _files)
-    return()
+  set(_dest "${PLUGIN_INSTALLDIR}/${_name}.ofx.bundle/Contents/${_sub}")
+  set(_cmds COMMAND "${CMAKE_COMMAND}" -E make_directory "${_bundle}/Contents/${_sub}")
+  if(_files)
+    list(APPEND _cmds COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${_files} "${_bundle}/Contents/${_sub}")
+    install(FILES ${_files} DESTINATION "${_dest}")
   endif()
-  add_custom_command(TARGET ${TARGET} POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_bundle}/Contents/${_sub}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${_files} "${_bundle}/Contents/${_sub}"
-    VERBATIM)
-  install(FILES ${_files} DESTINATION "${PLUGIN_INSTALLDIR}/${_name}.ofx.bundle/Contents/${_sub}")
+  foreach(_d IN LISTS _dirs)
+    get_filename_component(_dname "${_d}" NAME)
+    list(APPEND _cmds COMMAND "${CMAKE_COMMAND}" -E copy_directory "${_d}" "${_bundle}/Contents/${_sub}/${_dname}")
+    install(DIRECTORY "${_d}" DESTINATION "${_dest}")
+  endforeach()
+  add_custom_target(${_rt} ALL ${_cmds} VERBATIM)
+  add_dependencies(${TARGET} ${_rt})
 endfunction()
 
 # Compile and link a target with OpenMP, if OFX_USE_OPENMP is ON:
@@ -313,7 +360,11 @@ function(ofx_target_openmp TARGET)
   if(NOT OFX_USE_OPENMP)
     return()
   endif()
-  if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND NOT TARGET OpenMP::OpenMP_CXX)
+  if(TARGET OpenMP::OpenMP_CXX) # found by an earlier call
+    target_link_libraries(${TARGET} PRIVATE OpenMP::OpenMP_CXX)
+    return()
+  endif()
+  if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
     find_path(OFX_LIBOMP_INCLUDE_DIR omp.h
       HINTS ${OFX_LIBOMP_ROOT} ${OFX_LIBOMP_ROOT}/include /opt/local/include/libomp
       NO_DEFAULT_PATH)
@@ -344,7 +395,10 @@ endfunction()
 # Contents/Libraries (with @rpath install names), then the libraries and the bundle are signed
 # ad hoc (required on arm64), and the install fails if a Mach-O file still references
 # /opt/local, /usr/local or /opt/homebrew.
-# Windows (bundling the DLLs, with an embedded manifest) and Linux are not implemented yet.
+# Call it after the last ofx_plugin_resources() of the target: files installed into the bundle
+# after it would break the bundle's signature. The install path must not contain spaces
+# (osxDeploy.sh). Windows (bundling the DLLs, with an embedded manifest) and Linux are not
+# implemented yet.
 function(ofx_deploy_bundle TARGET)
   if(NOT OFX_DEPLOY_BUNDLES)
     return()
@@ -353,7 +407,11 @@ function(ofx_deploy_bundle TARGET)
   if(NOT _name)
     message(FATAL_ERROR "ofx_deploy_bundle: ${TARGET} was not created by add_ofx_plugin")
   endif()
+  set_target_properties(${TARGET} PROPERTIES OFX_DEPLOYED TRUE)
   if(APPLE)
+    if(PLUGIN_INSTALLDIR MATCHES " " OR CMAKE_INSTALL_PREFIX MATCHES " ")
+      message(FATAL_ERROR "ofx_deploy_bundle(${TARGET}): the install path (PLUGIN_INSTALLDIR, CMAKE_INSTALL_PREFIX) must not contain spaces (osxDeploy.sh)")
+    endif()
     _ofx_find_file(_deploy osxDeploy.sh)
     if(IS_ABSOLUTE "${PLUGIN_INSTALLDIR}")
       set(_bundle "${PLUGIN_INSTALLDIR}/${_name}.ofx.bundle")
@@ -366,17 +424,35 @@ function(ofx_deploy_bundle TARGET)
       if(_r)
         message(FATAL_ERROR \"osxDeploy.sh failed on \${_b}\")
       endif()
-      file(GLOB _libs \"\${_b}/Contents/Libraries/*\" \"\${_b}/Contents/Frameworks/*\")
+      # every file in Libraries and Frameworks, subfolders included (e.g. ImageMagick modules):
+      # signed ad hoc (non-Mach-O files are skipped by codesign), and checked
+      file(GLOB_RECURSE _libs LIST_DIRECTORIES false \"\${_b}/Contents/Libraries/*\" \"\${_b}/Contents/Frameworks/*\")
       foreach(_f \${_libs} \"\${_b}/Contents/MacOS/${_name}.ofx\")
-        execute_process(COMMAND codesign -f -s - \"\${_f}\" RESULT_VARIABLE _r ERROR_QUIET)
-        execute_process(COMMAND otool -L \"\${_f}\" OUTPUT_VARIABLE _deps)
+        # LC_RPATHs into the build machine's package managers (e.g. MacPorts' libomp has
+        # /opt/local/lib/libomp) are deleted: the bundled libraries are found with @rpath
+        execute_process(COMMAND otool -l \"\${_f}\" OUTPUT_VARIABLE _cmds ERROR_QUIET)
+        string(REGEX MATCHALL \" path (/opt/local|/usr/local|/opt/homebrew)[^ ]*\" _bad \"\${_cmds}\")
+        foreach(_p \${_bad})
+          string(REGEX REPLACE \"^ path \" \"\" _p \"\${_p}\")
+          execute_process(COMMAND install_name_tool -delete_rpath \"\${_p}\" \"\${_f}\" OUTPUT_QUIET ERROR_QUIET)
+        endforeach()
+        execute_process(COMMAND codesign -f -s - \"\${_f}\" RESULT_VARIABLE _r OUTPUT_QUIET ERROR_QUIET)
+        execute_process(COMMAND otool -L \"\${_f}\" OUTPUT_VARIABLE _deps ERROR_QUIET)
+        execute_process(COMMAND otool -l \"\${_f}\" OUTPUT_VARIABLE _cmds ERROR_QUIET)
         if(_deps MATCHES \"\\t(/opt/local|/usr/local|/opt/homebrew)/\")
-          message(FATAL_ERROR \"\${_f} still references \${CMAKE_MATCH_1}:\\n\${_deps}\")
+          message(FATAL_ERROR \"\${_f} still references \${CMAKE_MATCH_1} (osxDeploy.sh copies MacPorts libraries, not Homebrew ones):\\n\${_deps}\")
+        endif()
+        if(_cmds MATCHES \" path (/opt/local|/usr/local|/opt/homebrew)/\")
+          message(FATAL_ERROR \"\${_f} has an LC_RPATH in \${CMAKE_MATCH_1}\")
         endif()
       endforeach()
       execute_process(COMMAND codesign -f -s - \"\${_b}\" RESULT_VARIABLE _r)
       if(_r)
         message(FATAL_ERROR \"codesign failed on \${_b}\")
+      endif()
+      execute_process(COMMAND codesign --verify --strict \"\${_b}\" RESULT_VARIABLE _r)
+      if(_r)
+        message(FATAL_ERROR \"codesign --verify --strict failed on \${_b}\")
       endif()
     ")
   endif()

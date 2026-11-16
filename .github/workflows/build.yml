@@ -152,6 +152,10 @@ jobs:
           test "$(find install -name '*.ofx' | wc -l)" -ge 5
           # the example hosts are only compiled on Windows (the test renders run on Linux and macOS)
           ls install/bin/hostDemo.exe install/bin/cacheDemo.exe install/bin/propsetDump.exe
+      - name: Plug-in project built against the installed package and with add_subdirectory
+        run: |
+          set -eo pipefail
+          CMAKE_GENERATOR=Ninja .github/scripts/cmake-plugin-project.sh "$PWD/install" "$PWD/plugin-project"
       - name: Every plug-in exports OfxGetPlugin
         run: |
           set -eo pipefail

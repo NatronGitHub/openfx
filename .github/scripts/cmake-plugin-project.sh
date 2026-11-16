@@ -12,9 +12,11 @@ run() { # mode: package | subdirectory
   local mode=$1 w="$work/$1" via=OFF
   [ "$mode" = subdirectory ] && via=ON
   cmake -S "$src/cmake/tests/plugin-project" -B "$w/build" -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH="$prefix" -DOFX_SOURCE_DIR="$src" -DOFX_VIA_SUBDIRECTORY=$via \
+    -DCMAKE_PREFIX_PATH="$prefix" -DOFX_SOURCE_DIR="$src" -DOFX_VIA_SUBDIRECTORY=$via -DBUILD_EXAMPLE_HOSTS=$via -DOFX_TEST_REQUIRE_OPENMP=ON \
     -DCMAKE_INSTALL_PREFIX="$w/install" -DOFX_DEPLOY_BUNDLES=$deploy ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
   cmake --build "$w/build" --parallel
+  # with add_subdirectory(openfx), BUILD_EXAMPLE_HOSTS=ON still gives the hostDemo target
+  if [ "$mode" = subdirectory ]; then cmake --build "$w/build" --parallel --target hostDemo; fi
   cmake --install "$w/build"
   # openfx's own libraries and headers aren't installed by a project that uses add_subdirectory
   if [ "$mode" = subdirectory ] && [ -e "$w/install/include" ]; then fail "add_subdirectory(openfx) installed openfx itself"; fi
@@ -25,7 +27,11 @@ check() {
 built=$1 installed=$2
 case $os in
   Darwin) arch=MacOS ;;
-  *) arch=$(ls "$installed/InvertBundle.ofx.bundle/Contents" | grep -v -e Info.plist -e Resources | head -1) ;;
+  *) arch=$(ls "$installed/InvertBundle.ofx.bundle/Contents" | grep -v -e Info.plist -e Resources | head -1)
+     case $os in
+       Linux) [ "$arch" = "Linux-$(uname -m | sed 's/^x86_64$/x86-64/')" ] || fail "arch folder $arch" ;;
+       MINGW*|MSYS*) [ "$arch" = Win64 ] || fail "arch folder $arch" ;;
+     esac ;;
 esac
 for root in "$built" "$installed"; do
   b="$root/InvertBundle.ofx.bundle/Contents"
@@ -33,7 +39,7 @@ for root in "$built" "$installed"; do
   grep -q '<string>org.example.InvertBundle</string>' "$b/Info.plist" || fail "$b/Info.plist: identifier"
   grep -q '<string>2.3.4</string>' "$b/Info.plist" || fail "$b/Info.plist: version"
   grep -q '<string>InvertBundle.ofx</string>' "$b/Info.plist" || fail "$b/Info.plist: executable"
-  test -f "$b/Resources/icon.txt" -a -f "$b/Resources/presets/preset.txt" || fail "$b/Resources"
+  test -f "$b/Resources/icon.txt" -a -f "$b/Resources/presets/preset.txt" -a -f "$b/Resources/shaders/a.glsl" || fail "$b/Resources"
   p="$root/TestPlist.ofx.bundle/Contents/Info.plist"
   grep -q '<string>TestPlist.ofx</string>' "$p" || fail "$p: @PLUGIN_EXE@ not substituted"
   grep -q 'org.example.OwnPlist' "$p" && grep -qF '${NOT_EXPANDED}' "$p" || fail "$p: not used as-is"
@@ -42,7 +48,12 @@ ofx="$installed/InvertBundle.ofx.bundle/Contents/$arch/InvertBundle.ofx"
 case $os in
   Darwin) exports=$(nm -gU "$ofx" | awk '$2 == "T" { print $3 }' | sort -u | tr '\n' ' ')
           rpath=$(otool -l "$ofx" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' | sort -u | tr '\n' ' ') ;;
-  *) exports=$(nm -D --defined-only "$ofx" | awk '$2 == "T" { print $3 }' | sort -u | tr '\n' ' ')
+  MINGW*|MSYS*|CYGWIN*)
+     # the export table of the DLL: "[ordinal] name" lines
+     exports=$(objdump -p "$ofx" | sed -n '/\[Ordinal\/Name Pointer\] Table/,/^$/p' | sed -n 's/^\s*\[ *[0-9]*\] //p' | sort -u | tr '\n' ' ')
+     rpath="" ;;
+  # binutils >= 2.42 prints versioned names (OfxGetPlugin@@OFX_1.0)
+  *) exports=$(nm -D --defined-only "$ofx" | awk '$2 == "T" { print $3 }' | sed 's/@.*//' | sort -u | tr '\n' ' ')
      rpath=$(readelf -d "$ofx" | sed -n 's/.*R.*PATH.*\[\(.*\)\]/\1/p' | tr '\n' ' ') ;;
 esac
 case $os in Darwin) want="_OfxGetNumberOfPlugins _OfxGetPlugin " ;; *) want="OfxGetNumberOfPlugins OfxGetPlugin " ;; esac
@@ -54,9 +65,8 @@ esac
 if [ "$deploy" = ON ]; then
   b="$installed/InvertBundle.ofx.bundle"
   codesign --verify --strict "$b" || fail "codesign --verify --strict $b"
-  if otool -L "$ofx" | grep -q libomp; then
-    ls "$b/Contents/Libraries/" | grep -q libomp || fail "libomp not bundled"
-  fi
+  otool -L "$ofx" | grep -q '@rpath/libomp' || fail "the plug-in doesn't link the bundled libomp"
+  ls "$b/Contents/Libraries/" | grep -q libomp || fail "libomp not bundled"
   ! otool -L "$ofx" "$b"/Contents/Libraries/* 2>/dev/null | grep -E '^\s+/(opt/local|usr/local|opt/homebrew)/' || fail "references outside the bundle"
 fi
 echo "plugin-project ($installed): OK (exports: $exports; rpath: $rpath)"

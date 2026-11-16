@@ -38,7 +38,7 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
 - The bundle `<BUNDLE_NAME>.ofx.bundle/Contents/{Info.plist,Resources/,<ARCHDIR>/<BUNDLE_NAME>.ofx}` is assembled in `${OFX_PLUGIN_BUILD_DIR}`, so it's usable with `OFX_PLUGIN_PATH`, and is installed to `PLUGIN_INSTALLDIR`. A project may define several bundles.
 
 `ofx_plugin_resources(<target> [DESTINATION <subdir>] <files...>)`
-- Copies the files to `Contents/Resources[/<subdir>]`, at build and install time.
+- Copies the files to `Contents/Resources[/<subdir>]`, at build and install time. A directory is copied with its contents, as `cp -r` in Makefile.master (Shadertoy presets).
 - It may be called many times, inside `if()` for conditional resources. For a configured resource, run `configure_file()` first and pass its output.
 
 `ofx_target_openmp(<target> [REQUIRED])`
@@ -48,12 +48,15 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
 
 `ofx_deploy_bundle(<target>)`
 - An install-time step, enabled by `OFX_DEPLOY_BUNDLES`, that makes the bundle self-contained.
-- **macOS:**
+- **macOS** (implemented):
   - `osxDeploy.sh`: non-system dylibs go to `Contents/Libraries`, with `@rpath` ids;
-  - then re-sign ad hoc, dylibs first, then the bundle (`codesign -f -s -`). Otherwise `codesign --verify --strict` fails, and arm64 requires the signature;
-  - check that no Mach-O references `/opt/local`, Homebrew or `/usr/local` (`otool -L`, `otool -l`), and that every `@rpath/X` is in `Contents/Libraries`;
-  - resolve the `@rpath` dependencies of the copied dylibs against their original LC_RPATHs before deleting those.
-- **Windows:**
+  - LC_RPATHs into `/opt/local`, `/usr/local` or `/opt/homebrew` are deleted from the bundled files (MacPorts' libomp has `/opt/local/lib/libomp`);
+  - every file in `Libraries` and `Frameworks`, subfolders included, is re-signed ad hoc, then the bundle, and `codesign --verify --strict` must pass (arm64 requires a valid signature);
+  - the install fails if a Mach-O file still references `/opt/local`, `/usr/local` or `/opt/homebrew` (`otool -L`) or has an LC_RPATH there (`otool -l`);
+  - call `ofx_deploy_bundle` after the last `ofx_plugin_resources` of the target (it's an error otherwise): files installed into the bundle after it would break the signature;
+  - the install path must not contain spaces (osxDeploy.sh word-splits paths).
+- **macOS, not implemented yet:** checking that every `@rpath/X` is in `Contents/Libraries`, and resolving the `@rpath` dependencies of copied dylibs against their original LC_RPATHs (MacPorts libraries use absolute install names, so this matters little today).
+- **Windows** (not implemented yet; Natron's Windows installer does this itself, so Natron keeps `OFX_DEPLOY_BUNDLES` OFF there):
   - copying the DLLs next to the `.ofx` is not enough. Hosts call `LoadLibraryW(fullpath)` (`ofxhBinary.cpp`, and Natron), which doesn't search the plug-in's directory;
   - instead, embed an assembly manifest (resource ID 2) listing the bundled DLLs as `<file>` entries of a private assembly. That's Natron's `build-Windows-installer.sh` approach, with the Windows SDK's `mt.exe`;
   - strip the `.ofx` before running `mt.exe`;
@@ -67,7 +70,7 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
 - MinGW: `_USE_MATH_DEFINES` and `__USE_MINGW_ANSI_STDIO=1`;
 - MSVC: `/Zc:__cplusplus`.
 
-**openfx::Support:** static, PIC, hidden visibility (upstream #278), with openfx::Api PUBLIC. G'MIC uses the raw C API, so it links openfx::Api only.
+**openfx::Support:** static, PIC, built with `OFX_CXX_STANDARD`, with `Support/Plugins/include` on its include path (as in the Makefiles), and openfx::Api PUBLIC. Hidden visibility comes with openfx#124 (upstream #278); the export lists already restrict the exports. G'MIC uses the raw C API, so it links openfx::Api only.
 
 ## How openfx tests it
 
@@ -93,12 +96,17 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
 ## Conventions
 
 - **Shared cache variables:**
-  - `OFX_CXX_STANDARD` (default 17; Natron with Qt6 uses 20);
+  - `OFX_CXX_STANDARD` (default 17; Natron uses 17 with Qt5 and 20 with Qt6, Natron#1148). It's applied with CXX_STANDARD to the plug-ins and to openfx::Support, so a `-std=` inside `CXX` would be overridden: pass the standard with this variable instead;
   - `OFX_USE_OPENMP` (ON);
-  - `OFX_DEPLOY_BUNDLES` (OFF; Natron's builds set it ON);
+  - `OFX_DEPLOY_BUNDLES` (OFF). Natron's builds set it ON on macOS only, where it replaces Makefile.master's osxDeploy step. On Windows it stays OFF: build-Windows-installer.sh strips the `.ofx`, copies the DLLs and embeds its own manifest;
   - `PLUGIN_INSTALLDIR`;
   - `OFX_LICENSE=GPL|COMMERCIAL`, only where it changes what's built (openfx-arena: no poppler when COMMERCIAL);
   - `BUILD_TESTING`.
+- **Paths for build-plugins.sh** (CMake equivalents of the Makefile variables):
+  - OSMESA_PATH and LLVM_PATH (or LLVM_CONFIG), and the choice of mangled OSMesa or GLU (openfx-misc);
+  - OIIO_HOME and SEEXPR_HOME (openfx-io); FFmpeg and LibRaw through CMAKE_PREFIX_PATH or their pkg-config paths;
+  - OPTFLAG goes into CMAKE_CXX_FLAGS_RELWITHDEBINFO (or CMAKE_CXX_FLAGS_RELEASE). CMake's Release flags are `-O3 -DNDEBUG`, Makefile.master's are `-O2 -DNDEBUG`: set CMAKE_CXX_FLAGS_RELEASE if a bundle diff needs identical code;
+  - OFX_USE_OPENMP defaults to ON, which also enables OpenMP with Apple clang (the Makefiles don't): Natron passes it explicitly.
 - **Repository options** keep their Makefile variable names (USE_OSMESA, IM, AUDIO, RICHTEXT, LEGACYIM, MAGICK_PKG_CONFIG, FFMPEG_PKG_CONFIG_PATH, SEEXPR_HOME...), so build-plugins.sh maps them one to one.
 - **CMake minimum:** 3.16 everywhere.
 
