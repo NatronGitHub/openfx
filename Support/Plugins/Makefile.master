@@ -128,21 +128,41 @@ uninstall:
   ifeq ($(OS),Linux)
     # use $ORIGIN to link to bundled libraries first, see http://itee.uq.edu.au/~daniel/using_origin/
     LINKFLAGS = -shared -fvisibility=hidden -Xlinker --version-script=$(PATHTOROOT)/include/linuxSymbols -lGL -Wl,-rpath,'$$ORIGIN'/../../Libraries
-    ARCH = Linux-x86
-    BITSFLAG = -m32 -fPIC
-    ifeq ($(BITS), 64)
-      BITSFLAG = -m64 -fPIC
-      ARCH = Linux-x86-64
+    # bundle folder: Linux-x86, Linux-x86-64, or Linux-$(uname -m) for other architectures
+    # (OFX 1.5 packaging: "hosts should look in the subdir named by Linux-${uname -m}")
+    MACHINE := $(shell uname -m)
+    ifneq ($(filter x86_64 i386 i486 i586 i686,$(MACHINE)),)
+      # x86: the userland may be 32-bit on a 64-bit kernel, so use BITS (getconf LONG_BIT)
+      ARCH = Linux-x86
+      BITSFLAG = -m32 -fPIC
+      ifeq ($(BITS), 64)
+        ARCH = Linux-x86-64
+        BITSFLAG = -m64 -fPIC
+      endif
+    else
+      # e.g. aarch64, riscv64: -m32/-m64 are x86 options
+      ARCH = Linux-$(MACHINE)
+      BITSFLAG = -fPIC
     endif
     LINKFLAGS := $(LINKFLAGS) $(BITSFLAG)
   endif
   ifeq ($(OS),FreeBSD)
     LINKFLAGS = -L/usr/local/lib -shared -fvisibility=hidden -Xlinker --version-script=$(PATHTOROOT)/include/linuxSymbols -lGL -Wl,-rpath,'$$ORIGIN'/../../Libraries
-    ARCH= FreeBSD-x86
-    BITSFLAG = -m32 -fPIC
-    ifeq ($(BITS), 64)
-      BITSFLAG = -m64 -fPIC
-      ARCH = FreeBSD-x86-64
+    # bundle folder: FreeBSD-x86, FreeBSD-x86-64, or FreeBSD-$(uname -m) for other architectures
+    # (OFX 1.5 packaging: "hosts should look in the subdir named by Linux-${uname -m}")
+    MACHINE := $(shell uname -m)
+    ifneq ($(filter amd64 i386 i486 i586 i686,$(MACHINE)),)
+      # x86: the userland may be 32-bit on a 64-bit kernel, so use BITS (getconf LONG_BIT)
+      ARCH = FreeBSD-x86
+      BITSFLAG = -m32 -fPIC
+      ifeq ($(BITS), 64)
+        ARCH = FreeBSD-x86-64
+        BITSFLAG = -m64 -fPIC
+      endif
+    else
+      # e.g. aarch64, riscv64: -m32/-m64 are x86 options
+      ARCH = FreeBSD-$(MACHINE)
+      BITSFLAG = -fPIC
     endif
     LINKFLAGS := $(LINKFLAGS) $(BITSFLAG)
   endif 
