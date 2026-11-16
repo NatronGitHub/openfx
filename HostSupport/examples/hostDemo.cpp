@@ -39,11 +39,18 @@ modification, are permitted provided that the following conditions are met:
 #include <vector>
 #include <cstdlib> // strtol, strtod
 #include <cstring> // strcmp
+#include <cmath> // ceil
+#include <list>
+#include <map>
+#include <utility> // pair
 
 // ofx
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
 #include "ofxPixels.h"
+#ifdef OFX_EXTENSIONS_NUKE
+#include "nuke/fnOfxExtensions.h" // kFnOfxImagePlaneColour
+#endif
 
 // ofx host
 #include "ofxhBinary.h"
@@ -76,12 +83,16 @@ modification, are permitted provided that the following conditions are met:
 // Run this in a debugger and step through to see what it does. Also be sure to
 // build the invert example and set OFX_PLUGIN_PATH so that it can see it.
 //
-// It works by hard coding progressive PAL SD imagery to input and output clips,
-// the images are black going in (and should be white coming out of the invert plugin).
+// It works by hard coding progressive PAL SD imagery to input and output clips.
+// By default, the input images are black at t=0 and white at t=1 (and should be
+// inverted by the invert plugin); -i sets other inputs, or disconnects a clip.
+// Images have the depth and components that the clip preferences map each clip to.
 //
-// There is no file io to work with this.
+// There is no file input; the output is written as PPM files.
 
-// returns false (after printing an error) if the file couldn't be written
+// returns false (after printing an error) if the file couldn't be written.
+// Short and float images are converted to 8 bits (float values are clamped to [0,1]),
+// Alpha images are written as grey levels, and pixels outside the image bounds are black.
 bool exportToPPM(const std::string& fname, MyHost::MyImage* im)
 {
   if (!im) {
@@ -98,23 +109,31 @@ bool exportToPPM(const std::string& fname, MyHost::MyImage* im)
   op << "P3" << "\t# FORMAT" << std::endl;
   op << rod.x2 - rod.x1 << "\t#WIDTH" << std::endl;
   op << rod.y2 - rod.y1 << "\t#HEIGHT" <<std::endl;
-  //This assumes 8-bit.
-  op << "255" << std::endl;
+  op << "255" << "\t# " << im->getDepth() << " " << im->getComponentsString() << ", converted to 8 bits" << std::endl;
+  long notWrittenCount = 0;
   for (int y = rod.y1; y< rod.y2; ++y)
   {
     for (int x = rod.x1; x < rod.x2; ++x)
     {
-      OfxRGBAColourB* pix = im->pixel(x,y);
-      if(pix)
-        op << (int)pix->r << " " << (int)pix->g << " " << (int)pix->b << " " << std::endl;
-      else
+      int rgb[3];
+      bool notWritten = false;
+      if (im->getPixelRGB8(x, y, rgb, notWritten)) {
+        op << rgb[0] << " " << rgb[1] << " " << rgb[2] << " " << std::endl;
+      } else {
         op << "0 0 0" << std::endl;
+      }
+      if (notWritten) {
+        ++notWrittenCount;
+      }
     }
   }
   op.close();
   if (!op) {
     std::cerr << "Error: cannot write " << fname << std::endl;
     return false;
+  }
+  if (notWrittenCount > 0) {
+    std::cerr << "Warning: " << fname << ": " << notWrittenCount << " pixels were not written by the plug-in (NaN), written as 0" << std::endl;
   }
   return true;
 }
@@ -123,20 +142,44 @@ static void usage(const char* prog)
 {
   std::cout <<
     "Usage: " << prog << " [-h] [-p pluginId] [-m major] [-c filter|general] [-o prefix]\n"
-    "       [-s name=value[,value...]]... [name=value[,value...]]...\n"
-    "Render a filter or general OFX plug-in found in OFX_PLUGIN_PATH, on a\n"
-    "synthetic PAL SD input clip, and write the output frames as PPM files.\n"
+    "       [-d byte|short|float] [-i Clip=spec]... [--no-std-paths] [--no-cache | --cache path]\n"
+    "       [--quiet] [-s name=value[,value...]]... [name=value[,value...]]...\n"
+    "Render a filter or general OFX plug-in found in OFX_PLUGIN_PATH, on synthetic\n"
+    "PAL SD input clips, and write the output frames as PPM files.\n"
     "  -h          print this help and exit\n"
     "  -p id       plug-in identifier (default: net.sf.openfx.invertPlugin)\n"
     "  -m major    plug-in major version (default: the highest version found)\n"
     "  -c context  filter or general (default: filter)\n"
-    "  -o prefix   output file prefix (default: Output): writes <prefix>.<t>[l|r].ppm\n"
+    "  -o prefix   output file prefix (default: Output): writes <prefix>.<t>[l|r].ppm.\n"
+    "              Short and float images are converted to 8 bits (float is clamped to\n"
+    "              [0,1]), Alpha is written as grey.\n"
+    "  -d depth    pixel depth of the input clips before clip preferences: byte, short or\n"
+    "              float (default: byte). The images have the depth and components that\n"
+    "              getClipPreferences maps each clip to.\n"
+    "  -i Clip=spec\n"
+    "              content of the input clip named Clip (e.g. Source), where spec is:\n"
+    "                default        a grey level t (black at t=0, white at t=1, above 1\n"
+    "                               in float images), with the time drawn in the reverse colour\n"
+    "                solid:r,g,b,a  a constant colour\n"
+    "                ramp           r=g=b=a from 0 (left) to 1 (right)\n"
+    "                checker:N      N-pixel squares, alternating 0 and 1 (r=g=b=a)\n"
+    "                none           the clip is disconnected\n"
+    "              Unwritten output pixels hold NaN (float) or 0xCD bytes (byte, short).\n"
+    "  --no-std-paths\n"
+    "              only look for plug-ins in OFX_PLUGIN_PATH, not in the standard\n"
+    "              locations (/Library/OFX/Plugins, /usr/OFX/Plugins...)\n"
+    "  --no-cache  don't read or write the plug-in cache\n"
+    "  --cache path\n"
+    "              read and write the plug-in cache at path (default:\n"
+    "              hostDemoPluginCache.xml in the current directory)\n"
+    "  --quiet     don't print the plug-in cache on stdout\n"
     "  -s name=value[,value...]\n"
     "              set a parameter before rendering (the option name -s may be omitted).\n"
     "              Multi-dimensional parameters take comma-separated values, e.g.\n"
     "              value=0.5,0.5,0.5,0.5 for an RGBA. Booleans take 0/1/true/false,\n"
     "              Choice takes the option index or label, String/StrChoice/Custom\n"
-    "              take the whole value (commas included).\n";
+    "              take the whole value (commas included).\n"
+    "The exit status is 0 on success, and non-zero on any failure.\n";
 }
 
 static std::vector<std::string> splitValues(const std::string& s)
@@ -348,20 +391,121 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
   return true;
 }
 
-int main(int argc, char **argv) 
+// render the frame t (and view) and write the output image to fname.
+// Returns false (after printing an error) on failure.
+static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstance* outputClip,
+                        OfxTime t, int view, int nViews, const OfxPointD& renderScale,
+                        const std::string& fname)
+{
+  (void)view;
+  (void)nViews;
+  // The render window is in pixel coordinates (render scale and PAR applied): the whole project
+  const double par = instance->getProjectPixelAspectRatio();
+  double projectWidth, projectHeight; // canonical coordinates
+  instance->getProjectSize(projectWidth, projectHeight);
+  const double eps = 1e-6;
+  OfxRectI renderWindow;
+  renderWindow.x1 = renderWindow.y1 = 0;
+  renderWindow.x2 = (int)std::ceil(projectWidth * renderScale.x / par - eps);
+  renderWindow.y2 = (int)std::ceil(projectHeight * renderScale.y - eps);
+
+  /// RoI is in canonical coords
+  OfxRectD regionOfInterest;
+  regionOfInterest.x1 = regionOfInterest.y1 = 0;
+  regionOfInterest.x2 = renderWindow.x2 * par / renderScale.x;
+  regionOfInterest.y2 = renderWindow.y2 / renderScale.y;
+
+  // get the RoI for each input clip: the input images are fetched with these bounds
+  // (clipped to the RoD), unless the plug-in asks for specific bounds
+  std::map<OFX::Host::ImageEffect::ClipInstance *, OfxRectD> rois;
+  OfxStatus stat = instance->getRegionOfInterestAction(t, renderScale,
+#ifdef OFX_EXTENSIONS_NUKE
+                                                       view,
+#endif
+                                                       regionOfInterest, rois);
+  if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+    std::cerr << "Error: get regions of interest action failed at time " << t << " (status " << stat << ")" << std::endl;
+    return false;
+  }
+
+  // each render gets a new output image, filled with the sentinel
+  instance->setRenderState(renderScale, renderWindow, rois);
+  outputClip->releaseOutputImage();
+  const int imageErrors = MyHost::gImageErrors;
+
+#ifdef OFX_EXTENSIONS_NUKE
+  std::list<std::string> planes;
+  planes.push_back(kFnOfxImagePlaneColour);
+#endif
+  stat = instance->renderAction(t, //OfxTime      time,
+                                kOfxImageFieldNone, // const std::string &  field,
+                                renderWindow, // const OfxRectI &renderRoI,
+                                renderScale, // OfxPointD   renderScale,
+                                true, // bool     sequentialRender,
+                                false, // bool     interactiveRender,
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+                                false, // bool     openGLRender,
+#  ifdef OFX_EXTENSIONS_NATRON
+                                NULL, // void*    contextData,
+#  endif
+#endif
+                                false // bool     draftRender
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+                                ,
+                                view // int view
+#endif
+#ifdef OFX_EXTENSIONS_VEGAS
+                                ,
+                                nViews // int nViews
+#endif
+#ifdef OFX_EXTENSIONS_NUKE
+                                ,
+                                planes // const std::list<std::string>& planes
+#endif
+                                );
+  instance->clearRenderState();
+
+  // get the output image buffer
+  MyHost::MyImage *outputImage = outputClip->getOutputImage();
+  if (stat != kOfxStatOK || !outputImage) {
+    std::cerr << "Error: render action failed at time " << t << " (status " << stat
+              << (outputImage ? "" : ", no output image") << ")" << std::endl;
+    return false;
+  }
+  if (MyHost::gImageErrors != imageErrors) {
+    std::cerr << "Error: image fetches failed at time " << t << std::endl;
+    return false;
+  }
+  return exportToPPM(fname, outputImage);
+}
+
+static int run(int argc, char **argv)
 {
   std::string pluginId = "net.sf.openfx.invertPlugin";
   int pluginMajor = -1;
   std::string context = kOfxImageEffectContextFilter;
   std::string outputPrefix = "Output";
+  std::string inputDepth = kOfxBitDepthByte;
   std::vector<std::string> paramAssignments;
+  std::vector<std::pair<std::string, MyHost::InputSpec> > inputs;
+  bool useStdPaths = true;
+  bool useCache = true;
+  std::string cachePath = "hostDemoPluginCache.xml";
+  bool quiet = false;
 
   for (int a = 1; a < argc; ++a) {
     std::string arg = argv[a];
     if (arg == "-h" || arg == "--help") {
       usage(argv[0]);
       return 0;
-    } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s") {
+    } else if (arg == "--no-std-paths") {
+      useStdPaths = false;
+    } else if (arg == "--no-cache") {
+      useCache = false;
+    } else if (arg == "--quiet") {
+      quiet = true;
+    } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
+               arg == "-d" || arg == "-i" || arg == "--cache") {
       if (a + 1 >= argc) {
         std::cerr << "Error: option " << arg << " requires an argument" << std::endl;
         usage(argv[0]);
@@ -386,6 +530,28 @@ int main(int argc, char **argv)
         }
       } else if (arg == "-o") {
         outputPrefix = optarg;
+      } else if (arg == "-d") {
+        if (optarg == "byte" || optarg == kOfxBitDepthByte) {
+          inputDepth = kOfxBitDepthByte;
+        } else if (optarg == "short" || optarg == kOfxBitDepthShort) {
+          inputDepth = kOfxBitDepthShort;
+        } else if (optarg == "float" || optarg == kOfxBitDepthFloat) {
+          inputDepth = kOfxBitDepthFloat;
+        } else {
+          std::cerr << "Error: unsupported depth \"" << optarg << "\", expected byte, short or float" << std::endl;
+          return 1;
+        }
+      } else if (arg == "-i") {
+        std::string::size_type eq = optarg.find('=');
+        MyHost::InputSpec spec;
+        if (eq == std::string::npos || eq == 0 || !MyHost::parseInputSpec(optarg.substr(eq + 1), spec)) {
+          std::cerr << "Error: invalid input \"" << optarg << "\", expected Clip=default|solid:r,g,b,a|ramp|checker:N|none" << std::endl;
+          return 1;
+        }
+        inputs.push_back(std::make_pair(optarg.substr(0, eq), spec));
+      } else if (arg == "--cache") {
+        useCache = true;
+        cachePath = optarg;
       } else {
         paramAssignments.push_back(optarg);
       }
@@ -402,6 +568,9 @@ int main(int argc, char **argv)
 #ifdef _WIN32
   _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
+  // this must be called before the first call to getPluginCache()
+  OFX::Host::PluginCache::useStdOFXPluginsLocation(useStdPaths);
+
   // set the version label in the global cache
   OFX::Host::PluginCache::getPluginCache()->setCacheVersion("hostDemoV1");
 
@@ -417,25 +586,35 @@ int main(int argc, char **argv)
   // register the image effect cache with the global plugin cache
   imageEffectPluginCache.registerInCache(*OFX::Host::PluginCache::getPluginCache());
 
-  // try to read an old cache
-  std::ifstream ifs("hostDemoPluginCache.xml");
-  try {
-    OFX::Host::PluginCache::getPluginCache()->readCache(ifs);
-  } catch (const std::exception &e) {
-    std::cerr << "Error while reading XML cache: " << e.what() << std::endl;
+  if (useCache) {
+    // try to read an old cache
+    std::ifstream ifs(cachePath.c_str());
+    if (ifs) {
+      try {
+        OFX::Host::PluginCache::getPluginCache()->readCache(ifs);
+      } catch (const std::exception &e) {
+        std::cerr << "Error while reading XML cache: " << e.what() << std::endl;
+      }
+    }
   }
   OFX::Host::PluginCache::getPluginCache()->scanPluginFiles();
-  ifs.close();
 
-  /// flush out the current cache
-  std::ofstream of("hostDemoPluginCache.xml");
-  OFX::Host::PluginCache::getPluginCache()->writePluginCache(of);
-  of.close();
+  if (useCache) {
+    /// flush out the current cache
+    std::ofstream of(cachePath.c_str());
+    OFX::Host::PluginCache::getPluginCache()->writePluginCache(of);
+    of.close();
+    if (!of) {
+      std::cerr << "Warning: could not write the plug-in cache " << cachePath << std::endl;
+    }
+  }
 
   // get the plugin (by default, the invert example plugin which uses the OFX C++ support code)
   OFX::Host::ImageEffect::ImageEffectPlugin* plugin = imageEffectPluginCache.getPluginById(pluginId, pluginMajor);
 
-  imageEffectPluginCache.dumpToStdOut();
+  if (!quiet) {
+    imageEffectPluginCache.dumpToStdOut();
+  }
 
   int ret = 0;
   if(!plugin) {
@@ -453,11 +632,37 @@ int main(int argc, char **argv)
     // the first arg is the context, the second is client data we are allowed to pass down the call chain
 
     OFX::Host::auto_ptr<OFX::Host::ImageEffect::Instance> instance(plugin->createInstance(context, NULL));
+    MyHost::MyEffectInstance* myInstance = dynamic_cast<MyHost::MyEffectInstance*>(instance.get());
 
-    if(!instance.get()) {
+    if(!myInstance) {
       std::cerr << "Error: could not create an instance of plug-in \"" << pluginId << "\" in the " << context << " context." << std::endl;
       ret = 1;
     }
+
+    // set up the input clips: depth and content (or disconnected)
+    if (ret == 0) {
+      const std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>& clips = myInstance->getClipInstances();
+      for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
+        MyHost::MyClipInstance* clip = dynamic_cast<MyHost::MyClipInstance*>(it->second);
+        if (clip && !clip->isOutput()) {
+          clip->setUnmappedBitDepth(inputDepth);
+        }
+      }
+      for (size_t k = 0; k < inputs.size(); ++k) {
+        MyHost::MyClipInstance* clip = dynamic_cast<MyHost::MyClipInstance*>(instance->getClip(inputs[k].first));
+        if (!clip || clip->isOutput()) {
+          std::cerr << "Error: the plug-in has no input clip named \"" << inputs[k].first << "\". Its clips are:";
+          for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
+            std::cerr << " " << it->first;
+          }
+          std::cerr << std::endl;
+          ret = 1;
+          break;
+        }
+        clip->setInput(inputs[k].second);
+      }
+    }
+
     // set the parameter values given on the command line, before calling the create instance action
     for (size_t k = 0; ret == 0 && k < paramAssignments.size(); ++k) {
       if (!setParamFromString(instance.get(), paramAssignments[k])) {
@@ -483,31 +688,26 @@ int main(int argc, char **argv)
       ret = 1;
     }
 
+    // get the output clip
+    MyHost::MyClipInstance* outputClip = NULL;
+    if (ret == 0) {
+      outputClip = dynamic_cast<MyHost::MyClipInstance*>(instance->getClip(kOfxImageEffectOutputClipName));
+      if (!outputClip) {
+        std::cerr << "Error: the plug-in has no output clip" << std::endl;
+        ret = 1;
+      }
+    }
+
     if(ret == 0)
     {
-      OfxStatus stat;
-
       // current render scale of 1
       OfxPointD renderScale;
       renderScale.x = renderScale.y = 1.0;
 
-      // The render window is in pixel coordinates
-      // ie: render scale and a PAR of not 1
-      OfxRectI  renderWindow;
-      renderWindow.x1 = renderWindow.y1 = 0;
-      renderWindow.x2 = 720;
-      renderWindow.y2 = 576;
-
-      /// RoI is in canonical coords, 
-      OfxRectD  regionOfInterest;
-      regionOfInterest.x1 = regionOfInterest.y1 = 0;
-      regionOfInterest.x2 = renderWindow.x2 * instance->getProjectPixelAspectRatio();
-      regionOfInterest.y2 = 576;
-      
       int numFramesToRender = OFXHOSTDEMOCLIPLENGTH;
 
       // say we are about to render a bunch of frames 
-      stat = instance->beginRenderAction(0, numFramesToRender, 1.0, false, renderScale, /*sequential=*/true, /*interactive=*/false,
+      OfxStatus stat = instance->beginRenderAction(0, numFramesToRender, 1.0, false, renderScale, /*sequential=*/true, /*interactive=*/false,
 #                                        ifdef OFX_SUPPORTS_OPENGLRENDER
                                          /*openGLRender=*/false,
 #                                        ifdef OFX_EXTENSIONS_NATRON
@@ -519,147 +719,32 @@ int main(int argc, char **argv)
                                          , 0 /* view*/
 #                                        endif
                                          );
-      assert(stat == kOfxStatOK || stat == kOfxStatReplyDefault);
+      if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+        std::cerr << "Error: begin render action failed (status " << stat << ")" << std::endl;
+        ret = 1;
+      }
 
-      // get the output clip
-      MyHost::MyClipInstance* outputClip = dynamic_cast<MyHost::MyClipInstance*>(instance->getClip("Output"));
-      assert(outputClip);
-
-      for(int t = 0; t <= numFramesToRender; ++t) 
+      for(int t = 0; ret == 0 && t <= numFramesToRender; ++t) 
       {
-        // call get region of interest on each of the inputs
-        OfxTime frame = t;
-
-        // get the RoI for each input clip
-        // the regions of interest for each input clip are returned in a std::map
-        // on a real host, these will be the regions of each input clip that the
-        // effect needs to render a given frame (clipped to the RoD).
-        //
-        // In our example we are doing full frame fetches regardless.
-        std::map<OFX::Host::ImageEffect::ClipInstance *, OfxRectD> rois;
-        stat = instance->getRegionOfInterestAction(frame, renderScale,
-#ifdef OFX_EXTENSIONS_NUKE
-                                                   /*view=*/0,
-#endif
-                                                   regionOfInterest, rois);
-        assert(stat == kOfxStatOK || stat == kOfxStatReplyDefault);
-
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
-        // render a stereoscopic frame
-        { // left view
-          stat = instance->renderAction(t,kOfxImageFieldNone,renderWindow, renderScale, /*sequential=*/true, /*interactive=*/false,
-#                                        ifdef OFX_SUPPORTS_OPENGLRENDER
-                                        /*openGLRender=*/false,
-#                                        ifdef OFX_EXTENSIONS_NATRON
-                                        /*contextData=*/NULL,
-#                                        endif
-#                                        endif
-                                        /*draft=*/false,
-                                        0 /*view*/
-#                                       ifdef OFX_EXTENSIONS_VEGAS
-                                        , 2 /*nViews*/
-#                                       endif
-#                                       ifdef OFX_EXTENSIONS_NUKE
-                                        , std::list<std::string>() /*planes*/
-#                                       endif
-                                        );
-          // get the output image buffer
-          MyHost::MyImage *outputImage = outputClip->getOutputImage();
-          if (stat != kOfxStatOK || !outputImage) {
-            std::cerr << "Error: render action failed at time " << t << " (status " << stat << ")" << std::endl;
-            ret = 1;
-            break;
-          }
-
+        // render a stereoscopic frame: left and right views
+        for (int view = 0; ret == 0 && view < 2; ++view) {
           std::ostringstream ss;
-          ss << outputPrefix << "." << t << "l.ppm";
-          if (!exportToPPM(ss.str(), outputImage)) {
+          ss << outputPrefix << "." << t << (view == 0 ? "l" : "r") << ".ppm";
+          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, ss.str())) {
             ret = 1;
-            break;
-          }
-        }
-        {  // right view
-          stat = instance->renderAction(t,kOfxImageFieldNone,renderWindow, renderScale, /*sequential=*/true, /*interactive=*/false,
-#                                ifdef OFX_SUPPORTS_OPENGLRENDER
-                                 /*openGLRender=*/false,
-#                                ifdef OFX_EXTENSIONS_NATRON
-                                 /*contextData=*/NULL,
-#                                endif
-#                                endif
-                                 /*draft=*/false,
-                                 1 /*view*/
-#                                ifdef OFX_EXTENSIONS_VEGAS
-                                 , 2 /*nViews*/
-#                                endif
-#                                ifdef OFX_EXTENSIONS_NUKE
-                                 , std::list<std::string>() /*planes*/
-#                                endif
-                                 );
-          // get the output image buffer
-          MyHost::MyImage *outputImage = outputClip->getOutputImage();
-          if (stat != kOfxStatOK || !outputImage) {
-            std::cerr << "Error: render action failed at time " << t << " (status " << stat << ")" << std::endl;
-            ret = 1;
-            break;
-          }
-
-          std::ostringstream ss;
-          ss << outputPrefix << "." << t << "r.ppm";
-          if (!exportToPPM(ss.str(), outputImage)) {
-            ret = 1;
-            break;
           }
         }
 #else
-        // render a frame
-#       ifdef OFX_EXTENSIONS_NUKE
-          std::list<std::string> planes;
-          planes.push_back(kOfxImagePlaneColour);
-#       endif
-          stat = instance->renderAction(t, //OfxTime      time,
-                                        kOfxImageFieldNone, // const std::string &  field,
-                                        renderWindow, // const OfxRectI &renderRoI,
-                                        renderScale, // OfxPointD   renderScale,
-                                        true, // bool     sequentialRender,
-                                        false, // bool     interactiveRender,
-#                                    ifdef OFX_SUPPORTS_OPENGLRENDER
-                                        false, // bool     openGLRender,
-#                                     ifdef OFX_EXTENSIONS_NATRON
-                                        NULL, // void*    contextData,
-#                                     endif
-#                                    endif
-                                        false // bool     draftRender
-#                                    if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
-                                        ,
-                                        0 // int view
-#                                    endif
-#                                    ifdef OFX_EXTENSIONS_VEGAS
-                                        ,
-                                        1 // int nViews
-#                                    endif
-#                                    ifdef OFX_EXTENSIONS_NUKE
-                                        ,
-                                        planes // const std::list<std::string>& planes
-#                                    endif
-                                        );
-        // get the output image buffer
-        MyHost::MyImage *outputImage = outputClip->getOutputImage();
-        if (stat != kOfxStatOK || !outputImage) {
-          std::cerr << "Error: render action failed at time " << t << " (status " << stat << ")" << std::endl;
-          ret = 1;
-          break;
-        }
-
         std::ostringstream ss;
         ss << outputPrefix << "." << t << ".ppm";
-        if (!exportToPPM(ss.str(), outputImage)) {
+        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, ss.str())) {
           ret = 1;
-          break;
         }
 #endif
       }
 
-      instance->endRenderAction(0, numFramesToRender, 1.0, false, renderScale, /*sequential=*/true, /*interactive=*/false,
+      stat = instance->endRenderAction(0, numFramesToRender, 1.0, false, renderScale, /*sequential=*/true, /*interactive=*/false,
 #                               ifdef OFX_SUPPORTS_OPENGLRENDER
                                 /*openGLRender=*/false,
 #                               ifdef OFX_EXTENSIONS_NATRON
@@ -671,8 +756,26 @@ int main(int argc, char **argv)
                                 , 0 /* view*/
 #                               endif
                                 );
+      if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+        std::cerr << "Error: end render action failed (status " << stat << ")" << std::endl;
+        ret = 1;
+      }
+      // release the last output image before the instance is destroyed
+      outputClip->releaseOutputImage();
     }
   }
   OFX::Host::PluginCache::clearPluginCache();
   return ret;
+}
+
+int main(int argc, char **argv)
+{
+  try {
+    return run(argc, argv);
+  } catch (const std::exception& e) {
+    std::cerr << "Error: exception: " << e.what() << std::endl;
+  } catch (...) {
+    std::cerr << "Error: unknown exception" << std::endl;
+  }
+  return 1;
 }

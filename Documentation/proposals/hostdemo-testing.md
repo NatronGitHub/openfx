@@ -53,6 +53,10 @@ PRs in this order. Each adds a CI check to the existing per-PR jobs.
 
 Builds use the same extension flags as the consumers (NATRON, NUKE...), so Natron-specific code paths (e.g. Transform's getTransform) are tested.
 
+## Implementation status
+
+- **PR 1 is implemented:** images follow the clip preferences, a new sentinel-filled output image per render, `-d byte|short|float`, `-i Clip=default|solid:r,g,b,a|ramp|checker:N|none`, `--no-std-paths`, `--no-cache`/`--cache PATH`, `--quiet`, and the CI checks (Invert on float RGBA, basic plug-in with its Mask disconnected).
+
 ## Part B: Python test wrapper (`ofxhost`), subprocess first
 
 Each test must run in its own process anyway: HostSupport has process-wide singletons (`PluginCache::getPluginCache()`, `gImageEffectHost`), plug-ins can't be unloaded, and a crashing plug-in would take down the interpreter. So v1 is a pure-Python wrapper around the hostDemo CLI, not in-process bindings:

@@ -34,6 +34,13 @@ namespace MyHost {
 
   // class definition
   class MyEffectInstance : public OFX::Host::ImageEffect::Instance {
+  protected:
+    // the render state, set by hostDemo around each renderAction, used by the clips to make images
+    bool      _rendering;
+    OfxPointD _renderScale;
+    OfxRectI  _renderWindow;
+    std::map<OFX::Host::ImageEffect::ClipInstance*, OfxRectD> _rois;
+
   public:
     MyEffectInstance(OFX::Host::ImageEffect::ImageEffectPlugin* plugin,
                      OFX::Host::ImageEffect::Descriptor& desc,
@@ -107,6 +114,25 @@ namespace MyHost {
     /// the recursive instanceChangedAction will be fed the correct
     /// renderScale
     virtual void getRenderScaleRecursive(double &x, double &y) const;
+
+    /// the clip instances, by name
+    const std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>& getClipInstances() const { return _clips; }
+
+    /// set the render state before calling renderAction: the render scale, the render window (in pixel
+    /// coordinates) and the regions of interest returned by getRegionOfInterestAction
+    void setRenderState(const OfxPointD& renderScale, const OfxRectI& renderWindow,
+                        const std::map<OFX::Host::ImageEffect::ClipInstance*, OfxRectD>& rois);
+
+    /// call this after renderAction (the render scale is kept)
+    void clearRenderState();
+
+    bool isRendering() const { return _rendering; }
+    const OfxPointD& getRenderScale() const { return _renderScale; }
+    const OfxRectI& getRenderWindow() const { return _renderWindow; }
+
+    /// get the region of interest of a clip (in canonical coordinates) for the current render.
+    /// Returns false outside of render, or if the plug-in did not ask for this clip.
+    bool getRegionOfInterest(const OFX::Host::ImageEffect::ClipInstance* clip, OfxRectD& roi) const;
 
 
     ////////////////////////////////////////////////////////////////////////////////

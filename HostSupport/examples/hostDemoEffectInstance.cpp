@@ -60,7 +60,39 @@ namespace MyHost {
                                      OFX::Host::ImageEffect::Descriptor& desc,
                                      const std::string& context) 
                                      : OFX::Host::ImageEffect::Instance(plugin,desc,context,false)
+                                     , _rendering(false)
   {
+    _renderScale.x = _renderScale.y = 1.;
+    _renderWindow.x1 = _renderWindow.y1 = _renderWindow.x2 = _renderWindow.y2 = 0;
+  }
+
+  void MyEffectInstance::setRenderState(const OfxPointD& renderScale, const OfxRectI& renderWindow,
+                                        const std::map<OFX::Host::ImageEffect::ClipInstance*, OfxRectD>& rois)
+  {
+    _rendering = true;
+    _renderScale = renderScale;
+    _renderWindow = renderWindow;
+    _rois = rois;
+  }
+
+  void MyEffectInstance::clearRenderState()
+  {
+    _rendering = false;
+    _rois.clear();
+  }
+
+  bool MyEffectInstance::getRegionOfInterest(const OFX::Host::ImageEffect::ClipInstance* clip, OfxRectD& roi) const
+  {
+    if (!_rendering) {
+      return false;
+    }
+    std::map<OFX::Host::ImageEffect::ClipInstance*, OfxRectD>::const_iterator it =
+      _rois.find(const_cast<OFX::Host::ImageEffect::ClipInstance*>(clip));
+    if (it == _rois.end()) {
+      return false;
+    }
+    roi = it->second;
+    return true;
   }
 
   // class member function implementation
@@ -158,7 +190,8 @@ namespace MyHost {
   /// renderScale
   void MyEffectInstance::getRenderScaleRecursive(double &x, double &y) const
   {
-    x = y = 1.0;
+    x = _renderScale.x;
+    y = _renderScale.y;
   }
 
   // make a parameter instance
