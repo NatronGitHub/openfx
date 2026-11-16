@@ -31,9 +31,13 @@ elseif(WIN32)
     # MinGW (MSYS2 CLANGARM64, llvm-mingw): the architecture ID is only set for MSVC, and
     # CMAKE_SYSTEM_PROCESSOR is the build machine's unless a toolchain file sets it, so ask the compiler
     include(CheckCXXSourceCompiles)
+    check_cxx_source_compiles("#if !defined(__arm64ec__) && !defined(_M_ARM64EC)\n#error not arm64ec\n#endif\nint main() { return 0; }"
+                              OFX_WIN_TARGET_IS_ARM64EC) # llvm-mingw Arm64EC (defines __x86_64__, not __aarch64__)
     check_cxx_source_compiles("#if !defined(__aarch64__)\n#error not aarch64\n#endif\nint main() { return 0; }"
                               OFX_WIN_TARGET_IS_AARCH64)
-    if(OFX_WIN_TARGET_IS_AARCH64)
+    if(OFX_WIN_TARGET_IS_ARM64EC)
+      set(_OFX_WINARCH "ARM64EC")
+    elseif(OFX_WIN_TARGET_IS_AARCH64)
       set(_OFX_WINARCH "ARM64")
     endif()
   endif()

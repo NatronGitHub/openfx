@@ -121,8 +121,14 @@ uninstall:
       ARCH = Win64
     endif
     # native Arm64 (MSYS2 CLANGARM64, llvm-mingw): Win-arm64 (reserved name, searched by HostSupport's
-    # native Arm64 hosts); -m32/-m64 are x86 options
-    ifneq ($(filter aarch64 arm64 ARM64,$(shell uname -m)),)
+    # native Arm64 hosts); -m32/-m64 are x86 options. Ask the compiler for its target: MSYS2's own runtime
+    # may be the emulated x86_64 build on Windows on Arm, so uname -m may say x86_64.
+    MINGW_TARGET := $(shell $(CXX) -dumpmachine 2>/dev/null)
+    ifneq ($(findstring arm64ec,$(MINGW_TARGET)),)
+      # llvm-mingw Arm64EC: the normative Win-arm64ec folder
+      BITSFLAG =
+      ARCH = Win-arm64ec
+    else ifneq ($(filter CLANGARM64%,$(OS))$(filter aarch64-% arm64-%,$(MINGW_TARGET)),)
       BITSFLAG =
       ARCH = Win-arm64
     endif
