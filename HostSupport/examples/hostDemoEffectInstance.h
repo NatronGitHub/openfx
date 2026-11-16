@@ -30,7 +30,29 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef HOST_DEMO_EFFECT_INSTANCE_H
 #define HOST_DEMO_EFFECT_INSTANCE_H
 
+#include <cstdarg> // va_list
+#include <map>
+#include <string>
+#include <vector>
+
 namespace MyHost {
+
+  /// a message the plug-in sent (message suite or persistent message), for hostDemo --report
+  struct MessageRecord {
+    std::string kind; ///< "message", "persistentMessage" or "clearPersistentMessage"
+    std::string type; ///< e.g. kOfxMessageError (empty for clearPersistentMessage)
+    std::string id;
+    std::string text; ///< the formatted message
+  };
+
+  /// a progress the plug-in started (progress suite), for hostDemo --report
+  struct ProgressRecord {
+    std::string message;
+    std::string id;
+    int         updates;    ///< the number of progressUpdate calls
+    double      lastValue;  ///< the last progressUpdate value (NaN if none)
+    bool        ended;      ///< progressEnd was called
+  };
 
   // class definition
   class MyEffectInstance : public OFX::Host::ImageEffect::Instance {
@@ -41,6 +63,11 @@ namespace MyHost {
     OfxRectI  _renderWindow;
     std::map<OFX::Host::ImageEffect::ClipInstance*, OfxRectD> _rois;
     std::string _defaultDepth; ///< the depth of the output when no input is connected (hostDemo -d)
+    std::vector<MessageRecord>  _messages; ///< the messages sent by the plug-in, in order
+    std::vector<ProgressRecord> _progress; ///< the progresses started by the plug-in, in order
+
+    /// format, print (on stdout) and record a message
+    OfxStatus recordMessage(const char* kind, const char* type, const char* id, const char* format, va_list args);
 
   public:
     MyEffectInstance(OFX::Host::ImageEffect::ImageEffectPlugin* plugin,
@@ -144,6 +171,10 @@ namespace MyHost {
     /// the default clip preferences of HostSupport, except that with no connected input the
     /// output gets the default depth (the -d option), instead of float
     virtual void setDefaultClipPreferences();
+
+    /// the messages and progresses of the plug-in, for hostDemo --report
+    const std::vector<MessageRecord>& getMessages() const { return _messages; }
+    const std::vector<ProgressRecord>& getProgress() const { return _progress; }
 
 
     ////////////////////////////////////////////////////////////////////////////////

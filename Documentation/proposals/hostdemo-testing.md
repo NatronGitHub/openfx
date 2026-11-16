@@ -28,6 +28,15 @@ The reviews found blocking problems:
 - **No parametric parameters:** `newParam` returns no instance, and `ofxhParametricParam.h` lives in Natron, not HostSupport.
 - **Windows CI doesn't build hostDemo** (`BUILD_EXAMPLE_HOSTS=OFF`).
 
+## Design principle: hostDemo lean, orchestration in Python
+
+- **hostDemo (C++) stays small and lean: one node per run.** It renders one effect with the given inputs, at the given times and render window, and reports the actions. It only grows for what must happen inside the plug-in's process, while the plug-in runs its actions: images and clip preferences, parameter values at any time (the plug-in may query other times, e.g. for motion blur), the host's advertised capabilities, and contexts. No graph, no curve types, no sequences, no comparisons.
+- **`ofxhost` / `hostDemo.py` (Python) do the orchestration,** and may be a bit richer:
+  - **tree execution:** a plug-in instance tree, not a DAG. Each node has one parent. `node.render(time, window)` pulls recursively: query the node (RoD, regions of interest, frames needed), render each child at those frames and regions to PFM, then render the node;
+  - **animation:** curves sampled into the linear keys that hostDemo takes;
+  - frame ranges, comparisons with references, and the pytest helpers.
+- `hostDemo.py` is only a sample use of that API, e.g. running a small tree described in JSON.
+
 ## Part A: hostDemo as a test host (C++, HostSupport/examples only unless noted)
 
 PRs in this order. Each adds a CI check to the existing per-PR jobs.
@@ -36,16 +45,17 @@ PRs in this order. Each adds a CI check to the existing per-PR jobs.
    - images are allocated with each clip's mapped depth (byte, short, float) and components (RGBA, RGB, Alpha), with the bounds the action asks for (RoI ∩ RoD) and the render scale;
    - the output image is created per render, and unwritten pixels are filled with a sentinel (NaN for float, 0xCD for integer depths);
    - inputs per clip: `-i Clip=solid:r,g,b,a | ramp | checker:N | none`, where `none` means disconnected; the content depends on time without wrapping;
-   - `--no-std-paths` (only OFX_PLUGIN_PATH), `--no-cache` / `--cache PATH`, and `--quiet` (no cache dump, so stdout is free for results);
+   - `--no-std-paths` (only OFX_PLUGIN_PATH), `--no-cache`, and `--quiet` (no cache dump, so stdout is free for results);
    - fix `delete[]`; clean exit codes;
    - CI: Invert on float RGBA, and a disconnected optional clip.
-2. **Exact I/O:** PFM input and output, `--stats` (min, max and mean per channel, plus a checksum), and 16-bit PPM.
+2. **Exact I/O:** PFM input and output (little-endian), with the min, max and mean per channel and a checksum of each output image in the report.
 3. **Report:** `--report out.json` with the results of isIdentity, getRegionOfDefinition, getRegionsOfInterest, getFramesNeeded, getTimeDomain and getClipPreferences, plus messages and progress. `--describe` outputs JSON (params with type, default, range and options; clips; contexts; flags). Both share one JSON writer. Parameters can be set after createInstance, which fires `instanceChanged`.
-4. **Host profiles:** `--host minimal | natron-like` sets the advertised capabilities: RGB, multi-resolution, multiple clip depths and PARs, contexts, and explicitly no GPU. Tests run under at least two profiles.
-5. **Time and scale:** frame range, fractional times, render scale, render window, project size/PAR, and field.
-6. **Animation:** keys with linear interpolation, plus getDerivative/integrate. Needed for Transform motion blur.
-7. **Readers and writers:** reader and writer contexts, file paths, and the OCIO configuration (the `OCIO` environment variable). Covers openfx-io and Arena's readers.
-8. **Later:**
+4. **Node primitives for the Python tree:** `--frames t0,t1,…` (any times, fractional too), `--window x1,y1,x2,y2`, a positioned PFM input (`file:x.pfm@x1,y1`, so a child's output keeps its bounds), and `--query` (the report without rendering: RoD, regions of interest, frames needed). Render scale comes with `--window`.
+5. **Animation keys:** `name@t=value`, linear interpolation only, with getDerivative/integrate. Python samples any richer curve into these keys.
+6. **Host profiles:** one `--host minimal|natron-like` flag for the advertised capabilities (RGB, multi-resolution, multiple clip depths and PARs, contexts, no GPU).
+7. **Readers and writers:** the reader and writer contexts (file paths are just string params), and the `OCIO` environment variable passed through.
+8. **Python (Part B):** `ofxhost.Node(plugin, context, params, inputs={clip: Node | array | pattern})` with `render(time, window)` (tree execution); animation helpers that produce keys; `hostDemo.py` as a sample tree runner.
+9. **Later:**
    - multi-plane and multi-view (Nuke/Natron extensions);
    - concurrent host-side renders, honouring `kOfxImageEffectPluginRenderThreadSafety`. A real multithread suite needs `OFX_SUPPORTS_MULTITHREAD`, which changes HostSupport's `ImageEffect::Host` vtable (9 pure virtuals), so it waits for the suites proposal;
    - headless overlays: the DrawSuite plumbing in ofxhInteract.cpp, plus pen events and the cursor (#63);
@@ -55,7 +65,7 @@ Builds use the same extension flags as the consumers (NATRON, NUKE...), so Natro
 
 ## Implementation status
 
-- **PR 1 is implemented:** images follow the clip preferences, a new sentinel-filled output image per render, `-d byte|short|float`, `-i Clip=default|solid:r,g,b,a|ramp|checker:N|none`, `--no-std-paths`, `--no-cache`/`--cache PATH`, `--quiet`, and the CI checks (Invert on float RGBA, basic plug-in with its Mask disconnected).
+- **PR 1 is implemented:** images follow the clip preferences, a new sentinel-filled output image per render, `-d byte|short|float`, `-i Clip=default|solid:r,g,b,a|ramp|checker:N|none`, `--no-std-paths`, `--no-cache`, `--quiet`, and the CI checks (Invert on float RGBA, basic plug-in with its Mask disconnected).
 - **PR 1 review fixes:**
   - a mandatory clip can't be disconnected (`checkClipConnectionStatus`): "Any clip that is not optional will *always* be connected during a render action";
   - a disconnected clip reports `kOfxBitDepthNone` and `kOfxImageComponentNone` (unmapped and mapped) and an empty RoD; with no connected input, the output gets the `-d` depth;
@@ -64,13 +74,21 @@ Builds use the same extension flags as the consumers (NATRON, NUKE...), so Natro
   - unwritten float pixels (NaN) fail the run, unless `--allow-unwritten`. The 0xCD sentinel of byte and short images can't be detected, so use `-d float` for that check;
   - RGB inputs are opaque, RGBA and Alpha inputs are unpremultiplied; the output premultiplication comes from the clip preferences;
   - PPM rows are written top row first, with the header comments before the maxval;
-  - CI: exact values for byte, short and float Invert, the Mask (disconnected, alpha 0, checker), mandatory clips, number parsing, unwritten pixels (PropTester writes nothing), and the output size of a plug-in that sets its RoD (the dot example). The Windows job compiles the example hosts.
+  - CI: exact values for byte and float Invert, an Alpha Mask, a mandatory clip, number parsing, unwritten pixels (PropTester writes nothing), and the output size of a plug-in that sets its RoD (the dot example). The Windows job compiles the example hosts.
 - **PR 2 is implemented:** exact I/O.
-  - `--format ppm|ppm16|pfm`: ppm16 is P6 with maxval 65535, big-endian, top row first. PFM is little-endian (scale -1.0), with rows "in left to right, bottom to top order" ([Debevec's PFM page](https://www.pauldebevec.com/Research/HDR/PFM/)), the same order as OFX images and the opposite of PPM. RGB and RGBA images are written as PF (RGB), with the alpha of RGBA images in a separate `<prefix>.<t>.alpha.pfm` (Pf); Alpha images are Pf. Byte and short values are converted to float in [0,1].
-  - `-i Clip=file:path.pfm`: PF or Pf, either byte order, the same image at all times. Each file pixel is a clip pixel at render scale 1: the clip's RoD is the file size in pixels at the project PAR (hostDemo doesn't support multiple clip PARs). PF gives (r,g,b,1), Pf gives r=g=b=a. The values are converted to the clip's mapped depth and components. Malformed files (identifier, size, scale, truncated or trailing data) are rejected.
-  - `--stats`: one line per output image on stdout (also with `--quiet`): size, bounds, depth, components, per-component min, max and mean (native range, NaN left out), the number of NaN pixels, and a CRC-32 (zlib's) of the pixel bytes within the bounds, row by row from the bottom, components in little-endian order.
-  - CI: exact `--stats` for a solid float Invert, a checked-in crc32, the ppm16 header and values, a PFM round trip (the file orientation is checked at known pixels, and Invert twice gives the same stats and crc32), Pf input in both byte orders, and malformed files. The checks were mutation-tested: flipped PFM rows, a positive scale on little-endian data, and a wrong size are each caught.
-- **Part B (Python wrapper) is implemented** in `HostSupport/examples/python`: the `ofxhost` package (`render()`, `describe()`, PFM read/write, `--stats` parsing), `ofxhost.testing` (`assert_close`, a `hostdemo` fixture that skips when hostDemo isn't built), and a thin `hostDemo.py` command line. It doesn't use a JSON job file: `render()` builds the hostDemo command line (`--no-std-paths --no-cache --quiet --format pfm --stats`, `-i Clip=file:` for NumPy inputs) and runs it in a temporary directory, with `OFX_PLUGIN_PATH` from the given bundles and a timeout. `--report` and `--describe` (PR 3) are used when `hostDemo -h` lists them; until then `.report` is None and the `--stats` lines are the results. hostDemo's PFM input has no alpha (PF gives alpha 1), so RGBA NumPy inputs must have alpha 1. The pytest suite (Invert at float and byte depths, a disconnected optional Mask, a disconnected mandatory clip, PFM round trip and orientation, report detection with a fake host) runs in the Linux CI job.
+  - `--format ppm|pfm`. PFM is little-endian (scale -1.0), with rows "in left to right, bottom to top order" ([Debevec's PFM page](https://www.pauldebevec.com/Research/HDR/PFM/)), the same order as OFX images and the opposite of PPM. RGB and RGBA images are written as PF (RGB), with the alpha of RGBA images in a separate `<prefix>.<t>.alpha.pfm` (Pf); Alpha images are Pf. Byte and short values are converted to float in [0,1].
+  - `-i Clip=file:path.pfm`: PF or Pf, little-endian only (a positive scale is rejected), the same image at all times. Each file pixel is a clip pixel at render scale 1: the clip's RoD is the file size in pixels at the project PAR (hostDemo doesn't support multiple clip PARs). PF gives (r,g,b,1), Pf gives r=g=b=a. The values are converted to the clip's mapped depth and components. Malformed files (identifier, size, scale, truncated or trailing data) are rejected.
+  - The output numbers (size, bounds, depth, components, per-component min, max and mean in the native range with NaN left out, the number of NaN pixels, and a CRC-32 (zlib's) of the pixel bytes within the bounds, row by row from the bottom, components little-endian) are in the report's `renders[].output`.
+  - CI: a PFM round trip (the file orientation is checked at known pixels) and the rejection of a big-endian file.
+- **Part B (Python wrapper) is implemented** in `HostSupport/examples/python`: the `ofxhost` package (`render()`, `describe()`, PFM read/write), `ofxhost.testing` (`assert_close`, a `hostdemo` fixture that skips when hostDemo isn't built), and a thin `hostDemo.py` command line. It doesn't use a JSON job file: `render()` builds the hostDemo command line (`--no-std-paths --no-cache --quiet --format pfm --report`, `-i Clip=file:` for NumPy inputs) and runs it in a temporary directory, with `OFX_PLUGIN_PATH` from the given bundles and a timeout; hostDemo renders frames 0 and 1, and the output numbers come from `.report`. ofxhost and hostDemo ship together, so there is no feature detection. `hostDemo.py` saves the outputs as `.npy`. hostDemo's PFM input has no alpha (PF gives alpha 1), so RGBA NumPy inputs must have alpha 1. The pytest suite covers only the wrapper (NumPy/PFM round trip, orientation, an error on failure, one Invert; hostDemo's semantics are checked by the CI script) and runs in the Linux CI job.
+
+- **PR 3 is implemented:** the report.
+  - `--report out.json`, written after the run even if it failed (`ok`, `exitStatus`): the plug-in (id, version, label), context, host name and profile, depth and inputs (`-i` spec, connected, optional, mask); the actions in order with their status (`ok`, and the status name, e.g. `kOfxStatReplyDefault`); the clip preferences (per clip depth, components, PAR and unmapped values, plus output premultiplication, fielding, frame rate, continuous samples and frame varying); the time domain (general context only: "Only effects instantiated in the General Context can have this called on them"); then one `renders` item per time and view, with the input RoDs, getRegionOfDefinition, the render window, isIdentity (identity, clip and time), getFramesNeeded (per input), getRegionsOfInterest (per input, for the render window), the render status and the output's numbers and files. At the end come the parameter values and enabled/secret states, the messages (message suite and persistent messages: type, id, text) and the progresses (start, end, update count). hostDemo now calls isIdentity and getFramesNeeded before each render; an identity effect is still rendered, so its output can be checked.
+  - `--describe out.json`: no instance. For each context, the effect flags (supported depths, tiles, multi-resolution, temporal access, multiple clip depths/PARs, thread safety, GPU flags...), the clips (optional, mask, supported components, temporal access, tiles...) and the params in definition order (type, label, hint, default, min/max, display min/max, choice options, dimension, secret, parent group and page).
+  - Both use one small C++98 JSON writer (`hostDemoJson.h`): strings are escaped (invalid UTF-8 becomes U+FFFD), numbers have 17 significant digits in the classic locale, NaN is null. Keys are camelCase; depths and components are OFX strings, except in the output numbers, which use short names (byte, RGBA...).
+  - Command-line parameters are set after createInstance and the first getClipPreferences, one at a time, each followed by begin/instanceChanged/end (kOfxChangeUserEdited, time 0); getClipPreferences runs again if a slave param changed. Setting values before createInstance (as when a host loads a project) isn't offered: a user edit is what tests the changedParam logic, and no CI check needed the old order.
+  - CI (checked with Python's standard `json` module): the Invert report (RoD = input RoD, not an identity, frames needed [t,t], clip preferences, exact output numbers), `--describe` of the basic plug-in (clips, mask, params, ranges, pages, groups), instanceChanged (the basic plug-in disables its component scales), the dot example's RoD and output size, a failed run's report, and string escaping. The checks were mutation-tested: a wrong RoD, a missing field, no instanceChanged, a wrong mask flag, a wrong identity, a missing quote escape and no report on failure are each caught.
+- **Trimmed option set:** `-h -p -m -c -o --format ppm|pfm -d -i -s --report --describe --no-std-paths --no-cache --quiet --allow-unwritten`. `--stats`, `--format ppm16`, `--cache PATH`, big-endian PFM input, and ofxhost's `render(frames=)`, feature detection and `hostDemo.py --describe`/`-f`/`--save pfm` were removed: the report carries the output numbers, and the only external user (openfx-supportext's `tests/hostdemo/run.sh`) needs only `--no-std-paths --no-cache -p -c -o` and parameters. `hostDemo -h` has one line per option; the file formats and JSON schemas are in `HostSupport/examples/python/README.md`.
 
 ## Part B: Python test wrapper (`ofxhost`), subprocess first
 
@@ -84,7 +102,8 @@ import ofxhost, numpy as np
 r = ofxhost.render("Misc/Misc.ofx.bundle", "net.sf.openfx.GammaPlugin", context="filter",
                    inputs={"Source": src}, params={"value": (2.2, 2.2, 2.2, 1.0)}, depth="float")
 assert np.allclose(r.output[..., :3], src[..., :3] ** (1 / 2.2), atol=1e-5)
-assert r.report["regionOfDefinition"] == r.report["inputs"]["Source"]["regionOfDefinition"]
+frame = r.report["renders"][0]
+assert frame["regionOfDefinition"]["rod"] == frame["inputs"]["Source"]["regionOfDefinition"]
 ```
 
 In-process bindings (nanobind) are deferred until file I/O is a measured bottleneck. Stable-ABI wheels would need Python ≥ 3.12.
@@ -99,4 +118,4 @@ In-process bindings (nanobind) are deferred until file I/O is a measured bottlen
 - Where do plug-in tests live: in each consumer repo (proposed), or a shared test repo?
 - Minimum Python for the wrapper: 3.10 is proposed, the same as `scripts/check-props.py`.
 - Is NumPy acceptable as a test-only dependency? Proposed: yes.
-- Reference images: committed in each consumer repo, or regenerated? Proposed: assertions and `--stats` first, small reference PFMs only where needed.
+- Reference images: committed in each consumer repo, or regenerated? Proposed: assertions and the report's output numbers first, small reference PFMs only where needed.

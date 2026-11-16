@@ -51,7 +51,7 @@ namespace MyHost {
     PFMImage() : width(0), height(0), nComps(0) {}
   };
 
-  /// read a PFM file of either byte order (the sign of the scale; its magnitude is ignored).
+  /// read a little-endian PFM file (negative scale; its magnitude is ignored).
   /// Returns false, with the reason in error, if the file can't be read or is malformed: bad
   /// identifier, size or scale, or pixel data that doesn't match the size (truncated or trailing).
   bool readPFM(const std::string& path, PFMImage& image, std::string& error);

@@ -32,7 +32,7 @@ modification, are permitted provided that the following conditions are met:
 #include <cerrno>
 #include <climits>
 #include <cstdio> // fopen (binary files)
-#include <iomanip> // setprecision
+#include <iomanip> // setw
 #include <iostream>
 #include <limits>
 #include <fstream>
@@ -48,6 +48,7 @@ modification, are permitted provided that the following conditions are met:
 #endif
 #include <cmath> // ceil
 #include <list>
+#include <set>
 #include <map>
 #include <utility> // pair
 
@@ -55,6 +56,7 @@ modification, are permitted provided that the following conditions are met:
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
 #include "ofxPixels.h"
+#include "ofxGPURender.h" // kOfxImageEffectPropCudaRenderSupported...
 #ifdef OFX_EXTENSIONS_NUKE
 #include "nuke/fnOfxExtensions.h" // kFnOfxImagePlaneColour
 #endif
@@ -70,8 +72,10 @@ modification, are permitted provided that the following conditions are met:
 #include "ofxhPluginCache.h"
 #include "ofxhHost.h"
 #include "ofxhImageEffectAPI.h"
+#include "ofxhUtilities.h" // StatStr
 
 // my host
+#include "hostDemoJson.h"
 #include "hostDemoHostDescriptor.h"
 #include "hostDemoEffectInstance.h"
 #include "hostDemoClipInstance.h"
@@ -97,12 +101,11 @@ modification, are permitted provided that the following conditions are met:
 // Images have the depth and components that the clip preferences map each clip to.
 //
 // Inputs may also be read from PFM files (-i Clip=file:path.pfm); the output is written as PPM
-// (8 or 16 bits) or PFM files, and --stats prints a summary and a checksum of each output image.
+// or PFM files, and --report writes a JSON summary of the run.
 
 // The output file formats (--format)
 enum OutputFormat {
   eFormatPPM,   ///< plain PPM (P3), 8 bits, top row first
-  eFormatPPM16, ///< binary PPM (P6), maxval 65535 (big-endian), top row first
   eFormatPFM    ///< PFM, little-endian (scale -1.0), bottom row first
 };
 
@@ -129,15 +132,6 @@ static long countNaNPixels(const MyHost::MyImage& im)
     }
   }
   return n;
-}
-
-// clamp to [0,1]; NaN gives 0
-static double clamp01(double v)
-{
-  if (!(v > 0.)) {
-    return 0.;
-  }
-  return v > 1. ? 1. : v;
 }
 
 // Write the image (its bounds, i.e. the render window) to fname as a plain PPM, top row first
@@ -183,45 +177,6 @@ static bool closeBinary(FILE* f, const std::string& fname)
     return false;
   }
   return true;
-}
-
-// Write the image as a 16-bit binary PPM: P6, maxval 65535, big-endian ("the most significant
-// byte is first"), top row first. Byte values are multiplied by 257, float values are clamped to
-// [0,1] (NaN gives 0), and Alpha images are written as grey levels.
-static bool exportToPPM16(const std::string& fname, const MyHost::MyImage& im)
-{
-  FILE* f = std::fopen(fname.c_str(), "wb");
-  if (!f) {
-    std::cerr << "Error: cannot open " << fname << " for writing" << std::endl;
-    return false;
-  }
-  const OfxRectI& b = im.getBounds();
-  const int w = b.x2 - b.x1;
-  std::fprintf(f, "P6\n# %s %s, converted to 16 bits\n# bounds %d %d %d %d\n%d %d\n65535\n",
-               im.getDepth().c_str(), im.getComponentsString().c_str(), b.x1, b.y1, b.x2, b.y2, w, b.y2 - b.y1);
-  const int nComps = im.getNComponents();
-  const int bpc = im.getBytesPerComponent();
-  std::vector<unsigned char> row((size_t)w * 6);
-  for (int y = b.y2 - 1; y >= b.y1; --y) {
-    for (int x = b.x1; x < b.x2; ++x) {
-      for (int c = 0; c < 3; ++c) {
-        const double v = im.getComponent(x, y, nComps == 1 ? 0 : c);
-        unsigned int u;
-        if (bpc == 1) {
-          u = (unsigned int)v * 257;
-        } else if (bpc == 2) {
-          u = (unsigned int)v;
-        } else {
-          u = (unsigned int)std::floor(clamp01(v) * 65535. + 0.5);
-        }
-        unsigned char* p = &row[((size_t)(x - b.x1) * 3 + c) * 2];
-        p[0] = (unsigned char)(u >> 8);
-        p[1] = (unsigned char)(u & 0xff);
-      }
-    }
-    std::fwrite(&row[0], 1, row.size(), f);
-  }
-  return closeBinary(f, fname);
 }
 
 // Write component c0 (nOut = 1, "Pf") or components 0..2 (nOut = 3, "PF") of the image as a PFM:
@@ -294,32 +249,41 @@ static unsigned long crc32Update(unsigned long crc, const unsigned char* p, size
   return ~crc & 0xFFFFFFFFUL;
 }
 
-// print a value of the --stats line: integers for byte and short images, else a float with
-// enough digits to round-trip ("nan" if there was no value)
-static void printStatValue(std::ostream& os, double v, bool integer)
+// the numbers of an output image, for the report (see the README)
+struct ImageStats {
+  OfxRectI bounds;
+  int nComps;
+  int bytesPerComponent;
+  double min[4], max[4], mean[4]; ///< NaN if there is no value
+  long nanPixels;
+  unsigned long crc32;
+};
+
+static const char* statsDepthName(int bytesPerComponent)
 {
-  if (v != v) {
-    os << "nan";
-  } else if (integer) {
-    os << (long)v;
-  } else {
-    std::ostringstream ss; // %.9g
-    ss << std::setprecision(9) << v;
-    os << ss.str();
-  }
+  return bytesPerComponent == 1 ? "byte" : bytesPerComponent == 2 ? "short" : "float";
 }
 
-// Print the --stats line of the image on stdout (see usage())
-static void printStats(const MyHost::MyImage& im, OfxTime t, int view)
+static const char* statsComponentsName(int nComps)
 {
+  return nComps == 4 ? "RGBA" : nComps == 3 ? "RGB" : "Alpha";
+}
+
+static ImageStats computeStats(const MyHost::MyImage& im)
+{
+  ImageStats st;
   const OfxRectI& b = im.getBounds();
+  st.bounds = b;
   const int nComps = im.getNComponents();
   const int bpc = im.getBytesPerComponent();
+  st.nComps = nComps;
+  st.bytesPerComponent = bpc;
   const double nan = std::numeric_limits<double>::quiet_NaN();
-  double mn[4] = { nan, nan, nan, nan };
-  double mx[4] = { nan, nan, nan, nan };
   double sum[4] = { 0., 0., 0., 0. };
   long count[4] = { 0, 0, 0, 0 };
+  for (int c = 0; c < 4; ++c) {
+    st.min[c] = st.max[c] = st.mean[c] = nan;
+  }
   long nanPixels = 0;
   unsigned long crc = 0;
   // the bytes of a component, in little-endian order whatever the host's byte order
@@ -344,11 +308,11 @@ static void printStats(const MyHost::MyImage& im, OfxTime t, int view)
           isNaN = true;
           continue;
         }
-        if (count[c] == 0 || v < mn[c]) {
-          mn[c] = v;
+        if (count[c] == 0 || v < st.min[c]) {
+          st.min[c] = v;
         }
-        if (count[c] == 0 || v > mx[c]) {
-          mx[c] = v;
+        if (count[c] == 0 || v > st.max[c]) {
+          st.max[c] = v;
         }
         sum[c] += v;
         ++count[c];
@@ -358,102 +322,385 @@ static void printStats(const MyHost::MyImage& im, OfxTime t, int view)
       }
     }
   }
-  std::ostringstream os;
-  os << "stats frame=" << t << " view=" << view << " w=" << b.x2 - b.x1 << " h=" << b.y2 - b.y1
-     << " bounds=" << b.x1 << "," << b.y1 << "," << b.x2 << "," << b.y2
-     << " depth=" << (bpc == 1 ? "byte" : bpc == 2 ? "short" : "float")
-     << " comps=" << (nComps == 4 ? "RGBA" : nComps == 3 ? "RGB" : "Alpha");
-  const char* names[3] = { " min=", " max=", " mean=" };
-  for (int k = 0; k < 3; ++k) {
-    os << names[k];
-    for (int c = 0; c < nComps; ++c) {
-      if (c > 0) {
-        os << ",";
-      }
-      const double v = (k == 0) ? mn[c] : (k == 1) ? mx[c] : (count[c] > 0 ? sum[c] / count[c] : nan);
-      printStatValue(os, v, bpc != 4 && k != 2);
+  for (int c = 0; c < nComps; ++c) {
+    if (count[c] > 0) {
+      st.mean[c] = sum[c] / count[c];
     }
   }
-  os << " nan=" << nanPixels << " crc32=" << std::hex << std::setw(8) << std::setfill('0') << crc;
-  std::cout << os.str() << std::endl;
+  st.nanPixels = nanPixels;
+  st.crc32 = crc;
+  return st;
+}
+
+static std::string crc32String(unsigned long crc)
+{
+  std::ostringstream os;
+  os << std::hex << std::setw(8) << std::setfill('0') << crc;
+  return os.str();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// JSON for --report and --describe (see python/README.md)
+
+using MyHost::Json;
+
+static Json rectJson(const OfxRectD& r)
+{
+  Json j = Json::array();
+  j.push(r.x1); j.push(r.y1); j.push(r.x2); j.push(r.y2);
+  return j;
+}
+
+static Json rectJson(const OfxRectI& r)
+{
+  Json j = Json::array();
+  j.push(r.x1); j.push(r.y1); j.push(r.x2); j.push(r.y2);
+  return j;
+}
+
+static Json pointJson(double x, double y)
+{
+  Json j = Json::array();
+  j.push(x); j.push(y);
+  return j;
+}
+
+static bool statusOK(OfxStatus stat)
+{
+  return stat == kOfxStatOK || stat == kOfxStatReplyDefault;
+}
+
+// the result of an action: "ok" (it succeeded: kOfxStatOK or kOfxStatReplyDefault), "status" (the
+// name of the status code)
+static Json actionJson(OfxStatus stat)
+{
+  Json j = Json::object();
+  j["ok"] = statusOK(stat);
+  j["status"] = OFX::StatStr(stat);
+  return j;
+}
+
+// the result of an action for which HostSupport only says whether it succeeded: the status is null
+static Json actionJson(bool ok)
+{
+  Json j = Json::object();
+  j["ok"] = ok;
+  j["status"] = Json();
+  return j;
+}
+
+// an entry of the "actions" list
+static Json namedActionJson(const char* action, const Json& result)
+{
+  Json j = Json::object();
+  j["action"] = action;
+  j["ok"] = result.get("ok");
+  j["status"] = result.get("status");
+  return j;
+}
+
+// the numbers of an output image, and the files it was written to
+static Json statsJson(const ImageStats& st, const std::vector<std::string>& files)
+{
+  Json j = Json::object();
+  const OfxRectI& b = st.bounds;
+  j["w"] = b.x2 - b.x1;
+  j["h"] = b.y2 - b.y1;
+  j["bounds"] = rectJson(b);
+  j["depth"] = statsDepthName(st.bytesPerComponent);
+  j["comps"] = statsComponentsName(st.nComps);
+  const char* names[3] = { "min", "max", "mean" };
+  for (int k = 0; k < 3; ++k) {
+    Json& a = j[names[k]] = Json::array();
+    for (int c = 0; c < st.nComps; ++c) {
+      a.push((k == 0) ? st.min[c] : (k == 1) ? st.max[c] : st.mean[c]); // NaN (no value) is null
+    }
+  }
+  j["nan"] = st.nanPixels;
+  j["crc32"] = crc32String(st.crc32);
+  Json& f = j["files"] = Json::array();
+  for (size_t i = 0; i < files.size(); ++i) {
+    f.push(files[i]);
+  }
+  return j;
+}
+
+// the values of the property name of props: a scalar if it has one value and !forceArray, else an
+// array; null if the property doesn't exist (or is a pointer)
+static Json propJson(const OFX::Host::Property::Set& props, const char* name, bool forceArray = false)
+{
+  OFX::Host::Property::Property* p = props.fetchProperty(name);
+  if (!p || p->getType() == OFX::Host::Property::ePointer) {
+    return Json();
+  }
+  const int n = p->getDimension();
+  Json a = Json::array();
+  for (int i = 0; i < n; ++i) {
+    switch (p->getType()) {
+    case OFX::Host::Property::eInt:
+      a.push(props.getIntProperty(name, i));
+      break;
+    case OFX::Host::Property::eDouble:
+      a.push(props.getDoubleProperty(name, i));
+      break;
+    default:
+      a.push(props.getStringProperty(name, i));
+      break;
+    }
+  }
+  return (n == 1 && !forceArray) ? a.at(0) : a;
+}
+
+// an int property as a boolean (null if it doesn't exist)
+static Json propBoolJson(const OFX::Host::Property::Set& props, const char* name)
+{
+  OFX::Host::Property::Property* p = props.fetchProperty(name);
+  if (!p || p->getType() != OFX::Host::Property::eInt || p->getDimension() < 1) {
+    return Json();
+  }
+  return Json(props.getIntProperty(name) != 0);
+}
+
+// the plug-in identification, for --report and --describe
+static Json pluginJson(OFX::Host::ImageEffect::ImageEffectPlugin* plugin)
+{
+  Json j = Json::object();
+  j["id"] = plugin->getIdentifier();
+  j["versionMajor"] = plugin->getVersionMajor();
+  j["versionMinor"] = plugin->getVersionMinor();
+  const OFX::Host::ImageEffect::Descriptor& d = plugin->getDescriptor();
+  j["label"] = d.getLabel();
+  j["grouping"] = d.getPluginGrouping();
+  j["filePath"] = propJson(d.getProps(), kOfxPluginPropFilePath);
+  return j;
+}
+
+// the effect flags of a descriptor, for --describe
+static Json effectFlagsJson(const OFX::Host::Property::Set& p)
+{
+  Json j = Json::object();
+  j["supportedPixelDepths"] = propJson(p, kOfxImageEffectPropSupportedPixelDepths, true);
+  j["supportsTiles"] = propBoolJson(p, kOfxImageEffectPropSupportsTiles);
+  j["supportsMultiResolution"] = propBoolJson(p, kOfxImageEffectPropSupportsMultiResolution);
+  j["temporalClipAccess"] = propBoolJson(p, kOfxImageEffectPropTemporalClipAccess);
+  j["supportsMultipleClipDepths"] = propBoolJson(p, kOfxImageEffectPropSupportsMultipleClipDepths);
+  j["supportsMultipleClipPARs"] = propBoolJson(p, kOfxImageEffectPropSupportsMultipleClipPARs);
+  j["fieldRenderTwiceAlways"] = propBoolJson(p, kOfxImageEffectPluginPropFieldRenderTwiceAlways);
+  j["singleInstance"] = propBoolJson(p, kOfxImageEffectPluginPropSingleInstance);
+  j["hostFrameThreading"] = propBoolJson(p, kOfxImageEffectPluginPropHostFrameThreading);
+  j["renderThreadSafety"] = propJson(p, kOfxImageEffectPluginRenderThreadSafety);
+  j["sequentialRender"] = propJson(p, kOfxImageEffectInstancePropSequentialRender);
+  j["clipPreferencesSlaveParams"] = propJson(p, kOfxImageEffectPropClipPreferencesSlaveParam, true);
+  // GPU rendering: "false", "true" or "needed"
+  j["openGLRenderSupported"] = propJson(p, kOfxImageEffectPropOpenGLRenderSupported);
+  j["openCLRenderSupported"] = propJson(p, kOfxImageEffectPropOpenCLRenderSupported);
+  j["cudaRenderSupported"] = propJson(p, kOfxImageEffectPropCudaRenderSupported);
+  j["cudaStreamSupported"] = propJson(p, kOfxImageEffectPropCudaStreamSupported);
+  j["metalRenderSupported"] = propJson(p, kOfxImageEffectPropMetalRenderSupported);
+  j["cpuRenderSupported"] = propJson(p, kOfxImageEffectPropCPURenderSupported);
+  return j;
+}
+
+// a clip descriptor, for --describe
+static Json clipJson(const OFX::Host::ImageEffect::ClipDescriptor& c)
+{
+  const OFX::Host::Property::Set& p = c.getProps();
+  Json j = Json::object();
+  j["name"] = c.getName();
+  j["label"] = c.getLabel();
+  // the hint and secret properties of clips are Natron extensions: null if the build doesn't have them
+  j["hint"] = propJson(p, kOfxParamPropHint);
+  j["optional"] = c.isOptional();
+  j["isMask"] = c.isMask();
+  j["supportedComponents"] = propJson(p, kOfxImageEffectPropSupportedComponents, true);
+  j["temporalClipAccess"] = c.temporalAccess();
+  j["supportsTiles"] = c.supportsTiles();
+  j["fieldExtraction"] = c.getFieldExtraction();
+  j["secret"] = propBoolJson(p, kOfxParamPropSecret);
+  return j;
+}
+
+// a parameter descriptor, for --describe. page is the page parameter that lists it as a child.
+static Json paramJson(const OFX::Host::Param::Descriptor& d, const std::string& page)
+{
+  const OFX::Host::Property::Set& p = d.getProperties();
+  Json j = Json::object();
+  j["name"] = d.getName();
+  j["type"] = d.getType();
+  j["label"] = d.getLabel();
+  j["hint"] = d.getHint();
+  j["scriptName"] = d.getScriptName();
+  j["secret"] = d.getSecret();
+  j["enabled"] = d.getEnabled();
+  j["parent"] = d.getParentName();
+  j["page"] = page;
+  // the dimension is the number of values of the default (1 for strings, booleans, choices...)
+  OFX::Host::Property::Property* def = p.fetchProperty(kOfxParamPropDefault);
+  j["dimension"] = def ? def->getDimension() : 0;
+  j["default"] = propJson(p, kOfxParamPropDefault);
+  j["min"] = propJson(p, kOfxParamPropMin);
+  j["max"] = propJson(p, kOfxParamPropMax);
+  j["displayMin"] = propJson(p, kOfxParamPropDisplayMin);
+  j["displayMax"] = propJson(p, kOfxParamPropDisplayMax);
+  j["doubleType"] = propJson(p, kOfxParamPropDoubleType);
+  j["choiceOptions"] = propJson(p, kOfxParamPropChoiceOption, true);
+  j["animates"] = propBoolJson(p, kOfxParamPropAnimates);
+  j["evaluateOnChange"] = propBoolJson(p, kOfxParamPropEvaluateOnChange);
+  j["children"] = propJson(p, kOfxParamPropPageChild, true); // pages only
+  return j;
+}
+
+// --describe: the plug-in's contexts, and in each context its effect flags, clips and parameters.
+// Returns false if a context couldn't be described.
+static bool describePlugin(OFX::Host::ImageEffect::ImageEffectPlugin* plugin, Json& out)
+{
+  bool ok = true;
+  out["schema"] = "hostDemo.describe";
+  out["schemaVersion"] = 1;
+  out["plugin"] = pluginJson(plugin);
+  Json& contexts = out["contexts"] = Json::object();
+  const std::set<std::string>& cs = plugin->getContexts();
+  for (std::set<std::string>::const_iterator it = cs.begin(); it != cs.end(); ++it) {
+    Json& c = contexts[*it] = Json::object();
+    OFX::Host::ImageEffect::Descriptor* d = plugin->getContext(*it);
+    if (!d) {
+      std::cerr << "Error: the describe in context action failed for the " << *it << " context" << std::endl;
+      c["ok"] = false;
+      ok = false;
+      continue;
+    }
+    c["ok"] = true;
+    c["flags"] = effectFlagsJson(d->getProps());
+    Json& clips = c["clips"] = Json::array();
+    const std::vector<OFX::Host::ImageEffect::ClipDescriptor*>& cl = d->getClipsByOrder();
+    for (size_t k = 0; k < cl.size(); ++k) {
+      clips.push(clipJson(*cl[k]));
+    }
+    // the page of each parameter
+    const std::list<OFX::Host::Param::Descriptor*>& params = d->getParamList();
+    std::map<std::string, std::string> pageOf;
+    for (std::list<OFX::Host::Param::Descriptor*>::const_iterator p = params.begin(); p != params.end(); ++p) {
+      if ((*p)->getType() == kOfxParamTypePage) {
+        const OFX::Host::Property::Set& props = (*p)->getProperties();
+        const int n = props.getDimension(kOfxParamPropPageChild);
+        for (int i = 0; i < n; ++i) {
+          pageOf.insert(std::make_pair(props.getStringProperty(kOfxParamPropPageChild, i), (*p)->getName()));
+        }
+      }
+    }
+    Json& ps = c["params"] = Json::array();
+    for (std::list<OFX::Host::Param::Descriptor*>::const_iterator p = params.begin(); p != params.end(); ++p) {
+      std::map<std::string, std::string>::const_iterator pg = pageOf.find((*p)->getName());
+      ps.push(paramJson(**p, pg == pageOf.end() ? std::string() : pg->second));
+    }
+  }
+  out["ok"] = ok;
+  return ok;
+}
+
+// the current value of a parameter instance, for --report: a number, a boolean, a string, an array
+// (multi-dimensional parameters), or null (groups, pages, push buttons, bytes, or on failure)
+static Json paramValueJson(OFX::Host::Param::Instance* param)
+{
+  using namespace OFX::Host::Param;
+  double d[4];
+  int i[3];
+  bool b;
+  std::string s;
+  Json a = Json::array();
+  if (StringInstance* p = dynamic_cast<StringInstance*>(param)) { // String and Custom
+    if (p->get(s) == kOfxStatOK) return Json(s);
+  } else if (StrChoiceInstance* p = dynamic_cast<StrChoiceInstance*>(param)) {
+    if (p->get(s) == kOfxStatOK) return Json(s);
+  } else if (BooleanInstance* p = dynamic_cast<BooleanInstance*>(param)) {
+    if (p->get(b) == kOfxStatOK) return Json(b);
+  } else if (IntegerInstance* p = dynamic_cast<IntegerInstance*>(param)) {
+    if (p->get(i[0]) == kOfxStatOK) return Json(i[0]);
+  } else if (ChoiceInstance* p = dynamic_cast<ChoiceInstance*>(param)) {
+    if (p->get(i[0]) == kOfxStatOK) return Json(i[0]);
+  } else if (DoubleInstance* p = dynamic_cast<DoubleInstance*>(param)) {
+    if (p->get(d[0]) == kOfxStatOK) return Json(d[0]);
+  } else if (Double2DInstance* p = dynamic_cast<Double2DInstance*>(param)) {
+    if (p->get(d[0], d[1]) == kOfxStatOK) { a.push(d[0]); a.push(d[1]); return a; }
+  } else if (Integer2DInstance* p = dynamic_cast<Integer2DInstance*>(param)) {
+    if (p->get(i[0], i[1]) == kOfxStatOK) { a.push(i[0]); a.push(i[1]); return a; }
+  } else if (Double3DInstance* p = dynamic_cast<Double3DInstance*>(param)) {
+    if (p->get(d[0], d[1], d[2]) == kOfxStatOK) { a.push(d[0]); a.push(d[1]); a.push(d[2]); return a; }
+  } else if (Integer3DInstance* p = dynamic_cast<Integer3DInstance*>(param)) {
+    if (p->get(i[0], i[1], i[2]) == kOfxStatOK) { a.push(i[0]); a.push(i[1]); a.push(i[2]); return a; }
+  } else if (RGBInstance* p = dynamic_cast<RGBInstance*>(param)) {
+    if (p->get(d[0], d[1], d[2]) == kOfxStatOK) { a.push(d[0]); a.push(d[1]); a.push(d[2]); return a; }
+  } else if (RGBAInstance* p = dynamic_cast<RGBAInstance*>(param)) {
+    if (p->get(d[0], d[1], d[2], d[3]) == kOfxStatOK) { a.push(d[0]); a.push(d[1]); a.push(d[2]); a.push(d[3]); return a; }
+  }
+  return Json();
+}
+
+// the messages and progresses of the instance
+static void fillMessagesJson(const MyHost::MyEffectInstance& instance, Json& report)
+{
+  Json& messages = report["messages"] = Json::array();
+  const std::vector<MyHost::MessageRecord>& m = instance.getMessages();
+  for (size_t i = 0; i < m.size(); ++i) {
+    Json& j = messages.push(Json::object());
+    j["kind"] = m[i].kind;
+    j["type"] = m[i].type;
+    j["id"] = m[i].id;
+    j["text"] = m[i].text;
+  }
+  Json& progress = report["progress"] = Json::array();
+  const std::vector<MyHost::ProgressRecord>& p = instance.getProgress();
+  for (size_t i = 0; i < p.size(); ++i) {
+    Json& j = progress.push(Json::object());
+    j["message"] = p[i].message;
+    j["id"] = p[i].id;
+    j["started"] = true;
+    j["ended"] = p[i].ended;
+    j["updates"] = p[i].updates;
+    j["lastValue"] = p[i].lastValue; // null if there was no update
+  }
+}
+
+// write the JSON document to path. Returns false (after printing an error) on failure.
+static bool writeJson(const std::string& path, const Json& doc)
+{
+  std::ofstream os(path.c_str(), std::ios::out | std::ios::binary);
+  if (!os) {
+    std::cerr << "Error: cannot open " << path << " for writing" << std::endl;
+    return false;
+  }
+  os.imbue(std::locale::classic());
+  doc.write(os);
+  os << "\n";
+  os.close();
+  if (!os) {
+    std::cerr << "Error: cannot write " << path << std::endl;
+    return false;
+  }
+  return true;
 }
 
 static void usage(const char* prog)
 {
   std::cout <<
-    "Usage: " << prog << " [-h] [-p pluginId] [-m major] [-c filter|general] [-o prefix]\n"
-    "       [--format ppm|ppm16|pfm] [--stats] [-d byte|short|float] [-i Clip=spec]...\n"
-    "       [--no-std-paths] [--no-cache | --cache path] [--quiet] [--allow-unwritten]\n"
-    "       [-s name=value[,value...]]... [name=value[,value...]]...\n"
-    "Render a filter or general OFX plug-in found in OFX_PLUGIN_PATH, on synthetic\n"
-    "PAL SD input clips (or PFM files), and write the output frames as PPM or PFM files.\n"
-    "  -h          print this help and exit\n"
-    "  -p id       plug-in identifier (default: net.sf.openfx.invertPlugin)\n"
-    "  -m major    plug-in major version (default: the highest version found)\n"
-    "  -c context  filter or general (default: filter)\n"
-    "  -o prefix   output file prefix (default: Output): writes <prefix>.<t>[l|r].ppm (or\n"
-    "              .pfm). The output covers the render window: the RoD returned by the\n"
-    "              plug-in, clipped to the project frame.\n"
-    "  --format f  output file format (default: ppm):\n"
-    "                ppm    plain PPM (P3), 8 bits, top row first. Short and float images are\n"
-    "                       converted to 8 bits (float is clamped to [0,1]).\n"
-    "                ppm16  binary PPM (P6), maxval 65535, big-endian, top row first. Byte\n"
-    "                       values are multiplied by 257, float is clamped to [0,1].\n"
-    "                pfm    PFM, little-endian (scale -1.0), bottom row first (as in OFX\n"
-    "                       images; PFM rows are \"bottom to top\"). Byte and short values are\n"
-    "                       converted to float in [0,1], float values (NaN included) are kept.\n"
-    "                       RGB and RGBA images are written as PF (RGB): the alpha of an RGBA\n"
-    "                       image goes to <prefix>.<t>[l|r].alpha.pfm (Pf). Alpha images are Pf.\n"
-    "              In PPM files, Alpha images are written as grey and unwritten (NaN) pixels as 0.\n"
-    "  --stats     for each output image, print a line on stdout (even with --quiet):\n"
-    "                stats frame=T view=V w=W h=H bounds=x1,y1,x2,y2 depth=byte|short|float\n"
-    "                comps=RGBA|RGB|Alpha min=c0[,c1...] max=... mean=... nan=N crc32=XXXXXXXX\n"
-    "              with one value per component, in the native range of the depth (integers\n"
-    "              for byte and short min and max, %.9g floats otherwise, \"nan\" if no value).\n"
-    "              NaN values are left out of min, max and mean; nan is the number of pixels\n"
-    "              with a NaN component. crc32 is the CRC-32 (as in zlib) of the pixel bytes,\n"
-    "              row by row from the bottom row, within the bounds (so it doesn't depend on\n"
-    "              the row padding), with each component in little-endian byte order.\n"
-    "  -d depth    pixel depth of the input clips before clip preferences: byte, short or\n"
-    "              float (default: byte). The images have the depth and components that\n"
-    "              getClipPreferences maps each clip to.\n"
-    "  -i Clip=spec\n"
-    "              content of the input clip named Clip (e.g. Source), where spec is:\n"
-    "                default        a grey level t (black at t=0, white at t=1, above 1\n"
-    "                               in float images), with the time drawn in the reverse colour\n"
-    "                solid:r,g,b,a  a constant colour\n"
-    "                ramp           r=g=b=a from 0 (left) to 1 (right)\n"
-    "                checker:N      N-pixel squares, alternating 0 and 1 (r=g=b=a)\n"
-    "                file:path.pfm  a PFM image (PF or Pf, either byte order), the same at all\n"
-    "                               times. Each file pixel is a clip pixel (at render scale 1):\n"
-    "                               the clip's RoD is the file size in pixels, at the project\n"
-    "                               PAR (768/720), i.e. 0,0,width*PAR,height in canonical\n"
-    "                               coordinates. PF gives (r,g,b,1), Pf gives r=g=b=a=value.\n"
-    "                               The values are converted to the clip's depth (clamped to\n"
-    "                               [0,1] for byte and short) and components. Malformed files\n"
-    "                               are rejected.\n"
-    "                none           the clip is disconnected (only for optional clips)\n"
-    "              Numbers must be finite decimals (no nan, inf or hexadecimal).\n"
-    "  --no-std-paths\n"
-    "              only look for plug-ins in OFX_PLUGIN_PATH, not in the standard\n"
-    "              locations (/Library/OFX/Plugins, /usr/OFX/Plugins...)\n"
-    "  --no-cache  don't read or write the plug-in cache\n"
-    "  --cache path\n"
-    "              read and write the plug-in cache at path (default:\n"
-    "              hostDemoPluginCache.xml in the current directory)\n"
-    "  --quiet     print nothing on stdout but the plug-in's messages and the --stats lines\n"
-    "  --allow-unwritten\n"
-    "              don't fail if output pixels were not written by the plug-in. The output\n"
-    "              image is filled with NaN (float) or 0xCD bytes (byte, short) before\n"
-    "              rendering, but only NaN can be detected: use -d float for that check.\n"
-    "  -s name=value[,value...]\n"
-    "              set a parameter before rendering (the option name -s may be omitted).\n"
-    "              Multi-dimensional parameters take comma-separated values, e.g.\n"
-    "              value=0.5,0.5,0.5,0.5 for an RGBA. Booleans take 0/1/true/false,\n"
-    "              Choice takes the option index or label, String/StrChoice/Custom\n"
-    "              take the whole value (commas included). Numbers must be finite decimals.\n"
-    "The exit status is 0 on success, and non-zero on any failure, including a\n"
-    "disconnected mandatory clip and (for float output) unwritten pixels.\n";
+    "Usage: " << prog << " [options] [[-s] name=value[,value...]]...\n"
+    "Render an OFX plug-in found in OFX_PLUGIN_PATH at t=0 and 1 on PAL SD inputs.\n"
+    "  -h                 print this help and exit\n"
+    "  -p id              plug-in identifier (default: net.sf.openfx.invertPlugin)\n"
+    "  -m major           plug-in major version (default: the highest one)\n"
+    "  -c filter|general  context (default: filter)\n"
+    "  -o prefix          write <prefix>.<t>[l|r].ppm|pfm (default: Output)\n"
+    "  --format ppm|pfm   output format: plain 8-bit PPM (default), or float PFM\n"
+    "  -d byte|short|float  input depth before clip preferences (default: byte)\n"
+    "  -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|file:path.pfm|none\n"
+    "  -s name=value      set a parameter after createInstance, with instanceChanged\n"
+    "  --report file.json write a JSON report of the run (even if it failed)\n"
+    "  --describe file.json  describe the plug-in as JSON (no instance, no render)\n"
+    "  --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH\n"
+    "  --no-cache         don't read or write hostDemoPluginCache.xml\n"
+    "  --quiet            print only the plug-in's messages on stdout\n"
+    "  --allow-unwritten  don't fail on unwritten (NaN) output pixels (float only)\n"
+    "Formats and JSON schemas: HostSupport/examples/python/README.md. Exit status: 0 on success.\n";
 }
 
 static std::vector<std::string> splitValues(const std::string& s)
@@ -525,9 +772,10 @@ static bool parseInts(const std::string& s, int n, int* d)
   return true;
 }
 
-// set the parameter value from the string "name=value[,value...]".
+// set the parameter value from the string "name=value[,value...]", and return its name in paramName.
 // Returns false and prints an error on failure.
-static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const std::string& assignment, bool quiet)
+static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const std::string& assignment, bool quiet,
+                               std::string& paramName)
 {
   std::string::size_type eq = assignment.find('=');
   if (eq == std::string::npos || eq == 0) {
@@ -536,6 +784,7 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
   }
   std::string name = assignment.substr(0, eq);
   std::string value = assignment.substr(eq + 1);
+  paramName = name;
   OFX::Host::Param::Instance* param = instance->getParam(name);
   if (!param) {
     std::cerr << "Error: the plug-in has no parameter named \"" << name << "\"" << std::endl;
@@ -652,28 +901,49 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
   return true;
 }
 
-// render the frame t (and view), write the output image to base.ppm (or base.pfm) and print its
-// stats if asked. Returns false (after printing an error) on failure.
+// render the frame t (and view) and write the output image to base.ppm (or base.pfm). If rep is
+// not NULL, the results of the actions are added to it.
+// Returns false (after printing an error) on failure.
 static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstance* outputClip,
                         OfxTime t, int view, int nViews, const OfxPointD& renderScale,
-                        bool allowUnwritten, const std::string& base, OutputFormat format, bool stats)
+                        bool allowUnwritten, const std::string& base, OutputFormat format,
+                        Json* rep)
 {
   const std::string fname = base + (format == eFormatPFM ? ".pfm" : ".ppm");
-  (void)view;
   (void)nViews;
   const double par = instance->getProjectPixelAspectRatio();
+  Json dummy;
+  Json& r = rep ? *rep : dummy;
+  r["time"] = t;
+  r["view"] = view;
+  r["renderScale"] = pointJson(renderScale.x, renderScale.y);
+
+  // the regions of definition of the connected input clips
+  const std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>& clips = instance->getClipInstances();
+  Json& inputs = r["inputs"] = Json::object();
+  for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
+    MyHost::MyClipInstance* clip = dynamic_cast<MyHost::MyClipInstance*>(it->second);
+    if (clip && !clip->isOutput()) {
+      Json& in = inputs[it->first] = Json::object();
+      in["connected"] = clip->getConnected();
+      in["regionOfDefinition"] = clip->getConnected() ? rectJson(clip->getRoD(t, view)) : Json();
+    }
+  }
 
   // the output RoD is what the plug-in's getRegionOfDefinition action returns
   OfxRectD rod;
+  rod.x1 = rod.y1 = rod.x2 = rod.y2 = 0.;
   OfxStatus stat = instance->getRegionOfDefinitionAction(t, renderScale,
 #ifdef OFX_EXTENSIONS_NUKE
                                                          view,
 #endif
                                                          rod);
-  if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+  Json& rodJ = r["regionOfDefinition"] = actionJson(stat);
+  if (!statusOK(stat)) {
     std::cerr << "Error: get region of definition action failed at time " << t << " (status " << stat << ")" << std::endl;
     return false;
   }
+  rodJ["rod"] = rectJson(rod);
 
   // The render window is in pixel coordinates (render scale and PAR applied): the output RoD,
   // clipped to the project frame
@@ -683,7 +953,57 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
     std::cerr << "Warning: the output RoD (" << rod.x1 << "," << rod.y1 << "," << rod.x2 << "," << rod.y2
               << ") at time " << t << " doesn't intersect the project: nothing to render, "
               << fname << " not written" << std::endl;
+    r["renderWindow"] = Json();
+    r["output"] = Json();
     return true;
+  }
+  r["renderWindow"] = rectJson(renderWindow);
+
+  // is the effect an identity for this render window? hostDemo renders it anyway (a host would
+  // fetch the image of the identity clip instead), so that the output can be checked.
+  {
+    OfxTime idTime = t;
+    std::string idClip;
+#ifdef OFX_EXTENSIONS_NUKE
+    int idView = view;
+    std::string idPlane = kFnOfxImagePlaneColour;
+#endif
+    stat = instance->isIdentityAction(idTime, kOfxImageFieldNone, renderWindow, renderScale,
+#ifdef OFX_EXTENSIONS_NUKE
+                                      idView, idPlane,
+#endif
+                                      idClip);
+    Json& id = r["isIdentity"] = actionJson(stat);
+    if (!statusOK(stat)) {
+      std::cerr << "Error: is identity action failed at time " << t << " (status " << stat << ")" << std::endl;
+      return false;
+    }
+    // kOfxStatOK: "the effect is an identity", kOfxStatReplyDefault: it isn't
+    id["identity"] = stat == kOfxStatOK;
+    id["clip"] = stat == kOfxStatOK ? Json(idClip) : Json();
+    id["time"] = stat == kOfxStatOK ? Json(idTime) : Json();
+#ifdef OFX_EXTENSIONS_NUKE
+    id["identityView"] = stat == kOfxStatOK ? Json(idView) : Json();
+#endif
+  }
+
+  // the frames needed from each input clip (HostSupport only calls the action if the plug-in
+  // asks for temporal clip access; the default is the frame itself)
+  {
+    OFX::Host::ImageEffect::RangeMap ranges;
+    stat = instance->getFrameNeededAction(t, ranges);
+    Json& fn = r["framesNeeded"] = actionJson(stat);
+    if (!statusOK(stat)) {
+      std::cerr << "Error: get frames needed action failed at time " << t << " (status " << stat << ")" << std::endl;
+      return false;
+    }
+    Json& fc = fn["clips"] = Json::object();
+    for (OFX::Host::ImageEffect::RangeMap::const_iterator it = ranges.begin(); it != ranges.end(); ++it) {
+      Json& l = fc[it->first->getName()] = Json::array();
+      for (size_t k = 0; k < it->second.size(); ++k) {
+        l.push(pointJson(it->second[k].min, it->second[k].max));
+      }
+    }
   }
 
   /// RoI is in canonical coords
@@ -701,9 +1021,15 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
                                                        view,
 #endif
                                                        regionOfInterest, rois);
-  if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+  Json& roiJ = r["regionsOfInterest"] = actionJson(stat);
+  if (!statusOK(stat)) {
     std::cerr << "Error: get regions of interest action failed at time " << t << " (status " << stat << ")" << std::endl;
     return false;
+  }
+  roiJ["regionOfInterest"] = rectJson(regionOfInterest);
+  Json& roiClips = roiJ["clips"] = Json::object();
+  for (std::map<OFX::Host::ImageEffect::ClipInstance *, OfxRectD>::const_iterator it = rois.begin(); it != rois.end(); ++it) {
+    roiClips[it->first->getName()] = rectJson(it->second);
   }
 
   // each render gets a new output image, filled with the sentinel
@@ -742,6 +1068,11 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
 #endif
                                 );
   instance->clearRenderState();
+  // the render is OK if the action succeeded (kOfxStatOK only) and the image fetches too
+  Json& renderJ = r["render"] = actionJson(stat);
+  renderJ["ok"] = stat == kOfxStatOK && MyHost::gImageErrors == imageErrors;
+  renderJ["imageFetchErrors"] = MyHost::gImageErrors - imageErrors;
+  r["output"] = Json();
 
   // get the output image buffer
   MyHost::MyImage *outputImage = outputClip->getOutputImage();
@@ -755,18 +1086,22 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
     return false;
   }
   bool ok;
+  std::vector<std::string> files;
   if (format == eFormatPFM) {
     ok = exportToPFM(base, *outputImage);
-  } else if (format == eFormatPPM16) {
-    ok = exportToPPM16(fname, *outputImage);
+    files.push_back(base + ".pfm");
+    if (outputImage->getNComponents() == 4) {
+      files.push_back(base + ".alpha.pfm");
+    }
   } else {
     ok = exportToPPM(fname, *outputImage);
+    files.push_back(fname);
   }
   if (!ok) {
     return false;
   }
-  if (stats) {
-    printStats(*outputImage, t, view);
+  if (rep) {
+    r["output"] = statsJson(computeStats(*outputImage), files);
   }
   const long notWritten = countNaNPixels(*outputImage);
   if (notWritten > 0) {
@@ -789,12 +1124,14 @@ static int run(int argc, char **argv)
   std::string inputDepth = kOfxBitDepthByte;
   std::vector<std::string> paramAssignments;
   std::vector<std::pair<std::string, MyHost::InputSpec> > inputs;
+  std::map<std::string, std::string> inputSpecs; ///< the -i spec text of each clip, for --report
+  std::string reportPath;   ///< --report
+  std::string describePath; ///< --describe
   bool useStdPaths = true;
   bool useCache = true;
-  std::string cachePath = "hostDemoPluginCache.xml";
+  const std::string cachePath = "hostDemoPluginCache.xml";
   bool quiet = false;
   bool allowUnwritten = false;
-  bool stats = false;
   OutputFormat format = eFormatPPM;
 
   for (int a = 1; a < argc; ++a) {
@@ -810,10 +1147,9 @@ static int run(int argc, char **argv)
       quiet = true;
     } else if (arg == "--allow-unwritten") {
       allowUnwritten = true;
-    } else if (arg == "--stats") {
-      stats = true;
     } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
-               arg == "-d" || arg == "-i" || arg == "--cache" || arg == "--format") {
+               arg == "-d" || arg == "-i" || arg == "--format" ||
+               arg == "--report" || arg == "--describe") {
       if (a + 1 >= argc) {
         std::cerr << "Error: option " << arg << " requires an argument" << std::endl;
         usage(argv[0]);
@@ -841,12 +1177,10 @@ static int run(int argc, char **argv)
       } else if (arg == "--format") {
         if (optarg == "ppm") {
           format = eFormatPPM;
-        } else if (optarg == "ppm16") {
-          format = eFormatPPM16;
         } else if (optarg == "pfm") {
           format = eFormatPFM;
         } else {
-          std::cerr << "Error: unsupported format \"" << optarg << "\", expected ppm, ppm16 or pfm" << std::endl;
+          std::cerr << "Error: unsupported format \"" << optarg << "\", expected ppm or pfm" << std::endl;
           return 1;
         }
       } else if (arg == "-d") {
@@ -870,9 +1204,11 @@ static int run(int argc, char **argv)
           return 1;
         }
         inputs.push_back(std::make_pair(optarg.substr(0, eq), spec));
-      } else if (arg == "--cache") {
-        useCache = true;
-        cachePath = optarg;
+        inputSpecs[optarg.substr(0, eq)] = optarg.substr(eq + 1);
+      } else if (arg == "--report") {
+        reportPath = optarg;
+      } else if (arg == "--describe") {
+        describePath = optarg;
       } else {
         paramAssignments.push_back(optarg);
       }
@@ -883,6 +1219,11 @@ static int run(int argc, char **argv)
       usage(argv[0]);
       return 1;
     }
+  }
+
+  if (!reportPath.empty() && !describePath.empty()) {
+    std::cerr << "Error: --report and --describe can't be used together (--describe creates no instance)" << std::endl;
+    return 1;
   }
 
   //_CrtSetBreakAlloc(3168);
@@ -938,6 +1279,27 @@ static int run(int argc, char **argv)
   }
 
   int ret = 0;
+  // the --report document (see python/README.md)
+  Json report = Json::object();
+  report["schema"] = "hostDemo.report";
+  report["schemaVersion"] = 1;
+  report["ok"] = false;
+  report["plugin"] = Json::object();
+  report["plugin"]["id"] = pluginId;
+  report["context"] = context;
+  {
+    Json& host = report["host"] = Json::object();
+    host["name"] = myHost.getProperties().getStringProperty(kOfxPropName);
+    host["profile"] = "default"; // --host (Part A, PR 4)
+  }
+  report["depth"] = inputDepth;
+  report["inputs"] = Json::object();
+  Json& actions = report["actions"] = Json::array();
+  report["clipPreferences"] = Json();
+  report["timeDomain"] = Json();
+  Json& renders = report["renders"] = Json::array();
+  MyHost::MyEffectInstance* reportInstance = NULL; ///< the instance whose messages and params are reported
+
   if(!plugin) {
     std::cerr << "Error: plug-in \"" << pluginId << "\"";
     if (pluginMajor >= 0) {
@@ -945,10 +1307,21 @@ static int run(int argc, char **argv)
     }
     std::cerr << " not found. Check that OFX_PLUGIN_PATH contains the folder of its .ofx.bundle." << std::endl;
     ret = 1;
+  } else if (!describePath.empty()) {
+    // describe the plug-in in all its contexts, without creating an instance
+    Json desc = Json::object();
+    if (!describePlugin(plugin, desc)) {
+      ret = 1;
+    }
+    if (!writeJson(describePath, desc)) {
+      ret = 1;
+    }
   } else if (plugin->getContexts().find(context) == plugin->getContexts().end()) {
     std::cerr << "Error: plug-in \"" << pluginId << "\" does not support the " << context << " context." << std::endl;
+    report["plugin"] = pluginJson(plugin);
     ret = 1;
   } else {
+    report["plugin"] = pluginJson(plugin);
     // create an instance of it in the requested context (filter by default)
     // the first arg is the context, the second is client data we are allowed to pass down the call chain
 
@@ -983,6 +1356,20 @@ static int run(int argc, char **argv)
         clip->setInput(inputs[k].second);
       }
       myInstance->setDefaultDepth(inputDepth);
+      // the inputs used
+      for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
+        MyHost::MyClipInstance* clip = dynamic_cast<MyHost::MyClipInstance*>(it->second);
+        if (clip && !clip->isOutput()) {
+          Json& in = report["inputs"][it->first] = Json::object();
+          std::map<std::string, std::string>::const_iterator sp = inputSpecs.find(it->first);
+          in["spec"] = sp == inputSpecs.end() ? std::string("default") : sp->second;
+          in["connected"] = clip->getConnected();
+          in["optional"] = clip->isOptional();
+          in["isMask"] = clip->isMask();
+          in["unmappedDepth"] = clip->getUnmappedBitDepth();
+          in["unmappedComponents"] = clip->getUnmappedComponents();
+        }
+      }
     }
 
     // "Any clip that is not optional will *always* be connected during a render action"
@@ -999,18 +1386,13 @@ static int run(int argc, char **argv)
       ret = 1;
     }
 
-    // set the parameter values given on the command line, before calling the create instance action
-    for (size_t k = 0; ret == 0 && k < paramAssignments.size(); ++k) {
-      if (!setParamFromString(instance.get(), paramAssignments[k], quiet)) {
-        ret = 1;
-      }
-    }
-
-    // now we need to call the create instance action. Only call this once you have initialised all the params
-    // and clips to their correct values. So if you are loading a saved plugin state, set up your params from
-    // that state, _then_ call create instance.
+    // now we need to call the create instance action. A host that loads a saved project sets the
+    // parameters from that state before this. hostDemo sets the command-line parameters after it,
+    // as a user would, so that the plug-in's instance changed logic runs.
     if (ret == 0) {
+      reportInstance = myInstance;
       OfxStatus stat = instance->createInstanceAction();
+      actions.push(namedActionJson("createInstance", actionJson(stat)));
       if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
         std::cerr << "Error: create instance action failed (status " << stat << ")" << std::endl;
         ret = 1;
@@ -1019,11 +1401,88 @@ static int run(int argc, char **argv)
 
     // now we need to to call getClipPreferences on the instance so that it does the clip component/depth
     // logic and caches away the components and depth on each clip.
-    if (ret == 0 && !instance->getClipPreferences()) {
-      std::cerr << "Error: get clip preferences action failed" << std::endl;
-      ret = 1;
+    if (ret == 0) {
+      const bool ok = instance->getClipPreferences();
+      actions.push(namedActionJson("getClipPreferences", actionJson(ok)));
+      if (!ok) {
+        std::cerr << "Error: get clip preferences action failed" << std::endl;
+        ret = 1;
+      }
     }
 
+    // set the parameter values given on the command line, one at a time: each change is followed by
+    // the instance changed action (kOfxChangeUserEdited, at time 0 and render scale 1), between
+    // begin and end instance changed actions
+    for (size_t k = 0; ret == 0 && k < paramAssignments.size(); ++k) {
+      std::string name;
+      if (!setParamFromString(instance.get(), paramAssignments[k], quiet, name)) {
+        ret = 1;
+        break;
+      }
+      OfxPointD scale;
+      scale.x = scale.y = 1.;
+      const OfxStatus st[3] = {
+        instance->beginInstanceChangedAction(kOfxChangeUserEdited),
+        instance->paramInstanceChangedAction(name, kOfxChangeUserEdited, 0., scale),
+        instance->endInstanceChangedAction(kOfxChangeUserEdited)
+      };
+      const char* names[3] = { "beginInstanceChanged", "instanceChanged", "endInstanceChanged" };
+      for (int i = 0; i < 3; ++i) {
+        Json& a = actions.push(namedActionJson(names[i], actionJson(st[i])));
+        a["param"] = name;
+        a["value"] = paramAssignments[k].substr(paramAssignments[k].find('=') + 1);
+        if (!statusOK(st[i])) {
+          std::cerr << "Error: " << names[i] << " action failed for parameter " << name << " (status " << st[i] << ")" << std::endl;
+          ret = 1;
+        }
+      }
+    }
+
+    // a change of a clip preferences slave parameter (kOfxImageEffectPropClipPreferencesSlaveParam)
+    // makes the clip preferences dirty: run the action again
+    if (ret == 0 && instance->areClipPrefsDirty()) {
+      const bool ok = instance->getClipPreferences();
+      actions.push(namedActionJson("getClipPreferences", actionJson(ok)));
+      if (!ok) {
+        std::cerr << "Error: get clip preferences action failed" << std::endl;
+        ret = 1;
+      }
+    }
+
+    // the clip preferences: what each clip is mapped to, and the output properties
+    if (ret == 0) {
+      Json& cp = report["clipPreferences"] = Json::object();
+      Json& cpc = cp["clips"] = Json::object();
+      const std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>& clips = myInstance->getClipInstances();
+      for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
+        Json& c = cpc[it->first] = Json::object();
+        c["depth"] = it->second->getPixelDepth();
+        c["components"] = it->second->getComponents();
+        c["pixelAspectRatio"] = it->second->getAspectRatio();
+        c["unmappedDepth"] = it->second->getUnmappedBitDepth();
+        c["unmappedComponents"] = it->second->getUnmappedComponents();
+        c["connected"] = it->second->getConnected();
+      }
+      cp["outputPremultiplication"] = instance->getOutputPreMultiplication();
+      cp["outputFielding"] = instance->getOutputFielding();
+      cp["outputFrameRate"] = instance->getOutputFrameRate();
+      cp["continuousSamples"] = instance->continuousSamples();
+      cp["frameVarying"] = instance->isFrameVarying();
+    }
+
+    // the time domain ("Only effects instantiated in the General Context can have this called on them")
+    if (ret == 0 && context == kOfxImageEffectContextGeneral) {
+      OfxRangeD range;
+      range.min = range.max = 0.;
+      OfxStatus stat = instance->getTimeDomainAction(range);
+      Json& td = report["timeDomain"] = actionJson(stat);
+      td["range"] = stat == kOfxStatOK ? pointJson(range.min, range.max) : Json();
+      actions.push(namedActionJson("getTimeDomain", actionJson(stat)));
+      if (!statusOK(stat)) {
+        std::cerr << "Error: get time domain action failed (status " << stat << ")" << std::endl;
+        ret = 1;
+      }
+    }
     // get the output clip
     MyHost::MyClipInstance* outputClip = NULL;
     if (ret == 0) {
@@ -1055,6 +1514,7 @@ static int run(int argc, char **argv)
                                          , 0 /* view*/
 #                                        endif
                                          );
+      actions.push(namedActionJson("beginSequenceRender", actionJson(stat)));
       if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
         std::cerr << "Error: begin render action failed (status " << stat << ")" << std::endl;
         ret = 1;
@@ -1067,14 +1527,16 @@ static int run(int argc, char **argv)
         for (int view = 0; ret == 0 && view < 2; ++view) {
           std::ostringstream ss;
           ss << outputPrefix << "." << t << (view == 0 ? "l" : "r");
-          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, allowUnwritten, ss.str(), format, stats)) {
+          Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
+          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, allowUnwritten, ss.str(), format, r)) {
             ret = 1;
           }
         }
 #else
         std::ostringstream ss;
         ss << outputPrefix << "." << t;
-        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, allowUnwritten, ss.str(), format, stats)) {
+        Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
+        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, allowUnwritten, ss.str(), format, r)) {
           ret = 1;
         }
 #endif
@@ -1092,12 +1554,35 @@ static int run(int argc, char **argv)
                                 , 0 /* view*/
 #                               endif
                                 );
+      actions.push(namedActionJson("endSequenceRender", actionJson(stat)));
       if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
         std::cerr << "Error: end render action failed (status " << stat << ")" << std::endl;
         ret = 1;
       }
       // release the last output image before the instance is destroyed
       outputClip->releaseOutputImage();
+    }
+
+    // the final parameter values and states, the messages and the progresses (before the
+    // instance is destroyed)
+    if (reportInstance) {
+      Json& params = report["params"] = Json::object();
+      const std::list<OFX::Host::Param::Instance*>& pl = reportInstance->getParamList();
+      for (std::list<OFX::Host::Param::Instance*>::const_iterator it = pl.begin(); it != pl.end(); ++it) {
+        Json& p = params[(*it)->getName()] = Json::object();
+        p["type"] = (*it)->getType();
+        p["value"] = paramValueJson(*it);
+        p["enabled"] = (*it)->getEnabled();
+        p["secret"] = (*it)->getSecret();
+      }
+      fillMessagesJson(*reportInstance, report);
+    }
+  }
+  if (!reportPath.empty()) {
+    report["ok"] = ret == 0;
+    report["exitStatus"] = ret;
+    if (!writeJson(reportPath, report)) {
+      ret = 1;
     }
   }
   OFX::Host::PluginCache::clearPluginCache();

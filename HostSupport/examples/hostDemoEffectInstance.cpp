@@ -27,8 +27,14 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <cstdarg>
+#include <cstdio>
 #include <iostream>
 #include <fstream>
+#include <limits>
+#include <map>
+#include <string>
+#include <vector>
 
 // ofx
 #include "ofxCore.h"
@@ -145,15 +151,33 @@ namespace MyHost {
     return v;    
   }
 
+  OfxStatus MyEffectInstance::recordMessage(const char* kind, const char* type, const char* id,
+                                            const char* format, va_list args)
+  {
+    // vsnprintf is C99 (and C++11), but every compiler hostDemo is built with has it
+    std::vector<char> buf(65536);
+    const int n = format ? vsnprintf(&buf[0], buf.size(), format, args) : 0;
+    std::string text(n > 0 ? &buf[0] : "");
+    if (n < 0 || n >= (int)buf.size()) {
+      text += "...";
+    }
+    printf("%s %s %s", type ? type : "", id ? id : "", text.c_str());
+    MessageRecord m;
+    m.kind = kind;
+    m.type = type ? type : "";
+    m.id = id ? id : "";
+    m.text = text;
+    _messages.push_back(m);
+    return kOfxStatOK;
+  }
+
   // vmessage
   OfxStatus MyEffectInstance::vmessage(const char* type,
                                        const char* id,
                                        const char* format,
                                        va_list args)
   {
-    printf("%s %s ",type,id);
-    vprintf(format,args);
-    return kOfxStatOK;
+    return recordMessage("message", type, id, format, args);
   }
 
   OfxStatus MyEffectInstance::setPersistentMessage(const char* type,
@@ -161,11 +185,14 @@ namespace MyHost {
                                                    const char* format,
                                                    va_list args)
   {
-    return vmessage(type, id, format, args);
+    return recordMessage("persistentMessage", type, id, format, args);
   }
 
   OfxStatus MyEffectInstance::clearPersistentMessage()
   {
+    MessageRecord m;
+    m.kind = "clearPersistentMessage";
+    _messages.push_back(m);
     return kOfxStatOK;
   }
 
@@ -277,17 +304,31 @@ namespace MyHost {
   /// Start doing progress. 
   void  MyEffectInstance::progressStart(const std::string &message, const std::string &messageid)
   {
+    ProgressRecord p;
+    p.message = message;
+    p.id = messageid;
+    p.updates = 0;
+    p.lastValue = std::numeric_limits<double>::quiet_NaN();
+    p.ended = false;
+    _progress.push_back(p);
   }
   
   /// finish yer progress
   void  MyEffectInstance::progressEnd()
   {
+    if (!_progress.empty()) {
+      _progress.back().ended = true;
+    }
   }
   
   /// set the progress to some level of completion, returns
   /// false if you should abandon processing, true to continue
   bool  MyEffectInstance::progressUpdate(double t)
   {
+    if (!_progress.empty()) {
+      ++_progress.back().updates;
+      _progress.back().lastValue = t;
+    }
     return true;
   }
 
