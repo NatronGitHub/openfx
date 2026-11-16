@@ -190,3 +190,126 @@ fails hostdemo-pfm-zero.log "invalid PFM size" -i Source=file:zero.pfm
 printf 'PF\n1 1\n0\n\0\0\0\0\0\0\0\0\0\0\0\0' > scale0.pfm
 fails hostdemo-pfm-scale.log "invalid PFM scale" -i Source=file:scale0.pfm
 fails hostdemo-pfm-missing.log "cannot open" -i Source=file:missing.pfm
+
+# the JSON files are removed first, so that a check never reads the file of an earlier run
+rm -f report.json describe.json changed.json dot.json fail.json escape.json
+
+# jcheck NAME FILE CODE: run the Python statements CODE (assertions) with r = the JSON document in
+# FILE, using only the standard library. Any failed assertion or missing key fails the check.
+jcheck() { python3 -I -c 'import json, math, sys
+name, path, code = sys.argv[1:4]
+try:
+    with open(path) as f:
+        r = json.load(f)
+    exec(code)
+except Exception as e:
+    print("%s: FAILED (%s: %s)" % (name, type(e).__name__, e))
+    sys.exit(1)
+print(name + ": OK")' "$@"; }
+
+# --report on Invert (filter context): the RoD is the input RoD, Invert is not an identity, the
+# frames needed are [t,t], the clip preferences map both clips to float RGBA, and the output stats
+# are the --stats numbers of the same run
+run hostdemo-report.log -d float -i Source=solid:0.25,0.5,1,1 -o Report --stats --report report.json
+jcheck "--report: Invert" report.json '
+assert r["schema"] == "hostDemo.report" and r["schemaVersion"] == 1
+assert r["ok"] is True and r["exitStatus"] == 0
+assert r["plugin"]["id"] == "net.sf.openfx.invertPlugin" and r["context"] == "OfxImageEffectContextFilter"
+assert r["depth"] == "OfxBitDepthFloat" and r["inputs"]["Source"]["spec"] == "solid:0.25,0.5,1,1"
+assert [a["action"] for a in r["actions"]] == ["createInstance", "getClipPreferences", "beginSequenceRender", "endSequenceRender"]
+assert all(a["ok"] for a in r["actions"])
+cp = r["clipPreferences"]
+for c in ("Source", "Output"):
+    assert (cp["clips"][c]["depth"], cp["clips"][c]["components"]) == ("OfxBitDepthFloat", "OfxImageComponentRGBA"), c
+    assert abs(cp["clips"][c]["pixelAspectRatio"] - 768. / 720.) < 1e-12
+assert cp["outputPremultiplication"] == "OfxImageAlphaUnPremultiplied" and cp["outputFrameRate"] == 25
+assert cp["outputFielding"] == "OfxFieldNone" and cp["frameVarying"] is False and cp["continuousSamples"] is False
+assert r["timeDomain"] is None  # only called in the general context
+assert [(x["time"], x["view"]) for x in r["renders"]] == [(0, 0), (1, 0)]
+stats = [l.split() for l in open("hostdemo-report.log") if l.startswith("stats ")]
+for x, s in zip(r["renders"], stats):
+    t = x["time"]
+    assert x["regionOfDefinition"]["ok"] and x["regionOfDefinition"]["rod"] == x["inputs"]["Source"]["regionOfDefinition"] == [0, 0, 768, 576]
+    assert x["renderWindow"] == [0, 0, 720, 576]
+    assert x["isIdentity"]["ok"] and x["isIdentity"]["identity"] is False and x["isIdentity"]["clip"] is None
+    assert x["framesNeeded"]["ok"] and x["framesNeeded"]["clips"] == {"Source": [[t, t]]}
+    assert x["regionsOfInterest"]["clips"]["Source"] == [0, 0, 768, 576]
+    assert x["render"] == {"ok": True, "status": "kOfxStatOK", "imageFetchErrors": 0}
+    o = x["output"]
+    assert (o["w"], o["h"], o["bounds"], o["depth"], o["comps"]) == (720, 576, [0, 0, 720, 576], "float", "RGBA")
+    assert o["min"] == o["max"] == o["mean"] == [0.75, 0.5, 0, 0] and o["nan"] == 0
+    assert o["files"] == ["Report.%d.ppm" % t]
+    assert "crc32=" + o["crc32"] == s[-1], (o["crc32"], s[-1])
+assert len(stats) == 2 and r["messages"] == [] and r["progress"] == []
+'
+
+# --describe on the basic plug-in: no instance, no render; the clips and params of the general context
+rm -f Describe.*
+run hostdemo-describe.log -p net.sf.openfx.basicPlugin -o Describe --describe describe.json
+test -z "$(ls Describe.* 2>/dev/null)" || { echo "hostDemo --describe: rendered"; exit 1; }
+jcheck "--describe: basic plug-in" describe.json '
+assert r["schema"] == "hostDemo.describe" and r["ok"] is True
+assert r["plugin"]["id"] == "net.sf.openfx.basicPlugin" and r["plugin"]["versionMajor"] == 1
+assert {"OfxImageEffectContextFilter", "OfxImageEffectContextGeneral"} <= set(r["contexts"])
+g = r["contexts"]["OfxImageEffectContextGeneral"]
+assert g["ok"] and [c["name"] for c in g["clips"]] == ["Source", "Mask", "Output"]
+mask = g["clips"][1]
+assert mask["optional"] is True and mask["isMask"] is True and mask["supportedComponents"] == ["OfxImageComponentAlpha"]
+assert g["clips"][0]["optional"] is False and "OfxImageComponentRGBA" in g["clips"][0]["supportedComponents"]
+f = g["flags"]
+assert set(f["supportedPixelDepths"]) == {"OfxBitDepthByte", "OfxBitDepthShort", "OfxBitDepthFloat"}
+assert f["supportsTiles"] is True and f["renderThreadSafety"] == "OfxImageEffectRenderInstanceSafe"
+p = dict((q["name"], q) for q in g["params"])
+assert [q["name"] for q in g["params"]] == ["Controls", "componentScales", "scale", "scaleComponents", "scaleR", "scaleG", "scaleB", "scaleA"]
+s = p["scale"]
+assert (s["type"], s["dimension"], s["default"], s["min"], s["max"], s["displayMin"], s["displayMax"]) == ("OfxParamTypeDouble", 1, 1, 0, 10, 0, 10)
+assert s["page"] == "Controls" and s["parent"] == "" and s["hint"] == "Scales all component in the image"
+assert p["scaleComponents"]["type"] == "OfxParamTypeBoolean" and p["scaleComponents"]["default"] == 1
+assert p["scaleR"]["parent"] == "componentScales" and p["scaleR"]["label"] == "red"
+assert p["Controls"]["type"] == "OfxParamTypePage" and p["Controls"]["children"][0] == "scale"
+assert [c["name"] for c in r["contexts"]["OfxImageEffectContextFilter"]["clips"]] == ["Source", "Output"]
+'
+
+# command-line parameters are set after createInstance, each followed by instanceChanged
+# (kOfxChangeUserEdited): the basic plug-in disables the component scales when scaleComponents is
+# off (in its changedParam), so the report shows them disabled
+run hostdemo-changed.log -p net.sf.openfx.basicPlugin -c general -i Mask=none scaleComponents=0 --report changed.json
+jcheck "--report: instanceChanged" changed.json '
+a = [(x["action"], x.get("param")) for x in r["actions"]]
+assert a[:5] == [("createInstance", None), ("getClipPreferences", None), ("beginInstanceChanged", "scaleComponents"),
+                 ("instanceChanged", "scaleComponents"), ("endInstanceChanged", "scaleComponents")], a
+assert all(x["ok"] for x in r["actions"])
+assert r["params"]["scaleComponents"]["value"] is False and r["params"]["scale"]["value"] == 1
+assert [r["params"][n]["enabled"] for n in ("scale", "scaleR", "scaleG", "scaleB", "scaleA")] == [True, False, False, False, False]
+assert r["timeDomain"]["ok"] and r["inputs"]["Mask"]["connected"] is False
+'
+
+# the dot example sets its RoD: the report gives it in canonical coordinates, and the output covers
+# it in pixels (PAR 768/720)
+run hostdemo-dotreport.log -p net.sf.openfx.dotexample -c general -i Source=none radius=50 position=100,100 -o DotReport --report dot.json
+jcheck "--report: dot example RoD" dot.json '
+par = 768. / 720.
+for x in r["renders"]:
+    rod = x["regionOfDefinition"]["rod"]
+    assert x["regionOfDefinition"]["status"] == "kOfxStatOK" and rod == [50, 50, 150, 150], rod
+    o = x["output"]
+    px = [math.floor(rod[0] / par), math.floor(rod[1]), math.ceil(rod[2] / par), math.ceil(rod[3])]
+    assert o["bounds"] == x["renderWindow"] == px, (o["bounds"], px)
+    assert (o["w"], o["h"]) == (px[2] - px[0], px[3] - px[1]) == (95, 100)
+    assert x["inputs"]["Source"] == {"connected": False, "regionOfDefinition": None}
+assert len(r["renders"]) == 2
+'
+
+# a failed run still writes the report, with ok false and the exit status
+fails hostdemo-report-fail.log "414720 of 414720 pixels were not written" -p net.sf.openfx.propertyTester -d float -o PropTester --report fail.json
+jcheck "--report: failed run" fail.json '
+assert r["ok"] is False and r["exitStatus"] == 1 and r["renders"][0]["render"]["ok"] is True
+'
+
+# strings are escaped: a file name with a quote, a backslash, a tab and a non-ASCII (UTF-8) letter
+esc=$(printf 'esc"a\\b\tc\303\251.pfm'); cp small.pfm "$esc"
+run hostdemo-escape.log -d float -i "Source=file:$esc" -o Escape --report escape.json
+jcheck "--report: string escaping" escape.json '
+assert r["inputs"]["Source"]["spec"] == "file:esc\"a\\b\tcé.pfm", r["inputs"]["Source"]["spec"]
+assert r["renders"][0]["output"]["w"] == 3
+'
