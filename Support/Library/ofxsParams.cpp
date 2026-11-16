@@ -4616,4 +4616,4 @@ namespace OFX {
     throwSuiteStatusException(stat);
   }
 
-};
+}

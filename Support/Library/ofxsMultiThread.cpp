@@ -234,5 +234,5 @@ namespace OFX {
     }
 #endif
 
-  };
-};
+  }
+}

@@ -307,7 +307,7 @@ namespace OFX {
     // @brief the set of descriptors, one per context used by kOfxActionDescribeInContext,
     //'eContextNone' is the one used by the kOfxActionDescribe
     EffectDescriptorMap gEffectDescriptors;
-  };
+  }
 
   /** @brief map a std::string to a context */
   ContextEnum mapToContextEnum(const std::string &s) OFX_THROW(std::invalid_argument)
@@ -5924,7 +5924,7 @@ namespace OFX {
       gHost = host;
     }
 
-  }; // namespace Private
+  } // namespace Private
 
   /** @brief Fetch's a suite from the host and logs errors */
   const void * fetchSuite(const char *suiteName, int suiteVersion, bool optional)
@@ -5956,9 +5956,9 @@ namespace OFX {
     {
       // an empty definition is enough to prevent old code from compiling.
     }
-  };
+  }
 #endif // OFXS_MANUAL_REGISTRATION
-}; // namespace OFX
+} // namespace OFX
 
 static
 OFX::OfxPlugInfo generatePlugInfo(OFX::PluginFactory* factory, std::string& newID)

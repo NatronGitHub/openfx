@@ -1431,5 +1431,5 @@ namespace OFX {
       }
 #endif
     }
-  };
-};
+  }
+}

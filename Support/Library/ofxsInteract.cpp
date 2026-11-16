@@ -743,7 +743,7 @@ namespace OFX {
       return stat;
     }
 
-  }; // end namespace private
+  } // end namespace private
 
   // methods in ImageEffect which depends on ofxsInteract
 
@@ -757,4 +757,4 @@ namespace OFX {
     }
   }
 
-}; // end of namespace
+} // end of namespace
