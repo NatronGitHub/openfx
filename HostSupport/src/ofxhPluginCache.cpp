@@ -295,8 +295,11 @@ static bool binaryMatchesHost(const std::string &path)
     const unsigned long pe = rd32(h + 0x3C, true);
     if (pe + 6 <= n && h[pe] == 'P' && h[pe + 1] == 'E' && h[pe + 2] == 0 && h[pe + 3] == 0) {
       const unsigned int m = rd16(h + pe + 4, true);
-#  if defined(_M_ARM64EC) || defined(__arm64ec__) || defined(__x86_64__) || defined(_M_X64)
+#  if defined(_M_ARM64EC) || defined(__arm64ec__)
       return m == 0x8664 || m == 0xAA64; // x64 and Arm64EC images use AMD64; Arm64X uses ARM64
+#  elif defined(__x86_64__) || defined(_M_X64)
+      return m == 0x8664; // a pure ARM64 DLL can't load in an x64 process (an Arm64X image under
+                          // emulation is still used through the first-existing fallback)
 #  elif defined(__i386__) || defined(_M_IX86)
       return m == 0x14C;
 #  elif defined(__aarch64__) || defined(_M_ARM64)
