@@ -296,9 +296,9 @@ namespace OFX {
     FnOfxImageEffectPlaneSuiteV2* gImageEffectPlaneSuiteV2 = 0;
 #endif
 #ifdef OFX_EXTENSIONS_VEGAS
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
     OfxHWNDInteractSuiteV1 *gHWNDInteractSuite = 0;
-#endif // #if defined(WIN32) || defined(WIN64)
+#endif // #if defined(_WIN32) || defined(WIN32) || defined(WIN64)
     OfxVegasProgressSuiteV1 *gVegasProgressSuite = 0;
     OfxVegasStereoscopicImageSuiteV1 *gVegasStereoscopicImageSuite = 0;
     OfxVegasKeyframeSuiteV1 *gVegasKeyframeSuite = 0;
@@ -1074,14 +1074,14 @@ namespace OFX {
   }
 
 #ifdef OFX_EXTENSIONS_VEGAS
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
   void ImageEffectDescriptor::setHWNDInteractDescriptor(HWNDInteractDescriptor* desc)
   {
     _hwndInteractDescriptor.reset(desc);
     if(desc->getMainEntry())
       _effectProps.propSetPointer(kOfxImageEffectPluginPropHWndInteractV1, (void*)desc->getMainEntry());
   }
-#endif // #if defined(WIN32) || defined(WIN64)
+#endif // #if defined(_WIN32) || defined(WIN32) || defined(WIN64)
 #endif
 
   /** @brief Add a pixel depth to those supported */
@@ -4326,9 +4326,9 @@ namespace OFX {
         OFX::gHostDescription.supportsDrawSuite = gDrawSuite != NULL;
 
 #ifdef OFX_EXTENSIONS_VEGAS
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
         gHWNDInteractSuite  = (OfxHWNDInteractSuiteV1 *)    fetchSuite(kOfxHWndInteractSuite, 1, true);
-#endif // #if defined(WIN32) || defined(WIN64)
+#endif // #if defined(_WIN32) || defined(WIN32) || defined(WIN64)
 #endif
       }
 
@@ -4374,9 +4374,9 @@ namespace OFX {
         gImageEffectPlaneSuiteV2 = 0;
 #endif
 #ifdef OFX_EXTENSIONS_VEGAS
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
         gHWNDInteractSuite  = 0;
-#endif // #if defined(WIN32) || defined(WIN64)
+#endif // #if defined(_WIN32) || defined(WIN32) || defined(WIN64)
         gVegasStereoscopicImageSuite  = 0;
         gVegasKeyframeSuite  = 0;
 #endif

@@ -34,7 +34,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   crafted piece of image processing software.
  */
 
-#ifdef WIN32
+#if defined(_WIN32) || defined(WIN32)
 #include <windows.h>
 #endif 
 
@@ -92,7 +92,7 @@ parseCustomParam(const char *str, double &x, double &y)
 void
 writeCustomParam(char *str, int strlen, double x, double y)
 {
-#ifdef WIN32
+#if defined(_WIN32) || defined(WIN32)
   _snprintf(str, strlen, "%lg %lg", x, y);
 #else
   snprintf(str, strlen, "%lg %lg", x, y);

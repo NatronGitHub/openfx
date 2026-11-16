@@ -1,7 +1,7 @@
 #ifndef _ofxsHWNDInteract_H_
 #define _ofxsHWNDInteract_H_
 
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
 
 /*
 OFX Support Library, a library that skins the OFX plug-in API with C++ classes.
@@ -182,7 +182,7 @@ namespace OFX {
 
 #undef mDeclareProtectedAssignAndCC
 
-#endif // #if defined(WIN32) || defined(WIN64)
+#endif // #if defined(_WIN32) || defined(WIN32) || defined(WIN64)
 
 #endif // #ifndef _ofxsHWNDInteract_H_
 

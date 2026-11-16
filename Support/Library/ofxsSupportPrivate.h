@@ -40,7 +40,7 @@ England
 
 #include "ofxsInteract.h"
 #ifdef OFX_EXTENSIONS_VEGAS
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
 #include "ofxsHWNDInteract.h"
 #endif
 #endif
@@ -106,7 +106,7 @@ namespace OFX {
 
     /** @brief Pointer to the optional keyframe suite */
     extern OfxVegasKeyframeSuiteV1 *gVegasKeyframeSuite;
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
     /** @brief Pointer to the optional HWND interact suite (defined in ofxsImageEffect.cpp) */
     extern OfxHWNDInteractSuiteV1 *gHWNDInteractSuite;
 #endif
