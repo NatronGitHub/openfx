@@ -47,6 +47,9 @@ def main(argv=None) -> int:
             inputs[clip] = Path(value)
         else:
             inputs[clip] = value
+    bad = [p for p in args.params if "=" not in p]
+    if bad:
+        ap.error("parameters must be name=value: " + " ".join(bad))
     params = dict(p.partition("=")[::2] for p in args.params)
     try:
         r = ofxhost.render(args.bundles, args.plugin, context=args.context, inputs=inputs,
