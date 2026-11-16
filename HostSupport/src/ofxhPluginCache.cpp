@@ -110,7 +110,7 @@ static std::vector<std::string> getArchDirs()
   using namespace OFX::Host::ArchDirs;
 
   // the architecture this host was compiled for
-#if defined(_M_ARM64EC)
+#if defined(_M_ARM64EC) || defined(__arm64ec__) // MSVC, llvm-mingw (which also defines __x86_64__)
   const ArchEnum arch = eArchArm64EC;
 #elif defined(__x86_64) || defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64)
   const ArchEnum arch = eArchX86_64;

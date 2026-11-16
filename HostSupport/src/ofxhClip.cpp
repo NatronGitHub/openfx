@@ -330,7 +330,7 @@ namespace OFX {
         // (Support's Clip::setLabel, setIsSecret, setHint), and the host is notified. ClipBase's copy
         // constructor made every instance property read-only for the plug-in (standard OFX: "clip
         // instance (read only)"), so make these three writable again, otherwise the writes are refused.
-        // Support's Clip::setLabels also sets the short and long labels, after the label: make them
+        // Support's Clip::setLabels also sets the short and long labels, before the label: make them
         // writable too, without a notify hook (Support sets them before the label, which notifies the host
         // through setLabel(); other plug-ins may not, so hosts should read them when they use them).
         static const char* const hooked[] = { kOfxPropLabel, kOfxParamPropSecret, kOfxParamPropHint };
