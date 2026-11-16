@@ -1170,6 +1170,7 @@ This property indicates how far between the two ::kOfxParamPropCustomValue keys 
 /** @propset ParamsByte
     write: plugin
     props:
+      - OfxParamInterpType
       - ParamsCommon_REF
       - ParamsAllButGroupPage_REF
       - ParamsValue_REF
@@ -1227,6 +1228,7 @@ This property indicates how far between the two ::kOfxParamPropCustomValue keys 
 /** @propset ParamsDouble1D
     write: plugin
     props:
+      - OfxParamInterpType
       - OfxParamPropShowTimeMarker
       - OfxParamPropDoubleType
       - ParamsCommon_REF
@@ -1885,6 +1887,14 @@ display-referred user-interface colours such as Draw Suite overlays. */
 
 This allows a plugin to indicate how a number-type parameter should be interpolated by default. This is useful if a parameter
 is used to encode a keyed set of interesting frame numbers to be used as markers or retime points without the host animating them.
+
+    @propdef
+    type: enum
+    dimension: 1
+    values:
+      - OfxParamInterpTypeConstantStep
+      - OfxParamInterpTypeLinear
+      - OfxParamInterpTypeSmooth
 */
 #define kOfxParamInterpType             "OfxParamInterpType"
 

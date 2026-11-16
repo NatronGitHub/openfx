@@ -118,6 +118,25 @@ max, displayMin, displayMax, doubleType, choiceOptions, animates, evaluateOnChan
 children}; a property that the type doesn't have is null, one-dimensional values are
 scalars.
 
+## OFX constants and property metadata
+
+`ofxhost.constants` has every `#define` of `include/` (strings, status codes, key symbols...),
+with its C name. `ofxhost.props` has the `@propdef` metadata of every property: type,
+dimension (0 means any number), valid values of enums (including extension and deprecated
+values), and the extension it belongs to (`None` for standard properties).
+
+```python
+from ofxhost import constants as k
+from ofxhost.props import PROPS
+p = PROPS[k.kOfxImageEffectPropSupportedPixelDepths]
+p.type, p.dimension, p.values   # ('enum', 0, ('OfxBitDepthNone', 'OfxBitDepthByte', ...))
+```
+
+Both are generated from the headers by `scripts/gen-ofxhost-py.py` (needs PyYAML); run it after
+changing a header. CI fails if they are out of date, and `scripts/check-props.py` fails if a
+`#define` of `include/` is neither a property with a `@propdef` nor classified in
+`scripts/ofx_fork_props.py` (enum value, alias, or name).
+
 ## Tests
 
 ```sh

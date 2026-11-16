@@ -510,6 +510,11 @@ If clipGetImagePlane is called twice with the same parameters, then two separate
        can return images with a transform attached (@see kFnOfxPropMatrix2D)
 
 This is a property on the descriptor.
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: nuke
 */
 #define kFnOfxImageEffectCanTransform "FnOfxImageEffectCanTransform"
  
