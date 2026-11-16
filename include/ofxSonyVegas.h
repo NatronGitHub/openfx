@@ -32,7 +32,18 @@
 /** @brief Double value on the OfxParamPropDoubleType property of a double 2d parameter (Vegas extension) */
 #define kOfxParamPropColorWheelLevel "OfxParamPropColorWheelLevel"
 
-/** @brief String property of a RGB or RGBA parameter for the default UI colorspace (Vegas extension) */
+/** @brief String property of a RGB or RGBA parameter for the default UI colorspace (Vegas extension)
+
+    @propdef
+    type: enum
+    dimension: 1
+    values:
+      - OfxParamColorColorspaceRGB
+      - OfxParamColorColorspaceHSL
+      - OfxParamColorColorspaceHSV
+      - OfxParamColorColorspaceLab
+    extension: vegas
+*/
 #define kOfxParamColorDefaultColorspace "OfxParamColorDefaultColorspace"
 
 /** @brief String values on the kOfxParamColorDefaultColorspace property of a RGB or RGBA parameter (Vegas extension) */
@@ -51,7 +62,17 @@
   */
 #define kOfxParamPropParameterExpanded "OfxParamPropParameterExpanded"
 
-/** @brief String property on plug-ins for preset thumb hinting */
+/** @brief String property on plug-ins for preset thumb hinting
+
+    @propdef
+    type: enum
+    dimension: 1
+    values:
+      - OfxProbPluginVegasPresetThumbnailDefault
+      - OfxProbPluginVegasPresetThumbnailSolidImage
+      - OfxProbPluginVegasPresetThumbnailImageWithAlpha
+    extension: vegas
+*/
 #define kOfxProbPluginVegasPresetThumbnail "OfxProbPluginVegasPresetThumbnail"
 
 #define kOfxProbPluginVegasPresetThumbnailDefault        "OfxProbPluginVegasPresetThumbnailDefault"
@@ -164,8 +185,18 @@
 /** @brief String property (array of any length) to the original keyframe interpolation type
 
     @propdef
-    type: string
+    type: enum
     dimension: N
+    values:
+      - OfxVegasKeyframeInterpolationUnknown
+      - OfxVegasKeyframeInterpolationLinear
+      - OfxVegasKeyframeInterpolationFast
+      - OfxVegasKeyframeInterpolationSlow
+      - OfxVegasKeyframeInterpolationSmooth
+      - OfxVegasKeyframeInterpolationSharp
+      - OfxVegasKeyframeInterpolationHold
+      - OfxVegasKeyframeInterpolationManual
+      - OfxVegasKeyframeInterpolationSplit
     extension: vegas
 */
 #define kOfxPropVegasUpliftKeyframeInterpolation "OfxPropVegasUpliftKeyframeInterpolation"
@@ -264,8 +295,13 @@
    - Valid Values - see below... (VeryBad, Bad, Good, Great)
 
     @propdef
-    type: string
+    type: enum
     dimension: 1
+    values:
+      - OfxImageEffectPropRenderQualityDraft
+      - OfxImageEffectPropRenderQualityPreview
+      - OfxImageEffectPropRenderQualityGood
+      - OfxImageEffectPropRenderQualityBest
     extension: vegas
 */
 #define kOfxImageEffectPropRenderQuality "OfxImageEffectPropRenderQuality"
@@ -283,8 +319,17 @@
    - Valid Values - see below... (Media, Track, Event, Project, Generator, ...)
 
     @propdef
-    type: string
+    type: enum
     dimension: 1
+    values:
+      - OfxImageEffectPropVegasContextUnknown
+      - OfxImageEffectPropVegasContextMedia
+      - OfxImageEffectPropVegasContextTrack
+      - OfxImageEffectPropVegasContextEvent
+      - OfxImageEffectPropVegasContextEventFadeIn
+      - OfxImageEffectPropVegasContextEventFadeOut
+      - OfxImageEffectPropVegasContextProject
+      - OfxImageEffectPropVegasContextGenerator
     extension: vegas
 */
 #define kOfxImageEffectPropVegasContext "OfxImageEffectPropVegasContext"

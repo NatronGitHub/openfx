@@ -56,6 +56,8 @@ jobs:
           pip install pyyaml
       - name: Property metadata (@propdef)
         run: python scripts/check-props.py
+      - name: Generated Python modules (ofxhost.constants, ofxhost.props) are up to date
+        run: python scripts/gen-ofxhost-py.py --check
       - name: All headers together compile (C++98, C++17; all extension flag sets)
         run: |
           { echo '#include "ofxCore.h"'; echo '#include "ofxImageEffect.h"'

@@ -236,8 +236,33 @@ it must list at least ::kOfxInteractCursorDefault and should list
 ::kOfxInteractCursorNone.
 
     @propdef
-    type: string
+    type: enum
     dimension: N
+    values:
+      - default
+      - none
+      - OfxInteractCursorCustom
+      - pointer
+      - crosshair
+      - text
+      - wait
+      - progress
+      - not-allowed
+      - help
+      - cell
+      - copy
+      - move
+      - grab
+      - grabbing
+      - all-scroll
+      - col-resize
+      - row-resize
+      - ew-resize
+      - ns-resize
+      - nesw-resize
+      - nwse-resize
+      - zoom-in
+      - zoom-out
     extension: natron
 */
 #define kOfxInteractHostPropSupportedCursors "OfxInteractHostPropSupportedCursors"
@@ -255,8 +280,33 @@ May be set by the plug-in during any interact action. It is read by the host as
 described in @ref InteractCursor.
 
     @propdef
-    type: string
+    type: enum
     dimension: 1
+    values:
+      - default
+      - none
+      - OfxInteractCursorCustom
+      - pointer
+      - crosshair
+      - text
+      - wait
+      - progress
+      - not-allowed
+      - help
+      - cell
+      - copy
+      - move
+      - grab
+      - grabbing
+      - all-scroll
+      - col-resize
+      - row-resize
+      - ew-resize
+      - ns-resize
+      - nesw-resize
+      - nwse-resize
+      - zoom-in
+      - zoom-out
     extension: natron
 */
 #define kOfxInteractPropCursor "OfxInteractPropCursor"
