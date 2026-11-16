@@ -28,9 +28,13 @@ modification, are permitted provided that the following conditions are met:
 */
 
 
+#include <algorithm> // std::reverse (no std::min/std::max: windows.h may define min/max macros)
 #include <cerrno>
 #include <climits>
+#include <cstdio> // fopen (binary files)
+#include <iomanip> // setprecision
 #include <iostream>
+#include <limits>
 #include <fstream>
 #include <cassert>
 #include <stdexcept>
@@ -38,7 +42,7 @@ modification, are permitted provided that the following conditions are met:
 #include <string>
 #include <vector>
 #include <cstdlib> // strtol, strtod
-#include <cstring> // strcmp
+#include <cstring> // strcmp, memcpy
 #if defined(_MSC_VER) && defined(_DEBUG)
 #include <crtdbg.h> // _CrtSetDbgFlag
 #endif
@@ -92,17 +96,56 @@ modification, are permitted provided that the following conditions are met:
 // inverted by the invert plugin); -i sets other inputs, or disconnects a clip.
 // Images have the depth and components that the clip preferences map each clip to.
 //
-// There is no file input; the output is written as PPM files.
+// Inputs may also be read from PFM files (-i Clip=file:path.pfm); the output is written as PPM
+// (8 or 16 bits) or PFM files, and --stats prints a summary and a checksum of each output image.
+
+// The output file formats (--format)
+enum OutputFormat {
+  eFormatPPM,   ///< plain PPM (P3), 8 bits, top row first
+  eFormatPPM16, ///< binary PPM (P6), maxval 65535 (big-endian), top row first
+  eFormatPFM    ///< PFM, little-endian (scale -1.0), bottom row first
+};
+
+// the number of pixels of the image that hold a NaN component, i.e. the NaN sentinel of
+// unwritten pixels (float images only: the 0xCD sentinel of byte and short images can't be told
+// apart from real data)
+static long countNaNPixels(const MyHost::MyImage& im)
+{
+  if (im.getBytesPerComponent() != 4) {
+    return 0;
+  }
+  const OfxRectI& b = im.getBounds();
+  const int nComps = im.getNComponents();
+  long n = 0;
+  for (int y = b.y1; y < b.y2; ++y) {
+    for (int x = b.x1; x < b.x2; ++x) {
+      const float* pix = reinterpret_cast<const float*>(im.getPixelData(x, y));
+      for (int c = 0; c < nComps; ++c) {
+        if (pix[c] != pix[c]) {
+          ++n;
+          break;
+        }
+      }
+    }
+  }
+  return n;
+}
+
+// clamp to [0,1]; NaN gives 0
+static double clamp01(double v)
+{
+  if (!(v > 0.)) {
+    return 0.;
+  }
+  return v > 1. ? 1. : v;
+}
 
 // Write the image (its bounds, i.e. the render window) to fname as a plain PPM, top row first
 // (OFX images are bottom-up). Returns false (after printing an error) if the file couldn't be written.
 // Short and float images are converted to 8 bits (float values are clamped to [0,1]), and Alpha
-// images are written as grey levels. notWritten is set to the number of pixels that still hold
-// the NaN sentinel (float images only: the 0xCD sentinel of byte and short images can't be told
-// apart from real data), which are written as 0.
-static bool exportToPPM(const std::string& fname, const MyHost::MyImage& im, long& notWritten)
+// images are written as grey levels. Unwritten (NaN) float pixels are written as 0.
+static bool exportToPPM(const std::string& fname, const MyHost::MyImage& im)
 {
-  notWritten = 0;
   std::ofstream op(fname.c_str());
   if (!op) {
     std::cerr << "Error: cannot open " << fname << " for writing" << std::endl;
@@ -121,9 +164,6 @@ static bool exportToPPM(const std::string& fname, const MyHost::MyImage& im, lon
       bool nan = false;
       im.getPixelRGB8(x, y, rgb, nan);
       op << rgb[0] << " " << rgb[1] << " " << rgb[2] << "\n";
-      if (nan) {
-        ++notWritten;
-      }
     }
   }
   op.close();
@@ -134,22 +174,246 @@ static bool exportToPPM(const std::string& fname, const MyHost::MyImage& im, lon
   return true;
 }
 
+// close the binary file f, written to fname. Returns false (after printing an error) on failure.
+static bool closeBinary(FILE* f, const std::string& fname)
+{
+  const bool err = std::ferror(f) != 0;
+  if (std::fclose(f) != 0 || err) {
+    std::cerr << "Error: cannot write " << fname << std::endl;
+    return false;
+  }
+  return true;
+}
+
+// Write the image as a 16-bit binary PPM: P6, maxval 65535, big-endian ("the most significant
+// byte is first"), top row first. Byte values are multiplied by 257, float values are clamped to
+// [0,1] (NaN gives 0), and Alpha images are written as grey levels.
+static bool exportToPPM16(const std::string& fname, const MyHost::MyImage& im)
+{
+  FILE* f = std::fopen(fname.c_str(), "wb");
+  if (!f) {
+    std::cerr << "Error: cannot open " << fname << " for writing" << std::endl;
+    return false;
+  }
+  const OfxRectI& b = im.getBounds();
+  const int w = b.x2 - b.x1;
+  std::fprintf(f, "P6\n# %s %s, converted to 16 bits\n# bounds %d %d %d %d\n%d %d\n65535\n",
+               im.getDepth().c_str(), im.getComponentsString().c_str(), b.x1, b.y1, b.x2, b.y2, w, b.y2 - b.y1);
+  const int nComps = im.getNComponents();
+  const int bpc = im.getBytesPerComponent();
+  std::vector<unsigned char> row((size_t)w * 6);
+  for (int y = b.y2 - 1; y >= b.y1; --y) {
+    for (int x = b.x1; x < b.x2; ++x) {
+      for (int c = 0; c < 3; ++c) {
+        const double v = im.getComponent(x, y, nComps == 1 ? 0 : c);
+        unsigned int u;
+        if (bpc == 1) {
+          u = (unsigned int)v * 257;
+        } else if (bpc == 2) {
+          u = (unsigned int)v;
+        } else {
+          u = (unsigned int)std::floor(clamp01(v) * 65535. + 0.5);
+        }
+        unsigned char* p = &row[((size_t)(x - b.x1) * 3 + c) * 2];
+        p[0] = (unsigned char)(u >> 8);
+        p[1] = (unsigned char)(u & 0xff);
+      }
+    }
+    std::fwrite(&row[0], 1, row.size(), f);
+  }
+  return closeBinary(f, fname);
+}
+
+// Write component c0 (nOut = 1, "Pf") or components 0..2 (nOut = 3, "PF") of the image as a PFM:
+// little-endian (scale -1.0), rows "in left to right, bottom to top order"
+// (http://www.pauldebevec.com/Research/HDR/PFM/), the opposite of PPM. The values are floats:
+// byte and short values are divided by 255 and 65535, float values are unchanged (NaN included).
+static bool writePFM(const std::string& fname, const MyHost::MyImage& im, int nOut, int c0)
+{
+  FILE* f = std::fopen(fname.c_str(), "wb");
+  if (!f) {
+    std::cerr << "Error: cannot open " << fname << " for writing" << std::endl;
+    return false;
+  }
+  const OfxRectI& b = im.getBounds();
+  const int w = b.x2 - b.x1;
+  std::fprintf(f, "%s\n%d %d\n-1.0\n", nOut == 3 ? "PF" : "Pf", w, b.y2 - b.y1);
+  std::vector<unsigned char> row((size_t)w * nOut * 4);
+  for (int y = b.y1; y < b.y2; ++y) {
+    for (int x = b.x1; x < b.x2; ++x) {
+      for (int c = 0; c < nOut; ++c) {
+        const float v = im.getComponentFloat(x, y, c0 + c);
+        unsigned int u;
+        std::memcpy(&u, &v, 4);
+        unsigned char* p = &row[((size_t)(x - b.x1) * nOut + c) * 4];
+        p[0] = (unsigned char)(u & 0xff);
+        p[1] = (unsigned char)((u >> 8) & 0xff);
+        p[2] = (unsigned char)((u >> 16) & 0xff);
+        p[3] = (unsigned char)(u >> 24);
+      }
+    }
+    std::fwrite(&row[0], 1, row.size(), f);
+  }
+  return closeBinary(f, fname);
+}
+
+// Write the image as PFM: RGB and RGBA images to base.pfm ("PF", the RGB components), and the alpha
+// of RGBA images to base.alpha.pfm ("Pf"); Alpha images to base.pfm ("Pf").
+static bool exportToPFM(const std::string& base, const MyHost::MyImage& im)
+{
+  const int nComps = im.getNComponents();
+  if (nComps == 1) {
+    return writePFM(base + ".pfm", im, 1, 0);
+  }
+  if (!writePFM(base + ".pfm", im, 3, 0)) {
+    return false;
+  }
+  return nComps != 4 || writePFM(base + ".alpha.pfm", im, 1, 3);
+}
+
+// CRC-32 (ISO-HDLC, as in zlib and PNG: polynomial 0xEDB88320 reflected, initial value and final
+// XOR 0xFFFFFFFF), updated with n bytes
+static unsigned long crc32Update(unsigned long crc, const unsigned char* p, size_t n)
+{
+  static unsigned long table[256];
+  static bool init = false;
+  if (!init) {
+    for (unsigned long i = 0; i < 256; ++i) {
+      unsigned long c = i;
+      for (int k = 0; k < 8; ++k) {
+        c = (c & 1) ? (0xEDB88320UL ^ (c >> 1)) : (c >> 1);
+      }
+      table[i] = c;
+    }
+    init = true;
+  }
+  crc = ~crc & 0xFFFFFFFFUL;
+  for (size_t i = 0; i < n; ++i) {
+    crc = table[(crc ^ p[i]) & 0xff] ^ (crc >> 8);
+  }
+  return ~crc & 0xFFFFFFFFUL;
+}
+
+// print a value of the --stats line: integers for byte and short images, else a float with
+// enough digits to round-trip ("nan" if there was no value)
+static void printStatValue(std::ostream& os, double v, bool integer)
+{
+  if (v != v) {
+    os << "nan";
+  } else if (integer) {
+    os << (long)v;
+  } else {
+    std::ostringstream ss; // %.9g
+    ss << std::setprecision(9) << v;
+    os << ss.str();
+  }
+}
+
+// Print the --stats line of the image on stdout (see usage())
+static void printStats(const MyHost::MyImage& im, OfxTime t, int view)
+{
+  const OfxRectI& b = im.getBounds();
+  const int nComps = im.getNComponents();
+  const int bpc = im.getBytesPerComponent();
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  double mn[4] = { nan, nan, nan, nan };
+  double mx[4] = { nan, nan, nan, nan };
+  double sum[4] = { 0., 0., 0., 0. };
+  long count[4] = { 0, 0, 0, 0 };
+  long nanPixels = 0;
+  unsigned long crc = 0;
+  // the bytes of a component, in little-endian order whatever the host's byte order
+  const unsigned short one = 1;
+  const bool littleEndian = *reinterpret_cast<const unsigned char*>(&one) == 1;
+  std::vector<unsigned char> row((size_t)(b.x2 - b.x1) * nComps * bpc);
+  for (int y = b.y1; y < b.y2; ++y) {
+    std::memcpy(row.empty() ? NULL : &row[0], im.getPixelData(b.x1, y), row.size());
+    if (!littleEndian && bpc > 1) {
+      for (size_t i = 0; i + bpc <= row.size(); i += bpc) {
+        std::reverse(row.begin() + i, row.begin() + i + bpc);
+      }
+    }
+    if (!row.empty()) {
+      crc = crc32Update(crc, &row[0], row.size());
+    }
+    for (int x = b.x1; x < b.x2; ++x) {
+      bool isNaN = false;
+      for (int c = 0; c < nComps; ++c) {
+        const double v = im.getComponent(x, y, c);
+        if (v != v) {
+          isNaN = true;
+          continue;
+        }
+        if (count[c] == 0 || v < mn[c]) {
+          mn[c] = v;
+        }
+        if (count[c] == 0 || v > mx[c]) {
+          mx[c] = v;
+        }
+        sum[c] += v;
+        ++count[c];
+      }
+      if (isNaN) {
+        ++nanPixels;
+      }
+    }
+  }
+  std::ostringstream os;
+  os << "stats frame=" << t << " view=" << view << " w=" << b.x2 - b.x1 << " h=" << b.y2 - b.y1
+     << " bounds=" << b.x1 << "," << b.y1 << "," << b.x2 << "," << b.y2
+     << " depth=" << (bpc == 1 ? "byte" : bpc == 2 ? "short" : "float")
+     << " comps=" << (nComps == 4 ? "RGBA" : nComps == 3 ? "RGB" : "Alpha");
+  const char* names[3] = { " min=", " max=", " mean=" };
+  for (int k = 0; k < 3; ++k) {
+    os << names[k];
+    for (int c = 0; c < nComps; ++c) {
+      if (c > 0) {
+        os << ",";
+      }
+      const double v = (k == 0) ? mn[c] : (k == 1) ? mx[c] : (count[c] > 0 ? sum[c] / count[c] : nan);
+      printStatValue(os, v, bpc != 4 && k != 2);
+    }
+  }
+  os << " nan=" << nanPixels << " crc32=" << std::hex << std::setw(8) << std::setfill('0') << crc;
+  std::cout << os.str() << std::endl;
+}
+
 static void usage(const char* prog)
 {
   std::cout <<
     "Usage: " << prog << " [-h] [-p pluginId] [-m major] [-c filter|general] [-o prefix]\n"
-    "       [-d byte|short|float] [-i Clip=spec]... [--no-std-paths] [--no-cache | --cache path]\n"
-    "       [--quiet] [--allow-unwritten] [-s name=value[,value...]]... [name=value[,value...]]...\n"
+    "       [--format ppm|ppm16|pfm] [--stats] [-d byte|short|float] [-i Clip=spec]...\n"
+    "       [--no-std-paths] [--no-cache | --cache path] [--quiet] [--allow-unwritten]\n"
+    "       [-s name=value[,value...]]... [name=value[,value...]]...\n"
     "Render a filter or general OFX plug-in found in OFX_PLUGIN_PATH, on synthetic\n"
-    "PAL SD input clips, and write the output frames as PPM files.\n"
+    "PAL SD input clips (or PFM files), and write the output frames as PPM or PFM files.\n"
     "  -h          print this help and exit\n"
     "  -p id       plug-in identifier (default: net.sf.openfx.invertPlugin)\n"
     "  -m major    plug-in major version (default: the highest version found)\n"
     "  -c context  filter or general (default: filter)\n"
-    "  -o prefix   output file prefix (default: Output): writes <prefix>.<t>[l|r].ppm.\n"
-    "              The output covers the render window: the RoD returned by the plug-in,\n"
-    "              clipped to the project frame. Short and float images are converted to\n"
-    "              8 bits (float is clamped to [0,1]), Alpha is written as grey.\n"
+    "  -o prefix   output file prefix (default: Output): writes <prefix>.<t>[l|r].ppm (or\n"
+    "              .pfm). The output covers the render window: the RoD returned by the\n"
+    "              plug-in, clipped to the project frame.\n"
+    "  --format f  output file format (default: ppm):\n"
+    "                ppm    plain PPM (P3), 8 bits, top row first. Short and float images are\n"
+    "                       converted to 8 bits (float is clamped to [0,1]).\n"
+    "                ppm16  binary PPM (P6), maxval 65535, big-endian, top row first. Byte\n"
+    "                       values are multiplied by 257, float is clamped to [0,1].\n"
+    "                pfm    PFM, little-endian (scale -1.0), bottom row first (as in OFX\n"
+    "                       images; PFM rows are \"bottom to top\"). Byte and short values are\n"
+    "                       converted to float in [0,1], float values (NaN included) are kept.\n"
+    "                       RGB and RGBA images are written as PF (RGB): the alpha of an RGBA\n"
+    "                       image goes to <prefix>.<t>[l|r].alpha.pfm (Pf). Alpha images are Pf.\n"
+    "              In PPM files, Alpha images are written as grey and unwritten (NaN) pixels as 0.\n"
+    "  --stats     for each output image, print a line on stdout (even with --quiet):\n"
+    "                stats frame=T view=V w=W h=H bounds=x1,y1,x2,y2 depth=byte|short|float\n"
+    "                comps=RGBA|RGB|Alpha min=c0[,c1...] max=... mean=... nan=N crc32=XXXXXXXX\n"
+    "              with one value per component, in the native range of the depth (integers\n"
+    "              for byte and short min and max, %.9g floats otherwise, \"nan\" if no value).\n"
+    "              NaN values are left out of min, max and mean; nan is the number of pixels\n"
+    "              with a NaN component. crc32 is the CRC-32 (as in zlib) of the pixel bytes,\n"
+    "              row by row from the bottom row, within the bounds (so it doesn't depend on\n"
+    "              the row padding), with each component in little-endian byte order.\n"
     "  -d depth    pixel depth of the input clips before clip preferences: byte, short or\n"
     "              float (default: byte). The images have the depth and components that\n"
     "              getClipPreferences maps each clip to.\n"
@@ -160,6 +424,14 @@ static void usage(const char* prog)
     "                solid:r,g,b,a  a constant colour\n"
     "                ramp           r=g=b=a from 0 (left) to 1 (right)\n"
     "                checker:N      N-pixel squares, alternating 0 and 1 (r=g=b=a)\n"
+    "                file:path.pfm  a PFM image (PF or Pf, either byte order), the same at all\n"
+    "                               times. Each file pixel is a clip pixel (at render scale 1):\n"
+    "                               the clip's RoD is the file size in pixels, at the project\n"
+    "                               PAR (768/720), i.e. 0,0,width*PAR,height in canonical\n"
+    "                               coordinates. PF gives (r,g,b,1), Pf gives r=g=b=a=value.\n"
+    "                               The values are converted to the clip's depth (clamped to\n"
+    "                               [0,1] for byte and short) and components. Malformed files\n"
+    "                               are rejected.\n"
     "                none           the clip is disconnected (only for optional clips)\n"
     "              Numbers must be finite decimals (no nan, inf or hexadecimal).\n"
     "  --no-std-paths\n"
@@ -169,7 +441,7 @@ static void usage(const char* prog)
     "  --cache path\n"
     "              read and write the plug-in cache at path (default:\n"
     "              hostDemoPluginCache.xml in the current directory)\n"
-    "  --quiet     print nothing on stdout but the plug-in's messages\n"
+    "  --quiet     print nothing on stdout but the plug-in's messages and the --stats lines\n"
     "  --allow-unwritten\n"
     "              don't fail if output pixels were not written by the plug-in. The output\n"
     "              image is filled with NaN (float) or 0xCD bytes (byte, short) before\n"
@@ -380,12 +652,13 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
   return true;
 }
 
-// render the frame t (and view) and write the output image to fname.
-// Returns false (after printing an error) on failure.
+// render the frame t (and view), write the output image to base.ppm (or base.pfm) and print its
+// stats if asked. Returns false (after printing an error) on failure.
 static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstance* outputClip,
                         OfxTime t, int view, int nViews, const OfxPointD& renderScale,
-                        bool allowUnwritten, const std::string& fname)
+                        bool allowUnwritten, const std::string& base, OutputFormat format, bool stats)
 {
+  const std::string fname = base + (format == eFormatPFM ? ".pfm" : ".ppm");
   (void)view;
   (void)nViews;
   const double par = instance->getProjectPixelAspectRatio();
@@ -481,15 +754,27 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
     std::cerr << "Error: image fetches failed at time " << t << std::endl;
     return false;
   }
-  long notWritten = 0;
-  if (!exportToPPM(fname, *outputImage, notWritten)) {
+  bool ok;
+  if (format == eFormatPFM) {
+    ok = exportToPFM(base, *outputImage);
+  } else if (format == eFormatPPM16) {
+    ok = exportToPPM16(fname, *outputImage);
+  } else {
+    ok = exportToPPM(fname, *outputImage);
+  }
+  if (!ok) {
     return false;
   }
+  if (stats) {
+    printStats(*outputImage, t, view);
+  }
+  const long notWritten = countNaNPixels(*outputImage);
   if (notWritten > 0) {
     const OfxRectI& b = outputImage->getBounds();
     std::cerr << (allowUnwritten ? "Warning: " : "Error: ") << fname << ": " << notWritten << " of "
               << (long)(b.x2 - b.x1) * (long)(b.y2 - b.y1)
-              << " pixels were not written by the plug-in (they hold NaN), written as 0" << std::endl;
+              << " pixels were not written by the plug-in (they hold NaN"
+              << (format == eFormatPFM ? ")" : "), written as 0") << std::endl;
     return allowUnwritten;
   }
   return true;
@@ -509,6 +794,8 @@ static int run(int argc, char **argv)
   std::string cachePath = "hostDemoPluginCache.xml";
   bool quiet = false;
   bool allowUnwritten = false;
+  bool stats = false;
+  OutputFormat format = eFormatPPM;
 
   for (int a = 1; a < argc; ++a) {
     std::string arg = argv[a];
@@ -523,8 +810,10 @@ static int run(int argc, char **argv)
       quiet = true;
     } else if (arg == "--allow-unwritten") {
       allowUnwritten = true;
+    } else if (arg == "--stats") {
+      stats = true;
     } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
-               arg == "-d" || arg == "-i" || arg == "--cache") {
+               arg == "-d" || arg == "-i" || arg == "--cache" || arg == "--format") {
       if (a + 1 >= argc) {
         std::cerr << "Error: option " << arg << " requires an argument" << std::endl;
         usage(argv[0]);
@@ -549,6 +838,17 @@ static int run(int argc, char **argv)
         }
       } else if (arg == "-o") {
         outputPrefix = optarg;
+      } else if (arg == "--format") {
+        if (optarg == "ppm") {
+          format = eFormatPPM;
+        } else if (optarg == "ppm16") {
+          format = eFormatPPM16;
+        } else if (optarg == "pfm") {
+          format = eFormatPFM;
+        } else {
+          std::cerr << "Error: unsupported format \"" << optarg << "\", expected ppm, ppm16 or pfm" << std::endl;
+          return 1;
+        }
       } else if (arg == "-d") {
         if (optarg == "byte" || optarg == kOfxBitDepthByte) {
           inputDepth = kOfxBitDepthByte;
@@ -563,8 +863,10 @@ static int run(int argc, char **argv)
       } else if (arg == "-i") {
         std::string::size_type eq = optarg.find('=');
         MyHost::InputSpec spec;
-        if (eq == std::string::npos || eq == 0 || !MyHost::parseInputSpec(optarg.substr(eq + 1), spec)) {
-          std::cerr << "Error: invalid input \"" << optarg << "\", expected Clip=default|solid:r,g,b,a|ramp|checker:N|none" << std::endl;
+        std::string error = "no clip name";
+        if (eq == std::string::npos || eq == 0 || !MyHost::parseInputSpec(optarg.substr(eq + 1), spec, error)) {
+          std::cerr << "Error: invalid input \"" << optarg << "\" (" << error
+                    << "), expected Clip=default|solid:r,g,b,a|ramp|checker:N|file:path.pfm|none" << std::endl;
           return 1;
         }
         inputs.push_back(std::make_pair(optarg.substr(0, eq), spec));
@@ -764,15 +1066,15 @@ static int run(int argc, char **argv)
         // render a stereoscopic frame: left and right views
         for (int view = 0; ret == 0 && view < 2; ++view) {
           std::ostringstream ss;
-          ss << outputPrefix << "." << t << (view == 0 ? "l" : "r") << ".ppm";
-          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, allowUnwritten, ss.str())) {
+          ss << outputPrefix << "." << t << (view == 0 ? "l" : "r");
+          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, allowUnwritten, ss.str(), format, stats)) {
             ret = 1;
           }
         }
 #else
         std::ostringstream ss;
-        ss << outputPrefix << "." << t << ".ppm";
-        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, allowUnwritten, ss.str())) {
+        ss << outputPrefix << "." << t;
+        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, allowUnwritten, ss.str(), format, stats)) {
           ret = 1;
         }
 #endif

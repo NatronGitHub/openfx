@@ -65,6 +65,11 @@ Builds use the same extension flags as the consumers (NATRON, NUKE...), so Natro
   - RGB inputs are opaque, RGBA and Alpha inputs are unpremultiplied; the output premultiplication comes from the clip preferences;
   - PPM rows are written top row first, with the header comments before the maxval;
   - CI: exact values for byte, short and float Invert, the Mask (disconnected, alpha 0, checker), mandatory clips, number parsing, unwritten pixels (PropTester writes nothing), and the output size of a plug-in that sets its RoD (the dot example). The Windows job compiles the example hosts.
+- **PR 2 is implemented:** exact I/O.
+  - `--format ppm|ppm16|pfm`: ppm16 is P6 with maxval 65535, big-endian, top row first. PFM is little-endian (scale -1.0), with rows "in left to right, bottom to top order" ([Debevec's PFM page](https://www.pauldebevec.com/Research/HDR/PFM/)), the same order as OFX images and the opposite of PPM. RGB and RGBA images are written as PF (RGB), with the alpha of RGBA images in a separate `<prefix>.<t>.alpha.pfm` (Pf); Alpha images are Pf. Byte and short values are converted to float in [0,1].
+  - `-i Clip=file:path.pfm`: PF or Pf, either byte order, the same image at all times. Each file pixel is a clip pixel at render scale 1: the clip's RoD is the file size in pixels at the project PAR (hostDemo doesn't support multiple clip PARs). PF gives (r,g,b,1), Pf gives r=g=b=a. The values are converted to the clip's mapped depth and components. Malformed files (identifier, size, scale, truncated or trailing data) are rejected.
+  - `--stats`: one line per output image on stdout (also with `--quiet`): size, bounds, depth, components, per-component min, max and mean (native range, NaN left out), the number of NaN pixels, and a CRC-32 (zlib's) of the pixel bytes within the bounds, row by row from the bottom, components in little-endian order.
+  - CI: exact `--stats` for a solid float Invert, a checked-in crc32, the ppm16 header and values, a PFM round trip (the file orientation is checked at known pixels, and Invert twice gives the same stats and crc32), Pf input in both byte orders, and malformed files. The checks were mutation-tested: flipped PFM rows, a positive scale on little-endian data, and a wrong size are each caught.
 
 ## Part B: Python test wrapper (`ofxhost`), subprocess first
 
