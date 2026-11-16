@@ -232,3 +232,48 @@ jcheck "--report: string escaping" escape.json '
 assert r["inputs"]["Source"]["spec"] == "file:esc\"a\\b\tcé.pfm", r["inputs"]["Source"]["spec"]
 assert r["renders"][0]["output"]["w"] == 720
 '
+
+# Node primitives, for a Python graph executor: any times, a render scale and a render window
+# (pixels at that scale). Invert of the default pattern at t=0.5 is 0.5 (and alpha 0) outside the
+# digits. Then the output, positioned with its bounds (file:...@x1,y1, pixels at the render scale),
+# is an input with the same RoD, and Invert gives back the pattern. --query renders nothing.
+rm -f node1.json node2.json query.json Node1.* Node2.* Query.*
+run hostdemo-node1.log -d float --format pfm --frames 0.5,2 --scale 0.5 --window 10,20,110,70 -o Node1 --report node1.json
+jcheck "--frames, --scale, --window" node1.json '
+assert r["frames"] == [0.5, 2] and r["renderScale"] == [0.5, 0.5] and r["window"] == [10, 20, 110, 70]
+assert [x["time"] for x in r["renders"]] == [0.5, 2]
+par = 768. / 720.
+for x in r["renders"]:
+    assert x["renderScale"] == [0.5, 0.5] and x["renderWindow"] == x["output"]["bounds"] == [10, 20, 110, 70]
+    assert x["regionsOfInterest"]["clips"]["Source"] == [10 / 0.5 * par, 40, 110 / 0.5 * par, 140]
+o = r["renders"][0]["output"]
+assert (o["min"], o["max"]) == ([0.5, 0.5, 0.5, 0], [0.5, 0.5, 0.5, 0]), o
+assert r["renders"][0]["output"]["files"][0] == "Node1.0.5.pfm"
+'
+run hostdemo-node2.log -d float --format pfm --frames 0.5 --scale 0.5 -i Source=file:Node1.0.5.pfm@10,20 -o Node2 --report node2.json
+jcheck "positioned PFM input" node2.json '
+par = 768. / 720.
+x = r["renders"][0]
+assert x["inputs"]["Source"]["regionOfDefinition"] == [10 / 0.5 * par, 40, 110 / 0.5 * par, 140]
+assert x["renderWindow"] == x["output"]["bounds"] == [10, 20, 110, 70]
+assert x["output"]["min"][:3] == x["output"]["max"][:3] == [0.5, 0.5, 0.5]
+'
+# with its alpha file and premultiplication state: Node1's alpha is 0, and Invert gives alpha 1
+run hostdemo-node3.log -d float --format pfm --frames 0.5 --scale 0.5 -i "Source=file:Node1.0.5.pfm+Node1.0.5.alpha.pfm@10,20#premult" -o Node3 --report node3.json
+jcheck "PFM input with alpha and premultiplication" node3.json '
+x = r["renders"][0]
+assert x["output"]["min"] == x["output"]["max"] == [0.5, 0.5, 0.5, 1], x["output"]
+assert r["inputs"]["Source"]["spec"].endswith("#premult")
+'
+fails hostdemo-alpha.log "the alpha file must be a Pf file" -i "Source=file:Node1.0.5.pfm+Node1.0.5.pfm"
+run hostdemo-query.log -d float --frames 3 --query -o Query --report query.json
+test -z "$(ls Query.* 2>/dev/null)" || { echo "hostDemo --query: rendered"; exit 1; }
+jcheck "--query" query.json '
+assert r["query"] is True and [a["action"] for a in r["actions"]] == ["createInstance", "getClipPreferences"]
+x = r["renders"][0]
+assert x["time"] == 3 and x["render"] is None and x["output"] is None
+assert x["regionOfDefinition"]["rod"] == [0, 0, 768, 576] and x["framesNeeded"]["status"]
+'
+fails hostdemo-frames.log "invalid frames" --frames 0,0
+fails hostdemo-scale.log "invalid render scale" --scale 1.5
+fails hostdemo-window.log "invalid render window" --window 5,5,5,9

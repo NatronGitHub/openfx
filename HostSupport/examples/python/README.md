@@ -54,10 +54,16 @@ the tests when hostDemo isn't built.
   float in [0,1], float values (NaN included) are kept. RGB and RGBA images are written as
   PF (RGB): the alpha of an RGBA image goes to `<prefix>.<t>[l|r].alpha.pfm` (Pf). Alpha
   images are Pf.
-- `-i Clip=file:path.pfm`: a little-endian PFM (PF or Pf, negative scale; a positive scale
-  is rejected), the same at all times. Each file pixel is a clip pixel at render scale 1: the
-  clip's RoD is the file size in pixels at the project PAR (768/720), i.e.
-  0,0,width*PAR,height. PF gives (r,g,b,1), Pf gives r=g=b=a=value; the values are converted
+- `-i Clip=file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]`: a little-endian PFM (PF or Pf, negative scale; a positive
+  scale is rejected), the same at all times. Each file pixel is a clip pixel at the render
+  scale (`--scale`, default 1), the bottom-left one at pixel (x1,y1) (default 0,0): the clip's
+  RoD is the file's pixel bounds divided by the render scale, at the project PAR (768/720),
+  i.e. x1/sx*PAR, y1/sy, (x1+width)/sx*PAR, (y1+height)/sy. `+alpha.pfm` gives the alpha of
+  a PF file (a Pf file of the same size, as written for RGBA outputs), and `#premult`,
+  `#unpremult` or `#opaque` the premultiplication state (default: unpremultiplied, opaque for
+  RGB). So the output of a render, with its `bounds` and the `outputPremultiplication` of its
+  clip preferences, can be the input of the next one at the same scale:
+  `file:Out.0.pfm+Out.0.alpha.pfm@x1,y1#premult`. PF gives (r,g,b,1), Pf gives r=g=b=a=value; the values are converted
   to the clip's depth (clamped to [0,1] for byte and short) and components. Malformed files
   are rejected.
 - The other `-i` specs: `default` (a grey level t: black at t=0, white at t=1, with the time
@@ -70,6 +76,14 @@ the tests when hostDemo isn't built.
   Multi-dimensional values are comma-separated; booleans take 0/1/true/false, Choice the
   index or label, String/StrChoice/Custom the whole value. Parameters don't animate: the
   derivative of a Double is 0, its integral from t1 to t2 is value * (t2 - t1).
+- Times, scale and window: `--frames t0,t1,...` (default 0,1; any distinct finite times,
+  fractional too) renders each time, into `<prefix>.<t>[l|r]` (up to 12 significant digits).
+  `--scale s[,sy]` is the render scale, in (0,1]. `--window x1,y1,x2,y2` is the render window in
+  pixels at the render scale, clipped to the output RoD; without it, the render window is the
+  RoD clipped to the project. `--query` calls only the actions that query the effect at each
+  time (getRegionOfDefinition, isIdentity, getFramesNeeded, getRegionsOfInterest), with no
+  begin/endSequenceRender and no render: the `render` and `output` of each `renders` item are
+  null, and no file is written.
 - The images have the depth and components that getClipPreferences maps each clip to. The
   output image is filled with NaN (float) or 0xCD bytes before each render; unwritten float
   pixels fail the run unless `--allow-unwritten`.
@@ -82,6 +96,7 @@ in canonical coordinates, except `renderWindow` and `bounds` (pixels).
 `--report file.json`, written after the run even if it failed: `schema`
 ("hostDemo.report"), `schemaVersion` (1), `ok`, `exitStatus`, `plugin` {id, versionMajor,
 versionMinor, label, grouping, filePath}, `context`, `host` {name, profile}, `depth`,
+`frames`, `renderScale` [sx, sy], `window` (`--window`, or null), `query`,
 `inputs` {Clip: {spec, connected, optional, isMask, unmappedDepth, unmappedComponents}},
 `actions` [{action, ok, status[, param, value]}] (createInstance, getClipPreferences,
 begin/end/instanceChanged, begin/endSequenceRender), `clipPreferences` {clips {Clip: {depth,
