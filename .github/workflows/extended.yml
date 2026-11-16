@@ -2,11 +2,12 @@ name: Extended builds
 
 # Variants that must not run on every pull request (policy for all
 # Natron-related repos): CMake on Linux/macOS, MSVC, debug builds, extension
-# flags OFF, C++20 and C++23. Runs nightly and on demand.
+# flags OFF, C++20 and C++23. Runs weekly (only if master changed in the last
+# week) and on demand.
 
 on:
   schedule:
-    - cron: '17 3 * * *'
+    - cron: '17 3 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -21,11 +22,32 @@ defaults:
     shell: bash -eo pipefail {0}
 
 jobs:
+  # Skip the scheduled run if master didn't change since the previous one
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+      - id: check
+        run: |
+          if [ "${{ github.event_name }}" != schedule ] || [ -n "$(git log --since='8 days ago' --format=%h -1)" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"; echo "No commits in the last 8 days: skipping."
+          fi
+
   # CMake, with each platform's default compiler (MSVC on Windows). The Makefile
   # builds and the MSYS2 build run on every pull request (build.yml).
   cmake:
     name: CMake (${{ matrix.os }}, ${{ matrix.config }}, extensions ${{ matrix.extensions }}${{ matrix.cxx && format(', C++{0}', matrix.cxx) || '' }})
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
