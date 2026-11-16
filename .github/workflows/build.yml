@@ -116,7 +116,7 @@ jobs:
         run: |
           set -eo pipefail
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=OFF \
+            -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON \
             -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON -DOFX_EXTENSIONS_VEGAS=ON \
             -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON \
             -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins"
@@ -130,3 +130,5 @@ jobs:
           cmake --install build --prefix install
           find install -name '*.ofx' | sort
           test "$(find install -name '*.ofx' | wc -l)" -ge 5
+          # the example hosts are only compiled on Windows (the test renders run on Linux and macOS)
+          ls install/bin/hostDemo.exe install/bin/cacheDemo.exe install/bin/propsetDump.exe

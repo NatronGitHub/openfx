@@ -29,7 +29,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iostream>
 #include <fstream>
 #include <cassert>
-#include <algorithm>
+#include <algorithm> // std::fill (no std::min/std::max: windows.h may define min/max macros)
+#include <cerrno>
+#include <cfloat>
+#include <climits>
 #include <cmath>
 #include <ctime>
 #include <cstdlib>
@@ -127,14 +130,47 @@ namespace MyHost {
 
   int gImageErrors = 0;
 
-  static bool parseNumber(const std::string& s, double& d)
+  bool parseFiniteDouble(const std::string& s, double& d)
   {
     if (s.empty()) {
       return false;
     }
+    // only decimal notation: this rejects nan, inf, hexadecimal and spaces, which strtod accepts
+    for (std::string::size_type k = 0; k < s.size(); ++k) {
+      const char c = s[k];
+      if (!((c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.' || c == 'e' || c == 'E')) {
+        return false;
+      }
+    }
     char* end = NULL;
-    d = std::strtod(s.c_str(), &end);
-    return end != NULL && *end == '\0';
+    errno = 0;
+    const double v = std::strtod(s.c_str(), &end);
+    if (errno == ERANGE || end == s.c_str() || end == NULL || *end != '\0' || !(v - v == 0.)) {
+      return false;
+    }
+    d = v;
+    return true;
+  }
+
+  bool parseInteger(const std::string& s, int& i)
+  {
+    if (s.empty()) {
+      return false;
+    }
+    for (std::string::size_type k = 0; k < s.size(); ++k) {
+      const char c = s[k];
+      if (!((c >= '0' && c <= '9') || (k == 0 && (c == '+' || c == '-')))) {
+        return false;
+      }
+    }
+    char* end = NULL;
+    errno = 0;
+    const long l = std::strtol(s.c_str(), &end, 10);
+    if (errno == ERANGE || end == s.c_str() || end == NULL || *end != '\0' || l < INT_MIN || l > INT_MAX) {
+      return false;
+    }
+    i = (int)l;
+    return true;
   }
 
   bool parseInputSpec(const std::string& s, InputSpec& spec)
@@ -153,12 +189,12 @@ namespace MyHost {
       return true;
     }
     if (s.compare(0, 8, "checker:") == 0) {
-      double n = 0.;
-      if (!parseNumber(s.substr(8), n) || n < 1 || n != std::floor(n) || n > 1e6) {
+      int n = 0;
+      if (!parseInteger(s.substr(8), n) || n < 1 || n > 1000000) {
         return false;
       }
       spec.type = InputSpec::eChecker;
-      spec.checkerSize = (int)n;
+      spec.checkerSize = n;
       return true;
     }
     if (s.compare(0, 6, "solid:") == 0) {
@@ -168,7 +204,8 @@ namespace MyHost {
         if ((i < 3) != (comma != std::string::npos)) {
           return false; // exactly 4 values
         }
-        if (!parseNumber(v.substr(0, comma), spec.colour[i])) {
+        // the values must also fit in a float image
+        if (!parseFiniteDouble(v.substr(0, comma), spec.colour[i]) || std::fabs(spec.colour[i]) > FLT_MAX) {
           return false;
         }
         v = (comma == std::string::npos) ? std::string() : v.substr(comma + 1);
@@ -273,9 +310,35 @@ namespace MyHost {
     return 0;
   }
 
+  // clamp to [0,1]; NaN gives 0, so that the conversion to an integer is always defined
   static double clamp01(double v)
   {
-    return v < 0. ? 0. : (v > 1. ? 1. : v);
+    if (!(v > 0.)) {
+      return 0.;
+    }
+    return v > 1. ? 1. : v;
+  }
+
+  // local min/max: std::min and std::max break if windows.h (included by ofxhBinary.h) defines
+  // the min and max macros, i.e. without NOMINMAX
+  static inline double minD(double a, double b) { return a < b ? a : b; }
+  static inline double maxD(double a, double b) { return a > b ? a : b; }
+  static inline int minI(int a, int b) { return a < b ? a : b; }
+  static inline int maxI(int a, int b) { return a > b ? a : b; }
+
+  // the nearest int (NaN gives 0), so that converting huge values (e.g. an infinite RoD) is defined
+  static int clampToInt(double v)
+  {
+    if (!(v == v)) {
+      return 0;
+    }
+    if (v <= (double)INT_MIN) {
+      return INT_MIN;
+    }
+    if (v >= (double)INT_MAX) {
+      return INT_MAX;
+    }
+    return (int)v;
   }
 
   bool MyImage::isSupported(const std::string& depth, const std::string& components)
@@ -327,6 +390,8 @@ namespace MyHost {
         const double Y = (y + 0.5) / renderScale.y;
         for (int x = _bounds.x1; x < _bounds.x2; ++x) {
           const double X = (x + 0.5) / renderScale.x;
+          // the patterns are unpremultiplied colours (getPremult() is kOfxImageUnPreMultiplied
+          // for RGBA and Alpha); RGB images drop the alpha, and are opaque
           evalPattern(spec, time, view, X, Y, W, H, rgba);
           if (_nComps == 1) {
             out[0] = rgba[3];
@@ -423,6 +488,7 @@ namespace MyHost {
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
     , _view(0)
 #endif
+    , _inRoDAction(false)
   {
   }
 
@@ -439,17 +505,35 @@ namespace MyHost {
     }
   }
    
-  /// Get the Raw Unmapped Pixel Depth from the host: 8 bits by default (hostDemo -d sets it)
+  /// Get the Raw Unmapped Pixel Depth from the host: 8 bits by default (hostDemo -d sets it),
+  /// kOfxBitDepthNone if the clip is disconnected ("implying a clip is unconnected image")
   const std::string &MyClipInstance::getUnmappedBitDepth() const
   {
-    return _unmappedDepth;
+    static const std::string none(kOfxBitDepthNone);
+    return getConnected() ? _unmappedDepth : none;
   }
     
-  /// Get the Raw Unmapped Components from the host. In our example we are always RGBA
+  /// Get the Raw Unmapped Components from the host: RGBA, or kOfxImageComponentNone if the
+  /// clip is disconnected ("implying a clip is unconnected, not valid for an image")
   const std::string &MyClipInstance::getUnmappedComponents() const
   {
-    static const std::string v(kOfxImageComponentRGBA);
-    return v;
+    static const std::string rgba(kOfxImageComponentRGBA);
+    static const std::string none(kOfxImageComponentNone);
+    return getConnected() ? rgba : none;
+  }
+
+  /// The mapped pixel depth: kOfxBitDepthNone if the clip is disconnected
+  const std::string &MyClipInstance::getPixelDepth() const
+  {
+    static const std::string none(kOfxBitDepthNone);
+    return getConnected() ? OFX::Host::ImageEffect::ClipInstance::getPixelDepth() : none;
+  }
+
+  /// The mapped components: kOfxImageComponentNone if the clip is disconnected
+  const std::string &MyClipInstance::getComponents() const
+  {
+    static const std::string none(kOfxImageComponentNone);
+    return getConnected() ? OFX::Host::ImageEffect::ClipInstance::getComponents() : none;
   }
 
   // PreMultiplication -
@@ -457,10 +541,21 @@ namespace MyHost {
   //  kOfxImageOpaque - the image is opaque and so has no premultiplication state
   //  kOfxImagePreMultiplied - the image is premultiplied by it's alpha
   //  kOfxImageUnPreMultiplied - the image is unpremultiplied
+  //
+  // The output clip has the premultiplication set by the clip preferences. An RGB input (or
+  // a disconnected one) is opaque: "an image with no alpha is opaque". RGBA and Alpha inputs are
+  // unpremultiplied: the synthetic patterns are unpremultiplied colours.
   const std::string &MyClipInstance::getPremult() const
   {
-    static const std::string v(kOfxImageUnPreMultiplied);
-    return v;
+    static const std::string opaque(kOfxImageOpaque);
+    static const std::string unpremult(kOfxImageUnPreMultiplied);
+    if (isOutput()) {
+      return _effect->getOutputPreMultiplication();
+    }
+    if (!getConnected() || getComponents() == kOfxImageComponentRGB) {
+      return opaque;
+    }
+    return unpremult;
   }
 
 
@@ -554,12 +649,44 @@ namespace MyHost {
   }
 
 
-  /// override this to return the rod on the clip canonical coords!
+  /// the rod of the clip in canonical coordinates (see getRoD)
   OfxRectD MyClipInstance::getRegionOfDefinition(OfxTime time) const
   {
-    /// our clip is pretending to be progressive PAL SD, so return 0<=x<768, 0<=y<576 
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    return getRoD(time, _view);
+#else
+    return getRoD(time, 0);
+#endif
+  }
+
+  OfxRectD MyClipInstance::getRoD(OfxTime time, int view) const
+  {
+    (void)view;
     OfxRectD v;
-    v.x1 = v.y1 = 0;
+    v.x1 = v.y1 = v.x2 = v.y2 = 0.;
+    if (isOutput()) {
+      // the output RoD is the effect's RoD (the guard protects against a plug-in that
+      // asks for the output RoD in its own RoD action)
+      if (_inRoDAction) {
+        return v;
+      }
+      _inRoDAction = true;
+      OfxRectD rod = v;
+      OfxStatus stat = _effect->getRegionOfDefinitionAction(time, _effect->getRenderScale(),
+#ifdef OFX_EXTENSIONS_NUKE
+                                                            view,
+#endif
+                                                            rod);
+      _inRoDAction = false;
+      if (stat == kOfxStatOK || stat == kOfxStatReplyDefault) {
+        v = rod;
+      }
+      return v;
+    }
+    if (!getConnected()) {
+      return v; // a disconnected clip has an empty RoD
+    }
+    /// our clip is pretending to be progressive PAL SD, so return 0<=x<768, 0<=y<576
     v.x2 = 768;
     v.y2 = 576;
     return v;
@@ -569,34 +696,32 @@ namespace MyHost {
   static OfxRectD intersect(const OfxRectD& a, const OfxRectD& b)
   {
     OfxRectD r;
-    r.x1 = std::max(a.x1, b.x1);
-    r.y1 = std::max(a.y1, b.y1);
-    r.x2 = std::min(a.x2, b.x2);
-    r.y2 = std::min(a.y2, b.y2);
+    r.x1 = maxD(a.x1, b.x1);
+    r.y1 = maxD(a.y1, b.y1);
+    r.x2 = minD(a.x2, b.x2);
+    r.y2 = minD(a.y2, b.y2);
     return r;
   }
 
-  static OfxRectI intersect(const OfxRectI& a, const OfxRectI& b)
+  OfxRectI intersect(const OfxRectI& a, const OfxRectI& b)
   {
     OfxRectI r;
-    r.x1 = std::max(a.x1, b.x1);
-    r.y1 = std::max(a.y1, b.y1);
-    r.x2 = std::min(a.x2, b.x2);
-    r.y2 = std::min(a.y2, b.y2);
+    r.x1 = maxI(a.x1, b.x1);
+    r.y1 = maxI(a.y1, b.y1);
+    r.x2 = minI(a.x2, b.x2);
+    r.y2 = minI(a.y2, b.y2);
     return r;
   }
 
-  // the smallest rectangle in pixel coordinates enclosing a rectangle in canonical coordinates
-  // (the rectangle must be finite)
-  static OfxRectI canonicalToPixelEnclosing(const OfxRectD& r, const OfxPointD& renderScale, double par)
+  OfxRectI canonicalToPixelEnclosing(const OfxRectD& r, const OfxPointD& renderScale, double par)
   {
     // the epsilon absorbs rounding errors, e.g. 768 / (768/720) = 720.0000000001
     const double eps = 1e-6;
     OfxRectI p;
-    p.x1 = (int)std::floor(r.x1 * renderScale.x / par + eps);
-    p.y1 = (int)std::floor(r.y1 * renderScale.y + eps);
-    p.x2 = (int)std::ceil(r.x2 * renderScale.x / par - eps);
-    p.y2 = (int)std::ceil(r.y2 * renderScale.y - eps);
+    p.x1 = clampToInt(std::floor(r.x1 * renderScale.x / par + eps));
+    p.y1 = clampToInt(std::floor(r.y1 * renderScale.y + eps));
+    p.x2 = clampToInt(std::ceil(r.x2 * renderScale.x / par - eps));
+    p.y2 = clampToInt(std::ceil(r.y2 * renderScale.y - eps));
     return p;
   }
 
@@ -615,14 +740,14 @@ namespace MyHost {
     }
     const OfxPointD& renderScale = _effect->getRenderScale();
     const double par = getAspectRatio();
-    const OfxRectD rodCanonical = getRegionOfDefinition(time);
+    const OfxRectD rodCanonical = getRoD(time, view);
     const OfxRectI rod = canonicalToPixelEnclosing(rodCanonical, renderScale, par);
 
     if (isOutput()) {
       if (!_outputImage) {
-        // a new image for each render, covering the render window
-        // (outside of render, the whole RoD)
-        OfxRectI bounds = _effect->isRendering() ? _effect->getRenderWindow() : rod;
+        // a new image for each render, covering the render window, i.e. the output RoD
+        // clipped to the project (outside of render, the whole RoD)
+        OfxRectI bounds = _effect->isRendering() ? _effect->getRenderWindow() : intersect(rod, _effect->getProjectPixelRect(renderScale));
         _outputImage = new MyImage(*this, time, view, bounds, rod, renderScale, /*isOutput=*/true);
       }
       // add another reference to the member image for this fetch: as we have a
@@ -693,7 +818,7 @@ namespace MyHost {
   /// override this to return the rod on the clip for the given view
   OfxRectD MyClipInstance::getRegionOfDefinition(OfxTime time, int view) const
   {
-    return getRegionOfDefinition(time);
+    return getRoD(time, view < 0 ? _view : view);
   }
 #endif
 

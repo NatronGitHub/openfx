@@ -56,6 +56,15 @@ Builds use the same extension flags as the consumers (NATRON, NUKE...), so Natro
 ## Implementation status
 
 - **PR 1 is implemented:** images follow the clip preferences, a new sentinel-filled output image per render, `-d byte|short|float`, `-i Clip=default|solid:r,g,b,a|ramp|checker:N|none`, `--no-std-paths`, `--no-cache`/`--cache PATH`, `--quiet`, and the CI checks (Invert on float RGBA, basic plug-in with its Mask disconnected).
+- **PR 1 review fixes:**
+  - a mandatory clip can't be disconnected (`checkClipConnectionStatus`): "Any clip that is not optional will *always* be connected during a render action";
+  - a disconnected clip reports `kOfxBitDepthNone` and `kOfxImageComponentNone` (unmapped and mapped) and an empty RoD; with no connected input, the output gets the `-d` depth;
+  - the output RoD is the plug-in's getRegionOfDefinition; the render window, the output image and the PPM are that RoD clipped to the project frame;
+  - numbers must be finite decimals (no nan, inf, hexadecimal or ERANGE);
+  - unwritten float pixels (NaN) fail the run, unless `--allow-unwritten`. The 0xCD sentinel of byte and short images can't be detected, so use `-d float` for that check;
+  - RGB inputs are opaque, RGBA and Alpha inputs are unpremultiplied; the output premultiplication comes from the clip preferences;
+  - PPM rows are written top row first, with the header comments before the maxval;
+  - CI: exact values for byte, short and float Invert, the Mask (disconnected, alpha 0, checker), mandatory clips, number parsing, unwritten pixels (PropTester writes nothing), and the output size of a plug-in that sets its RoD (the dot example). The Windows job compiles the example hosts.
 
 ## Part B: Python test wrapper (`ofxhost`), subprocess first
 

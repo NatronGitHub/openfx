@@ -32,6 +32,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <iostream>
 #include <cstring> // strcmp
+#ifdef _MSC_VER
+#include <crtdbg.h> // _CrtSetDbgFlag
+#endif
 #include <fstream>
 #include <stdexcept>
 
@@ -151,7 +154,7 @@ public :
 
 int main(int argc, char **argv) 
 {
-#ifdef _WIN32
+#ifdef _MSC_VER
   _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
 

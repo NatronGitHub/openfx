@@ -39,6 +39,9 @@ modification, are permitted provided that the following conditions are met:
 #include <vector>
 #include <cstdlib> // strtol, strtod
 #include <cstring> // strcmp
+#ifdef _MSC_VER
+#include <crtdbg.h> // _CrtSetDbgFlag
+#endif
 #include <cmath> // ceil
 #include <list>
 #include <map>
@@ -83,47 +86,43 @@ modification, are permitted provided that the following conditions are met:
 // Run this in a debugger and step through to see what it does. Also be sure to
 // build the invert example and set OFX_PLUGIN_PATH so that it can see it.
 //
-// It works by hard coding progressive PAL SD imagery to input and output clips.
+// It works by hard coding progressive PAL SD imagery to the input clips. The output covers the
+// RoD returned by the plug-in, clipped to the PAL SD project frame.
 // By default, the input images are black at t=0 and white at t=1 (and should be
 // inverted by the invert plugin); -i sets other inputs, or disconnects a clip.
 // Images have the depth and components that the clip preferences map each clip to.
 //
 // There is no file input; the output is written as PPM files.
 
-// returns false (after printing an error) if the file couldn't be written.
-// Short and float images are converted to 8 bits (float values are clamped to [0,1]),
-// Alpha images are written as grey levels, and pixels outside the image bounds are black.
-bool exportToPPM(const std::string& fname, MyHost::MyImage* im)
+// Write the image (its bounds, i.e. the render window) to fname as a plain PPM, top row first
+// (OFX images are bottom-up). Returns false (after printing an error) if the file couldn't be written.
+// Short and float images are converted to 8 bits (float values are clamped to [0,1]), and Alpha
+// images are written as grey levels. notWritten is set to the number of pixels that still hold
+// the NaN sentinel (float images only: the 0xCD sentinel of byte and short images can't be told
+// apart from real data), which are written as 0.
+static bool exportToPPM(const std::string& fname, const MyHost::MyImage& im, long& notWritten)
 {
-  if (!im) {
-    // the plug-in did not fetch the output image (e.g. a test plug-in that doesn't render)
-    std::cerr << "No output image to export to " << fname << std::endl;
-    return true; // not an error
-  }
+  notWritten = 0;
   std::ofstream op(fname.c_str());
   if (!op) {
     std::cerr << "Error: cannot open " << fname << " for writing" << std::endl;
     return false;
   }
-  OfxRectI rod = im->getROD();
-  op << "P3" << "\t# FORMAT" << std::endl;
-  op << rod.x2 - rod.x1 << "\t#WIDTH" << std::endl;
-  op << rod.y2 - rod.y1 << "\t#HEIGHT" <<std::endl;
-  op << "255" << "\t# " << im->getDepth() << " " << im->getComponentsString() << ", converted to 8 bits" << std::endl;
-  long notWrittenCount = 0;
-  for (int y = rod.y1; y< rod.y2; ++y)
-  {
-    for (int x = rod.x1; x < rod.x2; ++x)
-    {
-      int rgb[3];
-      bool notWritten = false;
-      if (im->getPixelRGB8(x, y, rgb, notWritten)) {
-        op << rgb[0] << " " << rgb[1] << " " << rgb[2] << " " << std::endl;
-      } else {
-        op << "0 0 0" << std::endl;
-      }
-      if (notWritten) {
-        ++notWrittenCount;
+  const OfxRectI& b = im.getBounds();
+  // Netpbm allows comments in the header before the maxval, not after it
+  op << "P3" << std::endl;
+  op << "# " << im.getDepth() << " " << im.getComponentsString() << ", converted to 8 bits" << std::endl;
+  op << "# bounds " << b.x1 << " " << b.y1 << " " << b.x2 << " " << b.y2 << std::endl;
+  op << b.x2 - b.x1 << " " << b.y2 - b.y1 << std::endl;
+  op << "255" << std::endl;
+  for (int y = b.y2 - 1; y >= b.y1; --y) {
+    for (int x = b.x1; x < b.x2; ++x) {
+      int rgb[3] = { 0, 0, 0 };
+      bool nan = false;
+      im.getPixelRGB8(x, y, rgb, nan);
+      op << rgb[0] << " " << rgb[1] << " " << rgb[2] << "\n";
+      if (nan) {
+        ++notWritten;
       }
     }
   }
@@ -131,9 +130,6 @@ bool exportToPPM(const std::string& fname, MyHost::MyImage* im)
   if (!op) {
     std::cerr << "Error: cannot write " << fname << std::endl;
     return false;
-  }
-  if (notWrittenCount > 0) {
-    std::cerr << "Warning: " << fname << ": " << notWrittenCount << " pixels were not written by the plug-in (NaN), written as 0" << std::endl;
   }
   return true;
 }
@@ -143,7 +139,7 @@ static void usage(const char* prog)
   std::cout <<
     "Usage: " << prog << " [-h] [-p pluginId] [-m major] [-c filter|general] [-o prefix]\n"
     "       [-d byte|short|float] [-i Clip=spec]... [--no-std-paths] [--no-cache | --cache path]\n"
-    "       [--quiet] [-s name=value[,value...]]... [name=value[,value...]]...\n"
+    "       [--quiet] [--allow-unwritten] [-s name=value[,value...]]... [name=value[,value...]]...\n"
     "Render a filter or general OFX plug-in found in OFX_PLUGIN_PATH, on synthetic\n"
     "PAL SD input clips, and write the output frames as PPM files.\n"
     "  -h          print this help and exit\n"
@@ -151,8 +147,9 @@ static void usage(const char* prog)
     "  -m major    plug-in major version (default: the highest version found)\n"
     "  -c context  filter or general (default: filter)\n"
     "  -o prefix   output file prefix (default: Output): writes <prefix>.<t>[l|r].ppm.\n"
-    "              Short and float images are converted to 8 bits (float is clamped to\n"
-    "              [0,1]), Alpha is written as grey.\n"
+    "              The output covers the render window: the RoD returned by the plug-in,\n"
+    "              clipped to the project frame. Short and float images are converted to\n"
+    "              8 bits (float is clamped to [0,1]), Alpha is written as grey.\n"
     "  -d depth    pixel depth of the input clips before clip preferences: byte, short or\n"
     "              float (default: byte). The images have the depth and components that\n"
     "              getClipPreferences maps each clip to.\n"
@@ -163,8 +160,8 @@ static void usage(const char* prog)
     "                solid:r,g,b,a  a constant colour\n"
     "                ramp           r=g=b=a from 0 (left) to 1 (right)\n"
     "                checker:N      N-pixel squares, alternating 0 and 1 (r=g=b=a)\n"
-    "                none           the clip is disconnected\n"
-    "              Unwritten output pixels hold NaN (float) or 0xCD bytes (byte, short).\n"
+    "                none           the clip is disconnected (only for optional clips)\n"
+    "              Numbers must be finite decimals (no nan, inf or hexadecimal).\n"
     "  --no-std-paths\n"
     "              only look for plug-ins in OFX_PLUGIN_PATH, not in the standard\n"
     "              locations (/Library/OFX/Plugins, /usr/OFX/Plugins...)\n"
@@ -172,14 +169,19 @@ static void usage(const char* prog)
     "  --cache path\n"
     "              read and write the plug-in cache at path (default:\n"
     "              hostDemoPluginCache.xml in the current directory)\n"
-    "  --quiet     don't print the plug-in cache on stdout\n"
+    "  --quiet     print nothing on stdout but the plug-in's messages\n"
+    "  --allow-unwritten\n"
+    "              don't fail if output pixels were not written by the plug-in. The output\n"
+    "              image is filled with NaN (float) or 0xCD bytes (byte, short) before\n"
+    "              rendering, but only NaN can be detected: use -d float for that check.\n"
     "  -s name=value[,value...]\n"
     "              set a parameter before rendering (the option name -s may be omitted).\n"
     "              Multi-dimensional parameters take comma-separated values, e.g.\n"
     "              value=0.5,0.5,0.5,0.5 for an RGBA. Booleans take 0/1/true/false,\n"
     "              Choice takes the option index or label, String/StrChoice/Custom\n"
-    "              take the whole value (commas included).\n"
-    "The exit status is 0 on success, and non-zero on any failure.\n";
+    "              take the whole value (commas included). Numbers must be finite decimals.\n"
+    "The exit status is 0 on success, and non-zero on any failure, including a\n"
+    "disconnected mandatory clip and (for float output) unwritten pixels.\n";
 }
 
 static std::vector<std::string> splitValues(const std::string& s)
@@ -200,27 +202,12 @@ static std::vector<std::string> splitValues(const std::string& s)
 
 static bool parseDouble(const std::string& s, double& d)
 {
-  if (s.empty()) {
-    return false;
-  }
-  char* end = NULL;
-  d = std::strtod(s.c_str(), &end);
-  return end != NULL && *end == '\0';
+  return MyHost::parseFiniteDouble(s, d);
 }
 
 static bool parseInt(const std::string& s, int& i)
 {
-  if (s.empty()) {
-    return false;
-  }
-  char* end = NULL;
-  errno = 0;
-  long l = std::strtol(s.c_str(), &end, 10);
-  if (errno == ERANGE || end == NULL || *end != '\0' || l < INT_MIN || l > INT_MAX) {
-    return false;
-  }
-  i = (int)l;
-  return true;
+  return MyHost::parseInteger(s, i);
 }
 
 static bool parseBool(const std::string& s, bool& b)
@@ -268,7 +255,7 @@ static bool parseInts(const std::string& s, int n, int* d)
 
 // set the parameter value from the string "name=value[,value...]".
 // Returns false and prints an error on failure.
-static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const std::string& assignment)
+static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const std::string& assignment, bool quiet)
 {
   std::string::size_type eq = assignment.find('=');
   if (eq == std::string::npos || eq == 0) {
@@ -387,7 +374,9 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
     std::cerr << "Error: could not set parameter \"" << name << "\" (status " << stat << ")" << std::endl;
     return false;
   }
-  std::cout << "Set parameter " << name << " = " << value << std::endl;
+  if (!quiet) {
+    std::cerr << "Set parameter " << name << " = " << value << std::endl;
+  }
   return true;
 }
 
@@ -395,30 +384,46 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
 // Returns false (after printing an error) on failure.
 static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstance* outputClip,
                         OfxTime t, int view, int nViews, const OfxPointD& renderScale,
-                        const std::string& fname)
+                        bool allowUnwritten, const std::string& fname)
 {
   (void)view;
   (void)nViews;
-  // The render window is in pixel coordinates (render scale and PAR applied): the whole project
   const double par = instance->getProjectPixelAspectRatio();
-  double projectWidth, projectHeight; // canonical coordinates
-  instance->getProjectSize(projectWidth, projectHeight);
-  const double eps = 1e-6;
-  OfxRectI renderWindow;
-  renderWindow.x1 = renderWindow.y1 = 0;
-  renderWindow.x2 = (int)std::ceil(projectWidth * renderScale.x / par - eps);
-  renderWindow.y2 = (int)std::ceil(projectHeight * renderScale.y - eps);
+
+  // the output RoD is what the plug-in's getRegionOfDefinition action returns
+  OfxRectD rod;
+  OfxStatus stat = instance->getRegionOfDefinitionAction(t, renderScale,
+#ifdef OFX_EXTENSIONS_NUKE
+                                                         view,
+#endif
+                                                         rod);
+  if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+    std::cerr << "Error: get region of definition action failed at time " << t << " (status " << stat << ")" << std::endl;
+    return false;
+  }
+
+  // The render window is in pixel coordinates (render scale and PAR applied): the output RoD,
+  // clipped to the project frame
+  OfxRectI renderWindow = MyHost::intersect(MyHost::canonicalToPixelEnclosing(rod, renderScale, par),
+                                            instance->getProjectPixelRect(renderScale));
+  if (renderWindow.x2 <= renderWindow.x1 || renderWindow.y2 <= renderWindow.y1) {
+    std::cerr << "Warning: the output RoD (" << rod.x1 << "," << rod.y1 << "," << rod.x2 << "," << rod.y2
+              << ") at time " << t << " doesn't intersect the project: nothing to render, "
+              << fname << " not written" << std::endl;
+    return true;
+  }
 
   /// RoI is in canonical coords
   OfxRectD regionOfInterest;
-  regionOfInterest.x1 = regionOfInterest.y1 = 0;
+  regionOfInterest.x1 = renderWindow.x1 * par / renderScale.x;
+  regionOfInterest.y1 = renderWindow.y1 / renderScale.y;
   regionOfInterest.x2 = renderWindow.x2 * par / renderScale.x;
   regionOfInterest.y2 = renderWindow.y2 / renderScale.y;
 
   // get the RoI for each input clip: the input images are fetched with these bounds
   // (clipped to the RoD), unless the plug-in asks for specific bounds
   std::map<OFX::Host::ImageEffect::ClipInstance *, OfxRectD> rois;
-  OfxStatus stat = instance->getRegionOfInterestAction(t, renderScale,
+  stat = instance->getRegionOfInterestAction(t, renderScale,
 #ifdef OFX_EXTENSIONS_NUKE
                                                        view,
 #endif
@@ -476,7 +481,18 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
     std::cerr << "Error: image fetches failed at time " << t << std::endl;
     return false;
   }
-  return exportToPPM(fname, outputImage);
+  long notWritten = 0;
+  if (!exportToPPM(fname, *outputImage, notWritten)) {
+    return false;
+  }
+  if (notWritten > 0) {
+    const OfxRectI& b = outputImage->getBounds();
+    std::cerr << (allowUnwritten ? "Warning: " : "Error: ") << fname << ": " << notWritten << " of "
+              << (long)(b.x2 - b.x1) * (long)(b.y2 - b.y1)
+              << " pixels were not written by the plug-in (they hold NaN), written as 0" << std::endl;
+    return allowUnwritten;
+  }
+  return true;
 }
 
 static int run(int argc, char **argv)
@@ -492,6 +508,7 @@ static int run(int argc, char **argv)
   bool useCache = true;
   std::string cachePath = "hostDemoPluginCache.xml";
   bool quiet = false;
+  bool allowUnwritten = false;
 
   for (int a = 1; a < argc; ++a) {
     std::string arg = argv[a];
@@ -504,6 +521,8 @@ static int run(int argc, char **argv)
       useCache = false;
     } else if (arg == "--quiet") {
       quiet = true;
+    } else if (arg == "--allow-unwritten") {
+      allowUnwritten = true;
     } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
                arg == "-d" || arg == "-i" || arg == "--cache") {
       if (a + 1 >= argc) {
@@ -565,7 +584,7 @@ static int run(int argc, char **argv)
   }
 
   //_CrtSetBreakAlloc(3168);
-#ifdef _WIN32
+#ifdef _MSC_VER
   _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
   // this must be called before the first call to getPluginCache()
@@ -661,11 +680,26 @@ static int run(int argc, char **argv)
         }
         clip->setInput(inputs[k].second);
       }
+      myInstance->setDefaultDepth(inputDepth);
+    }
+
+    // "Any clip that is not optional will *always* be connected during a render action"
+    // (kOfxImageClipPropOptional): a mandatory clip can't be disconnected
+    if (ret == 0 && !instance->checkClipConnectionStatus()) {
+      const std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>& clips = myInstance->getClipInstances();
+      std::cerr << "Error: these clips are not optional, they can't be disconnected (-i Clip=none):";
+      for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
+        if (!it->second->isOptional() && !it->second->getConnected()) {
+          std::cerr << " " << it->first;
+        }
+      }
+      std::cerr << std::endl;
+      ret = 1;
     }
 
     // set the parameter values given on the command line, before calling the create instance action
     for (size_t k = 0; ret == 0 && k < paramAssignments.size(); ++k) {
-      if (!setParamFromString(instance.get(), paramAssignments[k])) {
+      if (!setParamFromString(instance.get(), paramAssignments[k], quiet)) {
         ret = 1;
       }
     }
@@ -731,14 +765,14 @@ static int run(int argc, char **argv)
         for (int view = 0; ret == 0 && view < 2; ++view) {
           std::ostringstream ss;
           ss << outputPrefix << "." << t << (view == 0 ? "l" : "r") << ".ppm";
-          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, ss.str())) {
+          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, allowUnwritten, ss.str())) {
             ret = 1;
           }
         }
 #else
         std::ostringstream ss;
         ss << outputPrefix << "." << t << ".ppm";
-        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, ss.str())) {
+        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, allowUnwritten, ss.str())) {
           ret = 1;
         }
 #endif

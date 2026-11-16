@@ -57,6 +57,20 @@ namespace MyHost {
   /// parse "solid:r,g,b,a", "ramp", "checker:N", "none" or "default". Returns false if invalid.
   bool parseInputSpec(const std::string& s, InputSpec& spec);
 
+  /// parse a finite decimal number (e.g. "0.5", "-2", "1e3"). Returns false for anything else,
+  /// including nan, inf, hexadecimal and out-of-range (ERANGE) values, and surrounding spaces.
+  bool parseFiniteDouble(const std::string& s, double& d);
+
+  /// parse a decimal integer that fits in an int. Returns false for anything else.
+  bool parseInteger(const std::string& s, int& i);
+
+  /// intersection of two rectangles (may be empty, i.e. x2 <= x1 or y2 <= y1)
+  OfxRectI intersect(const OfxRectI& a, const OfxRectI& b);
+
+  /// the smallest rectangle in pixel coordinates enclosing a rectangle in canonical coordinates
+  /// (coordinates beyond the int range, e.g. of an infinite RoD, are clamped to it)
+  OfxRectI canonicalToPixelEnclosing(const OfxRectD& r, const OfxPointD& renderScale, double par);
+
   /// number of image fetches that failed because of an unsupported pixel depth or components
   /// (hostDemo then exits with a non-zero status)
   extern int gImageErrors;
@@ -87,6 +101,7 @@ namespace MyHost {
 
     const std::string& getDepth() const { return _depth; }
     const std::string& getComponentsString() const { return _components; }
+    const OfxRectI& getBounds() const { return _bounds; }
 
     /// get the pixel at (x,y), converted to 8 bits RGB (Alpha images give a grey level).
     /// Returns false if (x,y) is outside the bounds. notWritten is set if the pixel still
@@ -104,6 +119,7 @@ namespace MyHost {
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
     int               _view; ///< view used by the last renderAction
 #endif
+    mutable bool      _inRoDAction; ///< set while the output clip calls the effect's RoD action
 
   public:
     MyClipInstance(MyEffectInstance* effect, OFX::Host::ImageEffect::ClipDescriptor* desc);
@@ -126,6 +142,16 @@ namespace MyHost {
     /// was given, or the RoD outside of render) clipped to the RoD. Returns NULL if the clip is
     /// disconnected or the bounds are empty.
     MyImage* fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds);
+
+    /// the RoD of the clip at the given time and view, in canonical coordinates: the PAL SD frame
+    /// for a connected input, empty (0,0,0,0) for a disconnected one, and the result of the
+    /// effect's getRegionOfDefinition action for the output clip (empty if the action fails)
+    OfxRectD getRoD(OfxTime time, int view) const;
+
+    /// the mapped pixel depth and components: kOfxBitDepthNone and kOfxImageComponentNone
+    /// if the clip is disconnected ("implying a clip is unconnected")
+    virtual const std::string &getPixelDepth() const;
+    virtual const std::string &getComponents() const;
 
     /// Get the Raw Unmapped Pixel Depth from the host
     ///

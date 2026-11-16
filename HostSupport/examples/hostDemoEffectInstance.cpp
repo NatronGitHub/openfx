@@ -61,6 +61,7 @@ namespace MyHost {
                                      const std::string& context) 
                                      : OFX::Host::ImageEffect::Instance(plugin,desc,context,false)
                                      , _rendering(false)
+                                     , _defaultDepth(kOfxBitDepthByte)
   {
     _renderScale.x = _renderScale.y = 1.;
     _renderWindow.x1 = _renderWindow.y1 = _renderWindow.x2 = _renderWindow.y2 = 0;
@@ -93,6 +94,35 @@ namespace MyHost {
     }
     roi = it->second;
     return true;
+  }
+
+  OfxRectI MyEffectInstance::getProjectPixelRect(const OfxPointD& renderScale) const
+  {
+    double x, y, w, h;
+    getProjectOffset(x, y);
+    getProjectSize(w, h);
+    OfxRectD r;
+    r.x1 = x;
+    r.y1 = y;
+    r.x2 = x + w;
+    r.y2 = y + h;
+    return canonicalToPixelEnclosing(r, renderScale, getProjectPixelAspectRatio());
+  }
+
+  void MyEffectInstance::setDefaultClipPreferences()
+  {
+    OFX::Host::ImageEffect::Instance::setDefaultClipPreferences();
+    // HostSupport maps the output to float when no input is connected; hostDemo uses
+    // the -d depth, as for the inputs
+    for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = _clips.begin(); it != _clips.end(); ++it) {
+      if (!it->second->isOutput() && it->second->getConnected()) {
+        return;
+      }
+    }
+    OFX::Host::ImageEffect::ClipInstance* output = getClip(kOfxImageEffectOutputClipName);
+    if (output && isChromaticComponent(output->getComponents())) {
+      output->setPixelDepth(bestSupportedDepth(_defaultDepth));
+    }
   }
 
   // class member function implementation
