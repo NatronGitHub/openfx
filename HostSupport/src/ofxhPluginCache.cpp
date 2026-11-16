@@ -132,9 +132,9 @@ static std::vector<std::string> getArchDirs()
   // - FreeBSD (not covered by the spec): FreeBSD's MACHINE_ARCH, i.e. `uname -p` (aarch64, armv7,
   //   riscv64, powerpc64, powerpc64le), because `uname -m` is the platform (arm64, riscv, powerpc).
 #  if defined(__linux__)
-#    define OFXH_LINUX_OR_FREEBSD(linux, freebsd) linux
+#    define OFXH_LINUX_OR_FREEBSD(onLinux, onFreeBSD) onLinux
 #  else
-#    define OFXH_LINUX_OR_FREEBSD(linux, freebsd) freebsd
+#    define OFXH_LINUX_OR_FREEBSD(onLinux, onFreeBSD) onFreeBSD
 #  endif
 #  if defined(__aarch64__)
   machine = "aarch64";
