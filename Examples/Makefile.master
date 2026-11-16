@@ -46,8 +46,8 @@ ifeq ($(shell getconf LONG_BIT),64)
 endif
 OS := $(shell uname -s)
 # MinGW-w64 GCC/Clang toolchains: uname -s is MINGW64_NT-*, MINGW32_NT-*, or, with
-# the MSYS2 UCRT64/CLANG64/CLANG32 environments, UCRT64_NT-*, CLANG64_NT-*, CLANG32_NT-*
-MINGW_OS := $(filter MINGW% UCRT64% CLANG64% CLANG32%,$(OS))
+# the MSYS2 UCRT64/CLANG64/CLANG32/CLANGARM64 environments, UCRT64_NT-*, CLANG64_NT-*, CLANG32_NT-*, CLANGARM64_NT-*
+MINGW_OS := $(filter MINGW% UCRT64% CLANG64% CLANG32% CLANGARM64%,$(OS))
 DEBUGFLAG ?= -g
 DEBUGNAME ?= debug
 ifeq ($(DEBUGFLAG),-O3)
@@ -99,6 +99,12 @@ uninstall:
     ifeq ($(BITS), 64)
       BITSFLAG = -m64
       ARCH = Win64
+    endif
+    # native Arm64 (MSYS2 CLANGARM64, llvm-mingw): Win-arm64 (reserved name, searched by HostSupport's
+    # native Arm64 hosts); -m32/-m64 are x86 options
+    ifneq ($(filter aarch64 arm64 ARM64,$(shell uname -m)),)
+      BITSFLAG =
+      ARCH = Win-arm64
     endif
     # mingw64 runtime >=3 or mingw32 runtime>=3.15 is required to get a proper snprintf implementation,
     # which is triggered by the following CPPFLAGS.

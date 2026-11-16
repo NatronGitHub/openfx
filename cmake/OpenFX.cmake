@@ -39,7 +39,8 @@ elseif(WIN32)
   endif()
   if(_OFX_WINARCH MATCHES "ARM64EC" OR CMAKE_CXX_FLAGS MATCHES "/arm64EC")
     set(ARCHDIR "Win-arm64ec") # normative (upstream main, 2026): Arm64EC (and Arm64X) plug-ins
-  elseif(_OFX_WINARCH MATCHES "ARM64")
+  elseif(_OFX_WINARCH MATCHES "ARM64|AARCH64")
+    # CMake >= 4.1 reports "aarch64" as the MinGW architecture ID
     set(ARCHDIR "Win-arm64")   # reserved, not yet normative: native Arm64 hosts
   elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(ARCHDIR "Win64")

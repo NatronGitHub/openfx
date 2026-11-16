@@ -134,9 +134,11 @@ namespace OFX {
             if (!machine.empty()) {
               dirs.push_back(std::string(prefix) + machine);
             }
+            // HostSupport and the Makefiles used `uname -m` on FreeBSD before the names became MACHINE_ARCH
             if (os == eOSFreeBSD && machine == "aarch64") {
-              // HostSupport used FreeBSD-arm64 (uname -m) before the FreeBSD names became MACHINE_ARCH
               dirs.push_back("FreeBSD-arm64");
+            } else if (os == eOSFreeBSD && machine.compare(0, 4, "armv") == 0) {
+              dirs.push_back("FreeBSD-arm");
             }
             // legacy fallback (see above)
             dirs.push_back(std::string(prefix) + (is64Bit ? "x86-64" : "x86"));

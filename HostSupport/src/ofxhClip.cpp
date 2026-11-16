@@ -330,12 +330,18 @@ namespace OFX {
         // (Support's Clip::setLabel, setIsSecret, setHint), and the host is notified. ClipBase's copy
         // constructor made every instance property read-only for the plug-in (standard OFX: "clip
         // instance (read only)"), so make these three writable again, otherwise the writes are refused.
-        static const char* const pluginWritable[] = { kOfxPropLabel, kOfxParamPropSecret, kOfxParamPropHint };
+        // Support's Clip::setLabels also sets the short and long labels: make them writable too
+        // (no notify hook: hosts read them along with kOfxPropLabel).
+        static const char* const pluginWritable[] = { kOfxPropLabel, kOfxParamPropSecret, kOfxParamPropHint,
+                                                      kOfxPropShortLabel, kOfxPropLongLabel };
+        static const size_t nHooked = 3; // kOfxPropLabel, kOfxParamPropSecret, kOfxParamPropHint
         for (size_t k = 0; k < sizeof(pluginWritable) / sizeof(pluginWritable[0]); ++k) {
           if (Property::Property* prop = _properties.fetchProperty(pluginWritable[k])) {
             prop->setPluginReadOnly(false);
           }
-          _properties.addNotifyHook(pluginWritable[k], this);
+          if (k < nHooked) {
+            _properties.addNotifyHook(pluginWritable[k], this);
+          }
         }
 #     endif
       }
