@@ -63,8 +63,6 @@ namespace MyHost {
     static Json array() { Json j; j._type = eArray; return j; }
     static Json object() { Json j; j._type = eObject; return j; }
 
-    Type type() const { return _type; }
-
     /// append an item to an array (a null value becomes an empty array); returns the new item
     Json& push(const Json& v)
     {

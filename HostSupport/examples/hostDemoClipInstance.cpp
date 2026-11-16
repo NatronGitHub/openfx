@@ -213,8 +213,8 @@ namespace MyHost {
       error = "cannot read " + path;
       return false;
     }
-    // "PF" or "Pf", whitespace, width, whitespace, height, whitespace, scale (whose sign gives
-    // the byte order), a single whitespace character, then the raster
+    // "PF" or "Pf", whitespace, width, whitespace, height, whitespace, scale (negative: only
+    // little-endian files are read), a single whitespace character, then the raster
     if (buf.size() < 3 || buf[0] != 'P' || (buf[1] != 'F' && buf[1] != 'f') || !isPFMSpace(buf[2])) {
       error = path + ": not a PFM file (it must start with PF or Pf)";
       return false;
@@ -231,8 +231,8 @@ namespace MyHost {
       return false;
     }
     const std::string ss = pfmToken(buf, pos);
-    if (!parseFiniteDouble(ss, scale) || scale == 0.) {
-      error = path + ": invalid PFM scale \"" + ss + "\" (it must be a non-zero number: negative for little-endian, positive for big-endian)";
+    if (!parseFiniteDouble(ss, scale) || scale >= 0.) {
+      error = path + ": invalid PFM scale \"" + ss + "\" (it must be negative: only little-endian PFM files are supported)";
       return false;
     }
     if (pos >= buf.size() || !isPFMSpace(buf[pos])) {
@@ -249,15 +249,13 @@ namespace MyHost {
       error = ss2.str();
       return false;
     }
-    const bool bigEndian = scale > 0.;
     image.width = w;
     image.height = h;
     image.nComps = nComps;
     image.data.resize(expected / 4);
     const unsigned char* p = &buf[pos];
     for (size_t i = 0; i < image.data.size(); ++i, p += 4) {
-      const unsigned int u = bigEndian ?
-        ((unsigned int)p[0] << 24) | ((unsigned int)p[1] << 16) | ((unsigned int)p[2] << 8) | (unsigned int)p[3] :
+      const unsigned int u =
         ((unsigned int)p[3] << 24) | ((unsigned int)p[2] << 16) | ((unsigned int)p[1] << 8) | (unsigned int)p[0];
       float v;
       std::memcpy(&v, &u, 4);

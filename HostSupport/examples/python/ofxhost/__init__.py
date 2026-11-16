@@ -16,7 +16,6 @@ OFX images and PFM files are bottom-up; the wrapper flips them.
 from __future__ import annotations
 
 import dataclasses
-import functools
 import json
 import os
 import re
@@ -24,7 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +33,7 @@ from .pfm import encode_pfm, parse_pfm, read_pfm, write_pfm
 
 __all__ = [
     "render", "describe", "RenderResult", "HostDemoError", "HostDemoNotFound",
-    "find_hostdemo", "host_features", "parse_stats_line",
+    "find_hostdemo",
     "read_pfm", "write_pfm", "parse_pfm", "encode_pfm",
 ]
 
@@ -75,13 +74,12 @@ class RenderResult:
         (frame, "l") or (frame, "r").
     alpha: frame -> H x W alpha, for RGBA outputs (the separate .alpha.pfm file) and Alpha
         outputs.
-    stats: the parsed --stats lines (see parse_stats_line), in output order.
-    report: the --report JSON, or None if this hostDemo doesn't support --report.
+    report: the --report JSON (renders[i].output has the size, min, max, mean, nan count
+        and crc32 of each output image).
     """
     outputs: dict
     alpha: dict
-    stats: list
-    report: dict | None
+    report: dict
     returncode: int
     stdout: str
     stderr: str
@@ -135,58 +133,6 @@ def find_hostdemo(host_binary: str | os.PathLike | None = None) -> Path:
             "hostDemo not found: build it with `make -C HostSupport && make -C "
             "HostSupport/examples`, or set OFXHOST_HOSTDEMO")
     return candidates[0].resolve()
-
-
-@functools.lru_cache(maxsize=None)
-def _features(path: str, mtime_ns: int) -> frozenset[str]:
-    del mtime_ns  # part of the cache key only
-    try:
-        p = subprocess.run([path, "-h"], capture_output=True, text=True, timeout=30,
-                           stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        raise HostDemoError(f"can't run {path} -h: {e}") from None
-    return frozenset(re.findall(r"(?<![\w-])--[a-z][a-z0-9-]*", p.stdout + p.stderr))
-
-
-def host_features(host_binary: str | os.PathLike | None = None) -> frozenset[str]:
-    """The long options listed by `hostDemo -h`, e.g. {"--stats", "--report", ...}."""
-    path = find_hostdemo(host_binary)
-    return _features(str(path), path.stat().st_mtime_ns)
-
-
-# --- --stats lines ---------------------------------------------------------------------
-
-def _number(s: str) -> float | int:
-    return int(s) if re.fullmatch(r"-?\d+", s) else float(s)
-
-
-def parse_stats_line(line: str) -> dict[str, Any]:
-    """Parse a hostDemo --stats line.
-
-    "stats frame=0 view=0 w=720 h=576 bounds=0,0,720,576 depth=float comps=RGBA
-    min=... max=... mean=... nan=0 crc32=ba5f4e88" gives
-    {"frame": 0, "view": 0, "w": 720, "h": 576, "bounds": [0, 0, 720, 576],
-    "depth": "float", "comps": "RGBA", "min": [...], "max": [...], "mean": [...],
-    "nan": 0, "crc32": "ba5f4e88"}. min, max and mean are floats, None for a component
-    without any non-NaN value.
-    """
-    fields = line.split()
-    if not fields or fields[0] != "stats":
-        raise ValueError(f"not a stats line: {line!r}")
-    out: dict[str, Any] = {}
-    for f in fields[1:]:
-        key, sep, value = f.partition("=")
-        if not sep:
-            raise ValueError(f"bad stats field {f!r} in {line!r}")
-        if key in ("frame", "view", "w", "h", "nan"):
-            out[key] = _number(value)
-        elif key == "bounds":
-            out[key] = [int(v) for v in value.split(",")]
-        elif key in ("min", "max", "mean"):
-            out[key] = [None if v == "nan" else float(v) for v in value.split(",")]
-        else:
-            out[key] = value
-    return out
 
 
 # --- running hostDemo ------------------------------------------------------------------
@@ -251,34 +197,23 @@ def _input_spec(clip: str, value: Any, workdir: Path, index: int) -> str:
 _OUTPUT_RE = re.compile(re.escape(OUTPUT_PREFIX) + r"\.(-?\d+(?:\.\d+)?)([lr]?)(\.alpha)?\.pfm$")
 
 
-def _frame_key(t: str):
-    v = float(t)
-    return int(v) if v.is_integer() else v
-
-
-def _read_outputs(workdir: Path, stats: list[dict]) -> tuple[dict, dict]:
+def _read_outputs(workdir: Path) -> tuple[dict, dict]:
     colour: dict = {}
     alpha: dict = {}
     for p in sorted(workdir.iterdir()):
         m = _OUTPUT_RE.match(p.name)
         if not m:
             continue
-        key = _frame_key(m.group(1))
+        v = float(m.group(1))
+        key = int(v) if v.is_integer() else v
         if m.group(2):
             key = (key, m.group(2))
         (alpha if m.group(3) else colour)[key] = read_pfm(p)
-    comps_by_key = {}
-    for s in stats:
-        comps_by_key.setdefault(s.get("frame"), s.get("comps"))
     outputs: dict = {}
     alphas: dict = {}
     for key in sorted(colour, key=lambda k: k if isinstance(k, tuple) else (k, "")):
         img = colour[key]
-        frame = key[0] if isinstance(key, tuple) else key
         if img.ndim == 2:  # Pf: an Alpha image
-            if comps_by_key.get(frame) not in (None, "Alpha"):
-                raise HostDemoError(f"{OUTPUT_PREFIX} {key}: grey PFM for a "
-                                    f"{comps_by_key[frame]} image")
             outputs[key] = img[:, :, None]
             alphas[key] = img
         elif key in alpha:
@@ -309,10 +244,10 @@ def _env(bundle_paths) -> dict:
 def render(bundle_paths, plugin_id: str, context: str = "filter",
            inputs: Mapping[str, Any] | None = None,
            params: Mapping[str, Any] | None = None,
-           depth: str = "float", frames: Iterable[float] | None = None,
+           depth: str = "float",
            host_binary: str | os.PathLike | None = None, timeout: float | None = 60,
            extra_args: Sequence[str] = (), check: bool = True) -> RenderResult:
-    """Render a plug-in with hostDemo and return its output images, stats and report.
+    """Render a plug-in with hostDemo at frames 0 and 1; return its output images and report.
 
     bundle_paths: a directory containing .ofx.bundle directories, a bundle path (its parent
         directory is used), or a list of these. They become OFX_PLUGIN_PATH; the standard
@@ -324,24 +259,20 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
     params: parameter name -> value (number, bool, string, or a sequence for
         multi-dimensional parameters). Passed as -s name=value.
     depth: the input clips' depth before clip preferences: "byte", "short" or "float".
-    frames: keep only these frames of the output (hostDemo renders frames 0 and 1); a
-        requested frame that wasn't rendered raises HostDemoError.
     check: raise HostDemoError on a non-zero exit status (default).
     """
     if depth not in DEPTHS:
         raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
     host = find_hostdemo(host_binary)
-    features = host_features(host)
     env = _env(bundle_paths)
     with tempfile.TemporaryDirectory(prefix="ofxhost-") as tmp:
         workdir = Path(tmp)
+        report_path = workdir / "report.json"
         cmd = [str(host), "--no-std-paths", "--no-cache", "--quiet", "--format", "pfm",
-               "--stats", "-p", plugin_id, "-c", context, "-d", depth, "-o", OUTPUT_PREFIX]
+               "--report", str(report_path),
+               "-p", plugin_id, "-c", context, "-d", depth, "-o", OUTPUT_PREFIX]
         for i, (clip, value) in enumerate((inputs or {}).items()):
             cmd += ["-i", f"{clip}={_input_spec(clip, value, workdir, i)}"]
-        report_path = workdir / "report.json"
-        if "--report" in features:
-            cmd += ["--report", str(report_path)]
         cmd += list(extra_args)
         for name, value in (params or {}).items():
             cmd += ["-s", f"{name}={_format_value(value)}"]
@@ -352,43 +283,22 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
                                 returncode=p.returncode, stdout=p.stdout, stderr=p.stderr,
                                 cmd=cmd)
         try:
-            stats = [parse_stats_line(l) for l in p.stdout.splitlines() if l.startswith("stats ")]
-            report = None
-            if report_path.is_file():
-                with open(report_path, encoding="utf-8") as f:
-                    report = json.load(f)
-            outputs, alpha = _read_outputs(workdir, stats)
+            with open(report_path, encoding="utf-8") as f:
+                report = json.load(f)
+            outputs, alpha = _read_outputs(workdir)
         except (ValueError, OSError) as e:
             raise HostDemoError(f"can't read hostDemo's output: {e}", returncode=p.returncode,
                                 stdout=p.stdout, stderr=p.stderr, cmd=cmd) from None
 
-    if frames is not None:
-        wanted = [_frame_key(str(f)) for f in frames]
-        frame_of = lambda k: k[0] if isinstance(k, tuple) else k  # noqa: E731
-        if check:
-            missing = [f for f in wanted if not any(frame_of(k) == f for k in outputs)]
-            if missing:
-                raise HostDemoError(f"frames {missing} were not rendered "
-                                    f"(rendered: {sorted({frame_of(k) for k in outputs})})",
-                                    returncode=p.returncode, stdout=p.stdout,
-                                    stderr=p.stderr, cmd=cmd)
-        outputs = {k: v for k, v in outputs.items() if frame_of(k) in wanted}
-        alpha = {k: v for k, v in alpha.items() if frame_of(k) in wanted}
-        stats = [s for s in stats if s.get("frame") in wanted]
-    return RenderResult(outputs=outputs, alpha=alpha, stats=stats, report=report,
+    return RenderResult(outputs=outputs, alpha=alpha, report=report,
                         returncode=p.returncode, stdout=p.stdout, stderr=p.stderr, cmd=cmd)
 
 
 def describe(bundle_paths, plugin_id: str, context: str | None = None,
              host_binary: str | os.PathLike | None = None, timeout: float | None = 60,
              extra_args: Sequence[str] = ()) -> dict:
-    """Return hostDemo's --describe JSON for a plug-in (params, clips, contexts, flags).
-
-    Raises HostDemoError if this hostDemo doesn't support --describe.
-    """
+    """Return hostDemo's --describe JSON for a plug-in (params, clips, contexts, flags)."""
     host = find_hostdemo(host_binary)
-    if "--describe" not in host_features(host):
-        raise HostDemoError(f"{host} doesn't support --describe")
     env = _env(bundle_paths)
     with tempfile.TemporaryDirectory(prefix="ofxhost-") as tmp:
         workdir = Path(tmp)

@@ -32,7 +32,7 @@ modification, are permitted provided that the following conditions are met:
 #include <cerrno>
 #include <climits>
 #include <cstdio> // fopen (binary files)
-#include <iomanip> // setprecision
+#include <iomanip> // setw
 #include <iostream>
 #include <limits>
 #include <fstream>
@@ -101,12 +101,11 @@ modification, are permitted provided that the following conditions are met:
 // Images have the depth and components that the clip preferences map each clip to.
 //
 // Inputs may also be read from PFM files (-i Clip=file:path.pfm); the output is written as PPM
-// (8 or 16 bits) or PFM files, and --stats prints a summary and a checksum of each output image.
+// or PFM files, and --report writes a JSON summary of the run.
 
 // The output file formats (--format)
 enum OutputFormat {
   eFormatPPM,   ///< plain PPM (P3), 8 bits, top row first
-  eFormatPPM16, ///< binary PPM (P6), maxval 65535 (big-endian), top row first
   eFormatPFM    ///< PFM, little-endian (scale -1.0), bottom row first
 };
 
@@ -133,15 +132,6 @@ static long countNaNPixels(const MyHost::MyImage& im)
     }
   }
   return n;
-}
-
-// clamp to [0,1]; NaN gives 0
-static double clamp01(double v)
-{
-  if (!(v > 0.)) {
-    return 0.;
-  }
-  return v > 1. ? 1. : v;
 }
 
 // Write the image (its bounds, i.e. the render window) to fname as a plain PPM, top row first
@@ -187,45 +177,6 @@ static bool closeBinary(FILE* f, const std::string& fname)
     return false;
   }
   return true;
-}
-
-// Write the image as a 16-bit binary PPM: P6, maxval 65535, big-endian ("the most significant
-// byte is first"), top row first. Byte values are multiplied by 257, float values are clamped to
-// [0,1] (NaN gives 0), and Alpha images are written as grey levels.
-static bool exportToPPM16(const std::string& fname, const MyHost::MyImage& im)
-{
-  FILE* f = std::fopen(fname.c_str(), "wb");
-  if (!f) {
-    std::cerr << "Error: cannot open " << fname << " for writing" << std::endl;
-    return false;
-  }
-  const OfxRectI& b = im.getBounds();
-  const int w = b.x2 - b.x1;
-  std::fprintf(f, "P6\n# %s %s, converted to 16 bits\n# bounds %d %d %d %d\n%d %d\n65535\n",
-               im.getDepth().c_str(), im.getComponentsString().c_str(), b.x1, b.y1, b.x2, b.y2, w, b.y2 - b.y1);
-  const int nComps = im.getNComponents();
-  const int bpc = im.getBytesPerComponent();
-  std::vector<unsigned char> row((size_t)w * 6);
-  for (int y = b.y2 - 1; y >= b.y1; --y) {
-    for (int x = b.x1; x < b.x2; ++x) {
-      for (int c = 0; c < 3; ++c) {
-        const double v = im.getComponent(x, y, nComps == 1 ? 0 : c);
-        unsigned int u;
-        if (bpc == 1) {
-          u = (unsigned int)v * 257;
-        } else if (bpc == 2) {
-          u = (unsigned int)v;
-        } else {
-          u = (unsigned int)std::floor(clamp01(v) * 65535. + 0.5);
-        }
-        unsigned char* p = &row[((size_t)(x - b.x1) * 3 + c) * 2];
-        p[0] = (unsigned char)(u >> 8);
-        p[1] = (unsigned char)(u & 0xff);
-      }
-    }
-    std::fwrite(&row[0], 1, row.size(), f);
-  }
-  return closeBinary(f, fname);
 }
 
 // Write component c0 (nOut = 1, "Pf") or components 0..2 (nOut = 3, "PF") of the image as a PFM:
@@ -298,7 +249,7 @@ static unsigned long crc32Update(unsigned long crc, const unsigned char* p, size
   return ~crc & 0xFFFFFFFFUL;
 }
 
-// the --stats numbers of an output image (see usage())
+// the numbers of an output image, for the report (see the README)
 struct ImageStats {
   OfxRectI bounds;
   int nComps;
@@ -381,21 +332,6 @@ static ImageStats computeStats(const MyHost::MyImage& im)
   return st;
 }
 
-// print a value of the --stats line: integers for byte and short images, else a float with
-// enough digits to round-trip ("nan" if there was no value)
-static void printStatValue(std::ostream& os, double v, bool integer)
-{
-  if (v != v) {
-    os << "nan";
-  } else if (integer) {
-    os << (long)v;
-  } else {
-    std::ostringstream ss; // %.9g
-    ss << std::setprecision(9) << v;
-    os << ss.str();
-  }
-}
-
 static std::string crc32String(unsigned long crc)
 {
   std::ostringstream os;
@@ -403,32 +339,8 @@ static std::string crc32String(unsigned long crc)
   return os.str();
 }
 
-// Print the --stats line of the image on stdout (see usage())
-static void printStats(const ImageStats& st, OfxTime t, int view)
-{
-  const OfxRectI& b = st.bounds;
-  std::ostringstream os;
-  os << "stats frame=" << t << " view=" << view << " w=" << b.x2 - b.x1 << " h=" << b.y2 - b.y1
-     << " bounds=" << b.x1 << "," << b.y1 << "," << b.x2 << "," << b.y2
-     << " depth=" << statsDepthName(st.bytesPerComponent)
-     << " comps=" << statsComponentsName(st.nComps);
-  const char* names[3] = { " min=", " max=", " mean=" };
-  for (int k = 0; k < 3; ++k) {
-    os << names[k];
-    for (int c = 0; c < st.nComps; ++c) {
-      if (c > 0) {
-        os << ",";
-      }
-      const double v = (k == 0) ? st.min[c] : (k == 1) ? st.max[c] : st.mean[c];
-      printStatValue(os, v, st.bytesPerComponent != 4 && k != 2);
-    }
-  }
-  os << " nan=" << st.nanPixels << " crc32=" << crc32String(st.crc32);
-  std::cout << os.str() << std::endl;
-}
-
 ////////////////////////////////////////////////////////////////////////////////
-// JSON for --report and --describe (see usage())
+// JSON for --report and --describe (see python/README.md)
 
 using MyHost::Json;
 
@@ -487,7 +399,7 @@ static Json namedActionJson(const char* action, const Json& result)
   return j;
 }
 
-// the stats of an output image (the --stats numbers), and the files it was written to
+// the numbers of an output image, and the files it was written to
 static Json statsJson(const ImageStats& st, const std::vector<std::string>& files)
 {
   Json j = Json::object();
@@ -771,133 +683,24 @@ static bool writeJson(const std::string& path, const Json& doc)
 static void usage(const char* prog)
 {
   std::cout <<
-    "Usage: " << prog << " [-h] [-p pluginId] [-m major] [-c filter|general] [-o prefix]\n"
-    "       [--format ppm|ppm16|pfm] [--stats] [--report file.json | --describe file.json]\n"
-    "       [-d byte|short|float] [-i Clip=spec]...\n"
-    "       [--no-std-paths] [--no-cache | --cache path] [--quiet] [--allow-unwritten]\n"
-    "       [-s name=value[,value...]]... [name=value[,value...]]...\n"
-    "Render a filter or general OFX plug-in found in OFX_PLUGIN_PATH, on synthetic\n"
-    "PAL SD input clips (or PFM files), and write the output frames as PPM or PFM files.\n"
-    "  -h          print this help and exit\n"
-    "  -p id       plug-in identifier (default: net.sf.openfx.invertPlugin)\n"
-    "  -m major    plug-in major version (default: the highest version found)\n"
-    "  -c context  filter or general (default: filter)\n"
-    "  -o prefix   output file prefix (default: Output): writes <prefix>.<t>[l|r].ppm (or\n"
-    "              .pfm). The output covers the render window: the RoD returned by the\n"
-    "              plug-in, clipped to the project frame.\n"
-    "  --format f  output file format (default: ppm):\n"
-    "                ppm    plain PPM (P3), 8 bits, top row first. Short and float images are\n"
-    "                       converted to 8 bits (float is clamped to [0,1]).\n"
-    "                ppm16  binary PPM (P6), maxval 65535, big-endian, top row first. Byte\n"
-    "                       values are multiplied by 257, float is clamped to [0,1].\n"
-    "                pfm    PFM, little-endian (scale -1.0), bottom row first (as in OFX\n"
-    "                       images; PFM rows are \"bottom to top\"). Byte and short values are\n"
-    "                       converted to float in [0,1], float values (NaN included) are kept.\n"
-    "                       RGB and RGBA images are written as PF (RGB): the alpha of an RGBA\n"
-    "                       image goes to <prefix>.<t>[l|r].alpha.pfm (Pf). Alpha images are Pf.\n"
-    "              In PPM files, Alpha images are written as grey and unwritten (NaN) pixels as 0.\n"
-    "  --stats     for each output image, print a line on stdout (even with --quiet):\n"
-    "                stats frame=T view=V w=W h=H bounds=x1,y1,x2,y2 depth=byte|short|float\n"
-    "                comps=RGBA|RGB|Alpha min=c0[,c1...] max=... mean=... nan=N crc32=XXXXXXXX\n"
-    "              with one value per component, in the native range of the depth (integers\n"
-    "              for byte and short min and max, %.9g floats otherwise, \"nan\" if no value).\n"
-    "              NaN values are left out of min, max and mean; nan is the number of pixels\n"
-    "              with a NaN component. crc32 is the CRC-32 (as in zlib) of the pixel bytes,\n"
-    "              row by row from the bottom row, within the bounds (so it doesn't depend on\n"
-    "              the row padding), with each component in little-endian byte order.\n"
-    "  --report file.json\n"
-    "              after the run (even if it failed), write a JSON report: an object with\n"
-    "                schema (\"hostDemo.report\"), schemaVersion (1), ok (the run succeeded),\n"
-    "                exitStatus, plugin {id, versionMajor, versionMinor, label, grouping,\n"
-    "                filePath}, context, host {name, profile}, depth (-d), inputs {Clip: {spec,\n"
-    "                connected, optional, isMask, unmappedDepth, unmappedComponents}},\n"
-    "                actions [{action, ok, status[, param, value]}] (createInstance,\n"
-    "                getClipPreferences, begin/end/instanceChanged, getTimeDomain,\n"
-    "                begin/endSequenceRender), clipPreferences {clips {Clip: {depth,\n"
-    "                components, pixelAspectRatio, unmappedDepth, unmappedComponents,\n"
-    "                connected}}, outputPremultiplication, outputFielding, outputFrameRate,\n"
-    "                continuousSamples, frameVarying}, timeDomain {ok, status, range [min,max]}\n"
-    "                (null outside the general context), renders [...], params {name: {type,\n"
-    "                value, enabled, secret}} (after the run), messages [{kind, type, id,\n"
-    "                text}] (kind: message, persistentMessage or clearPersistentMessage),\n"
-    "                progress [{message, id, started, ended, updates, lastValue}].\n"
-    "              Each renders item is one rendered time and view: {time, view, renderScale,\n"
-    "                inputs {Clip: {connected, regionOfDefinition}}, regionOfDefinition {ok,\n"
-    "                status, rod}, renderWindow, isIdentity {ok, status, identity, clip, time},\n"
-    "                framesNeeded {ok, status, clips {Clip: [[min,max]...]}}, regionsOfInterest\n"
-    "                {ok, status, regionOfInterest, clips {Clip: rect}}, render {ok, status,\n"
-    "                imageFetchErrors}, output {w, h, bounds, depth, comps, min, max, mean, nan,\n"
-    "                crc32, files}} (output: the --stats numbers, null if nothing was written).\n"
-    "              Rectangles are [x1,y1,x2,y2]: canonical coordinates, except renderWindow and\n"
-    "              bounds (pixels). Actions are called in this order, and an action that fails\n"
-    "              stops the run: the items after it are missing or null. ok is true for\n"
-    "              kOfxStatOK and kOfxStatReplyDefault (only kOfxStatOK for render), status is\n"
-    "              the name of the status code (null for getClipPreferences, whose status\n"
-    "              HostSupport doesn't return). An identity effect is rendered anyway. Numbers\n"
-    "              are written with 17 significant digits; NaN (no value) is null.\n"
-    "  --describe file.json\n"
-    "              describe the plug-in (in all its contexts, without creating an instance or\n"
-    "              rendering) as JSON: {schema (\"hostDemo.describe\"), schemaVersion (1), ok,\n"
-    "                plugin, contexts {context: {ok, flags, clips [...], params [...]}}}, where\n"
-    "                flags are {supportedPixelDepths, supportsTiles, supportsMultiResolution,\n"
-    "                temporalClipAccess, supportsMultipleClipDepths, supportsMultipleClipPARs,\n"
-    "                fieldRenderTwiceAlways, singleInstance, hostFrameThreading,\n"
-    "                renderThreadSafety, sequentialRender, clipPreferencesSlaveParams,\n"
-    "                openGLRenderSupported, openCLRenderSupported, cudaRenderSupported,\n"
-    "                cudaStreamSupported, metalRenderSupported, cpuRenderSupported}, clips are\n"
-    "                {name, label, hint, optional, isMask, supportedComponents,\n"
-    "                temporalClipAccess, supportsTiles, fieldExtraction, secret} and params\n"
-    "                are {name, type, label, hint, scriptName, secret, enabled, parent, page,\n"
-    "                dimension, default, min, max, displayMin, displayMax, doubleType,\n"
-    "                choiceOptions, animates, evaluateOnChange, children}, in the order the\n"
-    "                plug-in defined them. A property that the parameter type doesn't have is\n"
-    "                null; values with one dimension are scalars, others are arrays.\n"
-    "  -d depth    pixel depth of the input clips before clip preferences: byte, short or\n"
-    "              float (default: byte). The images have the depth and components that\n"
-    "              getClipPreferences maps each clip to.\n"
-    "  -i Clip=spec\n"
-    "              content of the input clip named Clip (e.g. Source), where spec is:\n"
-    "                default        a grey level t (black at t=0, white at t=1, above 1\n"
-    "                               in float images), with the time drawn in the reverse colour\n"
-    "                solid:r,g,b,a  a constant colour\n"
-    "                ramp           r=g=b=a from 0 (left) to 1 (right)\n"
-    "                checker:N      N-pixel squares, alternating 0 and 1 (r=g=b=a)\n"
-    "                file:path.pfm  a PFM image (PF or Pf, either byte order), the same at all\n"
-    "                               times. Each file pixel is a clip pixel (at render scale 1):\n"
-    "                               the clip's RoD is the file size in pixels, at the project\n"
-    "                               PAR (768/720), i.e. 0,0,width*PAR,height in canonical\n"
-    "                               coordinates. PF gives (r,g,b,1), Pf gives r=g=b=a=value.\n"
-    "                               The values are converted to the clip's depth (clamped to\n"
-    "                               [0,1] for byte and short) and components. Malformed files\n"
-    "                               are rejected.\n"
-    "                none           the clip is disconnected (only for optional clips)\n"
-    "              Numbers must be finite decimals (no nan, inf or hexadecimal).\n"
-    "  --no-std-paths\n"
-    "              only look for plug-ins in OFX_PLUGIN_PATH, not in the standard\n"
-    "              locations (/Library/OFX/Plugins, /usr/OFX/Plugins...)\n"
-    "  --no-cache  don't read or write the plug-in cache\n"
-    "  --cache path\n"
-    "              read and write the plug-in cache at path (default:\n"
-    "              hostDemoPluginCache.xml in the current directory)\n"
-    "  --quiet     print nothing on stdout but the plug-in's messages and the --stats lines\n"
-    "  --allow-unwritten\n"
-    "              don't fail if output pixels were not written by the plug-in. The output\n"
-    "              image is filled with NaN (float) or 0xCD bytes (byte, short) before\n"
-    "              rendering, but only NaN can be detected: use -d float for that check.\n"
-    "  -s name=value[,value...]\n"
-    "              set a parameter before rendering (the option name -s may be omitted), in\n"
-    "              the order given, as a user would: after the create instance and clip\n"
-    "              preferences actions, each change is followed by the instance changed action\n"
-    "              (kOfxChangeUserEdited, time 0) between begin and end instance changed. The\n"
-    "              clip preferences are run again if a clip preferences slave param changed.\n"
-    "              Multi-dimensional parameters take comma-separated values, e.g.\n"
-    "              value=0.5,0.5,0.5,0.5 for an RGBA. Booleans take 0/1/true/false,\n"
-    "              Choice takes the option index or label, String/StrChoice/Custom\n"
-    "              take the whole value (commas included). Numbers must be finite decimals.\n"
-    "For each time (and view), hostDemo calls getRegionOfDefinition, isIdentity,\n"
-    "getFramesNeeded, getRegionsOfInterest and render.\n"
-    "The exit status is 0 on success, and non-zero on any failure, including a failed\n"
-    "action, a disconnected mandatory clip and (for float output) unwritten pixels.\n";
+    "Usage: " << prog << " [options] [[-s] name=value[,value...]]...\n"
+    "Render an OFX plug-in found in OFX_PLUGIN_PATH at t=0 and 1 on PAL SD inputs.\n"
+    "  -h                 print this help and exit\n"
+    "  -p id              plug-in identifier (default: net.sf.openfx.invertPlugin)\n"
+    "  -m major           plug-in major version (default: the highest one)\n"
+    "  -c filter|general  context (default: filter)\n"
+    "  -o prefix          write <prefix>.<t>[l|r].ppm|pfm (default: Output)\n"
+    "  --format ppm|pfm   output format: plain 8-bit PPM (default), or float PFM\n"
+    "  -d byte|short|float  input depth before clip preferences (default: byte)\n"
+    "  -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|file:path.pfm|none\n"
+    "  -s name=value      set a parameter after createInstance, with instanceChanged\n"
+    "  --report file.json write a JSON report of the run (even if it failed)\n"
+    "  --describe file.json  describe the plug-in as JSON (no instance, no render)\n"
+    "  --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH\n"
+    "  --no-cache         don't read or write hostDemoPluginCache.xml\n"
+    "  --quiet            print only the plug-in's messages on stdout\n"
+    "  --allow-unwritten  don't fail on unwritten (NaN) output pixels (float only)\n"
+    "Formats and JSON schemas: HostSupport/examples/python/README.md. Exit status: 0 on success.\n";
 }
 
 static std::vector<std::string> splitValues(const std::string& s)
@@ -1098,12 +901,12 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
   return true;
 }
 
-// render the frame t (and view), write the output image to base.ppm (or base.pfm) and print its
-// stats if asked. If rep is not NULL, the results of the actions are added to it (see usage()).
+// render the frame t (and view) and write the output image to base.ppm (or base.pfm). If rep is
+// not NULL, the results of the actions are added to it.
 // Returns false (after printing an error) on failure.
 static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstance* outputClip,
                         OfxTime t, int view, int nViews, const OfxPointD& renderScale,
-                        bool allowUnwritten, const std::string& base, OutputFormat format, bool stats,
+                        bool allowUnwritten, const std::string& base, OutputFormat format,
                         Json* rep)
 {
   const std::string fname = base + (format == eFormatPFM ? ".pfm" : ".ppm");
@@ -1290,9 +1093,6 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
     if (outputImage->getNComponents() == 4) {
       files.push_back(base + ".alpha.pfm");
     }
-  } else if (format == eFormatPPM16) {
-    ok = exportToPPM16(fname, *outputImage);
-    files.push_back(fname);
   } else {
     ok = exportToPPM(fname, *outputImage);
     files.push_back(fname);
@@ -1300,12 +1100,8 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
   if (!ok) {
     return false;
   }
-  if (stats || rep) {
-    const ImageStats st = computeStats(*outputImage);
-    if (stats) {
-      printStats(st, t, view);
-    }
-    r["output"] = statsJson(st, files);
+  if (rep) {
+    r["output"] = statsJson(computeStats(*outputImage), files);
   }
   const long notWritten = countNaNPixels(*outputImage);
   if (notWritten > 0) {
@@ -1333,10 +1129,9 @@ static int run(int argc, char **argv)
   std::string describePath; ///< --describe
   bool useStdPaths = true;
   bool useCache = true;
-  std::string cachePath = "hostDemoPluginCache.xml";
+  const std::string cachePath = "hostDemoPluginCache.xml";
   bool quiet = false;
   bool allowUnwritten = false;
-  bool stats = false;
   OutputFormat format = eFormatPPM;
 
   for (int a = 1; a < argc; ++a) {
@@ -1352,10 +1147,8 @@ static int run(int argc, char **argv)
       quiet = true;
     } else if (arg == "--allow-unwritten") {
       allowUnwritten = true;
-    } else if (arg == "--stats") {
-      stats = true;
     } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
-               arg == "-d" || arg == "-i" || arg == "--cache" || arg == "--format" ||
+               arg == "-d" || arg == "-i" || arg == "--format" ||
                arg == "--report" || arg == "--describe") {
       if (a + 1 >= argc) {
         std::cerr << "Error: option " << arg << " requires an argument" << std::endl;
@@ -1384,12 +1177,10 @@ static int run(int argc, char **argv)
       } else if (arg == "--format") {
         if (optarg == "ppm") {
           format = eFormatPPM;
-        } else if (optarg == "ppm16") {
-          format = eFormatPPM16;
         } else if (optarg == "pfm") {
           format = eFormatPFM;
         } else {
-          std::cerr << "Error: unsupported format \"" << optarg << "\", expected ppm, ppm16 or pfm" << std::endl;
+          std::cerr << "Error: unsupported format \"" << optarg << "\", expected ppm or pfm" << std::endl;
           return 1;
         }
       } else if (arg == "-d") {
@@ -1414,9 +1205,6 @@ static int run(int argc, char **argv)
         }
         inputs.push_back(std::make_pair(optarg.substr(0, eq), spec));
         inputSpecs[optarg.substr(0, eq)] = optarg.substr(eq + 1);
-      } else if (arg == "--cache") {
-        useCache = true;
-        cachePath = optarg;
       } else if (arg == "--report") {
         reportPath = optarg;
       } else if (arg == "--describe") {
@@ -1491,7 +1279,7 @@ static int run(int argc, char **argv)
   }
 
   int ret = 0;
-  // the --report document (see usage())
+  // the --report document (see python/README.md)
   Json report = Json::object();
   report["schema"] = "hostDemo.report";
   report["schemaVersion"] = 1;
@@ -1740,7 +1528,7 @@ static int run(int argc, char **argv)
           std::ostringstream ss;
           ss << outputPrefix << "." << t << (view == 0 ? "l" : "r");
           Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, allowUnwritten, ss.str(), format, stats, r)) {
+          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, allowUnwritten, ss.str(), format, r)) {
             ret = 1;
           }
         }
@@ -1748,7 +1536,7 @@ static int run(int argc, char **argv)
         std::ostringstream ss;
         ss << outputPrefix << "." << t;
         Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, allowUnwritten, ss.str(), format, stats, r)) {
+        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, allowUnwritten, ss.str(), format, r)) {
           ret = 1;
         }
 #endif
