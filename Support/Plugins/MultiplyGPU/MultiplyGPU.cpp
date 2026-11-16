@@ -41,10 +41,6 @@ namespace { // use anonymous namespace
 #define kParamValueLabel "Value"
 #define kParamValueHint  "Constant to multiply with the selected channels."
 
-template<typename T>
-static inline void
-unused(const T&) {}
-
 class MultiplyProcessorBase
 : public ImageProcessor
 {
@@ -94,6 +90,8 @@ void MultiplyProcessorBase::processImagesCUDA()
   // - only float RGBA is supported
   // - rowBytes must be equal to width*4*sizeof(float)
   const OfxRectI& srcBounds = _srcImg->getBounds();
+
+#ifndef NDEBUG
   const BitDepthEnum srcDepth = _srcImg->getPixelDepth();
   const PixelComponentEnum srcComponents = _srcImg->getPixelComponents();
   const int srcRowBytes = _srcImg->getRowBytes();
@@ -101,8 +99,6 @@ void MultiplyProcessorBase::processImagesCUDA()
   const BitDepthEnum dstDepth = _dstImg->getPixelDepth();
   const PixelComponentEnum dstComponents = _dstImg->getPixelComponents();
   const int dstRowBytes = _dstImg->getRowBytes();
-
-#ifndef NDEBUG
   if (dstDepth != eBitDepthFloat || dstComponents != ePixelComponentRGBA ||
       dstRowBytes != (dstBounds.x2 - dstBounds.x1) * _dstImg->getPixelBytes() ) {
     throwSuiteStatusException(kOfxStatErrFormat);
@@ -120,7 +116,7 @@ void MultiplyProcessorBase::processImagesCUDA()
 
   const float* input = static_cast<const float*>(_srcImg->getPixelData());
   float* output = static_cast<float*>(_dstImg->getPixelData());
-  const float values[4] = { _values[0], _values[1], _values[2], _values[3] };
+  const float values[4] = { (float)_values[0], (float)_values[1], (float)_values[2], (float)_values[3] };
 
   // we could also pass x1,y1 if the effect were pixel-dependent
   RunCUDAKernel(width, height, values, input, output);
@@ -134,6 +130,8 @@ void MultiplyProcessorBase::processImagesOpenCL()
   // - only float RGBA is supported
   // - rowBytes must be equal to width*4*sizeof(float)
   const OfxRectI& srcBounds = _srcImg->getBounds();
+
+#ifndef NDEBUG
   const BitDepthEnum srcDepth = _srcImg->getPixelDepth();
   const PixelComponentEnum srcComponents = _srcImg->getPixelComponents();
   const int srcRowBytes = _srcImg->getRowBytes();
@@ -141,8 +139,6 @@ void MultiplyProcessorBase::processImagesOpenCL()
   const BitDepthEnum dstDepth = _dstImg->getPixelDepth();
   const PixelComponentEnum dstComponents = _dstImg->getPixelComponents();
   const int dstRowBytes = _dstImg->getRowBytes();
-
-#ifndef NDEBUG
   if (dstDepth != eBitDepthFloat || dstComponents != ePixelComponentRGBA ||
       dstRowBytes != (dstBounds.x2 - dstBounds.x1) * _dstImg->getPixelBytes() ) {
     throwSuiteStatusException(kOfxStatErrFormat);
@@ -217,11 +213,10 @@ private:
 
 template <class PIX, int nComponents, int maxValue>
 void
-MultiplyProcessor<PIX,nComponents,maxValue>::multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& renderScale)
+MultiplyProcessor<PIX,nComponents,maxValue>::multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& /*renderScale*/)
 {
   assert(nComponents == 1 || nComponents == 3 || nComponents == 4);
   assert(_dstImg);
-  float tmpPix[4];
   for (int y = procWindow.y1; y < procWindow.y2; y++) {
     if ( _effect.abort() ) {
       break;
@@ -232,9 +227,14 @@ MultiplyProcessor<PIX,nComponents,maxValue>::multiThreadProcessImages(const OfxR
     for (int x = procWindow.x1; x < procWindow.x2; x++) {
       const PIX *srcPix = (const PIX *)  (_srcImg ? _srcImg->getPixelAddress(x, y) : 0);
 
-      for (int c = 0; c < 4; ++c) {
-        // if nComponents == 1, take the alpha gain
-        tmpPix[c] = ofxsClampIfInt<PIX,maxValue>(srcPix[c] * _values[nComponents == 1 ? 3 : c] / maxValue, 0, maxValue);
+      for (int c = 0; c < nComponents; ++c) {
+        if (srcPix) {
+          // if nComponents == 1, take the alpha gain
+          dstPix[c] = ofxsClampIfInt<PIX,maxValue>(srcPix[c] * _values[nComponents == 1 ? 3 : c] / maxValue, 0, 1);
+        } else {
+          // no source (unconnected, or outside its bounds): black and transparent
+          dstPix[c] = PIX();
+        }
       }
       // increment the dst pixel
       dstPix += nComponents;
@@ -310,18 +310,17 @@ MultiplyPlugin::setupAndProcess(MultiplyProcessorBase &processor,
   if ( !dst.get() ) {
     throwSuiteStatusException(kOfxStatFailed);
   }
+#ifndef NDEBUG
   BitDepthEnum dstBitDepth    = dst->getPixelDepth();
   PixelComponentEnum dstComponents  = dst->getPixelComponents();
-#ifndef NDEBUG
   if ( ( dstBitDepth != _dstClip->getPixelDepth() ) ||
       ( dstComponents != _dstClip->getPixelComponents() ) ) {
     setPersistentMessage(Message::eMessageError, "", "OFX Host gave image with wrong depth or components");
     throwSuiteStatusException(kOfxStatFailed);
   }
-  if ( (dst->getRenderScale().x != args.renderScale.x) ||
-      ( dst->getRenderScale().y != args.renderScale.y) ||
-      ( ( dst->getField() != eFieldNone) /* for DaVinci Resolve */ && ( dst->getField() != args.fieldToRender) ) ) {
-    setPersistentMessage(Message::eMessageError, "", "OFX Host gave image with wrong scale or field properties");
+  checkBadRenderScale(dst, args);
+  if ( ( dst->getField() != eFieldNone) /* for DaVinci Resolve */ && ( dst->getField() != args.fieldToRender) ) {
+    setPersistentMessage(Message::eMessageError, "", "OFX Host gave image with wrong field properties");
     throwSuiteStatusException(kOfxStatFailed);
   }
 #endif
@@ -329,10 +328,9 @@ MultiplyPlugin::setupAndProcess(MultiplyProcessorBase &processor,
                                  _srcClip->fetchImage(time) : 0 );
 #ifndef NDEBUG
   if ( src.get() ) {
-    if ( (src->getRenderScale().x != args.renderScale.x) ||
-        ( src->getRenderScale().y != args.renderScale.y) ||
-        ( ( src->getField() != eFieldNone) /* for DaVinci Resolve */ && ( src->getField() != args.fieldToRender) ) ) {
-      setPersistentMessage(Message::eMessageError, "", "OFX Host gave image with wrong scale or field properties");
+    checkBadRenderScale(src, args);
+    if ( ( src->getField() != eFieldNone) /* for DaVinci Resolve */ && ( src->getField() != args.fieldToRender) ) {
+      setPersistentMessage(Message::eMessageError, "", "OFX Host gave image with wrong field properties");
       throwSuiteStatusException(kOfxStatFailed);
     }
     BitDepthEnum srcBitDepth      = src->getPixelDepth();
