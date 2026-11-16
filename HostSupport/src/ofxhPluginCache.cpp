@@ -124,7 +124,6 @@ static std::vector<std::string> getArchDirs()
 
   bool x64EmulatedOnArm64 = false;
   std::string machine; // the machine name for the compiled architecture (Linux, FreeBSD): see below
-  std::string kernelMachine; // 32-bit Arm on Linux: `uname -m`, searched as a fallback (see below)
 #if defined (__linux__) || defined (__FreeBSD__)
   // Use the compiled architecture for the common ones (a 32-bit host on a 64-bit kernel must not use the
   // kernel's name), and the kernel's machine name otherwise. The names must match the plug-in build
@@ -145,23 +144,6 @@ static std::vector<std::string> getArchDirs()
   machine = OFXH_LINUX_OR_FREEBSD("armv7l", "armv7");
 #    else
   machine = OFXH_LINUX_OR_FREEBSD("armv6l", "armv6");
-#    endif
-#    if defined(__linux__)
-  // The Makefiles name 32-bit Arm folders after `uname -m` (armv7l, armv6l, armv5tel...), which may
-  // differ from the compiled architecture (e.g. an armv6 build on an armv7l kernel): search both.
-  {
-    struct utsname ku;
-    if (uname(&ku) == 0) {
-      const std::string km = ku.machine;
-      if (km == "aarch64" || km == "armv8l") {
-        // 32-bit userland on a 64-bit kernel: the Makefiles and CMake install 32-bit Arm builds there
-        // to Linux-armv7l
-        kernelMachine = "armv7l";
-      } else if (km.compare(0, 3, "arm") == 0) {
-        kernelMachine = km;
-      }
-    }
-  }
 #    endif
 #  elif defined(__riscv) && defined(__riscv_xlen) && (__riscv_xlen == 64)
   machine = "riscv64";
@@ -195,16 +177,19 @@ static std::vector<std::string> getArchDirs()
 #  endif
 #endif
 
-  std::vector<std::string> dirs = archDirsFor(os, arch, x64EmulatedOnArm64, machine);
-  if (!kernelMachine.empty() && kernelMachine != machine && !dirs.empty()) {
-    // archDirsFor() puts Linux-<compiled arch> first: insert the kernel's name right after it,
-    // unless it's already in the list
-    assert(dirs[0] == "Linux-" + machine);
-    const std::string kernelDir = "Linux-" + kernelMachine;
-    if (std::find(dirs.begin(), dirs.end(), kernelDir) == dirs.end()) {
-      dirs.insert(dirs.begin() + 1, kernelDir);
+#if defined (__linux__) || defined (__FreeBSD__)
+  // Linux: the spec's folder name is Linux-${uname -m}; FreeBSD: an extra name to search
+  std::string unameMachine;
+  {
+    struct utsname ku;
+    if (uname(&ku) == 0) {
+      unameMachine = ku.machine;
     }
   }
+  std::vector<std::string> dirs = archDirsFor(os, arch, x64EmulatedOnArm64, machine, sizeof(void *) == 8, unameMachine);
+#else
+  std::vector<std::string> dirs = archDirsFor(os, arch, x64EmulatedOnArm64, machine);
+#endif
   return dirs;
 }
 

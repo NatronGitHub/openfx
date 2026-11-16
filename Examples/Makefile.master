@@ -112,6 +112,7 @@ uninstall:
     else ifneq ($(filter aarch64-% arm64-%,$(MINGW_TARGET))$(if $(MINGW_TARGET),,$(filter CLANGARM64%,$(OS))),)
       BITSFLAG =
       ARCH = Win-arm64
+      $(warning Native Arm64 plug-in: installed to Win-arm64, a reserved, not yet normative folder. Current Windows-on-Arm hosts (Resolve, Vegas) are Arm64EC: build for Arm64EC (arm64ec-* target) for them.)
     endif
     # mingw64 runtime >=3 or mingw32 runtime>=3.15 is required to get a proper snprintf implementation,
     # which is triggered by the following CPPFLAGS.
@@ -124,13 +125,9 @@ uninstall:
     # bundle folder: Linux-x86, Linux-x86-64, or Linux-$(uname -m) for other architectures
     # (OFX 1.5 packaging: "hosts should look in the subdir named by Linux-${uname -m}"). The names must
     # match HostSupport (ofxhPluginCache.cpp) and cmake/OpenFX.cmake.
+    # the spec's name, literally (a 32-bit build on a 64-bit Arm kernel gets Linux-aarch64 too: HostSupport
+    # also searches the compiled architecture's name, e.g. Linux-armv7l)
     MACHINE := $(shell uname -m)
-    # 32-bit Arm userland on a 64-bit kernel: uname -m says aarch64 (or armv8l)
-    ifneq ($(filter aarch64 arm64 armv8l,$(MACHINE)),)
-      ifeq ($(BITS), 32)
-        MACHINE := armv7l
-      endif
-    endif
     ifneq ($(filter x86_64 i386 i486 i586 i686,$(MACHINE)),)
       # x86: the userland may be 32-bit on a 64-bit kernel, so use BITS (getconf LONG_BIT)
       ARCH = Linux-x86
