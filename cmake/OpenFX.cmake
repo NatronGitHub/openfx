@@ -409,7 +409,8 @@ endfunction()
 #
 #   ofx_deploy_bundle(<target>)
 #
-# macOS, at install time: Support/include/osxDeploy.sh copies the non-system libraries into
+# macOS, at install time of a release configuration (Release, RelWithDebInfo, MinSizeRel), as
+# in Makefile.master: Support/include/osxDeploy.sh copies the non-system libraries into
 # Contents/Libraries (with @rpath install names), then the libraries and the bundle are signed
 # ad hoc (required on arm64), and the install fails if a Mach-O file still references
 # /opt/local, /usr/local or /opt/homebrew.
@@ -436,7 +437,10 @@ function(ofx_deploy_bundle TARGET)
     else()
       set(_bundle "\${CMAKE_INSTALL_PREFIX}/${PLUGIN_INSTALLDIR}/${_name}.ofx.bundle")
     endif()
+    # release builds only, as in Makefile.master (or an empty build type with a single-config
+    # generator)
     install(CODE "
+     if(NOT CMAKE_INSTALL_CONFIG_NAME OR CMAKE_INSTALL_CONFIG_NAME MATCHES \"^(Release|RelWithDebInfo|MinSizeRel)\$\")
       set(_b \"\$ENV{DESTDIR}${_bundle}\")
       execute_process(COMMAND bash \"${_deploy}\" \"\${_b}\" \"${_name}.ofx\" RESULT_VARIABLE _r)
       if(_r)
@@ -479,6 +483,7 @@ function(ofx_deploy_bundle TARGET)
       if(_r)
         message(FATAL_ERROR \"codesign --verify --strict failed on \${_b}\")
       endif()
+     endif()
     ")
   endif()
 endfunction()
