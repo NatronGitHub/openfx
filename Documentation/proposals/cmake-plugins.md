@@ -1,6 +1,6 @@
 # DRAFT: CMake for the plug-in repositories (Natron#1181)
 
-Status: plan v1, agreed with the openfx-misc, openfx-io, openfx-arena, openfx-gmic, openfx-supportext and Natron sessions on 2026-11-16. The openfx repository is the reference for the CMake build of plug-ins. Each repository keeps its Makefiles until Natron's `tools/jenkins/build-plugins.sh` switches to CMake.
+Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_deploy_bundle`, which needs Windows CI and comes next). Agreed with the openfx-misc, openfx-io, openfx-arena, openfx-gmic, openfx-supportext and Natron sessions on 2026-11-16. The openfx repository is the reference for the CMake build of plug-ins. Each repository keeps its Makefiles until Natron's `tools/jenkins/build-plugins.sh` switches to CMake.
 
 ## Order
 
@@ -10,7 +10,7 @@ Status: plan v1, agreed with the openfx-misc, openfx-io, openfx-arena, openfx-gm
    - a static library with PIC;
    - expat bundled or from the system;
    - no `include_directories` leaking to the consumer.
-3. **openfx-supportext:** `supportext_add_sources(<target> [ALL] [OPENGL] [OSMESA] [COMPONENTS ...])` in `SupportExt/cmake/SupportExt.cmake`:
+3. **openfx-supportext** (openfx-supportext#45): `supportext_add_sources(<target> [ALL] [OPENGL] [OSMESA] [EGL] [COMPONENTS ...])` in `SupportExt/cmake/SupportExt.cmake`. The components are THREADS, FILEOPEN, LUT, MULTIPLANE, SHUTTER, TRANSFORM3X3, TRANSFORM_INTERACT, RECTANGLE_INTERACT, GENERATOR, TEXT, RAMP, TRACKING, OGL_FUNCTIONS and EGL, with their dependencies pulled in; OSMESA links `OSMesa::OSMesa`, which the consumer provides.
    - the sources are added PRIVATE to the plug-in target, so they compile with the plug-in's exact defines. OFX_EXTENSIONS_* and OFXS_HAVE_DRAWSUITE change class layouts, so a separately compiled library would break the one-definition rule;
    - it also adds the include directories, and links openfx::Support if that target exists.
    openfx-io provides the same pattern for IOSupport: `ioSupport_add_sources()` (GenericReader, GenericWriter, GenericOCIO, SequenceParsing), also used by openfx-arena.
@@ -25,11 +25,11 @@ Status: plan v1, agreed with the openfx-misc, openfx-io, openfx-arena, openfx-gm
 
 ## API (cmake/OpenFX.cmake)
 
-`add_ofx_plugin(<target> [DIR <d>] [BUNDLE_NAME <name>] [INFO_PLIST <file>] [IDENTIFIER <id>] [VERSION <x.y.z>] [SOURCES ...])`
+`add_ofx_plugin(<target> [DIR <d>] [BUNDLE_NAME <name>] [INFO_PLIST <file>] [IDENTIFIER <id>] [VERSION <x.y.z>] [EXPORT_SYMBOLS <symbol>...] [SOURCES ...])`
 - The old form, `add_ofx_plugin(TARGET [DIR])`, keeps working.
 - `INFO_PLIST`: the repository's own file. It's run through `configure_file(@ONLY)`, so a file without `@VAR@` is copied unchanged. Without it, the generic template is used with `IDENTIFIER` and `VERSION`.
 - Always applied, as in `Support/Plugins/Makefile.master`:
-  - hidden visibility, and export lists (`osxSymbols`, `linuxSymbols`) so that only OfxGetPlugin, OfxGetNumberOfPlugins and OfxSetHost are exported. Hidden visibility alone isn't enough for bundles that statically link OSMesa or LLVM;
+  - hidden visibility, and an export list generated per target (macOS `-exported_symbols_list`, a Linux and FreeBSD version script), so that only OfxGetPlugin, OfxGetNumberOfPlugins and the `EXPORT_SYMBOLS` are exported. Hidden visibility alone isn't enough for bundles that statically link OSMesa or LLVM. OfxSetHost isn't in the default list, because a macOS export list that names a missing symbol is a link error: add `EXPORT_SYMBOLS OfxSetHost` if the plug-in defines it;
   - rpath: `@loader_path/../Frameworks` and `@loader_path/../Libraries` on macOS, `$ORIGIN/../../Libraries` on Linux;
   - `DEBUG` in Debug builds, `NDEBUG` otherwise (CMake's default);
   - `/bigobj` (MSVC) and `-Wa,-mbig-obj` (MinGW);
@@ -43,7 +43,7 @@ Status: plan v1, agreed with the openfx-misc, openfx-io, openfx-arena, openfx-gm
 
 `ofx_target_openmp(<target> [REQUIRED])`
 - Links OpenMP::OpenMP_CXX.
-- With Apple clang it uses `-Xpreprocessor -fopenmp` and libomp from MacPorts (`/opt/local/include/libomp`, `/opt/local/lib/libomp`) or Homebrew.
+- With Apple clang it uses `-Xpreprocessor -fopenmp` and libomp from MacPorts (`/opt/local/include/libomp`, `/opt/local/lib/libomp`), or from `OFX_LIBOMP_ROOT`.
 - Does nothing if `OFX_USE_OPENMP` is OFF.
 
 `ofx_deploy_bundle(<target>)`
@@ -68,6 +68,17 @@ Status: plan v1, agreed with the openfx-misc, openfx-io, openfx-arena, openfx-gm
 - MSVC: `/Zc:__cplusplus`.
 
 **openfx::Support:** static, PIC, hidden visibility (upstream #278), with openfx::Api PUBLIC. G'MIC uses the raw C API, so it links openfx::Api only.
+
+## How openfx tests it
+
+- `.github/scripts/cmake-build-test.sh` (the per-PR Linux and macOS jobs): builds and installs openfx with CMake, then runs the hostDemo checks (`hostdemo-checks.sh`, shared with the Makefile build) on the CMake-built plug-ins.
+- It then runs `cmake-plugin-project.sh`, which builds `cmake/tests/plugin-project` against the installed package (`find_package(openfx)`), as a plug-in repository would. It checks:
+  - the bundle name, identifier, version and executable in the Info.plist;
+  - an Info.plist used as-is;
+  - Resources, with a subdirectory;
+  - the exported symbols (exactly OfxGetPlugin and OfxGetNumberOfPlugins) and the rpath;
+  - on macOS, deployment: libomp bundled, `codesign --verify --strict`, and nothing referenced outside the bundle.
+- The Makefile builds run nightly (extended.yml).
 
 ## Patterns (documented, no helper)
 

@@ -2,3 +2,5 @@ version: '2.11.5'
 prefix: '/opt/local'
 ports:
   - name: gsed
+  - name: cmake
+  - name: libomp

@@ -74,3 +74,4 @@ __pycache__/
 /build/
 /test_package/build/
 CMakeUserPresets.json
+build-ci/
