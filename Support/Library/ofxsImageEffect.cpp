@@ -3910,10 +3910,12 @@ namespace OFX {
       OFX::Log::warning(true, "setClipBitDepth(%s, %s): the host refused to set %s: the plug-in may only "
                         "set clip depths if it and the host both support multiple clip depths",
                         clip.name().c_str(), depth, propName.c_str());
-    } catch (const OFX::Exception::Suite& e) {
-      OFX::Log::warning(true, "setClipBitDepth(%s, %s): the host refused to set %s (status %d)",
-                        clip.name().c_str(), depth, propName.c_str(), (int)e.status());
+    } catch (const OFX::Exception::PropertyUnknownToHost&) {
+      // kOfxStatErrUnknown / kOfxStatErrUnsupported: the host doesn't let the plug-in map clip depths
+      OFX::Log::warning(true, "setClipBitDepth(%s, %s): the host does not support setting %s",
+                        clip.name().c_str(), depth, propName.c_str());
     }
+    // other failures (bad handle, bad index: OFX::Exception::Suite; kOfxStatErrMemory: std::bad_alloc) propagate
   }
 
 

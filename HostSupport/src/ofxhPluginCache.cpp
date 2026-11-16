@@ -125,19 +125,29 @@ static std::vector<std::string> getArchDirs()
   std::string machine; // `uname -m` for the compiled architecture (Linux, FreeBSD)
 #if defined (__linux__) || defined (__FreeBSD__)
   // Use the compiled architecture for the common ones (a 32-bit host on a 64-bit kernel must not use the
-  // kernel's name), and the kernel's machine name otherwise.
+  // kernel's name), and the kernel's machine name otherwise. The names must match the plug-in build
+  // systems (Support/Plugins/Makefile.master, Examples/Makefile.master, cmake/OpenFX.cmake):
+  // - Linux: `uname -m` names, as in the OFX packaging reference ("Linux-${uname -m} which for arm64
+  //   should be Linux-aarch64"), and armv7l/armv6l for 32-bit Arm;
+  // - FreeBSD (not covered by the spec): FreeBSD's MACHINE_ARCH, i.e. `uname -p` (aarch64, armv7,
+  //   riscv64, powerpc64, powerpc64le), because `uname -m` is the platform (arm64, riscv, powerpc).
+#  if defined(__linux__)
+#    define OFXH_LINUX_OR_FREEBSD(onLinux, onFreeBSD) onLinux
+#  else
+#    define OFXH_LINUX_OR_FREEBSD(onLinux, onFreeBSD) onFreeBSD
+#  endif
 #  if defined(__aarch64__)
-#    if defined(__linux__)
   machine = "aarch64";
-#    else
-  machine = "arm64";
-#    endif
+#  elif defined(__arm__) && defined(__ARM_ARCH) && (__ARM_ARCH >= 7)
+  machine = OFXH_LINUX_OR_FREEBSD("armv7l", "armv7");
+#  elif defined(__arm__)
+  machine = OFXH_LINUX_OR_FREEBSD("armv6l", "armv6");
 #  elif defined(__riscv) && defined(__riscv_xlen) && (__riscv_xlen == 64)
   machine = "riscv64";
 #  elif defined(__powerpc64__) && defined(__LITTLE_ENDIAN__)
-  machine = "ppc64le";
+  machine = OFXH_LINUX_OR_FREEBSD("ppc64le", "powerpc64le");
 #  elif defined(__powerpc64__)
-  machine = "ppc64";
+  machine = OFXH_LINUX_OR_FREEBSD("ppc64", "powerpc64");
 #  elif defined(__s390x__)
   machine = "s390x";
 #  elif defined(__loongarch64)
@@ -148,6 +158,7 @@ static std::vector<std::string> getArchDirs()
     machine = u.machine;
   }
 #  endif
+#  undef OFXH_LINUX_OR_FREEBSD
 #endif
 
 #if defined (__linux__)

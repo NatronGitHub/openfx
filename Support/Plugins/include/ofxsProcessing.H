@@ -88,7 +88,7 @@ namespace OFX {
         /** @brief set the destination image */
         void setDstImg(OFX::Image *v) {_dstImg = v; }
 
-        /** @brief set OpenCL, CUDA render arguments */
+        /** @brief set the GPU render arguments (OpenCL, CUDA, Metal) */
         void setGPURenderArgs(const OFX::RenderArguments& args)
         {
             _isEnabledOpenCLRender = args.isEnabledOpenCLRender;

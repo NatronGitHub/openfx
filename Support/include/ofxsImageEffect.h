@@ -2184,6 +2184,12 @@ namespace OFX {
       if ( (img->getRenderScale().x != args.renderScale.x) ||
            (img->getRenderScale().y != args.renderScale.y) ||
            (img->getField() != args.fieldToRender) ) {
+        // stderr (debug builds only): the OFX log only writes a file when DEBUG is defined
+        fprintf(stderr, "OFX Host gave image with wrong scale or field properties: "
+                "renderScale (%g, %g) instead of (%g, %g), field %d instead of %d\n",
+                img->getRenderScale().x, img->getRenderScale().y,
+                args.renderScale.x, args.renderScale.y,
+                (int)img->getField(), (int)args.fieldToRender);
         OFX::Log::error(true, "OFX Host gave image with wrong scale or field properties: "
                         "renderScale (%g, %g) instead of (%g, %g), field %d instead of %d",
                         img->getRenderScale().x, img->getRenderScale().y,

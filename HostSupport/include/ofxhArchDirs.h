@@ -66,8 +66,10 @@ namespace OFX {
       /// @param os                    the host operating system
       /// @param arch                  the architecture the host was compiled for
       /// @param x64EmulatedOnArm64    Windows only: an x64 host is running under emulation on Arm64 hardware
-      /// @param machine               the `uname -m` machine name (Linux, FreeBSD), used for architectures
-      ///                              other than x86 and x86-64 (e.g. "aarch64", "riscv64")
+      /// @param machine               the machine name used for architectures other than x86 and x86-64:
+      ///                              Linux: `uname -m` style ("aarch64", "armv7l", "riscv64", "ppc64le");
+      ///                              FreeBSD: MACHINE_ARCH, i.e. `uname -p` ("aarch64", "armv7", "riscv64",
+      ///                              "powerpc64"). The plug-in build systems must use the same names.
       /// @param is64Bit               Linux, FreeBSD: the host is a 64-bit process (selects the legacy folder)
       ///
       /// The rules, from the OpenFX packaging reference:
@@ -131,6 +133,10 @@ namespace OFX {
           } else {
             if (!machine.empty()) {
               dirs.push_back(std::string(prefix) + machine);
+            }
+            if (os == eOSFreeBSD && machine == "aarch64") {
+              // HostSupport used FreeBSD-arm64 (uname -m) before the FreeBSD names became MACHINE_ARCH
+              dirs.push_back("FreeBSD-arm64");
             }
             // legacy fallback (see above)
             dirs.push_back(std::string(prefix) + (is64Bit ? "x86-64" : "x86"));
