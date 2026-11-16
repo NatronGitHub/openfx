@@ -608,7 +608,7 @@ namespace OFX {
         Property::propSpecEnd
       };
 
-#if __cplusplus >= 201103L
+#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
 #  define OFXH_THREAD_LOCAL thread_local
 #elif defined(_MSC_VER)
 #  define OFXH_THREAD_LOCAL __declspec(thread)

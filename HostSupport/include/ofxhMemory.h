@@ -36,7 +36,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace OFX {
 
   namespace Host {
-#if __cplusplus >= 201103L
+#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
     template <typename T>
     using auto_ptr = std::unique_ptr<T>;
 #else
