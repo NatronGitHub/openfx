@@ -173,9 +173,8 @@ endfunction()
 # - Install rpath: @loader_path/../Frameworks and @loader_path/../Libraries on macOS,
 #   $ORIGIN/../../Libraries on Linux and FreeBSD (libraries bundled by the installers).
 # - DEBUG is defined in Debug builds; CXX_STANDARD is ${OFX_CXX_STANDARD}, without GNU
-#   extensions; /bigobj (MSVC) or -Wa,-mbig-obj (MinGW gcc); MinGW links libgcc and libstdc++
-#   statically (these three are not in Makefile.master: they are what the plug-in repositories
-#   need with CMake).
+#   extensions; /bigobj (MSVC) or -Wa,-mbig-obj (MinGW gcc) for large translation units (not in
+#   Makefile.master). The MinGW runtime DLLs are bundled by the installers, as with the Makefiles.
 # - macOS: the installed binary is signed ad hoc again, since install_name_tool (which adds the
 #   install rpath) invalidates the signature that Xcode builds have.
 # Link the plug-in with openfx::Support (C++ Support library) or openfx::Api (C API only).
@@ -201,6 +200,10 @@ function(add_ofx_plugin TARGET)
   if(OFX_SOURCES)
     target_sources(${TARGET} PRIVATE ${OFX_SOURCES})
   endif()
+  # the C API headers and the usage requirements (definitions); openfx::Support for C++ plug-ins
+  if(TARGET openfx::Api)
+    target_link_libraries(${TARGET} PRIVATE openfx::Api)
+  endif()
 
   # Info.plist, assembled into the bundle in the build tree:
   # <BUNDLE_NAME>.ofx.bundle/Contents/{Info.plist,<ARCHDIR>/<BUNDLE_NAME>.ofx}
@@ -210,13 +213,23 @@ function(add_ofx_plugin TARGET)
   set(BUNDLE_IDENTIFIER ${OFX_IDENTIFIER})
   set(BUNDLE_SIGNATURE "????")  # any value is OK here, ignored by modern MacOS
   set(PLUGIN_VERSION ${OFX_VERSION})
+  # configured into the binary directory, copied into the bundle at each build (so that the
+  # bundle can be rebuilt from scratch), and installed from the binary directory
+  set(_info "${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.Info.plist")
   if(OFX_INFO_PLIST)
     get_filename_component(_plist "${OFX_INFO_PLIST}" ABSOLUTE)
-    configure_file("${_plist}" "${_bundle}/Contents/Info.plist" @ONLY)
+    configure_file("${_plist}" "${_info}" @ONLY)
   else()
     _ofx_find_file(_plist Info.plist.in)
-    configure_file("${_plist}" "${_bundle}/Contents/Info.plist")
+    configure_file("${_plist}" "${_info}")
   endif()
+  # the output folder is created before linking too (universal macOS links fail if it was deleted)
+  add_custom_command(TARGET ${TARGET} PRE_LINK
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_bundle}/Contents/${ARCHDIR}"
+    VERBATIM)
+  add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${_info}" "${_bundle}/Contents/Info.plist"
+    VERBATIM)
   set_target_properties(${TARGET} PROPERTIES
     OFX_BUNDLE_NAME "${OFX_BUNDLE_NAME}"
     OFX_BUNDLE_DIR "${_bundle}"
@@ -267,10 +280,7 @@ function(add_ofx_plugin TARGET)
   if(MSVC)
     target_compile_options(${TARGET} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/bigobj>)
   elseif(MINGW AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(${TARGET} PRIVATE -Wa,-mbig-obj)
-    target_link_options(${TARGET} PRIVATE -static-libgcc -static-libstdc++)
-  elseif(MINGW) # clang (llvm-mingw): -mbig-obj is gcc's assembler option
-    target_link_options(${TARGET} PRIVATE -static-libgcc -static-libstdc++)
+    target_compile_options(${TARGET} PRIVATE -Wa,-mbig-obj) # (clang's assembler has no -mbig-obj)
   endif()
 
   # To install plugins: cmake --install Build
@@ -281,7 +291,7 @@ function(add_ofx_plugin TARGET)
     LIBRARY DESTINATION "${_dest}/${ARCHDIR}"
     RUNTIME DESTINATION "${_dest}/${ARCHDIR}"
     ARCHIVE DESTINATION "${_dest}/${ARCHDIR}" EXCLUDE_FROM_ALL)
-  install(FILES "${_bundle}/Contents/Info.plist" DESTINATION "${_dest}")
+  install(FILES "${_info}" DESTINATION "${_dest}" RENAME Info.plist)
   if(APPLE)
     if(IS_ABSOLUTE "${_dest}")
       set(_bin "${_dest}/${ARCHDIR}/${OFX_BUNDLE_NAME}.ofx")
@@ -365,11 +375,19 @@ function(ofx_target_openmp TARGET)
     return()
   endif()
   if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    if(NOT "${OFX_LIBOMP_ROOT}" STREQUAL "${_OFX_LIBOMP_ROOT_SEARCHED}")
+      # OFX_LIBOMP_ROOT changed: search again
+      unset(OFX_LIBOMP_INCLUDE_DIR CACHE)
+      unset(OFX_LIBOMP_LIBRARY CACHE)
+      set(_OFX_LIBOMP_ROOT_SEARCHED "${OFX_LIBOMP_ROOT}" CACHE INTERNAL "")
+    endif()
     find_path(OFX_LIBOMP_INCLUDE_DIR omp.h
-      HINTS ${OFX_LIBOMP_ROOT} ${OFX_LIBOMP_ROOT}/include /opt/local/include/libomp
+      HINTS ${OFX_LIBOMP_ROOT} ${OFX_LIBOMP_ROOT}/include ${OFX_LIBOMP_ROOT}/include/libomp
+            /opt/local/include/libomp
       NO_DEFAULT_PATH)
     find_library(OFX_LIBOMP_LIBRARY omp
-      HINTS ${OFX_LIBOMP_ROOT} ${OFX_LIBOMP_ROOT}/lib /opt/local/lib/libomp
+      HINTS ${OFX_LIBOMP_ROOT} ${OFX_LIBOMP_ROOT}/lib ${OFX_LIBOMP_ROOT}/lib/libomp
+            /opt/local/lib/libomp
       NO_DEFAULT_PATH)
     if(OFX_LIBOMP_INCLUDE_DIR AND OFX_LIBOMP_LIBRARY)
       set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp -I${OFX_LIBOMP_INCLUDE_DIR}")
@@ -383,7 +401,7 @@ function(ofx_target_openmp TARGET)
   elseif(OFX_REQUIRED)
     message(FATAL_ERROR "ofx_target_openmp(${TARGET}): OpenMP not found (MacPorts: port install libomp)")
   else()
-    message(STATUS "ofx_target_openmp(${TARGET}): OpenMP not found, building without it")
+    message(WARNING "ofx_target_openmp(${TARGET}): OpenMP not found, building without it (MacPorts: port install libomp; or set OFX_LIBOMP_ROOT, or OFX_USE_OPENMP=OFF)")
   endif()
 endfunction()
 
@@ -436,7 +454,14 @@ function(ofx_deploy_bundle TARGET)
           string(REGEX REPLACE \"^ path \" \"\" _p \"\${_p}\")
           execute_process(COMMAND install_name_tool -delete_rpath \"\${_p}\" \"\${_f}\" OUTPUT_QUIET ERROR_QUIET)
         endforeach()
-        execute_process(COMMAND codesign -f -s - \"\${_f}\" RESULT_VARIABLE _r OUTPUT_QUIET ERROR_QUIET)
+        execute_process(COMMAND file -b \"\${_f}\" OUTPUT_VARIABLE _type)
+        if(NOT _type MATCHES \"Mach-O\")
+          continue()
+        endif()
+        execute_process(COMMAND codesign -f -s - \"\${_f}\" RESULT_VARIABLE _r OUTPUT_QUIET ERROR_VARIABLE _err)
+        if(_r)
+          message(FATAL_ERROR \"codesign failed on \${_f}: \${_err}\")
+        endif()
         execute_process(COMMAND otool -L \"\${_f}\" OUTPUT_VARIABLE _deps ERROR_QUIET)
         execute_process(COMMAND otool -l \"\${_f}\" OUTPUT_VARIABLE _cmds ERROR_QUIET)
         if(_deps MATCHES \"\\t(/opt/local|/usr/local|/opt/homebrew)/\")

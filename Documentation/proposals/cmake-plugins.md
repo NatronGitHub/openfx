@@ -55,6 +55,7 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
   - the install fails if a Mach-O file still references `/opt/local`, `/usr/local` or `/opt/homebrew` (`otool -L`) or has an LC_RPATH there (`otool -l`);
   - call `ofx_deploy_bundle` after the last `ofx_plugin_resources` of the target (it's an error otherwise): files installed into the bundle after it would break the signature;
   - the install path must not contain spaces (osxDeploy.sh word-splits paths).
+  - the bundle gets an ad hoc signature (`Contents/_CodeSignature`, which the Makefile bundles don't have): an installer that later changes files in the bundle must sign it again (`codesign -f -s -`). Without it, `codesign --verify --strict` fails on the deployed bundle.
 - **macOS, not implemented yet:** checking that every `@rpath/X` is in `Contents/Libraries`, and resolving the `@rpath` dependencies of copied dylibs against their original LC_RPATHs (MacPorts libraries use absolute install names, so this matters little today).
 - **Windows** (not implemented yet; Natron's Windows installer does this itself, so Natron keeps `OFX_DEPLOY_BUNDLES` OFF there):
   - copying the DLLs next to the `.ofx` is not enough. Hosts call `LoadLibraryW(fullpath)` (`ofxhBinary.cpp`, and Natron), which doesn't search the plug-in's directory;
@@ -99,7 +100,7 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
   - `OFX_CXX_STANDARD` (default 17; Natron uses 17 with Qt5 and 20 with Qt6, Natron#1148). It's applied with CXX_STANDARD to the plug-ins and to openfx::Support, so a `-std=` inside `CXX` would be overridden: pass the standard with this variable instead;
   - `OFX_USE_OPENMP` (ON);
   - `OFX_DEPLOY_BUNDLES` (OFF). Natron's builds set it ON on macOS only, where it replaces Makefile.master's osxDeploy step. On Windows it stays OFF: build-Windows-installer.sh strips the `.ofx`, copies the DLLs and embeds its own manifest;
-  - `PLUGIN_INSTALLDIR`;
+  - `PLUGIN_INSTALLDIR` (default `OFX/Plugins`, relative to `CMAKE_INSTALL_PREFIX`: set the prefix to `/usr` or `/Library` for the standard OFX folders);
   - `OFX_LICENSE=GPL|COMMERCIAL`, only where it changes what's built (openfx-arena: no poppler when COMMERCIAL);
   - `BUILD_TESTING`.
 - **Paths for build-plugins.sh** (CMake equivalents of the Makefile variables):

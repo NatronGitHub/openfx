@@ -7,12 +7,14 @@ prefix=$1 work=$2
 src="$(cd "$(dirname "$0")/../.." && pwd)"
 os=$(uname -s)
 deploy=OFF; [ "$os" = Darwin ] && deploy=ON
+# OpenMP must be found on macOS (MacPorts libomp) and Linux (gcc); MSYS2: not yet (see the CMake output)
+openmp=ON; case $os in MINGW*|MSYS*|CYGWIN*) openmp=OFF ;; esac
 rm -rf "$work"
 run() { # mode: package | subdirectory
   local mode=$1 w="$work/$1" via=OFF
   [ "$mode" = subdirectory ] && via=ON
   cmake -S "$src/cmake/tests/plugin-project" -B "$w/build" -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH="$prefix" -DOFX_SOURCE_DIR="$src" -DOFX_VIA_SUBDIRECTORY=$via -DBUILD_EXAMPLE_HOSTS=$via -DOFX_TEST_REQUIRE_OPENMP=ON \
+    -DCMAKE_PREFIX_PATH="$prefix" -DOFX_SOURCE_DIR="$src" -DOFX_VIA_SUBDIRECTORY=$via -DBUILD_EXAMPLE_HOSTS=$via -DOFX_TEST_REQUIRE_OPENMP=$openmp \
     -DCMAKE_INSTALL_PREFIX="$w/install" -DOFX_DEPLOY_BUNDLES=$deploy ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
   cmake --build "$w/build" --parallel
   # with add_subdirectory(openfx), BUILD_EXAMPLE_HOSTS=ON still gives the hostDemo target
