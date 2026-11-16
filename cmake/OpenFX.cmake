@@ -27,14 +27,33 @@ if(APPLE)
 elseif(WIN32)
   # MSVC: the target architecture (ARM64EC, ARM64, x64, X86); other compilers: pointer size
   string(TOUPPER "${CMAKE_CXX_COMPILER_ARCHITECTURE_ID};${CMAKE_GENERATOR_PLATFORM}" _OFX_WINARCH)
-  if(NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|arm64|aarch64)$")
-    # MinGW (MSYS2 CLANGARM64, llvm-mingw): the architecture ID is only set for MSVC
-    set(_OFX_WINARCH "ARM64")
+  if(NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID)
+    # MinGW (MSYS2 CLANGARM64, llvm-mingw) on CMake < 4.1: the architecture ID is only set for MSVC, and
+    # CMAKE_SYSTEM_PROCESSOR is the build machine's unless a toolchain file sets it: ask the compiler for
+    # its target (CMAKE_CXX_COMPILER_TARGET, or `-dumpmachine`), e.g. aarch64-w64-mingw32 or
+    # arm64ec-w64-windows-gnu (llvm-mingw Arm64EC)
+    set(_OFX_TARGET "${CMAKE_CXX_COMPILER_TARGET}")
+    if(NOT _OFX_TARGET)
+      # CMAKE_CXX_COMPILER_ARG1 is one string (e.g. " --target=aarch64-w64-mingw32"): split it
+      # (UNIX_COMMAND works with any CMake version, for projects that copy this block)
+      separate_arguments(_OFX_CXX_ARGS UNIX_COMMAND "${CMAKE_CXX_COMPILER_ARG1}")
+      execute_process(COMMAND ${CMAKE_CXX_COMPILER} ${_OFX_CXX_ARGS} -dumpmachine
+                      OUTPUT_VARIABLE _OFX_TARGET OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    endif()
+    string(TOLOWER "${_OFX_TARGET}" _OFX_TARGET)
+    if(_OFX_TARGET MATCHES "^arm64ec")
+      set(_OFX_WINARCH "ARM64EC")
+    elseif(_OFX_TARGET MATCHES "^(aarch64|arm64)")
+      set(_OFX_WINARCH "ARM64")
+    endif()
   endif()
   if(_OFX_WINARCH MATCHES "ARM64EC" OR CMAKE_CXX_FLAGS MATCHES "/arm64EC")
     set(ARCHDIR "Win-arm64ec") # normative (upstream main, 2026): Arm64EC (and Arm64X) plug-ins
-  elseif(_OFX_WINARCH MATCHES "ARM64")
+  elseif(_OFX_WINARCH MATCHES "ARM64|AARCH64")
+    # CMake >= 4.1 reports "aarch64" as the MinGW architecture ID
     set(ARCHDIR "Win-arm64")   # reserved, not yet normative: native Arm64 hosts
+    message(WARNING "Native Arm64 plug-in: installed to Win-arm64, a reserved, not yet normative folder. "
+                    "Current Windows-on-Arm hosts (Resolve, Vegas) are Arm64EC: build for Arm64EC for them.")
   elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(ARCHDIR "Win64")
   else()
@@ -54,20 +73,17 @@ elseif(UNIX)
     else()
       set(ARCHDIR "${_OFX_OS}-x86")
     endif()
+  elseif(_OFX_OS STREQUAL "Linux")
+    # the spec's name, literally: Linux-${uname -m} (CMAKE_SYSTEM_PROCESSOR is uname -m for native builds;
+    # cross toolchain files set it). HostSupport also searches the compiled architecture's name.
+    set(ARCHDIR "Linux-${CMAKE_SYSTEM_PROCESSOR}")
   elseif(_OFX_CPU MATCHES "^armv[2-6]" AND NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-    # pre-ARMv7 (HostSupport: __ARM_ARCH < 7)
-    if(_OFX_OS STREQUAL "FreeBSD")
-      set(ARCHDIR "FreeBSD-armv6")
-    else()
-      set(ARCHDIR "Linux-armv6l")
-    endif()
+    set(ARCHDIR "FreeBSD-armv6")
   elseif(_OFX_CPU MATCHES "^(aarch64|arm64|armv8l|arm.*)$")
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-      set(ARCHDIR "${_OFX_OS}-aarch64")
-    elseif(_OFX_OS STREQUAL "FreeBSD")
-      set(ARCHDIR "FreeBSD-armv7")
+      set(ARCHDIR "FreeBSD-aarch64")
     else()
-      set(ARCHDIR "Linux-armv7l")
+      set(ARCHDIR "FreeBSD-armv7")
     endif()
   elseif(_OFX_OS STREQUAL "FreeBSD" AND _OFX_CPU MATCHES "^riscv")
     set(ARCHDIR "FreeBSD-riscv64")

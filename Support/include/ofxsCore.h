@@ -119,7 +119,7 @@ of the direct OFX objects and any library side only functions.
 #include OFX_CLIENT_EXCEPTION_HEADER
 #endif
 
-#if __cplusplus >= 201103L
+#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
 #  define OFX_THROW(x) noexcept(false)
 #  define OFX_THROW2(x,y) noexcept(false)
 #  define OFX_THROW3(x,y,z) noexcept(false)
@@ -176,7 +176,7 @@ struct Ofx3DPointD {
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
 */
 namespace OFX {
-#if __cplusplus >= 201103L
+#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
   template <typename T>
   using auto_ptr = std::unique_ptr<T>;
 #else
@@ -187,7 +187,7 @@ namespace OFX {
   inline bool IsInfinite(double x) { return _finite(x) == 0 && _isnan(x) == 0; }
   inline bool IsNaN     (double x) { return _isnan(x) != 0;                    }
 #else
-#  if __cplusplus >= 201103L || _GLIBCXX_USE_C99_MATH
+#  if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus || _GLIBCXX_USE_C99_MATH
   // These definitions are for the normal Unix suspects.
   inline bool IsInfinite(double x) { return (std::isinf)(x);    }
   inline bool IsNaN     (double x) { return (std::isnan)(x);    }

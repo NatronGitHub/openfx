@@ -74,7 +74,7 @@ namespace OFX {
       ///
       /// The rules, from the OpenFX packaging reference:
       /// - MacOS: "all MacOS plug-ins should be in MacOS ... There will not be a specific arm64 folder."
-      ///   An x86-64 host still checks the deprecated MacOS-x86-64 folder first, then MacOS.
+      ///   Hosts check MacOS first; x86-64 hosts then check the deprecated MacOS-x86-64 folder as a fallback.
       /// - Windows: "An Arm64EC host should load plug-ins from the Win-arm64ec folder. ... an x64 host should
       ///   detect when it is running under Arm64 emulation and, if so, also check the Win-arm64ec folder when it
       ///   exists, preferring a native Arm64EC plug-in there over the emulated x64 plug-in in Win64."
@@ -87,33 +87,39 @@ namespace OFX {
       ///   existing build systems (e.g. Support/Plugins/Makefile.master before OFX 1.5) installed non-x86
       ///   binaries there, and hosts found them.
       ///
-      /// Windows folder names are returned as HostSupport always used them ("win32", "win64"); Windows file
-      /// names are case-insensitive.
+      /// Windows folder names are returned as the spec spells them ("Win32", "Win64"), followed by the
+      /// lowercase names HostSupport used before ("win32", "win64"), for case-sensitive folders (WSL).
+      /// The plug-in cache uses the first folder whose binary matches the host process (word size, CPU),
+      /// so a folder earlier in the list with a binary the host can't load is skipped.
       inline std::vector<std::string> archDirsFor(OSEnum os, ArchEnum arch, bool x64EmulatedOnArm64, const std::string &machine,
-                                                  bool is64Bit = (sizeof(void *) == 8))
+                                                  bool is64Bit = (sizeof(void *) == 8),
+                                                  const std::string &unameMachine = std::string())
       {
         std::vector<std::string> dirs;
         switch (os) {
         case eOSMacOS:
+          dirs.push_back("MacOS"); // "all MacOS plug-ins should be in MacOS"
           if (arch == eArchX86_64) {
-            dirs.push_back("MacOS-x86-64"); // DEPRECATED, but still checked first by x86-64 hosts
+            dirs.push_back("MacOS-x86-64"); // DEPRECATED ("Formerly used for Intel Macs"): fallback only
           }
-          dirs.push_back("MacOS");
           break;
         case eOSWindows:
           switch (arch) {
           case eArchX86:
-            dirs.push_back("win32");
+            dirs.push_back("Win32"); // spec name
+            dirs.push_back("win32"); // previous HostSupport name, for case-sensitive folders
             break;
           case eArchX86_64:
             if (x64EmulatedOnArm64) {
               dirs.push_back("Win-arm64ec"); // prefer a native Arm64EC plug-in over an emulated x64 one
             }
+            dirs.push_back("Win64");
             dirs.push_back("win64");
             break;
           case eArchArm64EC:
             dirs.push_back("Win-arm64ec");
-            dirs.push_back("win64"); // Arm64EC processes can load (emulated) x64 DLLs
+            dirs.push_back("Win64"); // Arm64EC processes can load (emulated) x64 DLLs
+            dirs.push_back("win64");
             break;
           case eArchArm64:
           case eArchOther:
@@ -131,12 +137,24 @@ namespace OFX {
           } else if (arch == eArchX86_64) {
             dirs.push_back(std::string(prefix) + "x86-64");
           } else {
-            if (!machine.empty()) {
+            // Linux: the spec's folder is Linux-${uname -m}; the compiled architecture's name (e.g. armv7l
+            // for a 32-bit process on an aarch64 kernel) is a fallback. FreeBSD (not in the spec): machine.
+            if (os == eOSLinux && !unameMachine.empty()) {
+              dirs.push_back(std::string(prefix) + unameMachine);
+            }
+            if (!machine.empty() && (os != eOSLinux || machine != unameMachine)) {
               dirs.push_back(std::string(prefix) + machine);
             }
+            // FreeBSD (not in the spec): plug-ins may be named after uname -p (MACHINE_ARCH, used by
+            // our build systems) or uname -m (the platform): search both
+            if (os == eOSFreeBSD && !unameMachine.empty() && unameMachine != machine) {
+              dirs.push_back(std::string(prefix) + unameMachine);
+            }
+            // HostSupport and the Makefiles used `uname -m` on FreeBSD before the names became MACHINE_ARCH
             if (os == eOSFreeBSD && machine == "aarch64") {
-              // HostSupport used FreeBSD-arm64 (uname -m) before the FreeBSD names became MACHINE_ARCH
               dirs.push_back("FreeBSD-arm64");
+            } else if (os == eOSFreeBSD && machine.compare(0, 4, "armv") == 0) {
+              dirs.push_back("FreeBSD-arm");
             }
             // legacy fallback (see above)
             dirs.push_back(std::string(prefix) + (is64Bit ? "x86-64" : "x86"));
@@ -144,7 +162,21 @@ namespace OFX {
           break;
         }
         }
-        return dirs;
+        // remove duplicates, keeping the first (most preferred) occurrence
+        std::vector<std::string> unique;
+        for (size_t i = 0; i < dirs.size(); ++i) {
+          bool seen = false;
+          for (size_t j = 0; j < unique.size(); ++j) {
+            if (unique[j] == dirs[i]) {
+              seen = true;
+              break;
+            }
+          }
+          if (!seen) {
+            unique.push_back(dirs[i]);
+          }
+        }
+        return unique;
       }
 
     } // namespace ArchDirs

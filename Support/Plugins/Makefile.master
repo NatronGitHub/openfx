@@ -46,8 +46,8 @@ ifeq ($(shell getconf LONG_BIT),64)
 endif
 OS := $(shell uname -s)
 # MinGW-w64 GCC/Clang toolchains: uname -s is MINGW64_NT-*, MINGW32_NT-*, or, with
-# the MSYS2 UCRT64/CLANG64/CLANG32 environments, UCRT64_NT-*, CLANG64_NT-*, CLANG32_NT-*
-MINGW_OS := $(filter MINGW% UCRT64% CLANG64% CLANG32%,$(OS))
+# the MSYS2 UCRT64/CLANG64/CLANG32/CLANGARM64 environments, UCRT64_NT-*, CLANG64_NT-*, CLANG32_NT-*, CLANGARM64_NT-*
+MINGW_OS := $(filter MINGW% UCRT64% CLANG64% CLANG32% CLANGARM64%,$(OS))
 DEBUGFLAG ?= -g
 DEBUGNAME ?= debug
 ifeq ($(DEBUGFLAG),-O3)
@@ -120,6 +120,20 @@ uninstall:
       BITSFLAG = -m64
       ARCH = Win64
     endif
+    # native Arm64 (MSYS2 CLANGARM64, llvm-mingw): Win-arm64 (reserved name, searched by HostSupport's
+    # native Arm64 hosts); -m32/-m64 are x86 options. Ask the compiler for its target: MSYS2's own runtime
+    # may be the emulated x86_64 build on Windows on Arm, so uname -m may say x86_64.
+    # the compiler's target; the CLANGARM64 shell name is only used if the compiler doesn't say
+    MINGW_TARGET := $(shell $(CXX) -dumpmachine 2>/dev/null)
+    ifneq ($(findstring arm64ec,$(MINGW_TARGET)),)
+      # llvm-mingw Arm64EC: the normative Win-arm64ec folder
+      BITSFLAG =
+      ARCH = Win-arm64ec
+    else ifneq ($(filter aarch64-% arm64-%,$(MINGW_TARGET))$(if $(MINGW_TARGET),,$(filter CLANGARM64%,$(OS))),)
+      BITSFLAG =
+      ARCH = Win-arm64
+      $(warning Native Arm64 plug-in: installed to Win-arm64, a reserved, not yet normative folder. Current Windows-on-Arm hosts (Resolve, Vegas) are Arm64EC: build for Arm64EC (arm64ec-* target) for them.)
+    endif
     # mingw64 runtime >=3 or mingw32 runtime>=3.15 is required to get a proper snprintf implementation,
     # which is triggered by the following CPPFLAGS.
     # (-U__STRICT_ANSI__ was used for M_PI etc. with old mingw; with -std=c++17/c++20, gcc >= 16 rejects
@@ -134,13 +148,9 @@ uninstall:
     # bundle folder: Linux-x86, Linux-x86-64, or Linux-$(uname -m) for other architectures
     # (OFX 1.5 packaging: "hosts should look in the subdir named by Linux-${uname -m}"). The names must
     # match HostSupport (ofxhPluginCache.cpp) and cmake/OpenFX.cmake.
+    # the spec's name, literally (a 32-bit build on a 64-bit Arm kernel gets Linux-aarch64 too: HostSupport
+    # also searches the compiled architecture's name, e.g. Linux-armv7l)
     MACHINE := $(shell uname -m)
-    # 32-bit Arm userland on a 64-bit kernel: uname -m says aarch64 (or armv8l)
-    ifneq ($(filter aarch64 arm64 armv8l,$(MACHINE)),)
-      ifeq ($(BITS), 32)
-        MACHINE := armv7l
-      endif
-    endif
     ifneq ($(filter x86_64 i386 i486 i586 i686,$(MACHINE)),)
       # x86: the userland may be 32-bit on a 64-bit kernel, so use BITS (getconf LONG_BIT)
       ARCH = Linux-x86

@@ -119,7 +119,10 @@ jobs:
             -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON \
             -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON -DOFX_EXTENSIONS_VEGAS=ON \
             -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON \
-            -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins"
+            -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins" \
+            -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF
+          # strict -std=c++17 (C++ standard policy): no GNU dialect, so the compiler defines _WIN32 but not
+          # WIN32, which is how plug-ins are built by the consumers
       - name: Build
         run: |
           set -eo pipefail
@@ -132,3 +135,12 @@ jobs:
           test "$(find install -name '*.ofx' | wc -l)" -ge 5
           # the example hosts are only compiled on Windows (the test renders run on Linux and macOS)
           ls install/bin/hostDemo.exe install/bin/cacheDemo.exe install/bin/propsetDump.exe
+      - name: Every plug-in exports OfxGetPlugin
+        run: |
+          set -eo pipefail
+          fail=0
+          for f in $(find install -name '*.ofx'); do
+            # no `objdump | grep -q` under pipefail: grep -q exits early and objdump may die of SIGPIPE
+            if [ "$(objdump -p "$f" | grep -c 'OfxGetPlugin')" -gt 0 ]; then echo "ok: $f"; else echo "NO OfxGetPlugin export: $f"; fail=1; fi
+          done
+          exit $fail
