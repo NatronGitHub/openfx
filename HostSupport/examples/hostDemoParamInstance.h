@@ -31,6 +31,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace MyHost {
 
+  // All the param instances below store their value, initialised from the
+  // default value of the descriptor (kOfxParamPropDefault). The demo host
+  // doesn't animate parameters: get(time, ...) returns the stored value,
+  // and set(time, ...) sets it.
+
   class MyPushbuttonInstance : public OFX::Host::Param::PushbuttonInstance {
   protected:
     MyEffectInstance*   _effect;
@@ -40,11 +45,25 @@ namespace MyHost {
   };
 
   class MyStringInstance : public OFX::Host::Param::StringInstance {
+    std::string _s;
   protected:
     MyEffectInstance*   _effect;
     OFX::Host::Param::Descriptor& _descriptor;
   public:
     MyStringInstance(MyEffectInstance* effect, const std::string& name, OFX::Host::Param::Descriptor& descriptor);
+    OfxStatus get(std::string&);
+    OfxStatus get(OfxTime time, std::string&);
+    OfxStatus set(const char*);
+    OfxStatus set(OfxTime time, const char*);
+  };
+
+  class MyCustomInstance : public OFX::Host::Param::CustomInstance {
+    std::string _s;
+  protected:
+    MyEffectInstance*   _effect;
+    OFX::Host::Param::Descriptor& _descriptor;
+  public:
+    MyCustomInstance(MyEffectInstance* effect, const std::string& name, OFX::Host::Param::Descriptor& descriptor);
     OfxStatus get(std::string&);
     OfxStatus get(OfxTime time, std::string&);
     OfxStatus set(const char*);
@@ -106,6 +125,7 @@ namespace MyHost {
   };
 
   class MyChoiceInstance : public OFX::Host::Param::ChoiceInstance {
+    int _i;
   protected:
     MyEffectInstance*   _effect;
     OFX::Host::Param::Descriptor& _descriptor;
@@ -131,6 +151,7 @@ namespace MyHost {
   };
 
   class MyRGBAInstance : public OFX::Host::Param::RGBAInstance {
+    double _r, _g, _b, _a;
   protected:
     MyEffectInstance*   _effect;
     OFX::Host::Param::Descriptor& _descriptor;
@@ -144,6 +165,7 @@ namespace MyHost {
 
 
   class MyRGBInstance : public OFX::Host::Param::RGBInstance {
+    double _r, _g, _b;
   protected:
     MyEffectInstance*   _effect;
     OFX::Host::Param::Descriptor& _descriptor;
@@ -156,6 +178,7 @@ namespace MyHost {
   };
 
   class MyDouble2DInstance : public OFX::Host::Param::Double2DInstance {
+    double _x, _y;
   protected:
     MyEffectInstance*   _effect;
     OFX::Host::Param::Descriptor& _descriptor;
@@ -168,6 +191,7 @@ namespace MyHost {
   };
 
   class MyInteger2DInstance : public OFX::Host::Param::Integer2DInstance {
+    int _x, _y;
   protected:
     MyEffectInstance*   _effect;
     OFX::Host::Param::Descriptor& _descriptor;
@@ -179,6 +203,31 @@ namespace MyHost {
     OfxStatus set(OfxTime time,int,int);
   };
 
+  class MyDouble3DInstance : public OFX::Host::Param::Double3DInstance {
+    double _x, _y, _z;
+  protected:
+    MyEffectInstance*   _effect;
+    OFX::Host::Param::Descriptor& _descriptor;
+  public:
+    MyDouble3DInstance(MyEffectInstance* effect, const std::string& name, OFX::Host::Param::Descriptor& descriptor);
+    OfxStatus get(double&,double&,double&);
+    OfxStatus get(OfxTime time,double&,double&,double&);
+    OfxStatus set(double,double,double);
+    OfxStatus set(OfxTime time,double,double,double);
+  };
+
+  class MyInteger3DInstance : public OFX::Host::Param::Integer3DInstance {
+    int _x, _y, _z;
+  protected:
+    MyEffectInstance*   _effect;
+    OFX::Host::Param::Descriptor& _descriptor;
+  public:
+    MyInteger3DInstance(MyEffectInstance* effect,  const std::string& name, OFX::Host::Param::Descriptor& descriptor);
+    OfxStatus get(int&,int&,int&);
+    OfxStatus get(OfxTime time,int&,int&,int&);
+    OfxStatus set(int,int,int);
+    OfxStatus set(OfxTime time,int,int,int);
+  };
 
 }
 

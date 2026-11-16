@@ -186,6 +186,12 @@ namespace MyHost {
       return new MyDouble2DInstance(this,name,descriptor);
     else if(descriptor.getType()==kOfxParamTypeInteger2D)
       return new MyInteger2DInstance(this,name,descriptor);
+    else if(descriptor.getType()==kOfxParamTypeDouble3D)
+      return new MyDouble3DInstance(this,name,descriptor);
+    else if(descriptor.getType()==kOfxParamTypeInteger3D)
+      return new MyInteger3DInstance(this,name,descriptor);
+    else if(descriptor.getType()==kOfxParamTypeCustom)
+      return new MyCustomInstance(this,name,descriptor);
     else if(descriptor.getType()==kOfxParamTypePushButton)
       return new MyPushbuttonInstance(this,name,descriptor);
     else if(descriptor.getType()==kOfxParamTypeGroup)

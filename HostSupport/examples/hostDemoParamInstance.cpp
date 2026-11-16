@@ -55,35 +55,76 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace MyHost {
 
+  // All the param instances store their value, initialised from the default
+  // value of the descriptor (kOfxParamPropDefault). Parameters are not animated:
+  // get(time, ...) returns the stored value and set(time, ...) sets it.
+
   //
   // MyStringInstance
   //
 
   MyStringInstance::MyStringInstance(MyEffectInstance* effect,
-                                     const std::string& name,
+                                     const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::StringInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
+    _s = _descriptor.getProperties().getStringProperty(kOfxParamPropDefault);
   }
 
-  OfxStatus MyStringInstance::get(std::string&)
+  OfxStatus MyStringInstance::get(std::string& s)
   {
+    s = _s;
     return kOfxStatOK;
   }
 
-  OfxStatus MyStringInstance::get(OfxTime time, std::string&)
+  OfxStatus MyStringInstance::get(OfxTime, std::string& s)
   {
+    return get(s);
+  }
+
+  OfxStatus MyStringInstance::set(const char* s)
+  {
+    _s = s ? s : "";
     return kOfxStatOK;
   }
 
-  OfxStatus MyStringInstance::set(const char*)
+  OfxStatus MyStringInstance::set(OfxTime, const char* s)
   {
+    return set(s);
+  }
+
+  //
+  // MyCustomInstance
+  //
+
+  MyCustomInstance::MyCustomInstance(MyEffectInstance* effect,
+                                     const std::string& /*name*/,
+                                     OFX::Host::Param::Descriptor& descriptor)
+    : OFX::Host::Param::CustomInstance(descriptor), _effect(effect), _descriptor(descriptor)
+  {
+    _s = _descriptor.getProperties().getStringProperty(kOfxParamPropDefault);
+  }
+
+  OfxStatus MyCustomInstance::get(std::string& s)
+  {
+    s = _s;
     return kOfxStatOK;
   }
 
-  OfxStatus MyStringInstance::set(OfxTime time, const char*)
+  OfxStatus MyCustomInstance::get(OfxTime, std::string& s)
   {
+    return get(s);
+  }
+
+  OfxStatus MyCustomInstance::set(const char* s)
+  {
+    _s = s ? s : "";
     return kOfxStatOK;
+  }
+
+  OfxStatus MyCustomInstance::set(OfxTime, const char* s)
+  {
+    return set(s);
   }
 
   //
@@ -91,7 +132,7 @@ namespace MyHost {
   //
 
   MyBytesInstance::MyBytesInstance(MyEffectInstance* effect,
-                                   const std::string& name,
+                                   const std::string& /*name*/,
                                    OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::BytesInstance(descriptor), _value(getDefault()), _effect(effect), _descriptor(descriptor)
   {
@@ -111,7 +152,11 @@ namespace MyHost {
 
   OfxStatus MyBytesInstance::set(const unsigned char* data, size_t length)
   {
-    _value.assign(data, data + length); // copy: data is only valid during the call
+    if (data && length > 0) {
+      _value.assign(data, data + length); // copy: data is only valid during the call
+    } else {
+      _value.clear();
+    }
     return kOfxStatOK;
   }
 
@@ -125,11 +170,11 @@ namespace MyHost {
   //
 
   MyIntegerInstance::MyIntegerInstance(MyEffectInstance* effect, 
-                                       const std::string& name, 
+                                       const std::string& /*name*/, 
                                        OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::IntegerInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
-    _i = getProperties().getIntProperty(kOfxParamPropDefault);
+    _i = _descriptor.getProperties().getIntProperty(kOfxParamPropDefault);
   }
 
   OfxStatus MyIntegerInstance::get(int& i)
@@ -138,10 +183,9 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
-  OfxStatus MyIntegerInstance::get(OfxTime time, int& i)
+  OfxStatus MyIntegerInstance::get(OfxTime, int& i)
   {
-    i = _i;
-    return kOfxStatOK;
+    return get(i);
   }
 
   OfxStatus MyIntegerInstance::set(int i)
@@ -150,22 +194,58 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
-  OfxStatus MyIntegerInstance::set(OfxTime time, int i)
+  OfxStatus MyIntegerInstance::set(OfxTime, int i)
   {
-    _i = i;
-    return kOfxStatOK;
+    return set(i);
   }
 
   //
   // MyDoubleInstance
   //
 
+  // Spatial double params may give their default in normalised coordinates
+  // (kOfxParamPropDefaultCoordinateSystem, OFX 1.2): convert it to canonical
+  // coordinates, using the project size, plus the project offset for positions.
+  static void
+  defaultToCanonical(const OFX::Host::Param::Descriptor& descriptor,
+                     const MyEffectInstance* effect,
+                     double* v, int n)
+  {
+    if (!effect || descriptor.getDefaultCoordinateSystem() != kOfxParamCoordinatesNormalised) {
+      return;
+    }
+    const std::string& type = descriptor.getDoubleType();
+    double w, h, ox, oy;
+    effect->getProjectSize(w, h);
+    effect->getProjectOffset(ox, oy);
+    if (n == 1) {
+      if (type == kOfxParamDoubleTypeX) {
+        v[0] *= w;
+      } else if (type == kOfxParamDoubleTypeXAbsolute) {
+        v[0] = v[0] * w + ox;
+      } else if (type == kOfxParamDoubleTypeY) {
+        v[0] *= h;
+      } else if (type == kOfxParamDoubleTypeYAbsolute) {
+        v[0] = v[0] * h + oy;
+      }
+    } else if (n == 2) {
+      if (type == kOfxParamDoubleTypeXY) {
+        v[0] *= w;
+        v[1] *= h;
+      } else if (type == kOfxParamDoubleTypeXYAbsolute) {
+        v[0] = v[0] * w + ox;
+        v[1] = v[1] * h + oy;
+      }
+    }
+  }
+
   MyDoubleInstance::MyDoubleInstance(MyEffectInstance* effect, 
-                                     const std::string& name, 
+                                     const std::string& /*name*/, 
                                      OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::DoubleInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
-    _d = getProperties().getDoubleProperty(kOfxParamPropDefault);
+    _d = _descriptor.getProperties().getDoubleProperty(kOfxParamPropDefault);
+    defaultToCanonical(_descriptor, _effect, &_d, 1);
   }
 
   OfxStatus MyDoubleInstance::get(double& d)
@@ -174,10 +254,9 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
-  OfxStatus MyDoubleInstance::get(OfxTime time, double& d)
+  OfxStatus MyDoubleInstance::get(OfxTime, double& d)
   {
-    d = _d;
-    return kOfxStatOK;
+    return get(d);
   }
 
   OfxStatus MyDoubleInstance::set(double d)
@@ -186,18 +265,17 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
-  OfxStatus MyDoubleInstance::set(OfxTime time, double d)
+  OfxStatus MyDoubleInstance::set(OfxTime, double d)
   {
-    _d = d;
+    return set(d);
+  }
+
+  OfxStatus MyDoubleInstance::derive(OfxTime, double&)
+  {
     return kOfxStatOK;
   }
 
-  OfxStatus MyDoubleInstance::derive(OfxTime time, double&)
-  {
-    return kOfxStatOK;
-  }
-
-  OfxStatus MyDoubleInstance::integrate(OfxTime time1, OfxTime time2, double&)
+  OfxStatus MyDoubleInstance::integrate(OfxTime, OfxTime, double&)
   {
     return kOfxStatOK;
   }
@@ -207,11 +285,11 @@ namespace MyHost {
   //
 
   MyBooleanInstance::MyBooleanInstance(MyEffectInstance* effect, 
-                                       const std::string& name, 
+                                       const std::string& /*name*/, 
                                        OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::BooleanInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
-    _b = getProperties().getIntProperty(kOfxParamPropDefault);
+    _b = _descriptor.getProperties().getIntProperty(kOfxParamPropDefault) != 0;
   }
 
   OfxStatus MyBooleanInstance::get(bool& b)
@@ -220,10 +298,9 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
-  OfxStatus MyBooleanInstance::get(OfxTime time, bool& b)
+  OfxStatus MyBooleanInstance::get(OfxTime, bool& b)
   {
-    b = _b;
-    return kOfxStatOK;
+    return get(b);
   }
 
   OfxStatus MyBooleanInstance::set(bool b)
@@ -232,10 +309,9 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
-  OfxStatus MyBooleanInstance::set(OfxTime time, bool b)
+  OfxStatus MyBooleanInstance::set(OfxTime, bool b)
   {
-    _b = b;
-    return kOfxStatOK;
+    return set(b);
   }
 
   //
@@ -243,7 +319,7 @@ namespace MyHost {
   //
 
   MyStrChoiceInstance::MyStrChoiceInstance(MyEffectInstance* effect,
-                                     const std::string& name,
+                                     const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::StrChoiceInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
@@ -256,22 +332,20 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
-  OfxStatus MyStrChoiceInstance::get(OfxTime time, std::string& choice)
+  OfxStatus MyStrChoiceInstance::get(OfxTime, std::string& choice)
   {
-    choice = _choice;
-    return kOfxStatOK;
+    return get(choice);
   }
 
   OfxStatus MyStrChoiceInstance::set(const char* choice)
   {
-    _choice = std::string(choice);
+    _choice = choice ? choice : "";
     return kOfxStatOK;
   }
 
-  OfxStatus MyStrChoiceInstance::set(OfxTime time, const char* choice)
+  OfxStatus MyStrChoiceInstance::set(OfxTime, const char* choice)
   {
-    _choice = std::string(choice);
-    return kOfxStatOK;
+    return set(choice);
   }
 
   //
@@ -279,30 +353,36 @@ namespace MyHost {
   //
 
   MyChoiceInstance::MyChoiceInstance(MyEffectInstance* effect, 
-                                     const std::string& name, 
+                                     const std::string& /*name*/, 
                                      OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::ChoiceInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
+    _i = _descriptor.getProperties().getIntProperty(kOfxParamPropDefault);
   }
 
-  OfxStatus MyChoiceInstance::get(int&)
+  OfxStatus MyChoiceInstance::get(int& i)
   {
-    return kOfxStatErrMissingHostFeature;
+    i = _i;
+    return kOfxStatOK;
   }
 
-  OfxStatus MyChoiceInstance::get(OfxTime time, int&)
+  OfxStatus MyChoiceInstance::get(OfxTime, int& i)
   {
-    return kOfxStatErrMissingHostFeature;
+    return get(i);
   }
 
-  OfxStatus MyChoiceInstance::set(int)
+  OfxStatus MyChoiceInstance::set(int i)
   {
-    return kOfxStatErrMissingHostFeature;
+    if ( i < 0 || i >= (int)_descriptor.getProperties().getDimension(kOfxParamPropChoiceOption) ) {
+      return kOfxStatErrValue;
+    }
+    _i = i;
+    return kOfxStatOK;
   }
 
-  OfxStatus MyChoiceInstance::set(OfxTime time, int) 
+  OfxStatus MyChoiceInstance::set(OfxTime, int i)
   {
-    return kOfxStatErrMissingHostFeature;
+    return set(i);
   }
 
   //
@@ -310,30 +390,43 @@ namespace MyHost {
   //
 
   MyRGBAInstance::MyRGBAInstance(MyEffectInstance* effect, 
-                                 const std::string& name, 
+                                 const std::string& /*name*/, 
                                  OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::RGBAInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
+    const OFX::Host::Property::Set& props = _descriptor.getProperties();
+    _r = props.getDoubleProperty(kOfxParamPropDefault, 0);
+    _g = props.getDoubleProperty(kOfxParamPropDefault, 1);
+    _b = props.getDoubleProperty(kOfxParamPropDefault, 2);
+    _a = props.getDoubleProperty(kOfxParamPropDefault, 3);
   }
 
-  OfxStatus MyRGBAInstance::get(double&,double&,double&,double&)
+  OfxStatus MyRGBAInstance::get(double& r, double& g, double& b, double& a)
   {
-    return kOfxStatErrMissingHostFeature;
+    r = _r;
+    g = _g;
+    b = _b;
+    a = _a;
+    return kOfxStatOK;
   }
 
-  OfxStatus MyRGBAInstance::get(OfxTime time, double&,double&,double&,double&)
+  OfxStatus MyRGBAInstance::get(OfxTime, double& r, double& g, double& b, double& a)
   {
-    return kOfxStatErrMissingHostFeature;
+    return get(r, g, b, a);
   }
 
-  OfxStatus MyRGBAInstance::set(double,double,double,double)
+  OfxStatus MyRGBAInstance::set(double r, double g, double b, double a)
   {
-    return kOfxStatErrMissingHostFeature;
+    _r = r;
+    _g = g;
+    _b = b;
+    _a = a;
+    return kOfxStatOK;
   }
 
-  OfxStatus MyRGBAInstance::set(OfxTime time, double,double,double,double)
+  OfxStatus MyRGBAInstance::set(OfxTime, double r, double g, double b, double a)
   {
-    return kOfxStatErrMissingHostFeature;
+    return set(r, g, b, a);
   }
 
   //
@@ -341,30 +434,40 @@ namespace MyHost {
   //
 
   MyRGBInstance::MyRGBInstance(MyEffectInstance* effect, 
-                               const std::string& name, 
+                               const std::string& /*name*/, 
                                OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::RGBInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
+    const OFX::Host::Property::Set& props = _descriptor.getProperties();
+    _r = props.getDoubleProperty(kOfxParamPropDefault, 0);
+    _g = props.getDoubleProperty(kOfxParamPropDefault, 1);
+    _b = props.getDoubleProperty(kOfxParamPropDefault, 2);
   }
 
-  OfxStatus MyRGBInstance::get(double&,double&,double&)
+  OfxStatus MyRGBInstance::get(double& r, double& g, double& b)
   {
-    return kOfxStatErrMissingHostFeature;
+    r = _r;
+    g = _g;
+    b = _b;
+    return kOfxStatOK;
   }
 
-  OfxStatus MyRGBInstance::get(OfxTime time, double&,double&,double&)
+  OfxStatus MyRGBInstance::get(OfxTime, double& r, double& g, double& b)
   {
-    return kOfxStatErrMissingHostFeature;
+    return get(r, g, b);
   }
 
-  OfxStatus MyRGBInstance::set(double,double,double)
+  OfxStatus MyRGBInstance::set(double r, double g, double b)
   {
-    return kOfxStatErrMissingHostFeature;
+    _r = r;
+    _g = g;
+    _b = b;
+    return kOfxStatOK;
   }
 
-  OfxStatus MyRGBInstance::set(OfxTime time, double,double,double)
+  OfxStatus MyRGBInstance::set(OfxTime, double r, double g, double b)
   {
-    return kOfxStatErrMissingHostFeature;
+    return set(r, g, b);
   }
 
   //
@@ -372,30 +475,40 @@ namespace MyHost {
   //
 
   MyDouble2DInstance::MyDouble2DInstance(MyEffectInstance* effect, 
-                                         const std::string& name, 
+                                         const std::string& /*name*/, 
                                          OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::Double2DInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
+    const OFX::Host::Property::Set& props = _descriptor.getProperties();
+    double v[2] = { props.getDoubleProperty(kOfxParamPropDefault, 0),
+                    props.getDoubleProperty(kOfxParamPropDefault, 1) };
+    defaultToCanonical(_descriptor, _effect, v, 2);
+    _x = v[0];
+    _y = v[1];
   }
 
-  OfxStatus MyDouble2DInstance::get(double&,double&)
+  OfxStatus MyDouble2DInstance::get(double& x, double& y)
   {
-    return kOfxStatErrMissingHostFeature;
+    x = _x;
+    y = _y;
+    return kOfxStatOK;
   }
 
-  OfxStatus MyDouble2DInstance::get(OfxTime time,double&,double&)
+  OfxStatus MyDouble2DInstance::get(OfxTime, double& x, double& y)
   {
-    return kOfxStatErrMissingHostFeature;
+    return get(x, y);
   }
 
-  OfxStatus MyDouble2DInstance::set(double,double)
+  OfxStatus MyDouble2DInstance::set(double x, double y)
   {
-    return kOfxStatErrMissingHostFeature;
+    _x = x;
+    _y = y;
+    return kOfxStatOK;
   }
 
-  OfxStatus MyDouble2DInstance::set(OfxTime time,double,double)
+  OfxStatus MyDouble2DInstance::set(OfxTime, double x, double y)
   {
-    return kOfxStatErrMissingHostFeature;
+    return set(x, y);
   }
 
   //
@@ -403,38 +516,127 @@ namespace MyHost {
   //
 
   MyInteger2DInstance::MyInteger2DInstance(MyEffectInstance* effect, 
-                                           const std::string& name, 
+                                           const std::string& /*name*/, 
                                            OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::Integer2DInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
+    const OFX::Host::Property::Set& props = _descriptor.getProperties();
+    _x = props.getIntProperty(kOfxParamPropDefault, 0);
+    _y = props.getIntProperty(kOfxParamPropDefault, 1);
   }
 
-  OfxStatus MyInteger2DInstance::get(int&,int&)
+  OfxStatus MyInteger2DInstance::get(int& x, int& y)
   {
-    return kOfxStatErrMissingHostFeature;
+    x = _x;
+    y = _y;
+    return kOfxStatOK;
   }
 
-  OfxStatus MyInteger2DInstance::get(OfxTime time,int&,int&)
+  OfxStatus MyInteger2DInstance::get(OfxTime, int& x, int& y)
   {
-    return kOfxStatErrMissingHostFeature;
+    return get(x, y);
   }
 
-  OfxStatus MyInteger2DInstance::set(int,int)
+  OfxStatus MyInteger2DInstance::set(int x, int y)
   {
-    return kOfxStatErrMissingHostFeature;
+    _x = x;
+    _y = y;
+    return kOfxStatOK;
   }
 
-  OfxStatus MyInteger2DInstance::set(OfxTime time,int,int)
+  OfxStatus MyInteger2DInstance::set(OfxTime, int x, int y)
   {
-    return kOfxStatErrMissingHostFeature;
+    return set(x, y);
   }
 
   //
-  // MyInteger2DInstance
+  // MyDouble3DInstance
+  //
+
+  MyDouble3DInstance::MyDouble3DInstance(MyEffectInstance* effect, 
+                                         const std::string& /*name*/, 
+                                         OFX::Host::Param::Descriptor& descriptor)
+    : OFX::Host::Param::Double3DInstance(descriptor), _effect(effect), _descriptor(descriptor)
+  {
+    const OFX::Host::Property::Set& props = _descriptor.getProperties();
+    _x = props.getDoubleProperty(kOfxParamPropDefault, 0);
+    _y = props.getDoubleProperty(kOfxParamPropDefault, 1);
+    _z = props.getDoubleProperty(kOfxParamPropDefault, 2);
+  }
+
+  OfxStatus MyDouble3DInstance::get(double& x, double& y, double& z)
+  {
+    x = _x;
+    y = _y;
+    z = _z;
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyDouble3DInstance::get(OfxTime, double& x, double& y, double& z)
+  {
+    return get(x, y, z);
+  }
+
+  OfxStatus MyDouble3DInstance::set(double x, double y, double z)
+  {
+    _x = x;
+    _y = y;
+    _z = z;
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyDouble3DInstance::set(OfxTime, double x, double y, double z)
+  {
+    return set(x, y, z);
+  }
+
+  //
+  // MyInteger3DInstance
+  //
+
+  MyInteger3DInstance::MyInteger3DInstance(MyEffectInstance* effect, 
+                                           const std::string& /*name*/, 
+                                           OFX::Host::Param::Descriptor& descriptor)
+    : OFX::Host::Param::Integer3DInstance(descriptor), _effect(effect), _descriptor(descriptor)
+  {
+    const OFX::Host::Property::Set& props = _descriptor.getProperties();
+    _x = props.getIntProperty(kOfxParamPropDefault, 0);
+    _y = props.getIntProperty(kOfxParamPropDefault, 1);
+    _z = props.getIntProperty(kOfxParamPropDefault, 2);
+  }
+
+  OfxStatus MyInteger3DInstance::get(int& x, int& y, int& z)
+  {
+    x = _x;
+    y = _y;
+    z = _z;
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyInteger3DInstance::get(OfxTime, int& x, int& y, int& z)
+  {
+    return get(x, y, z);
+  }
+
+  OfxStatus MyInteger3DInstance::set(int x, int y, int z)
+  {
+    _x = x;
+    _y = y;
+    _z = z;
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyInteger3DInstance::set(OfxTime, int x, int y, int z)
+  {
+    return set(x, y, z);
+  }
+
+  //
+  // MyPushbuttonInstance
   //
 
   MyPushbuttonInstance::MyPushbuttonInstance(MyEffectInstance* effect, 
-                                             const std::string& name, 
+                                             const std::string& /*name*/, 
                                              OFX::Host::Param::Descriptor& descriptor)
     : OFX::Host::Param::PushbuttonInstance(descriptor), _effect(effect), _descriptor(descriptor)
   {
