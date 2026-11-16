@@ -52,7 +52,7 @@ of the direct OFX objects and any library side only functions.
 #include "ofxsParam.h"
 #include "ofxsInteract.h"
 #ifdef OFX_EXTENSIONS_VEGAS
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
 #include "ofxsHWNDInteract.h"
 #endif
 #endif
@@ -736,9 +736,9 @@ namespace OFX {
 
     auto_ptr<EffectOverlayDescriptor> _overlayDescriptor;
 #ifdef OFX_EXTENSIONS_VEGAS
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
     auto_ptr<HWNDInteractDescriptor>  _hwndInteractDescriptor;
-#endif // #if defined(WIN32) || defined(WIN64)
+#endif // #if defined(_WIN32) || defined(WIN32) || defined(WIN64)
 #endif
   public :
     /** @brief ctor */
@@ -974,10 +974,10 @@ namespace OFX {
     bool setOverlayInteractDescriptorV2(EffectOverlayDescriptor* desc);
 
 #ifdef OFX_EXTENSIONS_VEGAS
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
     /** @brief override this to create an hwnd interact for the effect */
     virtual void setHWNDInteractDescriptor(HWNDInteractDescriptor* desc);
-#endif // #if defined(WIN32) || defined(WIN64)
+#endif // #if defined(_WIN32) || defined(WIN32) || defined(WIN64)
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
   /** @brief indicate that a plugin or host can handle distortion function effects */

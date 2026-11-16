@@ -119,7 +119,10 @@ jobs:
             -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=OFF \
             -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON -DOFX_EXTENSIONS_VEGAS=ON \
             -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON \
-            -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins"
+            -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins" \
+            -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF
+          # strict -std=c++17 (C++ standard policy): no GNU dialect, so the compiler defines _WIN32 but not
+          # WIN32, which is how plug-ins are built by the consumers
       - name: Build
         run: |
           set -eo pipefail
@@ -130,3 +133,11 @@ jobs:
           cmake --install build --prefix install
           find install -name '*.ofx' | sort
           test "$(find install -name '*.ofx' | wc -l)" -ge 5
+      - name: Every plug-in exports OfxGetPlugin
+        run: |
+          set -eo pipefail
+          fail=0
+          for f in $(find install -name '*.ofx'); do
+            if objdump -p "$f" | grep -q 'OfxGetPlugin'; then echo "ok: $f"; else echo "NO OfxGetPlugin export: $f"; fail=1; fi
+          done
+          exit $fail
