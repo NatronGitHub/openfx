@@ -3866,38 +3866,58 @@ namespace OFX {
     doneSomething_ = true;
     const std::string& propName = extractValueForName(clipDepthPropNames_, clip.name());
 
+    const char* depth = NULL;
     switch(bitDepth) 
     {
     case eBitDepthNone :
-      outArgs_.propSetString(propName.c_str(), kOfxBitDepthNone);
+      depth = kOfxBitDepthNone;
       break;
     case eBitDepthUByte : 
-      outArgs_.propSetString(propName.c_str(), kOfxBitDepthByte); 
+      depth = kOfxBitDepthByte; 
       break;
     case eBitDepthUShort : 
-      outArgs_.propSetString(propName.c_str(), kOfxBitDepthShort); 
+      depth = kOfxBitDepthShort; 
       break;
     case eBitDepthHalf :
-      outArgs_.propSetString(propName.c_str(), kOfxBitDepthHalf);
+      depth = kOfxBitDepthHalf;
       break;
     case eBitDepthFloat :
-      outArgs_.propSetString(propName.c_str(), kOfxBitDepthFloat); 
+      depth = kOfxBitDepthFloat; 
       break;
 #ifdef OFX_EXTENSIONS_VEGAS
     case eBitDepthUByteBGRA : 
-      outArgs_.propSetString(propName.c_str(), kOfxBitDepthByteBGR); 
+      depth = kOfxBitDepthByteBGR; 
       break;
     case eBitDepthUShortBGRA : 
-      outArgs_.propSetString(propName.c_str(), kOfxBitDepthShortBGR); 
+      depth = kOfxBitDepthShortBGR; 
       break;
     case eBitDepthFloatBGRA : 
-      outArgs_.propSetString(propName.c_str(), kOfxBitDepthFloatBGR); 
+      depth = kOfxBitDepthFloatBGR; 
       break;
 #endif
     case eBitDepthCustom :
       break;
     }
+    if (!depth) {
+      return;
+    }
+    // The plug-in may only set the clip depths if both the host and the plug-in support multiple clip
+    // depths (ofxClipPreferences.rst: "this is the only case where a plugin may set the output depth").
+    // Otherwise a conforming host makes the property read-only and refuses the write: ignore that
+    // (the host maps all clips to a single depth itself) instead of failing the whole action.
+    try {
+      outArgs_.propSetString(propName.c_str(), depth);
+    } catch (const OFX::Exception::PropertyValueIllegalToHost&) {
+      // kOfxStatErrValue: the property is read-only
+      OFX::Log::warning(true, "setClipBitDepth(%s, %s): the host refused to set %s: the plug-in may only "
+                        "set clip depths if it and the host both support multiple clip depths",
+                        clip.name().c_str(), depth, propName.c_str());
+    } catch (const OFX::Exception::Suite& e) {
+      OFX::Log::warning(true, "setClipBitDepth(%s, %s): the host refused to set %s (status %d)",
+                        clip.name().c_str(), depth, propName.c_str(), (int)e.status());
+    }
   }
+
 
   /** @brief, force the host to set a clip's mapped Pixel Aspect Ratio to be \em PAR */
   void ClipPreferencesSetter::setPixelAspectRatio(Clip &clip, double PAR)

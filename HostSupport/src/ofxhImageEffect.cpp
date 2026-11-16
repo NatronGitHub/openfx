@@ -2948,6 +2948,11 @@ namespace OFX {
         
         /// set the default for those
 
+        /// the plug-in may set the clip depths iff the host and the plug-in both support multiple clip depths
+        const bool pluginMaySetDepths =
+          gImageEffectHost->getProperties().getIntProperty(kOfxImageEffectPropSupportsMultipleClipDepths) != 0 &&
+          supportsMultipleClipDepths();
+
         outArgs.setStringProperty(kOfxImageClipPropFieldOrder, _outputFielding);
         outArgs.setStringProperty(kOfxImageEffectPropPreMultiplication, _outputPreMultiplication);
 
@@ -3011,11 +3016,12 @@ namespace OFX {
           outArgs.createProperty(specComp);
           outArgs.setStringProperty(componentParamName.c_str(), clip->getComponents().c_str()); // as it is variable dimension, there is no default value, so we have to set it explicitly
 
-          // Writable even if the effect can't handle multiple clip depths: the spec says the plug-in
-          // "must set [it] to one of the pixel depths both the host and plugin supports"
-          // (kOfxImageEffectActionGetClipPreferences), e.g. a generator choosing float for every clip.
-          // Read-only here made such writes fail since plug-in writes to read-only properties are refused (#91).
-          Property::PropSpec specDep = {depthParamName.c_str(),       Property::eString, 1, false, clip->getPixelDepth().c_str()};
+          // The plug-in may only set the clip depths if both the host and the plug-in support multiple clip
+          // depths (ofxClipPreferences.rst: "If both the plugin and host set this to 1, then the plugin can,
+          // during the kOfxImageEffectActionGetClipPreferences, specify how the host is to map each clip,
+          // including the output clip. Note that this is the only case where a plugin may set the output
+          // depth."), whatever the context. Otherwise the property is read-only, and plug-in writes are refused.
+          Property::PropSpec specDep = {depthParamName.c_str(),       Property::eString, 1, !pluginMaySetDepths, clip->getPixelDepth().c_str()};
           outArgs.createProperty(specDep);
 
           Property::PropSpec specPAR = {parParamName.c_str(),         Property::eDouble, 1, false,          "1"};
