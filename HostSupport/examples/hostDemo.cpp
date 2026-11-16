@@ -39,7 +39,7 @@ modification, are permitted provided that the following conditions are met:
 #include <vector>
 #include <cstdlib> // strtol, strtod
 #include <cstring> // strcmp
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && defined(_DEBUG)
 #include <crtdbg.h> // _CrtSetDbgFlag
 #endif
 #include <cmath> // ceil
@@ -584,7 +584,7 @@ static int run(int argc, char **argv)
   }
 
   //_CrtSetBreakAlloc(3168);
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && defined(_DEBUG)
   _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
   // this must be called before the first call to getPluginCache()
