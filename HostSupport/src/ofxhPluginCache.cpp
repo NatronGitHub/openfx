@@ -31,6 +31,7 @@
 
 #include <map>
 #include <string>
+#include <algorithm> // std::find
 #include <iostream>
 #include <fstream>
 #include <sstream> // stringstream
@@ -189,7 +190,13 @@ static std::vector<std::string> getArchDirs()
 
   std::vector<std::string> dirs = archDirsFor(os, arch, x64EmulatedOnArm64, machine);
   if (!kernelMachine.empty() && kernelMachine != machine && !dirs.empty()) {
-    dirs.insert(dirs.begin() + 1, "Linux-" + kernelMachine); // after Linux-<compiled arch>
+    // archDirsFor() puts Linux-<compiled arch> first: insert the kernel's name right after it,
+    // unless it's already in the list
+    assert(dirs[0] == "Linux-" + machine);
+    const std::string kernelDir = "Linux-" + kernelMachine;
+    if (std::find(dirs.begin(), dirs.end(), kernelDir) == dirs.end()) {
+      dirs.insert(dirs.begin() + 1, kernelDir);
+    }
   }
   return dirs;
 }
