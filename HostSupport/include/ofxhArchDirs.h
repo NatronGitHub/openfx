@@ -68,6 +68,7 @@ namespace OFX {
       /// @param x64EmulatedOnArm64    Windows only: an x64 host is running under emulation on Arm64 hardware
       /// @param machine               the `uname -m` machine name (Linux, FreeBSD), used for architectures
       ///                              other than x86 and x86-64 (e.g. "aarch64", "riscv64")
+      /// @param is64Bit               Linux, FreeBSD: the host is a 64-bit process (selects the legacy folder)
       ///
       /// The rules, from the OpenFX packaging reference:
       /// - MacOS: "all MacOS plug-ins should be in MacOS ... There will not be a specific arm64 folder."
@@ -79,10 +80,15 @@ namespace OFX {
       ///   the reserved (not yet normative) Win-arm64 and Win-arm64x folders.
       /// - Linux (informative): "hosts should look in the subdir named by Linux-${uname -m} which for arm64
       ///   should be Linux-aarch64". The existing Linux-x86 and Linux-x86-64 names are kept for x86.
+      ///   Other architectures fall back to the legacy folder that HostSupport used before OFX 1.5
+      ///   (Linux-x86-64 for any 64-bit host, Linux-x86 for any 32-bit one; likewise for FreeBSD), because
+      ///   existing build systems (e.g. Support/Plugins/Makefile.master before OFX 1.5) installed non-x86
+      ///   binaries there, and hosts found them.
       ///
       /// Windows folder names are returned as HostSupport always used them ("win32", "win64"); Windows file
       /// names are case-insensitive.
-      inline std::vector<std::string> archDirsFor(OSEnum os, ArchEnum arch, bool x64EmulatedOnArm64, const std::string &machine)
+      inline std::vector<std::string> archDirsFor(OSEnum os, ArchEnum arch, bool x64EmulatedOnArm64, const std::string &machine,
+                                                  bool is64Bit = (sizeof(void *) == 8))
       {
         std::vector<std::string> dirs;
         switch (os) {
@@ -122,8 +128,12 @@ namespace OFX {
             dirs.push_back(std::string(prefix) + "x86");
           } else if (arch == eArchX86_64) {
             dirs.push_back(std::string(prefix) + "x86-64");
-          } else if (!machine.empty()) {
-            dirs.push_back(std::string(prefix) + machine);
+          } else {
+            if (!machine.empty()) {
+              dirs.push_back(std::string(prefix) + machine);
+            }
+            // legacy fallback (see above)
+            dirs.push_back(std::string(prefix) + (is64Bit ? "x86-64" : "x86"));
           }
           break;
         }
