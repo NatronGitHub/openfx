@@ -40,17 +40,9 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 - Fixed the Invert example never releasing its output image (a shadowed handle variable).
 - CMake: the Support library is now built with hidden symbol visibility, so plugins built on it export only the OFX entry points rather than hundreds of C++ symbols. Its `OfxGetPlugin` and `OfxGetNumberOfPlugins` definitions inherit `OfxExport` from `ofxCore.h`.
 - Fixed the Support Noise example giving a different image when a frame is rendered in tiles: it seeded its noise per render call, and now each pixel's noise depends only on its position, the time and the noise level.
-
-- Fixed the Support GPUGain example failing to render when the host chose Alpha for its output: it declared Alpha output but processes only RGBA, so its output clip now supports only RGBA.
 - Fixed the Support Gamma example producing NaNs from negative float input: it now applies the gamma to a value's magnitude and keeps its sign.
 - Fixed the Support Retimer example asking for source frames around the output time rather than the retimed source time it then fetches.
 - Fixed the Test example failing `kOfxImageEffectActionGetClipPreferences` with `kOfxStatErrBadHandle` because it required `inArgs`, which the spec passes as NULL for that action; it now answers `kOfxStatReplyDefault`, since it sets no preferences.
-
-- Fixed the ChoiceParams example answering `kOfxImageEffectActionGetClipPreferences` with `kOfxStatOK` when it set nothing; it now answers `kOfxStatReplyDefault` unless the host supports multiple clip depths.
-- Fixed the ColourSpace example answering `kOfxStatOK` to the actions it does not handle, such as `kOfxImageEffectActionGetFramesNeeded`; it now answers `kOfxStatReplyDefault`, as the spec requires of an action a plugin does not trap.
-- Fixed the ColourSpace example declaring its string-choice parameters with no enum values on a host without colour management, and passing a NULL string as the "unspecified" input colourspace on one with it.
-- Fixed the ColourSpace example writing its text overlay past the bottom and left edges of a frame too small to hold it.
-- Fixed the ColourSpace example under tiled rendering: it copied the whole source image to the start of each tile, overrunning the output buffer, and drew its text relative to each tile. It now copies only the render window and places the text in the frame.
 - Fixed the DepthConverter example asking for an output depth different from its input's on a host that does not support multiple clip depths, and claiming clip preferences it had not set.
 
 ## Documentation Improvements
