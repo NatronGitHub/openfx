@@ -1,7 +1,8 @@
 name: Build
 
 # Per push / pull request: exactly three full builds plus tests, one per OS
-# (policy for all Natron-related repos):
+# (policy for all Natron-related repos). macOS runs after Linux and Windows pass, and isn't
+# required for merging (macOS arm64 runners are scarce); extended.yml builds it nightly:
 #   - Linux (ubuntu-24.04): Makefiles, plus the header and property metadata checks
 #   - macOS 15 arm64: Makefiles, system (Xcode) clang, MacPorts tools, no Homebrew
 #   - Windows: MSYS2 UCRT64, CMake
@@ -70,6 +71,9 @@ jobs:
 
   macos:
     name: macOS 15 arm64 (Make, Xcode clang, MacPorts)
+    # macOS arm64 runners are scarce: start only once Linux and Windows have passed. Merging only
+    # requires Linux and Windows; macOS is also built nightly (extended.yml).
+    needs: [linux, windows]
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: macos-15
     timeout-minutes: 45

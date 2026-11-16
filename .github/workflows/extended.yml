@@ -93,3 +93,30 @@ jobs:
           OFX_PLUGIN_PATH="$PWD/build/Plugins" "$demo" > cachedemo.log 2>&1 || { cat cachedemo.log; exit 1; }
           grep -c "Contexts:" cachedemo.log
           test "$(grep -c "Contexts:" cachedemo.log)" -ge 5
+
+  macos:
+    name: macOS 15 arm64 nightly (Make, Xcode clang, MacPorts)
+    # the per-PR macOS build (Makefiles, MacPorts), nightly: it isn't required for merging
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MacPorts
+        # Support/include/osxDeploy.sh (release bundles) needs GNU sed: gsed from MacPorts
+        uses: melusina-org/setup-macports@v1
+        with:
+          parameters: .github/macports.yaml
+      - name: Remove Homebrew from PATH
+        run: |
+          echo "PATH=/opt/local/bin:/opt/local/sbin:$(echo "$PATH" | tr ':' '\n' | grep -v -e homebrew -e '^/usr/local/' | paste -sd: -)" >> "$GITHUB_ENV"
+      - name: Toolchain
+        run: |
+          echo "PATH=$PATH"
+          ! command -v brew
+          test "$(command -v c++)" = /usr/bin/c++
+          c++ --version
+          gsed --version | head -1
+      - name: Build and test
+        run: .github/scripts/make-build-test.sh
