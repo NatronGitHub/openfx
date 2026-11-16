@@ -129,8 +129,15 @@ uninstall:
     # use $ORIGIN to link to bundled libraries first, see http://itee.uq.edu.au/~daniel/using_origin/
     LINKFLAGS = -shared -fvisibility=hidden -Xlinker --version-script=$(PATHTOROOT)/include/linuxSymbols -lGL -Wl,-rpath,'$$ORIGIN'/../../Libraries
     # bundle folder: Linux-x86, Linux-x86-64, or Linux-$(uname -m) for other architectures
-    # (OFX 1.5 packaging: "hosts should look in the subdir named by Linux-${uname -m}")
+    # (OFX 1.5 packaging: "hosts should look in the subdir named by Linux-${uname -m}"). The names must
+    # match HostSupport (ofxhPluginCache.cpp) and cmake/OpenFX.cmake.
     MACHINE := $(shell uname -m)
+    # 32-bit Arm userland on a 64-bit kernel: uname -m says aarch64 (or armv8l)
+    ifneq ($(filter aarch64 arm64 armv8l,$(MACHINE)),)
+      ifeq ($(BITS), 32)
+        MACHINE := armv7l
+      endif
+    endif
     ifneq ($(filter x86_64 i386 i486 i586 i686,$(MACHINE)),)
       # x86: the userland may be 32-bit on a 64-bit kernel, so use BITS (getconf LONG_BIT)
       ARCH = Linux-x86
@@ -148,9 +155,15 @@ uninstall:
   endif
   ifeq ($(OS),FreeBSD)
     LINKFLAGS = -L/usr/local/lib -shared -fvisibility=hidden -Xlinker --version-script=$(PATHTOROOT)/include/linuxSymbols -lGL -Wl,-rpath,'$$ORIGIN'/../../Libraries
-    # bundle folder: FreeBSD-x86, FreeBSD-x86-64, or FreeBSD-$(uname -m) for other architectures
-    # (OFX 1.5 packaging: "hosts should look in the subdir named by Linux-${uname -m}")
-    MACHINE := $(shell uname -m)
+    # bundle folder: FreeBSD-x86, FreeBSD-x86-64, or FreeBSD-$(uname -p) for other architectures.
+    # FreeBSD uses MACHINE_ARCH (uname -p: aarch64, armv7, riscv64, powerpc64), not uname -m (the
+    # platform: arm64, arm, riscv, powerpc), matching HostSupport (ofxhPluginCache.cpp) and cmake/OpenFX.cmake.
+    MACHINE := $(shell uname -p)
+    ifneq ($(filter aarch64,$(MACHINE)),)
+      ifeq ($(BITS), 32)
+        MACHINE := armv7
+      endif
+    endif
     ifneq ($(filter amd64 i386 i486 i586 i686,$(MACHINE)),)
       # x86: the userland may be 32-bit on a 64-bit kernel, so use BITS (getconf LONG_BIT)
       ARCH = FreeBSD-x86
