@@ -270,13 +270,17 @@ namespace MyHost {
     return set(d);
   }
 
-  OfxStatus MyDoubleInstance::derive(OfxTime, double&)
+  // parameters don't animate in hostDemo: the derivative is 0, and the integral is
+  // value * (time2 - time1)
+  OfxStatus MyDoubleInstance::derive(OfxTime, double& d)
   {
+    d = 0.;
     return kOfxStatOK;
   }
 
-  OfxStatus MyDoubleInstance::integrate(OfxTime, OfxTime, double&)
+  OfxStatus MyDoubleInstance::integrate(OfxTime time1, OfxTime time2, double& d)
   {
+    d = _d * (time2 - time1);
     return kOfxStatOK;
   }
 

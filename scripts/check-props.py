@@ -2,15 +2,18 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Validate the inline property metadata of the NatronGitHub/openfx headers.
 
-Runs upstream's scripts/gen-props.py checks, unchanged, with three adaptations
-for the fork's extension headers:
+Runs upstream's scripts/gen-props.py checks, unchanged, with these adaptations
+for the fork's extension headers (see ofx_fork_props.py):
 
 1. @propdef metadata is also read from include/nuke/*.h and include/tuttle/*.h
    (upstream only reads include/ofx*.h);
 2. extension properties (their @propdef has an `extension:` key, e.g.
    `extension: natron`) don't have to be listed in a standard @propset;
-3. a few extension #defines have "Prop" in their name but are values or aliases,
-   not properties (NOT_PROPERTIES below); they are not required to have @propdef.
+3. properties are the #defines with "Prop" in their name (upstream's rule), plus
+   every #define that has a @propdef; enum values, aliases and NOT_PROPERTIES are not;
+4. every `#define kName "string"` must be classified: property, alias, enum value
+   or name (ofx_fork_props.classify). This catches properties without "Prop" in
+   their name, which upstream's check misses.
 
 The generated C++ headers are written to a temporary directory and discarded.
 Exits with status 1 if any check reports an error.
@@ -27,51 +30,13 @@ SCRIPTS = Path(__file__).resolve().parent
 INCLUDE = SCRIPTS.parent / "include"
 sys.path.insert(0, str(SCRIPTS))
 
-# extension #defines that look like properties but are values or aliases
-NOT_PROPERTIES = {
-    # Nuke: prefix for the names of props in kFnOfxImageEffectActionGetClipComponents
-    "kFnOfxImageEffectActionGetClipComponentsPropString",
-    # Natron / Nuke: values of the layout hint properties
-    "kNatronOfxParamPropInViewerContextLayoutHintAddNewLine",
-    "kNatronOfxParamPropInViewerContextLayoutHintNormal",
-    "kNatronOfxParamPropInViewerContextLayoutHintNormalDivider",
-    "kOfxParamPropLayoutHintDivider",
-    "kOfxParamPropLayoutHintNoNewLine",
-    "kOfxParamPropLayoutHintNormal",
-    # Vegas: values of kOfxImageEffectPropRenderQuality, kOfxImageEffectPropVegasContext
-    # and kOfxParamPropDoubleType
-    "kOfxImageEffectPropRenderQualityBest",
-    "kOfxImageEffectPropRenderQualityGood",
-    "kOfxImageEffectPropRenderQualityPreview",
-    "kOfxImageEffectPropVegasContextEvent",
-    "kOfxImageEffectPropVegasContextEventFadeIn",
-    "kOfxImageEffectPropVegasContextEventFadeOut",
-    "kOfxImageEffectPropVegasContextGenerator",
-    "kOfxImageEffectPropVegasContextMedia",
-    "kOfxImageEffectPropVegasContextProject",
-    "kOfxImageEffectPropVegasContextTrack",
-    "kOfxImageEffectPropVegasContextUnknown",
-    "kOfxParamPropColorWheelLevel",
-    # alias of kOfxParamPropPersistant (same string value), which has the metadata
-    "kOfxParamPropPersistent",
-}
-
 import ofx_prop_utils  # noqa: E402
 
-_extract = ofx_prop_utils.extract_inline_metadata
+import ofx_fork_props  # noqa: E402
 
 
 def extract_all_inline_metadata(include_dir):
-    include_dir = Path(include_dir)
-    all_props = {}
-    headers = sorted(include_dir.glob("ofx*.h")) + sorted((include_dir / "nuke").glob("*.h")) \
-        + sorted((include_dir / "tuttle").glob("*.h"))
-    for header in headers:
-        for name, data in _extract(header).items():
-            if name in all_props:
-                raise ValueError(f"Duplicate property {name} found in {header} and previous definition")
-            all_props[name] = data
-    return all_props
+    return ofx_fork_props.all_inline_metadata(include_dir)
 
 
 ofx_prop_utils.extract_all_inline_metadata = extract_all_inline_metadata
@@ -82,7 +47,16 @@ sys.modules["gen_props"] = gp
 spec.loader.exec_module(gp)
 
 _get_props = gp.getPropertiesFromDir
-gp.getPropertiesFromDir = lambda d: [p for p in _get_props(d) if p not in NOT_PROPERTIES]
+
+
+def get_properties_from_dir(include_dir):
+    classes, _ = ofx_fork_props.classify(include_dir)
+    props = {p for p in _get_props(include_dir)
+             if p not in ofx_fork_props.NOT_PROPERTIES and classes.get(p, ("property",))[0] == "property"}
+    return sorted(props | {c for c, (kind, _) in classes.items() if kind == "property"})
+
+
+gp.getPropertiesFromDir = get_properties_from_dir
 
 _used_by_set = gp.check_props_used_by_set
 
@@ -120,6 +94,10 @@ def main():
         args.propset_accessors_host = Path(tmp) / "ofxPropSetAccessorsHost.h"
         gp.dest_path = Path("/")
         gp.main(args)
+    _, unclassified = ofx_fork_props.classify(INCLUDE)
+    for header, cname, value in unclassified:
+        logging.error(f"{header}: {cname} = \"{value}\" is not classified: add a @propdef if it is "
+                      "a property, else list it in scripts/ofx_fork_props.py (EXTRA_VALUES or NAMES)")
     if errors:
         print(f"check-props: {len(errors)} error(s)", file=sys.stderr)
         sys.exit(1)

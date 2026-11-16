@@ -341,10 +341,19 @@ typedef struct OfxParametricParameterSuiteV1 {
    This controls the min and max values that the parameter will be evaluated at.
 
     @propdef
-    type: string
+    type: enum
     dimension: N
+    values:
+      - OfxHostParametricInterpolationDefault
+      - OfxHostParametricInterpolationConstant
+      - OfxHostParametricInterpolationLinear
+      - OfxHostParametricInterpolationHorizontal
+      - OfxHostParametricInterpolationSmooth
+      - OfxHostParametricInterpolationCubic
+      - OfxHostParametricInterpolationCatmullRom
+      - OfxHostParametricInterpolationCustom
     extension: natron
-  */
+*/
 #define kOfxHostPropSupportedParametricInterpolations "OfxHostPropSupportedParametricInterpolations"
 
 /** @brief Interpolation mode that can be passed to the kOfxHostPropSupportedParametricInterpolations property.
@@ -420,24 +429,44 @@ typedef OfxStatus (OfxParametricParamCustomInterpFuncV1)(OfxParamSetHandle insta
 /** @brief A double 2D indicating the time of the previous and next control points surrounding the parametric time at which the interpolation is occuring.
   - Type - Double X 2
   - Property Set - inArgs of the OfxParametricParamCustomInterpFuncV1 function
- */
+
+    @propdef
+    type: double
+    dimension: 2
+    extension: natron
+*/
 #define kOfxParametricParamCustomInterpInterpolationTime "OfxParametricParamCustomInterpInterpolationTime"
 
 /** @brief A double 2D indicating the value of the previous and next control points surrounding the parametric time at which the interpolation is occuring.
    - Type - Double X 2
    - Property Set - inArgs of the OfxParametricParamCustomInterpFuncV1 function
+
+    @propdef
+    type: double
+    dimension: 2
+    extension: natron
 */
 #define kOfxParametricParamCustomInterpInterpolationValue "OfxParametricParamCustomInterpInterpolationValue"
 
 /** @brief A int 1D indicating the index of the previous control point relative to the parametric time at which the interpolation is occuring.
   - Type - int X 1
   - Property Set - inArgs of the OfxParametricParamCustomInterpFuncV1 function
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
 */
 #define kOfxParametricParamCustomInterpControlPointIndex "OfxParametricParamCustomInterpControlPointIndex"
 
 /** @brief A int 1D indicating the curve index
   - Type - int X 1
   - Property Set - inArgs of the OfxParametricParamCustomInterpFuncV1 function
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
 */
 #define kOfxParametricParamCustomInterpCurveIndex "OfxParametricParamCustomInterpCurveIndex"
 
@@ -448,7 +477,11 @@ typedef OfxStatus (OfxParametricParamCustomInterpFuncV1)(OfxParamSetHandle insta
    - Default - NULL
    - Valid Values - must point to a ::OfxParametricParamCustomInterpFuncV1
 
-   */
+    @propdef
+    type: pointer
+    dimension: 1
+    extension: natron
+*/
 #define kOfxParamParametricInterpolationCustomInterpCallbackV1 "OfxParamParametricInterpolationCustomInterpCallbackV1"
 
 typedef struct OfxParametricParameterSuiteV2 {

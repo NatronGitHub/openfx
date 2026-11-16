@@ -56,6 +56,8 @@ jobs:
           pip install pyyaml
       - name: Property metadata (@propdef)
         run: python scripts/check-props.py
+      - name: Generated Python modules (ofxhost.constants, ofxhost.props) are up to date
+        run: python scripts/gen-ofxhost-py.py --check
       - name: All headers together compile (C++98, C++17; all extension flag sets)
         run: |
           { echo '#include "ofxCore.h"'; echo '#include "ofxImageEffect.h"'
@@ -69,10 +71,10 @@ jobs:
           done
       - name: Build and test
         run: .github/scripts/make-build-test.sh
-      - name: Python wrapper tests (ofxhost)
+      - name: Python wrapper and sample plug-in tests (ofxhost)
         run: |
           pip install numpy pytest
-          python -m pytest -q -p no:cacheprovider HostSupport/examples/python/tests
+          python -m pytest -q -p no:cacheprovider HostSupport/examples/python/tests Support/Plugins/tests
 
   macos:
     name: macOS 15 arm64 (Make, Xcode clang, MacPorts)

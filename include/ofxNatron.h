@@ -16,7 +16,12 @@ Valid values:
  
  Default value:
  - 0
- */
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
+*/
 #define kNatronOfxHostIsNatron "NatronOfxHostIsNatron"
 
 /** @brief int x 1 property used on the image effect host descriptor.
@@ -248,7 +253,12 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  Property Set - image effect instance (read only)
  Valid values - A list of one or multiple planes as described in the multi-plane definition 
  Default value - None
- */
+
+    @propdef
+    type: string
+    dimension: N
+    extension: natron
+*/
 #define kNatronOfxExtraCreatedPlanes "NatronOfxExtraCreatedPlanes"
 
 /** @brief Indicates if the host may add a channel selector, and which components should be selected by default.
@@ -538,7 +548,12 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  - 1: indicating that the plug-in can launch multiple processing threads during a single call to the kOfxImageEffectActionRender action.
  The plug-in should try to use at most the multi-thread suite and especially the multiThreadNumCPUs function to help the host application 
  schedule threads over concurrent tasks.
- */
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
+*/
 #define kNatronOfxImageEffectPluginUsesMultipleThread "NatronOfxImageEffectPluginUsesMultipleThread"
 
 
@@ -791,7 +806,12 @@ property is set to 1.
  - Property Set - plugin parameter descriptor (read/write) and instance (read/write)
  - Default - (0,0,0,0)
  - Valid Values - (x1,y1,x2,y2) quadruplet such as x1 < x2 and y1 < y2
- */
+
+    @propdef
+    type: double
+    dimension: 4
+    extension: natron
+*/
 #define kNatronOfxImageEffectSelectionRectangle "NatronOfxImageEffectSelectionRectangle"
 
 /** 
@@ -813,10 +833,31 @@ property is set to 1.
  Whenever an event is sent to overlay interacts (PenDown, PenMotion, PenUp, KeyDown, KeyUp, KeyRepeat, GainFocus, LoseFocus, the OFX Host should set the cursor to the one of the first interact which catches the event by returning kOfxStatOK to the corresponding action. If no overlay interact returns kOfxStatOK, the cursor should be set to the default cursor.
 
     @propdef
-    type: string
+    type: enum
     dimension: N
+    values:
+      - NatronOfxDefaultCursor
+      - kNatronOfxBlankCursor
+      - NatronOfxArrowCursor
+      - NatronOfxUpArrowCursor
+      - NatronOfxCrossCursor
+      - NatronOfxIBeamCursor
+      - NatronOfxWaitCursor
+      - NatronOfxBusyCursor
+      - NatronOfxForbiddenCursor
+      - NatronOfxPointingHandCursor
+      - NatronOfxWhatsThisCursor
+      - NatronOfxSizeVerCursor
+      - NatronOfxSizeHorCursor
+      - NatronOfxSizeBDiagCursor
+      - NatronOfxSizeFDiagCursor
+      - NatronOfxSizeAllCursor
+      - NatronOfxSplitVCursor
+      - NatronOfxSplitHCursor
+      - NatronOfxOpenHandCursor
+      - NatronOfxClosedHandCursor
     extension: natron
- */
+*/
 #define kNatronOfxImageEffectPropDefaultCursors "NatronOfxImageEffectPropDefaultCursors"
 
 // Default cursors that can be defined by a host, see http://doc.qt.io/qt-4.8/qcursor.html for an illustration to how they could look
@@ -1155,7 +1196,12 @@ says:
  - Property Set - interact descriptor and instance (read/write)
  - Value values - 0 or 1
  - Default value - 0
- */
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
+*/
 #define kNatronOfxInteractColourPicking "NatronOfxInteractColourPicking"
 
 /** @brief Double x4 property indicating the RGBA colour of the image visualized in the host

@@ -78,7 +78,8 @@ the tests when hostDemo isn't built.
   getClipPreferences, each one between begin/end instanceChanged (kOfxChangeUserEdited, time
   0); the clip preferences are run again if a clip preferences slave param changed.
   Multi-dimensional values are comma-separated; booleans take 0/1/true/false, Choice the
-  index or label, String/StrChoice/Custom the whole value.
+  index or label, String/StrChoice/Custom the whole value. Parameters don't animate: the
+  derivative of a Double is 0, its integral from t1 to t2 is value * (t2 - t1).
 - Times, scale and window: `--frames t0,t1,...` (default 0,1; any distinct finite times,
   fractional too) renders each time, into `<prefix>.<t>[l|r]` (up to 12 significant digits).
   `--scale s[,sy]` is the render scale, in (0,1]. `--window x1,y1,x2,y2` is the render window in
@@ -173,6 +174,25 @@ output on with its bounds, alpha and premultiplication. Limits:
 
 `python hostDemo.py -b DIR -g graph.json --frames 0,1 --scale 0.5 -o out` runs a graph file.
 
+## OFX constants and property metadata
+
+`ofxhost.constants` has every `#define` of `include/` (strings, status codes, key symbols...),
+with its C name. `ofxhost.props` has the `@propdef` metadata of every property: type,
+dimension (0 means any number), valid values of enums (including extension and deprecated
+values), and the extension it belongs to (`None` for standard properties).
+
+```python
+from ofxhost import constants as k
+from ofxhost.props import PROPS
+p = PROPS[k.kOfxImageEffectPropSupportedPixelDepths]
+p.type, p.dimension, p.values   # ('enum', 0, ('OfxBitDepthNone', 'OfxBitDepthByte', ...))
+```
+
+Both are generated from the headers by `scripts/gen-ofxhost-py.py` (needs PyYAML); run it after
+changing a header. CI fails if they are out of date, and `scripts/check-props.py` fails if a
+`#define` of `include/` is neither a property with a `@propdef` nor classified in
+`scripts/ofx_fork_props.py` (enum value, alias, or name).
+
 ## Tests
 
 ```sh
@@ -181,4 +201,5 @@ python3 -m venv /tmp/ofxhost-venv && /tmp/ofxhost-venv/bin/pip install numpy pyt
 /tmp/ofxhost-venv/bin/python -m pytest -q -p no:cacheprovider HostSupport/examples/python/tests
 ```
 
-CI runs them in the Linux job.
+Support/Plugins/tests has tests of the sample plug-ins, meant as templates for plug-in repos
+(see its README.md). CI runs both in the Linux job.
