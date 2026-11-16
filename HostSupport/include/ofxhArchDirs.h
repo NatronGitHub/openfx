@@ -90,30 +90,31 @@ namespace OFX {
       /// Windows folder names are returned as HostSupport always used them ("win32", "win64"); Windows file
       /// names are case-insensitive.
       inline std::vector<std::string> archDirsFor(OSEnum os, ArchEnum arch, bool x64EmulatedOnArm64, const std::string &machine,
-                                                  bool is64Bit = (sizeof(void *) == 8))
+                                                  bool is64Bit = (sizeof(void *) == 8),
+                                                  const std::string &unameMachine = std::string())
       {
         std::vector<std::string> dirs;
         switch (os) {
         case eOSMacOS:
+          dirs.push_back("MacOS"); // "all MacOS plug-ins should be in MacOS"
           if (arch == eArchX86_64) {
-            dirs.push_back("MacOS-x86-64"); // DEPRECATED, but still checked first by x86-64 hosts
+            dirs.push_back("MacOS-x86-64"); // DEPRECATED ("Formerly used for Intel Macs"): fallback only
           }
-          dirs.push_back("MacOS");
           break;
         case eOSWindows:
           switch (arch) {
           case eArchX86:
-            dirs.push_back("win32");
+            dirs.push_back("Win32"); // spec names (Windows file names are case-insensitive)
             break;
           case eArchX86_64:
             if (x64EmulatedOnArm64) {
               dirs.push_back("Win-arm64ec"); // prefer a native Arm64EC plug-in over an emulated x64 one
             }
-            dirs.push_back("win64");
+            dirs.push_back("Win64");
             break;
           case eArchArm64EC:
             dirs.push_back("Win-arm64ec");
-            dirs.push_back("win64"); // Arm64EC processes can load (emulated) x64 DLLs
+            dirs.push_back("Win64"); // Arm64EC processes can load (emulated) x64 DLLs
             break;
           case eArchArm64:
           case eArchOther:
@@ -131,12 +132,24 @@ namespace OFX {
           } else if (arch == eArchX86_64) {
             dirs.push_back(std::string(prefix) + "x86-64");
           } else {
-            if (!machine.empty()) {
+            // Linux: the spec's folder is Linux-${uname -m}; the compiled architecture's name (e.g. armv7l
+            // for a 32-bit process on an aarch64 kernel) is a fallback. FreeBSD (not in the spec): machine.
+            if (os == eOSLinux && !unameMachine.empty()) {
+              dirs.push_back(std::string(prefix) + unameMachine);
+            }
+            if (!machine.empty() && (os != eOSLinux || machine != unameMachine)) {
               dirs.push_back(std::string(prefix) + machine);
             }
+            // FreeBSD (not in the spec): plug-ins may be named after uname -p (MACHINE_ARCH, used by
+            // our build systems) or uname -m (the platform): search both
+            if (os == eOSFreeBSD && !unameMachine.empty() && unameMachine != machine) {
+              dirs.push_back(std::string(prefix) + unameMachine);
+            }
+            // HostSupport and the Makefiles used `uname -m` on FreeBSD before the names became MACHINE_ARCH
             if (os == eOSFreeBSD && machine == "aarch64") {
-              // HostSupport used FreeBSD-arm64 (uname -m) before the FreeBSD names became MACHINE_ARCH
               dirs.push_back("FreeBSD-arm64");
+            } else if (os == eOSFreeBSD && machine.compare(0, 4, "armv") == 0) {
+              dirs.push_back("FreeBSD-arm");
             }
             // legacy fallback (see above)
             dirs.push_back(std::string(prefix) + (is64Bit ? "x86-64" : "x86"));
@@ -144,7 +157,21 @@ namespace OFX {
           break;
         }
         }
-        return dirs;
+        // remove duplicates, keeping the first (most preferred) occurrence
+        std::vector<std::string> unique;
+        for (size_t i = 0; i < dirs.size(); ++i) {
+          bool seen = false;
+          for (size_t j = 0; j < unique.size(); ++j) {
+            if (unique[j] == dirs[i]) {
+              seen = true;
+              break;
+            }
+          }
+          if (!seen) {
+            unique.push_back(dirs[i]);
+          }
+        }
+        return unique;
       }
 
     } // namespace ArchDirs

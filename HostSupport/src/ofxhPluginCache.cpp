@@ -31,6 +31,7 @@
 
 #include <map>
 #include <string>
+#include <algorithm> // std::find
 #include <iostream>
 #include <fstream>
 #include <sstream> // stringstream
@@ -109,7 +110,7 @@ static std::vector<std::string> getArchDirs()
   using namespace OFX::Host::ArchDirs;
 
   // the architecture this host was compiled for
-#if defined(_M_ARM64EC)
+#if defined(_M_ARM64EC) || defined(__arm64ec__) // MSVC, llvm-mingw (which also defines __x86_64__)
   const ArchEnum arch = eArchArm64EC;
 #elif defined(__x86_64) || defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64)
   const ArchEnum arch = eArchX86_64;
@@ -122,7 +123,7 @@ static std::vector<std::string> getArchDirs()
 #endif
 
   bool x64EmulatedOnArm64 = false;
-  std::string machine; // `uname -m` for the compiled architecture (Linux, FreeBSD)
+  std::string machine; // the machine name for the compiled architecture (Linux, FreeBSD): see below
 #if defined (__linux__) || defined (__FreeBSD__)
   // Use the compiled architecture for the common ones (a 32-bit host on a 64-bit kernel must not use the
   // kernel's name), and the kernel's machine name otherwise. The names must match the plug-in build
@@ -138,10 +139,12 @@ static std::vector<std::string> getArchDirs()
 #  endif
 #  if defined(__aarch64__)
   machine = "aarch64";
-#  elif defined(__arm__) && defined(__ARM_ARCH) && (__ARM_ARCH >= 7)
-  machine = OFXH_LINUX_OR_FREEBSD("armv7l", "armv7");
 #  elif defined(__arm__)
+#    if defined(__ARM_ARCH) && (__ARM_ARCH >= 7)
+  machine = OFXH_LINUX_OR_FREEBSD("armv7l", "armv7");
+#    else
   machine = OFXH_LINUX_OR_FREEBSD("armv6l", "armv6");
+#    endif
 #  elif defined(__riscv) && defined(__riscv_xlen) && (__riscv_xlen == 64)
   machine = "riscv64";
 #  elif defined(__powerpc64__) && defined(__LITTLE_ENDIAN__)
@@ -174,7 +177,20 @@ static std::vector<std::string> getArchDirs()
 #  endif
 #endif
 
-  return archDirsFor(os, arch, x64EmulatedOnArm64, machine);
+#if defined (__linux__) || defined (__FreeBSD__)
+  // Linux: the spec's folder name is Linux-${uname -m}; FreeBSD: an extra name to search
+  std::string unameMachine;
+  {
+    struct utsname ku;
+    if (uname(&ku) == 0) {
+      unameMachine = ku.machine;
+    }
+  }
+  std::vector<std::string> dirs = archDirsFor(os, arch, x64EmulatedOnArm64, machine, sizeof(void *) == 8, unameMachine);
+#else
+  std::vector<std::string> dirs = archDirsFor(os, arch, x64EmulatedOnArm64, machine);
+#endif
+  return dirs;
 }
 
 /// does the plug-in binary at this path exist?
