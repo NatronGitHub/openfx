@@ -106,11 +106,6 @@ KNOWN = [
     (r'action:.*', 'OfxImageEffectPropOpenGLEnabled|OfxImageEffectPropOpenGLTextureIndex|'
      'OfxImageEffectPropOpenGLTextureTarget',
      'only declared with OFX_SUPPORTS_OPENGLRENDER, i.e. when the host can do OpenGL rendering'),
-    (r'action:.*', 'OfxImageEffectPropCudaEnabled|OfxImageEffectPropCudaStream|'
-     'OfxImageEffectPropMetalEnabled|OfxImageEffectPropMetalCommandQueue|'
-     'OfxImageEffectPropOpenCLEnabled|OfxImageEffectPropOpenCLCommandQueue',
-     'Resolve-era GPU render arguments, declared by HostSupport only with OFX_EXTENSIONS_RESOLVE '
-     '(GPU rendering is a host capability; plug-ins read them as optional)'),
 ]
 
 

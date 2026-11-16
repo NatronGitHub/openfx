@@ -539,10 +539,8 @@ namespace OFX {
       PropertyDescription(kOfxImageEffectPropRenderScale,       OFX::eDouble, 2, eDescFinished),
       PropertyDescription(kOfxImagePropPixelAspectRatio,        OFX::eDouble, 1, eDescFinished),
 
-#ifdef OFX_EXTENSIONS_RESOLVE
       // pointer props
       PropertyDescription(kOfxImagePropData,                    OFX::ePointer, 1, eDescFinished),
-#endif
 
       // int props
       PropertyDescription(kOfxImagePropBounds,                  OFX::eInt, 4, eDescFinished),

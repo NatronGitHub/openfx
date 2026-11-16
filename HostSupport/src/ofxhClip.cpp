@@ -259,7 +259,7 @@ namespace OFX {
         { kOfxImageEffectPropUnmappedFrameRange, Property::eDouble, 2, true, "0" },
         { kOfxImageEffectPropUnmappedFrameRate, Property::eDouble, 1, true, "25.0" },
         { kOfxImageClipPropContinuousSamples, Property::eInt, 1, true, "0" },
-#ifdef OFX_EXTENSIONS_RESOLVE
+#ifdef OFX_EXTENSIONS_RESOLVE // kOfxImageClipPropThumbnail is Resolve-specific, not in OFX 1.5
         { kOfxImageClipPropThumbnail, Property::eInt, 1, true, "0" },
 #endif
 #ifdef OFX_EXTENSIONS_VEGAS

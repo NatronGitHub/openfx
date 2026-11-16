@@ -62,28 +62,24 @@ namespace OFX {
         OFX::Image       *_dstImg;        /**< @brief image to process into */
         OfxRectI          _renderWindow;  /**< @brief render window to use */
         OfxPointD         _renderScale;   /**< @brief render scale to use */
-#ifdef OFX_EXTENSIONS_RESOLVE
         bool             _isEnabledOpenCLRender; /**< @brief is OpenCL Render Enabled */
         bool             _isEnabledCudaRender;   /**< @brief is Cuda Render Enabled */
         bool             _isEnabledMetalRender;   /**< @brief is Metal Render Enabled */
         void*            _pOpenCLCmdQ;           /**< @brief OpenCL Command Queue Handle */
         void*            _pCudaStream;           /**< @brief Cuda Stream Handle */
         void*            _pMetalCmdQ;           /**< @brief Metal Command Queue Handle */
-#endif
 
     public :
         /** @brief ctor */
         ImageProcessor(OFX::ImageEffect &effect)
           : _effect(effect)
           , _dstImg(NULL)
-#ifdef OFX_EXTENSIONS_RESOLVE
           , _isEnabledOpenCLRender(false)
           , _isEnabledCudaRender(false)
           , _isEnabledMetalRender(false)
           , _pOpenCLCmdQ(NULL)
           , _pCudaStream(NULL)
           , _pMetalCmdQ(NULL)
-#endif
         {
             _renderWindow.x1 = _renderWindow.y1 = _renderWindow.x2 = _renderWindow.y2 = 0;
             _renderScale.x = _renderScale.y = 1.;
@@ -92,7 +88,6 @@ namespace OFX {
         /** @brief set the destination image */
         void setDstImg(OFX::Image *v) {_dstImg = v; }
 
-#ifdef OFX_EXTENSIONS_RESOLVE
         /** @brief set OpenCL, CUDA render arguments */
         void setGPURenderArgs(const OFX::RenderArguments& args)
         {
@@ -113,7 +108,6 @@ namespace OFX {
                 _pMetalCmdQ = args.pMetalCmdQ;
             }
         }
-#endif
 
         /** @brief reset the render window */
         void setRenderWindow(const OfxRectI& rect, const OfxPointD& rs) {_renderWindow = rect; _renderScale = rs; }
@@ -133,7 +127,6 @@ namespace OFX {
         /** @brief called before any MP is done */
         virtual void preProcess(void) {}
 
-#ifdef OFX_EXTENSIONS_RESOLVE
         /** @brief this is called by process to actually process images using OpenCL when isEnabledOpenCLRender is true, override in derived classes */
         virtual void processImagesOpenCL(void)
         {
@@ -153,7 +146,6 @@ namespace OFX {
             OFX::Log::print("processImagesMetal not implemented");
             OFX::throwSuiteStatusException(kOfxStatErrUnsupported);
         };
-#endif
 
         /** @brief this is called by multiThreadFunction to actually process images, override in derived classes */
         virtual void multiThreadProcessImages(const OfxRectI& window, const OfxPointD& rs) = 0;
@@ -182,7 +174,6 @@ namespace OFX {
             // call the pre MP pass
             preProcess();
 
-#ifdef OFX_EXTENSIONS_RESOLVE
             if (_isEnabledOpenCLRender)
             {
                 processImagesOpenCL();
@@ -196,7 +187,6 @@ namespace OFX {
                 processImagesMetal();
             }
             else // is CPU
-#endif
             {
                 // make sure there are at least 4096 pixels per CPU and at least 1 line par CPU
                 unsigned int nCPUs = (unsigned int)(((std::min)((std::max)(0, _renderWindow.x2 - _renderWindow.x1), 4096) *
