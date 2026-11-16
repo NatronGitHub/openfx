@@ -87,7 +87,7 @@ bool exportToPPM(const std::string& fname, MyHost::MyImage* im)
   if (!im) {
     // the plug-in did not fetch the output image (e.g. a test plug-in that doesn't render)
     std::cerr << "No output image to export to " << fname << std::endl;
-    return;
+    return true; // not an error
   }
   std::ofstream op(fname.c_str());
   if (!op) {
