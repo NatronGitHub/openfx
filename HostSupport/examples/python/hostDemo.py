@@ -47,7 +47,11 @@ def main(argv=None) -> int:
     frames = [float(f) for f in args.frames.split(",")] if args.frames else None
     window = [int(v) for v in args.window.split(",")] if args.window else None
     if args.graph:
-        out, _ = ofxhost.graph.load(args.graph)
+        try:
+            out, _ = ofxhost.graph.load(args.graph)
+        except (OSError, ValueError, KeyError, TypeError) as e:  # bad file, JSON or graph
+            print(f"{args.graph}: invalid graph: {e!r}", file=sys.stderr)
+            return 1
         try:
             images = ofxhost.graph.execute(out, args.bundles, frames=frames or [0],
                                            scale=args.scale or 1.0, window=window,

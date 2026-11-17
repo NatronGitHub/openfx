@@ -191,12 +191,30 @@ _PREMULT = {"OfxImageAlphaPremultiplied": "premult", "OfxImageAlphaUnPremultipli
             "OfxImageOpaque": "opaque"}
 
 
+_FILE_SPEC = re.compile(r"(?P<rgb>.*?\.pfm)(?:\+(?P<alpha>.*?\.pfm))?(?P<pos>@-?\d+,-?\d+)?(?P<premult>#\w+)?$",
+                        re.IGNORECASE)
+
+
+def resolve_file_spec(spec: str, base: str | os.PathLike | None = None) -> str:
+    """Make the paths of a hostDemo "file:rgb.pfm[+alpha.pfm][@x1,y1][#premult]" input spec
+    absolute (relative to base, default the current directory), keeping the suffixes."""
+    body = spec[5:] if spec.startswith("file:") else spec
+    base = Path(base) if base is not None else Path.cwd()
+    m = _FILE_SPEC.match(body)
+    if not m:  # not a .pfm name: resolve it whole, hostDemo reports the error
+        return "file:" + str((base / body).resolve())
+    out = "file:" + str((base / m["rgb"]).resolve())
+    if m["alpha"]:
+        out += "+" + str((base / m["alpha"]).resolve())
+    return out + (m["pos"] or "") + (m["premult"] or "")
+
+
 def _input_spec(clip: str, value: Any, workdir: Path, index: int) -> str:
     if isinstance(value, os.PathLike):
         return "file:" + str(Path(value).resolve())
     if isinstance(value, str):
         if value.startswith("file:"):
-            return "file:" + str(Path(value[5:]).resolve())
+            return resolve_file_spec(value)
         return value
     bounds, premult = None, None
     if isinstance(value, Image):

@@ -1,6 +1,7 @@
 """Tests of ofxhost.graph: building, loading and executing plug-in graphs."""
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -77,7 +78,51 @@ def test_dag(hostdemo, sample_plugins, monkeypatch):
     inv = Node(INVERT, inputs={"Source": "solid:0.25,0.25,0.25,0.25"})
     out = Node(BASIC, "general", {"scale": 2}, inputs={"Source": inv, "Mask": inv})
     img = execute(out, sample_plugins, frames=[0], host_binary=hostdemo)[0]
-    assert calls == [(BASIC, True), (INVERT, False), (BASIC, False)]
+    # the RoD of each node (inputs first), the RoIs (outputs first), then one render per node
+    assert calls == [(INVERT, True), (BASIC, True), (BASIC, True), (INVERT, False), (BASIC, False)]
     # alpha 0.75 inverted from 0.25; the colour is scaled by 1 + (2 - 1) * mask alpha
     assert_close(img.pixels[..., 3], np.full(img.pixels.shape[:2], 0.75, np.float32), atol=1e-6)
     assert_close(img.pixels[..., 0], np.full(img.pixels.shape[:2], 0.75 * 1.75, np.float32), atol=1e-6)
+
+
+def test_file_spec_paths(tmp_path, monkeypatch):
+    """The alpha file of a "file:rgb.pfm+alpha.pfm@x,y#premult" spec is made absolute too."""
+    from ofxhost import resolve_file_spec
+    monkeypatch.chdir(tmp_path)
+    assert resolve_file_spec("file:a.pfm+b.pfm@3,-4#premult") == \
+        f"file:{tmp_path.resolve() / 'a.pfm'}+{tmp_path.resolve() / 'b.pfm'}@3,-4#premult"
+    assert resolve_file_spec("file:sub/a.pfm", "/base") == "file:" + str(Path("/base/sub/a.pfm").resolve())
+
+
+def test_frames_ranges():
+    assert graph._frames([[1.5, 1.5], [2, 2]]) == [1.5, 2.0]
+    with pytest.raises(NotImplementedError):
+        graph._frames([[0.5, 1.5]])
+
+
+def test_load_errors(tmp_path):
+    (tmp_path / "g.json").write_text(json.dumps({"output": "a", "nodes": {"a": {"inputs": {}}}}))
+    with pytest.raises(ValueError, match="plugin"):
+        load(tmp_path / "g.json")
+    (tmp_path / "h.json").write_text(json.dumps(
+        {"output": "a", "nodes": {"a": {"plugin": INVERT, "inputs": {"Source": [1, 2]}}}}))
+    with pytest.raises(ValueError, match="Source"):
+        load(tmp_path / "h.json")
+
+
+def test_inputs_outside_the_project(hostdemo, sample_plugins):
+    """Images whose bounds are outside the project-sized default RoD are planned with their real
+    RoD: Invert(Invert(img)) gives img back, with all its bounds."""
+    src = rgba(10, 12)
+    for bounds, window in (((1000, 0, 1012, 10), (1000, 0, 1012, 10)), ((710, 0, 722, 10), (705, 0, 722, 10))):
+        img = ofxhost.Image(src, bounds)
+        out = execute(Node(INVERT, inputs={"Source": Node(INVERT, inputs={"Source": img})}),
+                      sample_plugins, frames=[0], window=window, host_binary=hostdemo)[0]
+        assert out.bounds == bounds, (bounds, out.bounds)
+        assert_close(out.pixels, src, atol=1e-6)
+
+
+def test_nothing_to_render(hostdemo, sample_plugins):
+    with pytest.raises(ofxhost.HostDemoError, match="renders nothing"):
+        execute(Node(INVERT, inputs={"Source": "ramp"}), sample_plugins, frames=[0],
+                window=(5000, 5000, 5010, 5010), host_binary=hostdemo)

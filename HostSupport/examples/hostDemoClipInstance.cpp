@@ -259,6 +259,12 @@ namespace MyHost {
         ((unsigned int)p[3] << 24) | ((unsigned int)p[2] << 16) | ((unsigned int)p[1] << 8) | (unsigned int)p[0];
       float v;
       std::memcpy(&v, &u, 4);
+      if (!(v - v == 0.f)) { // NaN or infinite: an input must be finite (NaN marks unwritten output pixels)
+        std::ostringstream ss;
+        ss << path << ": pixel value " << i / nComps << " is not finite";
+        error = ss.str();
+        return false;
+      }
       image.data[i] = v;
     }
     return true;
@@ -532,10 +538,21 @@ namespace MyHost {
     assert(isSupported(_depth, _components));
     if (_bounds.x2 < _bounds.x1) _bounds.x2 = _bounds.x1;
     if (_bounds.y2 < _bounds.y1) _bounds.y2 = _bounds.y1;
-    const int width = _bounds.x2 - _bounds.x1;
-    const int height = _bounds.y2 - _bounds.y1;
-    _rowBytes = width * _nComps * _bytesPerComp;
-    const size_t size = (size_t)_rowBytes * (size_t)height;
+    // sizes in 64 bits: the bounds come from the plug-in or the command line (--window), and an
+    // image of more than kMaxImagePixels pixels is refused (an image fetch error), instead of an
+    // int overflow of the row bytes and a buffer overrun
+    const long long width = (long long)_bounds.x2 - (long long)_bounds.x1;
+    const long long height = (long long)_bounds.y2 - (long long)_bounds.y1;
+    const long long kMaxImagePixels = 1LL << 28;
+    if (width * height > kMaxImagePixels || width * _nComps * _bytesPerComp > 0x7fffffffLL) {
+      std::cerr << "Error: image of " << width << "x" << height << " pixels at time " << time
+                << ": too large (more than " << kMaxImagePixels << " pixels)" << std::endl;
+      ++gImageErrors;
+      _bounds.x2 = _bounds.x1;
+      _bounds.y2 = _bounds.y1;
+    }
+    _rowBytes = (int)((_bounds.x2 - _bounds.x1) * _nComps * _bytesPerComp);
+    const size_t size = (size_t)_rowBytes * (size_t)(_bounds.y2 - _bounds.y1);
 
     // make some memory (new[] returns memory suitably aligned for float)
     _data = new unsigned char[size > 0 ? size : 1];
@@ -770,8 +787,9 @@ namespace MyHost {
       v.y2 = (int)std::ceil((_input.fileY + _input.file.height) / _input.fileScaleY);
       return v;
     }
-    /// our clip is pretending to be progressive PAL SD, so return 0<=x<768, 0<=y<576
-    v.x2 = 768;
+    /// our clip is pretending to be progressive PAL SD: the format is in pixel coordinates,
+    /// 0<=x<720, 0<=y<576 (768x576 is its canonical size, with the PAR 768/720)
+    v.x2 = 720;
     v.y2 = 576;
     return v;
   }

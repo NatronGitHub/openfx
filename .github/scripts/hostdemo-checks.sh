@@ -266,3 +266,13 @@ assert x["regionOfDefinition"]["rod"] == [0, 0, 768, 576] and x["framesNeeded"][
 fails hostdemo-frames.log "invalid frames" --frames 0,0
 fails hostdemo-scale.log "invalid render scale" --scale 1.5
 fails hostdemo-window.log "invalid render window" --window 5,5,5,9
+
+# Review fixes (#117-#123): huge windows, a clip given twice, times with the same file name and
+# non-finite PFM inputs are refused; a non-sequential --frames list is rendered as such
+fails hostdemo-bigwindow.log "at most 1000000 pixels" -p net.sf.openfx.noisePlugin -c general --frames 0 --window 0,0,268435457,1
+fails hostdemo-twice.log "given twice" -i Source=solid:1,0,0,1 -i Source=ramp
+fails hostdemo-samename.log "given twice to 12 significant digits" --frames 0.1234567890123,0.1234567890124
+printf 'Pf\n1 1\n-1.0\n\000\000\300\177' > nan.pfm
+fails hostdemo-nanpfm.log "is not finite" -d float -i Source=file:nan.pfm
+run hostdemo-unsorted.log -d float --frames 2,0,1 -o Unsorted
+echo "hostDemo --frames 2,0,1: OK"
