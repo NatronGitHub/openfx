@@ -202,6 +202,8 @@ endfunction()
 #   RPATH and OFX_PLUGIN_RPATH directories, then the directories of the linked libraries outside
 #   the project (INSTALL_RPATH_USE_LINK_PATH), as Makefile.master's -Wl,-rpath: installers
 #   (osxDeploy.sh, Natron's Linux installer) find the libraries there, then rewrite the rpath.
+#   Unlike Makefile.master's list, it has no system directory (/usr/lib64, ...): CMake leaves
+#   out its implicit link directories, which the loader searches anyway.
 # - The installed binary is mode 755 (Debian's CMake strips the execute bit of modules).
 # - OFX_OPTFLAG is added to the compile options of the release configurations (not with MSVC).
 # - RPATH and OFX_PLUGIN_RPATH are ignored on Windows.
@@ -553,8 +555,7 @@ endfunction()
 # warning, or an error with OFX_DEPLOY_STRICT_MINOS.
 # Call it after the last ofx_plugin_resources() of the target: files installed into the bundle
 # after it would break the bundle's signature. Windows (bundling the DLLs, with an embedded
-# manifest) and Linux are not
-# implemented yet.
+# manifest) and Linux are not implemented yet.
 function(ofx_deploy_bundle TARGET)
   get_target_property(_name ${TARGET} OFX_BUNDLE_NAME)
   if(NOT _name)
