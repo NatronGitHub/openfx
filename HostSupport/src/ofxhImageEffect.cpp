@@ -4420,7 +4420,16 @@ namespace OFX {
         :  Interact::Instance(effect.getOverlayDescriptor(bitDepthPerComponent, hasAlpha),
                               (void *)(effect.getHandle()))
         , _instance(effect)
-      {        
+      {
+#     ifdef OFX_EXTENSIONS_NATRON
+        // extension 13 of ofxNatron.h covers the overlay interacts only (not parameter
+        // interacts), and the property is only declared if the host application passes the
+        // modifiers, since plug-ins detect the extension by the presence of the property.
+        // Interact::Instance::initArgProp() then sets it from getKeyModifiers().
+        if (hostSupportsKeyModifiers()) {
+          _argProperties.addProperty(new Property::Int(kNatronOfxInteractPropKeyModifiers, 1, false, 0));
+        }
+#     endif
       }
 
       ////////////////////////////////////////////////////////////////////////////////

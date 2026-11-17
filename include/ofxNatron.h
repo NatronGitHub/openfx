@@ -664,8 +664,9 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
 
   13) The OFX interact actions give no keyboard modifier state, so overlays that need it (e.g. Shift+click to add to a selection) had to count the kOfxKey_Shift_L/R, kOfxKey_Control_L/R... key events. Key events only reach an overlay while it has the keyboard focus, so that count can be wrong.
  A host that supports this extension sets the host property kNatronOfxHostPropInteractKeyModifiers to 1, and sets the int property kNatronOfxInteractPropKeyModifiers, a bitmask of kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta:
-     - in the inArgs of all the overlay interact actions: kOfxInteractActionDraw, kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp, kOfxInteractActionKeyRepeat, kOfxInteractActionGainFocus and kOfxInteractActionLoseFocus;
-     - on the image effect instance, before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState of 7).
+     - in the inArgs of all the actions of the image effect overlay interacts (kOfxImageEffectPluginPropOverlayInteractV1/V2; not the parameter interacts of kOfxParamPropInteractV1): kOfxInteractActionDraw, kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp, kOfxInteractActionKeyRepeat, kOfxInteractActionGainFocus and kOfxInteractActionLoseFocus;
+     - on the image effect instance, before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState of 7). There, its value is only valid during that kOfxActionInstanceChanged action.
+ Parameter interacts don't get the property: a plug-in tracks the modifier key events there.
  Each bit has exactly the meaning of the host's key symbols: kNatronOfxKeyModifierControl is set while a key that the host reports as kOfxKey_Control_L or kOfxKey_Control_R is down, and likewise for Shift (kOfxKey_Shift_L/R), Alt (kOfxKey_Alt_L/R) and Meta (kOfxKey_Meta_L/R). The state given by the property and the state tracked from the key events therefore always agree. On macOS, a host built with Qt reports Cmd as kOfxKey_Control_L/R and the physical Control key as kOfxKey_Meta_L/R (unless Qt::AA_MacDontSwapCtrlAndMeta is set), so kNatronOfxKeyModifierControl is set while Cmd is down.
  In kOfxInteractActionKeyDown, kOfxInteractActionKeyUp and kOfxInteractActionKeyRepeat of a modifier key, the property holds the state after the event: on the key down of Shift, kNatronOfxKeyModifierShift is set; on its key up, it is cleared (unless the other Shift key is still down).
  The state is per effect instance: the host passes it to the interacts of each instance, and sets it on that instance before the selection rectangle notification.
@@ -1244,7 +1245,7 @@ says:
  - Property Set - host descriptor (read only)
  - Default - 0
  - Valid Values - 0 or 1
- If 1, the host sets kNatronOfxInteractPropKeyModifiers in the inArgs of all the overlay interact actions, and on the image effect instance before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState.
+ If 1, the host sets kNatronOfxInteractPropKeyModifiers in the inArgs of all the actions of the image effect overlay interacts (not of the parameter interacts), and on the image effect instance before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState.
 
     @propdef
     type: bool
@@ -1256,12 +1257,12 @@ says:
 /** @brief Int property holding the state of the keyboard modifiers, as a bitmask of kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta. See 13) of the in-viewer interface extension.
 
  - Type - int x 1
- - Property Set - inArgs of the overlay interact actions kOfxInteractActionDraw, kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp, kOfxInteractActionKeyRepeat, kOfxInteractActionGainFocus and kOfxInteractActionLoseFocus (read only); image effect instance (read only), set by the host before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState (its value at other times is unspecified)
+ - Property Set - inArgs of the overlay interact actions kOfxInteractActionDraw, kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp, kOfxInteractActionKeyRepeat, kOfxInteractActionGainFocus and kOfxInteractActionLoseFocus of the image effect overlay interacts (read only); image effect instance (read only), set by the host before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState, and only valid during that action
  - Default - 0
  - Valid Values - a bitwise OR of kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta
 
  A bit is set while a key that the host reports with the corresponding key symbols of ofxKeySyms.h is down (e.g. kNatronOfxKeyModifierControl while kOfxKey_Control_L or kOfxKey_Control_R is down, which is Cmd on macOS hosts built with Qt). In the key actions of a modifier key, the value is the state after the event.
- The host only sets this property if kNatronOfxHostPropInteractKeyModifiers is 1 on the host descriptor: a plug-in should check that the property exists, and otherwise track the modifier key events.
+ The host only sets this property if kNatronOfxHostPropInteractKeyModifiers is 1 on the host descriptor: a plug-in should check that the property exists, and otherwise track the modifier key events. On the image effect instance, the value is only valid during the kOfxActionInstanceChanged action for kNatronOfxParamSelectionRectangleState. Parameter interacts (kOfxParamPropInteractV1) don't get this property.
 
     @propdef
     type: int
