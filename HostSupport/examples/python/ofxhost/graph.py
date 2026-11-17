@@ -49,6 +49,13 @@ class Node:
         return f"Node({self.name or self.plugin!r})"
 
 
+def _image_fits(px) -> bool:
+    """As hostDemo's imageFits (float RGBA): at most 2^28 pixels, rows of less than 2^31 bytes."""
+    w, h = px[2] - px[0], px[3] - px[1]
+    m = 1 << 28
+    return w <= m and h <= m and w * h <= m and w * 16 <= 0x7fffffff
+
+
 def topological_order(output: Node) -> list[Node]:
     """The nodes that output depends on, inputs first, output last. Raises ValueError on a
     cycle."""
@@ -206,14 +213,26 @@ def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float 
                                               "inputs are the same image at all times")
                 needs[(node, t)][clip] = fs[0]
                 roi = x["regionsOfInterest"]["clips"].get(clip)
+                crod = child_rod(child, fs[0])
+                tiles = x.get("supportsTiles") or {}
+                no_tiles = not (tiles.get("effect", True) and tiles.get("clips", {}).get(clip, True))
+                if (no_tiles and crod is not None
+                        and _image_fits(_to_pixels(crod, *x["renderScale"], pars.get(child, clips[clip]["pixelAspectRatio"])))):
+                    # no tiles: hostDemo fetches the whole RoD of the input (kOfxImageEffectPropSupportsTiles),
+                    # unless it is too large for hostDemo
+                    roi = crod
                 if roi is None:
                     continue
                 par = clips[clip]["pixelAspectRatio"]
                 px = _to_pixels(roi, *x["renderScale"], par)
-                crod = child_rod(child, fs[0])
                 if crod is not None:  # the child renders its RoD at most
                     cpx = _to_pixels(crod, *x["renderScale"], pars.get(child, par))
                     px = (max(px[0], cpx[0]), max(px[1], cpx[1]), min(px[2], cpx[2]), min(px[3], cpx[3]))
+                if no_tiles and not _image_fits(px):
+                    # still too large (HostSupport's default RoI of a clip without tiles is its RoD):
+                    # clipped to the render window, as hostDemo does
+                    rw = x["renderWindow"]
+                    px = (max(px[0], rw[0]), max(px[1], rw[1]), min(px[2], rw[2]), min(px[3], rw[3]))
                 if px[0] < px[2] and px[1] < px[3]:
                     w = asked.setdefault(child, {})
                     w[fs[0]] = _union(w.get(fs[0]), px)

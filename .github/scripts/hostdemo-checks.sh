@@ -284,3 +284,37 @@ assert x["inputs"]["Source"]["regionOfDefinition"] == [-100.5, 0, 2000, 300], x[
 assert x["regionOfDefinition"]["rod"] == [-100.5, 0, 2000, 300]
 '
 fails hostdemo-badrod.log "invalid RoD" -i Source=rod:1,0,0,1
+
+# kOfxImageEffectPropSupportsTiles: "If a clip or plugin does not support tiled images, then the
+# host should supply full RoD images to the effect whenever it fetches one". Invert's supportsTiles
+# parameter sets it on the instance (OFX 1.4); setting it also calls paramGetNumKeys and
+# paramDeleteAllKeys, which must succeed on a parameter without keys.
+run hostdemo-tiles.log -d float --frames 0 -i Source=solid:0.25,0.5,0,1 -s supportsTiles=1 --window 100,100,164,148 --report tiles.json -o Tiles
+run hostdemo-notiles.log -d float --frames 0 -i Source=solid:0.25,0.5,0,1 -s supportsTiles=0 --window 100,100,164,148 --report notiles.json -o NoTiles
+jcheck "supportsTiles=1" tiles.json '
+x = r["renders"][0]
+assert x["supportsTiles"] == {"effect": True, "clips": {"Output": True, "Source": True}}, x["supportsTiles"]
+assert x["renderWindow"] == [100, 100, 164, 148], x["renderWindow"]
+'
+jcheck "supportsTiles=0: the whole RoD" notiles.json '
+x = r["renders"][0]
+assert x["supportsTiles"]["effect"] is False, x["supportsTiles"]
+assert x["renderWindow"] == x["output"]["bounds"] == [0, 0, 720, 576], (x["renderWindow"], x["output"])
+'
+grep -q "doesn.t support tiles: rendering the whole RoD" hostdemo-notiles.log || { echo "supportsTiles=0: no warning"; cat hostdemo-notiles.log; exit 1; }
+# whole-RoD input images: Invert's testSmallRoI asks for the centre of the region it needs only, so
+# a solid input gives a solid output only if hostDemo fetches the whole RoD (no tiles); with tiles,
+# the output has other values outside the small RoI. Two frames: the --window warning only once.
+run hostdemo-smallroi.log --frames 0,1 -i Source=solid:0.25,0.5,0,1 -s supportsTiles=0 -s testSmallRoI=1 --window 100,100,164,148 -o SmallRoI
+expect "supportsTiles=0 testSmallRoI=1: whole-RoD input" "$(hist SmallRoI.0.ppm)" "720 576
+414720 191 127 255"
+[ "$(grep -c "rendering the whole RoD" hostdemo-smallroi.log)" = 1 ] || { echo "the --window warning isn't printed once"; cat hostdemo-smallroi.log; exit 1; }
+run hostdemo-smallroi-tiles.log --frames 0 -i Source=solid:0.25,0.5,0,1 -s testSmallRoI=1 -o SmallRoITiles
+[ "$(hist SmallRoITiles.0.ppm | wc -l)" -gt 2 ] || { echo "testSmallRoI=1 with tiles: the output should not be solid"; hist SmallRoITiles.0.ppm; exit 1; }
+# an input RoD too large for hostDemo: the RoI is fetched instead (with a warning)
+run hostdemo-hugerod.log -d float --frames 0 -i Source=rod:0,0,40000,40000 -s supportsTiles=0 --window 0,0,64,64 -o HugeRoD
+grep -q "is too large for hostDemo: rendering --window" hostdemo-hugerod.log &&
+  grep -q "is too large for hostDemo: fetching the region of interest" hostdemo-hugerod.log ||
+  { echo "huge RoD without tiles: no fallback warnings"; cat hostdemo-hugerod.log; exit 1; }
+echo "huge RoD without tiles: OK"
+

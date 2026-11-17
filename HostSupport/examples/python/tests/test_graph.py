@@ -144,3 +144,32 @@ def test_large_input(hostdemo, sample_plugins):
     out = execute(inv2, sample_plugins, frames=[0], window=(1000, 1000, 1100, 1100), host_binary=hostdemo)[0]
     assert out.bounds == (1000, 1000, 1100, 1100)
     assert_close(out.pixels, src[h - 1100:h - 1000, 1000:1100], atol=1e-6)
+
+
+def test_no_tiles(hostdemo, sample_plugins):
+    """A node without tiles (Invert with supportsTiles off) renders its whole RoD from whole-RoD
+    inputs, so its input node is rendered on its whole RoD too, whatever the window and the RoI
+    (testSmallRoI: Invert asks for the centre of the region it needs only)."""
+    src = rgba(40, 60)
+    img = ofxhost.Image(src, (100, 50, 160, 90))
+    inner = Node(INVERT, inputs={"Source": img})
+    outer = Node(INVERT, inputs={"Source": inner}, params={"supportsTiles": False, "testSmallRoI": True})
+    out = execute(outer, sample_plugins, frames=[0], window=(120, 60, 130, 70), host_binary=hostdemo)[0]
+    assert out.bounds == (100, 50, 160, 90), out.bounds
+    assert_close(out.pixels, src, atol=1e-6)
+    # with tiles, the input node is rendered on the small RoI only (the centre of the window), so
+    # the output is that centre (whose pixels are wrong at the borders: Invert's own small RoI).
+    # (An artifact of the graph executor: the input node is passed on with its rendered bounds as
+    # its RoD, so the outer RoD shrinks too; a host would render the whole window.)
+    outer.params["supportsTiles"] = True
+    out = execute(outer, sample_plugins, frames=[0], window=(120, 60, 130, 70), host_binary=hostdemo)[0]
+    assert out.bounds == (122, 62, 128, 68), out.bounds
+
+
+def test_no_tiles_huge_rod(hostdemo, sample_plugins):
+    """A node without tiles whose input RoD is too large for hostDemo: the input node is asked for
+    the render window only, as hostDemo fetches it."""
+    inner = Node(INVERT, inputs={"Source": "rod:0,0,40000,40000"})
+    outer = Node(INVERT, inputs={"Source": inner}, params={"supportsTiles": False})
+    out = execute(outer, sample_plugins, frames=[0], window=(0, 0, 64, 64), host_binary=hostdemo)[0]
+    assert out.bounds == (0, 0, 64, 64), out.bounds

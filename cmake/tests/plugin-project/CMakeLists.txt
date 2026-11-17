@@ -7,7 +7,9 @@ project(OfxPluginProjectTest CXX)
 
 option(OFX_VIA_SUBDIRECTORY "use openfx with add_subdirectory() instead of find_package()" OFF)
 if(OFX_VIA_SUBDIRECTORY)
-  add_subdirectory("${OFX_SOURCE_DIR}" openfx EXCLUDE_FROM_ALL)
+  # (without EXCLUDE_FROM_ALL, so that the install rules of openfx run: they must not install
+  # openfx itself, its example hosts or the bundled expat headers)
+  add_subdirectory("${OFX_SOURCE_DIR}" openfx)
 else()
   find_package(openfx REQUIRED)
 endif()

@@ -19,4 +19,6 @@ add_executable(propsetDump
 	hostDemoParamInstance.cpp)
 target_link_libraries(propsetDump PRIVATE OfxHost)
 
-install(TARGETS hostDemo cacheDemo propsetDump RUNTIME DESTINATION bin)
+if(OFX_INSTALL) # (OFF under add_subdirectory(openfx))
+	install(TARGETS hostDemo cacheDemo propsetDump RUNTIME DESTINATION bin)
+endif()

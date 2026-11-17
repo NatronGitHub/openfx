@@ -39,6 +39,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <cstring> // memcpy
 #include <limits>
+#include <set>
 #include <sstream>
 
 // ofx
@@ -569,9 +570,7 @@ namespace MyHost {
     // in gImageErrors, like the other image fetch errors)
     const long long width = (long long)_bounds.x2 - (long long)_bounds.x1;
     const long long height = (long long)_bounds.y2 - (long long)_bounds.y1;
-    const long long kMaxImagePixels = 1LL << 28;
-    if (width > kMaxImagePixels || height > kMaxImagePixels || width * height > kMaxImagePixels ||
-        width * _nComps * _bytesPerComp > 0x7fffffffLL) {
+    if (!imageFits(_bounds, _nComps * _bytesPerComp)) {
       std::cerr << "Error: image of " << width << "x" << height << " pixels at time " << time
                 << ": too large (more than " << kMaxImagePixels << " pixels)" << std::endl;
       ++gImageErrors;
@@ -992,6 +991,14 @@ namespace MyHost {
     return p;
   }
 
+  bool imageFits(const OfxRectI& b, int bytesPerPixel)
+  {
+    const long long width = (long long)b.x2 - (long long)b.x1;
+    const long long height = (long long)b.y2 - (long long)b.y1;
+    return width <= kMaxImagePixels && height <= kMaxImagePixels && width * height <= kMaxImagePixels &&
+           width * bytesPerPixel <= 0x7fffffffLL;
+  }
+
   MyImage* MyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds)
   {
     if (!getConnected()) {
@@ -1012,9 +1019,12 @@ namespace MyHost {
 
     if (isOutput()) {
       if (!_outputImage) {
-        // a new image for each render, covering the render window, i.e. the output RoD
-        // clipped to the project (outside of render, the whole RoD)
-        OfxRectI bounds = _effect->isRendering() ? _effect->getRenderWindow() : intersect(rod, _effect->getProjectPixelRect(renderScale));
+        // a new image for each render, covering the render window (outside of render: the RoD,
+        // clipped to the project if the effect supports tiles or if hostDemo can't make an image
+        // that large)
+        OfxRectI bounds = _effect->isRendering() ? _effect->getRenderWindow() :
+                          (!(_effect->supportsTiles() && supportsTiles()) && imageFits(rod)) ? rod :
+                          intersect(rod, _effect->getProjectPixelRect(renderScale));
         _outputImage = new MyImage(*this, time, view, bounds, rod, renderScale, /*isOutput=*/true);
       }
       // add another reference to the member image for this fetch: as we have a
@@ -1027,9 +1037,28 @@ namespace MyHost {
     // Input clip: fetch on demand, the image is deleted when the plug-in releases it.
     // The bounds are optionalBounds if given, else the RoI the plug-in asked for in this
     // render, else the RoD; clipped to the RoD.
+    // kOfxImageEffectPropSupportsTiles: "If a clip or plugin does not support tiled images, then
+    // the host should supply full RoD images to the effect whenever it fetches one."
+    // (If the RoD is too large for hostDemo, e.g. infinite, the RoI or optionalBounds are used,
+    // clipped to the render window if they are still too large: HostSupport's default RoI of a
+    // clip without tiles is its RoD.)
     OfxRectD region = rodCanonical;
     OfxRectD roi;
-    if (optionalBounds) {
+    bool wholeRoD = !(_effect->supportsTiles() && supportsTiles());
+    bool tooLarge = false;
+    if (wholeRoD && !imageFits(rod)) {
+      tooLarge = true;
+      static std::set<std::string> warned; // (once per run and clip)
+      if (warned.insert(_name).second) {
+        std::cerr << "Warning: clip " << _name << ": the plug-in or the clip doesn't support tiles, but the RoD ("
+                  << rodCanonical.x1 << "," << rodCanonical.y1 << "," << rodCanonical.x2 << "," << rodCanonical.y2
+                  << ") is too large for hostDemo: fetching the region of interest instead" << std::endl;
+      }
+      wholeRoD = false;
+    }
+    if (wholeRoD) {
+      // the full RoD
+    } else if (optionalBounds) {
       region = *optionalBounds;
     } else if (_effect->getRegionOfInterest(this, roi)) {
       region = roi;
@@ -1039,6 +1068,9 @@ namespace MyHost {
       return NULL; // nothing to fetch
     }
     OfxRectI bounds = intersect(canonicalToPixelEnclosing(region, renderScale, par), rod);
+    if (tooLarge && !imageFits(bounds) && _effect->isRendering()) {
+      bounds = intersect(bounds, _effect->getRenderWindow());
+    }
     if (bounds.x2 <= bounds.x1 || bounds.y2 <= bounds.y1) {
       return NULL;
     }
