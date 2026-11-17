@@ -199,9 +199,10 @@ endfunction()
 #   plug-ins that link static libraries, e.g. OSMesa or LLVM).
 # - Install rpath: @loader_path/../Frameworks and @loader_path/../Libraries on macOS,
 #   $ORIGIN/../../Libraries on Linux and FreeBSD (libraries bundled by the installers), then the
-#   RPATH and OFX_PLUGIN_RPATH directories, then (not on macOS, where libraries have absolute
-#   install names) the directories of the linked libraries outside the project
-#   (INSTALL_RPATH_USE_LINK_PATH), as Makefile.master's -Wl,-rpath: installers
+#   RPATH and OFX_PLUGIN_RPATH directories, then the directories of the linked libraries outside
+#   the project (INSTALL_RPATH_USE_LINK_PATH), except, on macOS, those in /opt/local, /usr/local
+#   and /opt/homebrew (their libraries have absolute install names; Makefile.master's bundles
+#   only have the @loader_path rpaths), as Makefile.master's -Wl,-rpath: installers
 #   (osxDeploy.sh, Natron's Linux installer) find the libraries there, then rewrite the rpath.
 #   Unlike Makefile.master's list, it has no system directory (/usr/lib64, ...): CMake leaves
 #   out its implicit link directories, which the loader searches anyway.
@@ -315,12 +316,9 @@ function(add_ofx_plugin TARGET)
   endif()
   if(NOT WIN32)
     list(APPEND _rpath ${OFX_RPATH} ${OFX_PLUGIN_RPATH})
-    set_target_properties(${TARGET} PROPERTIES INSTALL_RPATH "${_rpath}")
-    if(NOT APPLE)
-      # (macOS: the libraries of MacPorts and Homebrew have absolute install names, so their
-      # directories aren't needed, and Makefile.master only has the @loader_path ones)
-      set_target_properties(${TARGET} PROPERTIES INSTALL_RPATH_USE_LINK_PATH ON)
-    endif()
+    # (macOS: the rpaths into /opt/local, /usr/local and /opt/homebrew are deleted at install, see
+    # below; the others stay, e.g. for libraries with @rpath install names in an SDK prefix)
+    set_target_properties(${TARGET} PROPERTIES INSTALL_RPATH "${_rpath}" INSTALL_RPATH_USE_LINK_PATH ON)
   endif()
   ofx_target_optflag(${TARGET})
 
@@ -360,6 +358,15 @@ function(add_ofx_plugin TARGET)
   install(FILES "${_info}" DESTINATION "${_dest}" RENAME Info.plist)
   if(APPLE)
     set_target_properties(${TARGET} PROPERTIES OFX_INSTALLED_BINARY "${_bin}")
+    # the LC_RPATHs into MacPorts, /usr/local and Homebrew are deleted, as in Makefile.master (its
+    # bundles only have the @loader_path ones): their libraries have absolute install names
+    install(CODE "
+      execute_process(COMMAND otool -l \"\$ENV{DESTDIR}${_bin}\" OUTPUT_VARIABLE _cmds ERROR_QUIET)
+      string(REGEX MATCHALL \" path (/opt/local|/usr/local|/opt/homebrew)[^ ]*\" _bad \"\${_cmds}\")
+      foreach(_p \${_bad})
+        string(REGEX REPLACE \"^ path \" \"\" _p \"\${_p}\")
+        execute_process(COMMAND install_name_tool -delete_rpath \"\${_p}\" \"\$ENV{DESTDIR}${_bin}\" OUTPUT_QUIET ERROR_QUIET)
+      endforeach()")
     _ofx_install_sign(${TARGET})
   endif()
 endfunction()
@@ -441,10 +448,25 @@ endfunction()
 # its other dependencies built with OpenMP find it too, e.g. a static ImageMagick whose .pc has
 # -lomp (MacPorts' lib/libomp isn't searched by default)
 function(_ofx_libomp_link_directory TARGET)
-  if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND OFX_LIBOMP_LIBRARY)
-    get_filename_component(_dir "${OFX_LIBOMP_LIBRARY}" DIRECTORY)
-    target_link_directories(${TARGET} PRIVATE "${_dir}")
+  if(NOT (APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang") OR NOT TARGET OpenMP::OpenMP_CXX)
+    return()
   endif()
+  # the libomp that OpenMP::OpenMP_CXX links (not necessarily OFX_LIBOMP_LIBRARY: OpenMP may have
+  # been configured through its own cache variables)
+  get_target_property(_libs OpenMP::OpenMP_CXX INTERFACE_LINK_LIBRARIES)
+  foreach(_l IN LISTS _libs)
+    if(_l MATCHES "/libomp[^/]*\\.(dylib|a)$" AND EXISTS "${_l}")
+      get_filename_component(_dir "${_l}" DIRECTORY)
+      # (PUBLIC for a static library: the plug-in that links it gets the directory too)
+      get_target_property(_type ${TARGET} TYPE)
+      if(_type STREQUAL "STATIC_LIBRARY" OR _type STREQUAL "OBJECT_LIBRARY")
+        target_link_directories(${TARGET} PUBLIC "${_dir}")
+      else()
+        target_link_directories(${TARGET} PRIVATE "${_dir}")
+      endif()
+      break()
+    endif()
+  endforeach()
 endfunction()
 
 # Compile and link a target with OpenMP, if OFX_USE_OPENMP is ON:

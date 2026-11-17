@@ -73,7 +73,14 @@ add_subdirectory(filter-b)
 target_link_libraries(TestPlist openfx::Support OpenGL::GL Test::MissingInc) # the plain form works too
 ofx_plugin_resources(TestPlist icon.txt) # not deployed: the installed bundle's signature must still be valid
 
-# not deployed, with OpenMP: on macOS its install rpath is Makefile.master's (no libomp directory)
+# not deployed, with OpenMP: on macOS its install rpath has no libomp (MacPorts) directory, but
+# keeps that of a library with an @rpath install name in an SDK prefix (OFX_TEST_SDK_LIBRARY,
+# built by cmake-plugin-project.sh)
 add_ofx_plugin(TestOmpNoDeploy SOURCES "${OFX_SOURCE_DIR}/Support/Plugins/Basic/basic.cpp")
 target_link_libraries(TestOmpNoDeploy PRIVATE openfx::Support OpenGL::GL)
 ofx_target_openmp(TestOmpNoDeploy)
+if(OFX_TEST_SDK_LIBRARY)
+  add_library(TestSdkDep SHARED IMPORTED)
+  set_target_properties(TestSdkDep PROPERTIES IMPORTED_LOCATION "${OFX_TEST_SDK_LIBRARY}")
+  target_link_libraries(TestOmpNoDeploy PRIVATE TestSdkDep)
+endif()

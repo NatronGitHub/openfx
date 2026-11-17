@@ -15,12 +15,20 @@ deploy=OFF; osxtarget=""
 # mingw-w64-ucrt-x86_64-libgomp package)
 openmp=ON
 rm -rf "$work"
+# macOS: a library with an @rpath install name in an "SDK" prefix (as built by CMake's defaults)
+sdkopt=()
+if [ "$os" = Darwin ]; then
+  mkdir -p "$work/sdk/lib"
+  echo 'int ofx_test_sdk_dep(void) { return 1; }' > "$work/sdk/dep.c"
+  cc -dynamiclib -install_name @rpath/libsdkdep.dylib -o "$work/sdk/lib/libsdkdep.dylib" "$work/sdk/dep.c"
+  sdkopt=(-DOFX_TEST_SDK_LIBRARY="$work/sdk/lib/libsdkdep.dylib")
+fi
 run() { # mode: package | subdirectory
   local mode=$1 w="$work/$1" via=OFF
   [ "$mode" = subdirectory ] && via=ON
   cmake -S "$src/cmake/tests/plugin-project" -B "$w/build" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$prefix" -DOFX_SOURCE_DIR="$src" -DOFX_VIA_SUBDIRECTORY=$via -DBUILD_EXAMPLE_HOSTS=$via -DOFX_TEST_REQUIRE_OPENMP=$openmp \
-    -DCMAKE_INSTALL_PREFIX="$w/install" -DOFX_DEPLOY_BUNDLES=$deploy $osxtarget ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
+    -DCMAKE_INSTALL_PREFIX="$w/install" -DOFX_DEPLOY_BUNDLES=$deploy $osxtarget "${sdkopt[@]}" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
   cmake --build "$w/build" --parallel
   # with add_subdirectory(openfx), BUILD_EXAMPLE_HOSTS=ON still gives the hostDemo target
   if [ "$mode" = subdirectory ]; then cmake --build "$w/build" --parallel --target hostDemo; fi
@@ -96,9 +104,11 @@ done
 tp="$installed/TestPlist.ofx.bundle/Contents/$arch/TestPlist.ofx"
 case $os in
   Darwin) otool -l "$tp" | grep -q ' path /opt/ofx-test-rpath ' || fail "TestPlist: no RPATH /opt/ofx-test-rpath"
-          # a non-deployed plug-in with OpenMP: exactly Makefile.master's two (no libomp directory)
-          op=$(otool -l "$installed/TestOmpNoDeploy.ofx.bundle/Contents/MacOS/TestOmpNoDeploy.ofx" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' | tr '\n' ' ')
-          [ "$op" = "@loader_path/../Frameworks @loader_path/../Libraries " ] || fail "TestOmpNoDeploy rpath: '$op'" ;;
+          # a non-deployed plug-in with OpenMP and an @rpath library of an SDK prefix: Makefile.master's
+          # two, and the SDK's lib (no libomp directory: MacPorts libraries have absolute install names)
+          # (one per line: the work directory may contain spaces)
+          op=$(otool -l "$installed/TestOmpNoDeploy.ofx.bundle/Contents/MacOS/TestOmpNoDeploy.ofx" | sed -n 's/^ *path \(.*\) (offset [0-9]*)$/\1/p' | LC_ALL=C sort)
+          [ "$op" = "$(printf '%s\n' "$work/sdk/lib" @loader_path/../Frameworks @loader_path/../Libraries | LC_ALL=C sort)" ] || fail "TestOmpNoDeploy rpath: '$op'" ;;
   Linux|FreeBSD) readelf -d "$tp" | grep -q '/opt/ofx-test-rpath' || fail "TestPlist: no RPATH /opt/ofx-test-rpath" ;;
 esac
 if [ "$os" = Darwin ]; then
