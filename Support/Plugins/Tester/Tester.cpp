@@ -46,6 +46,10 @@ England
 #endif
 
 #include <stdio.h>
+#include <cmath>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 #include "ofxsImageEffect.h"
 #include "ofxsMultiThread.h"
 #include "ofxsInteract.h"
@@ -285,6 +289,79 @@ public :
 
   virtual void render(const OFX::RenderArguments &args);
   void setupAndProcess(GenericTestBase &, const OFX::RenderArguments &args);
+
+  // A test of the host's keyframe functions (paramSetValueAtTime, paramGetNumKeys, paramGetKeyTime,
+  // paramGetKeyIndex, paramDeleteKey, paramDeleteAllKeys, paramGetValueAtTime, paramGetDerivative,
+  // paramGetIntegral), for a host that interpolates linearly (hostDemo): returns "" if all is as
+  // expected, else what isn't.
+  std::string keysTest()
+  {
+    std::ostringstream err;
+#   define KEYS_CHECK(cond) do { if (!(cond)) { err << #cond << "; "; } } while (0)
+#   define KEYS_NEAR(a, b) KEYS_CHECK(std::fabs((a) - (b)) < 1e-9)
+    try {
+      OFX::DoubleParam* d = fetchDoubleParam("keysDouble");
+      d->deleteAllKeys();
+      KEYS_CHECK(d->getNumKeys() == 0);
+      d->setValueAtTime(0., 1.);
+      d->setValueAtTime(10., 3.);
+      d->setValueAtTime(4., 2.);
+      KEYS_CHECK(d->getNumKeys() == 3);
+      KEYS_NEAR(d->getKeyTime(0), 0.);
+      KEYS_NEAR(d->getKeyTime(1), 4.);
+      KEYS_NEAR(d->getKeyTime(2), 10.);
+      bool outOfRange = false;
+      try {
+        d->getKeyTime(3);
+      } catch (const std::out_of_range&) {
+        outOfRange = true;
+      }
+      KEYS_CHECK(outOfRange);
+      KEYS_CHECK(d->getKeyIndex(4., OFX::eKeySearchNear) == 1);
+      KEYS_CHECK(d->getKeyIndex(5., OFX::eKeySearchNear) == -1);
+      KEYS_CHECK(d->getKeyIndex(5., OFX::eKeySearchForwards) == 2);
+      KEYS_CHECK(d->getKeyIndex(5., OFX::eKeySearchBackwards) == 1);
+      KEYS_CHECK(d->getKeyIndex(10., OFX::eKeySearchForwards) == -1);
+      KEYS_CHECK(d->getKeyIndex(0., OFX::eKeySearchBackwards) == -1);
+      KEYS_NEAR(d->getValueAtTime(2.), 1.5);
+      KEYS_NEAR(d->getValueAtTime(7.), 2.5);
+      KEYS_NEAR(d->getValueAtTime(-5.), 1.);
+      KEYS_NEAR(d->getValueAtTime(20.), 3.);
+      KEYS_NEAR(d->differentiate(2.), 0.25);
+      KEYS_NEAR(d->differentiate(7.), 1. / 6.);
+      KEYS_NEAR(d->differentiate(20.), 0.);
+      KEYS_NEAR(d->integrate(0., 4.), 6.);
+      KEYS_NEAR(d->integrate(-2., 0.), 2.);
+      KEYS_NEAR(d->integrate(4., 0.), -6.);
+      d->deleteKeyAtTime(4.);
+      KEYS_CHECK(d->getNumKeys() == 2);
+      KEYS_NEAR(d->getValueAtTime(5.), 2.);
+      d->deleteKeyAtTime(5.); // no key there: fails quietly
+      KEYS_CHECK(d->getNumKeys() == 2);
+      d->deleteAllKeys(); // the value at the current time stays
+      KEYS_CHECK(d->getNumKeys() == 0);
+      KEYS_NEAR(d->getValueAtTime(100.), d->getValueAtTime(-100.));
+
+      OFX::IntParam* i = fetchIntParam("keysInt");
+      i->deleteAllKeys();
+      i->setValueAtTime(0., 0);
+      i->setValueAtTime(10., 5);
+      KEYS_CHECK(i->getValueAtTime(3.) == 2); // 1.5, rounded
+      KEYS_CHECK(i->getValueAtTime(10.) == 5);
+
+      OFX::BooleanParam* b = fetchBooleanParam("keysBool");
+      b->deleteAllKeys();
+      b->setValueAtTime(0., false);
+      b->setValueAtTime(10., true);
+      KEYS_CHECK(!b->getValueAtTime(9.)); // stepped
+      KEYS_CHECK(b->getValueAtTime(10.));
+    } catch (const std::exception& e) {
+      err << "exception: " << e.what() << "; ";
+    }
+#   undef KEYS_NEAR
+#   undef KEYS_CHECK
+    return err.str();
+  }
   void changedParam(const OFX::InstanceChangedArgs &args, const std::string &paramName)
   {
     if(paramName=="enableTest")
@@ -298,6 +375,11 @@ public :
     else if(paramName=="pbButton")
     {
       sendMessage(OFX::Message::eMessageMessage, "", "Push Button Pressed - TestPassed!");
+    }
+    else if(paramName=="keysTest")
+    {
+      const std::string err = keysTest();
+      sendMessage(OFX::Message::eMessageMessage, "", err.empty() ? "Keys test passed" : "Keys test FAILED: " + err);
     }
     else if(paramName=="widgetPos")
     {
@@ -533,6 +615,18 @@ void GenericTestExamplePluginFactory::describeInContext(OFX::ImageEffectDescript
 
   PushButtonParamDescriptor* pb2 = desc.definePushButtonParam("analyseButton");
   pb2->setLabels("Analyse", "Analyse", "Analyse");
+
+  // keysTest: a test of the host's keyframe functions, on keysDouble, keysInt and keysBool (see
+  // GenericTestPlugin::keysTest); it sends the message "Keys test passed", or what failed
+  PushButtonParamDescriptor* pb3 = desc.definePushButtonParam("keysTest");
+  pb3->setLabels("Keys Test", "Keys Test", "Keys Test");
+  DoubleParamDescriptor* keysDouble = desc.defineDoubleParam("keysDouble");
+  keysDouble->setLabels("Keys Double", "Keys Double", "Keys Double");
+  IntParamDescriptor* keysInt = desc.defineIntParam("keysInt");
+  keysInt->setLabels("Keys Int", "Keys Int", "Keys Int");
+  BooleanParamDescriptor* keysBool = desc.defineBooleanParam("keysBool");
+  keysBool->setLabels("Keys Bool", "Keys Bool", "Keys Bool");
+  keysBool->setAnimates(true);
 
   DoubleParamDescriptor *param7 = desc.defineDoubleParam("analysisParam");
   param7->setLabels("Analysis Slave", "Analysis Slave", "Analysis Slave");

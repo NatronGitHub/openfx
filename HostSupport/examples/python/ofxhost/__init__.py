@@ -170,6 +170,18 @@ def _plugin_dirs(bundle_paths) -> list[str]:
     return dirs
 
 
+def _param_args(name: str, value: Any) -> list[str]:
+    """The hostDemo -s arguments of a parameter value, keys ({time: value}) or a button press (None)."""
+    if value is None:
+        return ["-s", name]
+    if isinstance(value, Mapping):
+        if not value:
+            raise ValueError(f"parameter {name!r}: no keys")
+        return [a for t, v in sorted(value.items(), key=lambda kv: float(kv[0]))
+                for a in ("-s", f"{name}@{_format_value(float(t))}={_format_value(v)}")]
+    return ["-s", f"{name}={_format_value(value)}"]
+
+
 def _format_value(v: Any) -> str:
     if isinstance(v, str):
         return v
@@ -313,7 +325,10 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
         premultiplication), a pathlib.Path or "file:path.pfm", or a hostDemo spec string:
         "none" (disconnected), "default", "solid:r,g,b,a", "ramp", "checker:N".
     params: parameter name -> value (number, bool, string, or a sequence for
-        multi-dimensional parameters). Passed as -s name=value.
+        multi-dimensional parameters), passed as -s name=value; or keys, a mapping
+        {time: value} (numeric parameters that animate; hostDemo interpolates linearly), passed
+        as -s name@time=value; or None to press a push button (-s name). In order: each one is
+        followed by the instance changed action (at the key's time for a key).
     depth: the input clips' depth before clip preferences: "byte", "short" or "float".
     frames: the times to render (hostDemo --frames; default 0 and 1).
     scale: the render scale, s or (sx, sy), in (0,1] (--scale). Image inputs are at that scale.
@@ -343,7 +358,7 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
             cmd += ["--query"]
         cmd += list(extra_args)
         for name, value in (params or {}).items():
-            cmd += ["-s", f"{name}={_format_value(value)}"]
+            cmd += _param_args(name, value)
 
         p = _run(cmd, env, workdir, timeout)
         if check and p.returncode != 0:
