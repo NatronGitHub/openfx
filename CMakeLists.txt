@@ -152,8 +152,12 @@ add_library(openfx::Api ALIAS OfxApi)
 # (Documentation/proposals/cmake-plugins.md): the OFX_EXTENSIONS_* and OFX_SUPPORTS_* definitions
 # (they change class layouts), the MinGW definitions of Support/Plugins/Makefile.master, and
 # MSVC's real __cplusplus value.
-target_compile_definitions(OfxApi INTERFACE ${OFX_DEFINITIONS}
-  "$<$<AND:$<PLATFORM_ID:Windows>,$<NOT:$<CXX_COMPILER_FRONTEND_VARIANT:MSVC>>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:_USE_MATH_DEFINES;__USE_MINGW_ANSI_STDIO=1>")
+# (decided at configure time: $<CXX_COMPILER_FRONTEND_VARIANT> needs CMake 3.30, and the
+# expression would be exported to the consumers of the package)
+target_compile_definitions(OfxApi INTERFACE ${OFX_DEFINITIONS})
+if(WIN32 AND NOT MSVC AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+  target_compile_definitions(OfxApi INTERFACE _USE_MATH_DEFINES __USE_MINGW_ANSI_STDIO=1)
+endif()
 target_compile_options(OfxApi INTERFACE "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/Zc:__cplusplus>")
 
 # ---------------------------------------------------------------------------

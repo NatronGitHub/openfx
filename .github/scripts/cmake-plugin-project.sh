@@ -65,6 +65,10 @@ case $os in
   Darwin) [ "$rpath" = "@loader_path/../Frameworks @loader_path/../Libraries " ] || fail "rpath: '$rpath'" ;;
   Linux|FreeBSD) [ "$rpath" = '$ORIGIN/../../Libraries ' ] || fail "rpath: '$rpath'" ;;
 esac
+if [ "$os" = Darwin ]; then
+  # a bundle that isn't deployed, with resources: its signature is valid too
+  codesign --verify --strict "$installed/TestPlist.ofx.bundle" || fail "codesign --verify --strict TestPlist (not deployed)"
+fi
 if [ "$deploy" = ON ]; then
   b="$installed/InvertBundle.ofx.bundle"
   codesign --verify --strict "$b" || fail "codesign --verify --strict $b"

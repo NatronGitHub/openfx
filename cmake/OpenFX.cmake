@@ -201,8 +201,9 @@ function(add_ofx_plugin TARGET)
     target_sources(${TARGET} PRIVATE ${OFX_SOURCES})
   endif()
   # the C API headers and the usage requirements (definitions); openfx::Support for C++ plug-ins
+  # (through LINK_LIBRARIES, so that the consumer may use either target_link_libraries form)
   if(TARGET openfx::Api)
-    target_link_libraries(${TARGET} PRIVATE openfx::Api)
+    set_property(TARGET ${TARGET} APPEND PROPERTY LINK_LIBRARIES openfx::Api)
   endif()
 
   # Info.plist, assembled into the bundle in the build tree:
@@ -227,9 +228,11 @@ function(add_ofx_plugin TARGET)
   add_custom_command(TARGET ${TARGET} PRE_LINK
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${_bundle}/Contents/${ARCHDIR}"
     VERBATIM)
-  add_custom_command(TARGET ${TARGET} POST_BUILD
+  add_custom_target(${TARGET}_info_plist ALL
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_bundle}/Contents"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${_info}" "${_bundle}/Contents/Info.plist"
     VERBATIM)
+  add_dependencies(${TARGET} ${TARGET}_info_plist)
   set_target_properties(${TARGET} PROPERTIES
     OFX_BUNDLE_NAME "${OFX_BUNDLE_NAME}"
     OFX_BUNDLE_DIR "${_bundle}"
@@ -298,7 +301,22 @@ function(add_ofx_plugin TARGET)
     else()
       set(_bin "\${CMAKE_INSTALL_PREFIX}/${_dest}/${ARCHDIR}/${OFX_BUNDLE_NAME}.ofx")
     endif()
-    install(CODE "execute_process(COMMAND codesign -f -s - \"\$ENV{DESTDIR}${_bin}\" OUTPUT_QUIET ERROR_QUIET)")
+    set_target_properties(${TARGET} PROPERTIES OFX_INSTALLED_BINARY "${_bin}")
+    _ofx_install_sign(${TARGET})
+  endif()
+endfunction()
+
+# macOS: sign the installed plug-in ad hoc (install_name_tool invalidated its signature). This
+# seals the bundle with what is installed so far, so ofx_plugin_resources() calls it again after
+# its files.
+function(_ofx_install_sign TARGET)
+  get_target_property(_bin ${TARGET} OFX_INSTALLED_BINARY)
+  if(APPLE AND _bin)
+    install(CODE "
+      execute_process(COMMAND codesign -f -s - \"\$ENV{DESTDIR}${_bin}\" RESULT_VARIABLE _r OUTPUT_QUIET ERROR_VARIABLE _err)
+      if(_r)
+        message(FATAL_ERROR \"codesign failed on \$ENV{DESTDIR}${_bin}: \${_err}\")
+      endif()")
   endif()
 endfunction()
 
@@ -355,6 +373,7 @@ function(ofx_plugin_resources TARGET)
     list(APPEND _cmds COMMAND "${CMAKE_COMMAND}" -E copy_directory "${_d}" "${_bundle}/Contents/${_sub}/${_dname}")
     install(DIRECTORY "${_d}" DESTINATION "${_dest}")
   endforeach()
+  _ofx_install_sign(${TARGET})
   add_custom_target(${_rt} ALL ${_cmds} VERBATIM)
   add_dependencies(${TARGET} ${_rt})
 endfunction()
@@ -401,7 +420,11 @@ function(ofx_target_openmp TARGET)
   elseif(OFX_REQUIRED)
     message(FATAL_ERROR "ofx_target_openmp(${TARGET}): OpenMP not found (MacPorts: port install libomp)")
   else()
-    message(WARNING "ofx_target_openmp(${TARGET}): OpenMP not found, building without it (MacPorts: port install libomp; or set OFX_LIBOMP_ROOT, or OFX_USE_OPENMP=OFF)")
+    get_property(_warned GLOBAL PROPERTY _OFX_OPENMP_WARNED)
+    if(NOT _warned)
+      set_property(GLOBAL PROPERTY _OFX_OPENMP_WARNED TRUE)
+      message(WARNING "ofx_target_openmp: OpenMP not found, building ${TARGET} (and the next targets) without it (MacPorts: port install libomp; or set OFX_LIBOMP_ROOT, or OFX_USE_OPENMP=OFF)")
+    endif()
   endif()
 endfunction()
 
@@ -419,14 +442,15 @@ endfunction()
 # (osxDeploy.sh). Windows (bundling the DLLs, with an embedded manifest) and Linux are not
 # implemented yet.
 function(ofx_deploy_bundle TARGET)
-  if(NOT OFX_DEPLOY_BUNDLES)
-    return()
-  endif()
   get_target_property(_name ${TARGET} OFX_BUNDLE_NAME)
   if(NOT _name)
     message(FATAL_ERROR "ofx_deploy_bundle: ${TARGET} was not created by add_ofx_plugin")
   endif()
+  # (also without OFX_DEPLOY_BUNDLES, so that a wrong order of calls shows on every build)
   set_target_properties(${TARGET} PROPERTIES OFX_DEPLOYED TRUE)
+  if(NOT OFX_DEPLOY_BUNDLES)
+    return()
+  endif()
   if(APPLE)
     if(PLUGIN_INSTALLDIR MATCHES " " OR CMAKE_INSTALL_PREFIX MATCHES " ")
       message(FATAL_ERROR "ofx_deploy_bundle(${TARGET}): the install path (PLUGIN_INSTALLDIR, CMAKE_INSTALL_PREFIX) must not contain spaces (osxDeploy.sh)")
@@ -440,7 +464,8 @@ function(ofx_deploy_bundle TARGET)
     # release builds only, as in Makefile.master (or an empty build type with a single-config
     # generator)
     install(CODE "
-     if(NOT CMAKE_INSTALL_CONFIG_NAME OR CMAKE_INSTALL_CONFIG_NAME MATCHES \"^(Release|RelWithDebInfo|MinSizeRel)\$\")
+     string(TOUPPER \"\${CMAKE_INSTALL_CONFIG_NAME}\" _cfg)
+     if(_cfg STREQUAL \"\" OR _cfg MATCHES \"^(RELEASE|RELWITHDEBINFO|MINSIZEREL)\$\")
       set(_b \"\$ENV{DESTDIR}${_bundle}\")
       execute_process(COMMAND bash \"${_deploy}\" \"\${_b}\" \"${_name}.ofx\" RESULT_VARIABLE _r)
       if(_r)

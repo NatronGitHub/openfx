@@ -38,4 +38,5 @@ ofx_deploy_bundle(TestInvert)
 add_ofx_plugin(TestPlist
   INFO_PLIST Info.plist
   SOURCES "${OFX_SOURCE_DIR}/Support/Plugins/Basic/basic.cpp")
-target_link_libraries(TestPlist PRIVATE openfx::Support OpenGL::GL)
+target_link_libraries(TestPlist openfx::Support OpenGL::GL) # the plain form works too
+ofx_plugin_resources(TestPlist icon.txt) # not deployed: the installed bundle's signature must still be valid
