@@ -304,6 +304,35 @@ namespace OFX {
     // @brief the set of descriptors, one per context used by kOfxActionDescribeInContext,
     //'eContextNone' is the one used by the kOfxActionDescribe
     EffectDescriptorMap gEffectDescriptors;
+
+    // Create the entries of a plug-in in gEffectDescriptors, one per context, with NULL
+    // descriptors. Called from init(), before any action: afterwards, describe and unload only
+    // assign the descriptors, so the structure of the maps doesn't change while other plug-ins
+    // of the binary look them up on render threads (getEffectDescriptor, e.g. for the regions
+    // of interest).
+    void reserveEffectDescriptors(const std::string& id, unsigned int majorVersion, unsigned int minorVersion)
+    {
+      VersionIDKey key;
+      key.id = id;
+      key.majorVersion = majorVersion;
+      key.minorVersion = minorVersion;
+      EffectContextMap& contexts = gEffectDescriptors[key];
+      static const ContextEnum all[] = {
+        eContextNone, eContextGenerator, eContextFilter, eContextTransition, eContextPaint,
+        eContextGeneral, eContextRetimer,
+#ifdef OFX_EXTENSIONS_TUTTLE
+        eContextReader, eContextWriter,
+#endif
+#ifdef OFX_EXTENSIONS_NATRON
+        eContextTracker,
+#endif
+      };
+      for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); ++i) {
+        if (contexts.find(all[i]) == contexts.end()) {
+          contexts[all[i]] = NULL;
+        }
+      }
+    }
   }
 
   /** @brief map a std::string to a context */
@@ -4472,22 +4501,22 @@ namespace OFX {
         key.majorVersion = majorVersion;
         key.minorVersion = minorVersion;
         EffectDescriptorMap::iterator it = gEffectDescriptors.find(key);
-        // There is an entry in gEffectDescriptors only if describeInContext() was called
         if ( it != gEffectDescriptors.end() ) {
+          // the descriptors are deleted, but the entries are kept (with NULL descriptors), as
+          // for plugInfoMap below: other plug-ins of this binary may be rendering
           EffectContextMap& toBeDeleted = it->second;
           for(EffectContextMap::iterator it2 = toBeDeleted.begin(); it2 != toBeDeleted.end(); ++it2) {
-            OFX::ImageEffectDescriptor* desc = it2->second;
-            delete desc;
+            delete it2->second;
+            it2->second = NULL;
           }
-          gEffectDescriptors.erase(it);
         }
       }
       {
         // The entry is kept, with a NULL _plug, instead of being erased: the other plug-ins of
         // this binary may run actions on other threads (e.g. renders) while this one is
         // unloaded, and their mainEntryStr looks up plugInfoMap. Erasing would change the
-        // map's structure under that lookup (a data race). The map's structure only changes
-        // in init(), before any action.
+        // map's structure under that lookup (a data race). The structure of plugInfoMap and of
+        // gEffectDescriptors only changes in init(), before any action.
         OFX::OfxPlugInfoMap::iterator it = OFX::plugInfoMap.find(id);
         assert( it != OFX::plugInfoMap.end() );
         if (it != OFX::plugInfoMap.end() ) {
@@ -6095,6 +6124,7 @@ void init()
     OFX::OfxPlugInfo info = generatePlugInfo(*it, newID);
     OFX::plugInfoMap[newID] = info;
     OFX::ofxPlugs[counter] = info._plug;
+    OFX::Private::reserveEffectDescriptors(newID, (*it)->getMajorVersion(), (*it)->getMinorVersion());
   }
   gHasInit = true;
 }
