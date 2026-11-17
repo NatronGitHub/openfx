@@ -196,6 +196,11 @@ namespace OFX {
         }
         _lastCursor = kOfxInteractCursorDefault;
         _lastCursorHotSpot[0] = _lastCursorHotSpot[1] = 0;
+        // extension 13 of ofxNatron.h: only declared if the host application passes the
+        // modifiers, since plug-ins detect the extension by the presence of the property
+        if (ImageEffect::hostSupportsKeyModifiers()) {
+          _argProperties.addProperty(new Property::Int(kNatronOfxInteractPropKeyModifiers, 1, false, 0));
+        }
 #endif
         _argProperties.setGetHook(kOfxInteractPropPixelScale, this);
         _argProperties.setGetHook(kOfxInteractPropBackgroundColour,this);
@@ -397,6 +402,9 @@ namespace OFX {
           props.setDoublePropertyN(kNatronOfxPropPickerColour, noColor, 4);
         }
         props.setDoubleProperty(kOfxInteractPropScreenPixelRatio, getScreenPixelRatio());
+        if (props.fetchProperty(kNatronOfxInteractPropKeyModifiers)) {
+          props.setIntProperty(kNatronOfxInteractPropKeyModifiers, getKeyModifiers());
+        }
 #endif
       }
 

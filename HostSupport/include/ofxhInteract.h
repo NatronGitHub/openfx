@@ -190,6 +190,13 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NATRON
         // hooks to live kOfxInteractPropScreenPixelRatio in the property set
         virtual double getScreenPixelRatio() const = 0;
+
+        /// the keyboard modifiers (extension 13 of ofxNatron.h): a bitmask of kNatronOfxKeyModifier*,
+        /// with the meaning of the key symbols the host passes to keyDownAction() and keyUpAction()
+        /// (in the key actions of a modifier key, the state after the event). Only used if the host
+        /// sets kNatronOfxHostPropInteractKeyModifiers to 1; then it is passed in the inArgs of every
+        /// interact action. The default returns 0.
+        virtual int getKeyModifiers() const { return 0; }
 #endif
 
         // hooks to kOfxInteractPropBackgroundColour in the property set

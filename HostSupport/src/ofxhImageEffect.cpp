@@ -677,6 +677,14 @@ namespace OFX {
         Property::propSpecEnd
       };
 
+#ifdef OFX_EXTENSIONS_NATRON
+      bool hostSupportsKeyModifiers()
+      {
+        return gImageEffectHost &&
+               gImageEffectHost->getProperties().getIntProperty(kNatronOfxHostPropInteractKeyModifiers) != 0;
+      }
+#endif
+
       static const Property::PropSpec effectInstanceStuff[] = {
         /* name                                 type                   dim.   r/o    default value */
         { kOfxImageEffectPropContext,           Property::eString,     1, true, "" },
@@ -732,6 +740,14 @@ namespace OFX {
         _properties.addProperty(new Property::String(kOfxImageEffectPropColourManagementStyle, 1, true,
                                                      kOfxImageEffectColourManagementNone));
         addColourManagementInstanceProperties();
+#     ifdef OFX_EXTENSIONS_NATRON
+        // extension 13 of ofxNatron.h: only declared if the host sets it (before the
+        // instanceChanged of kNatronOfxParamSelectionRectangleState), since plug-ins
+        // detect the extension by the presence of the property
+        if (hostSupportsKeyModifiers()) {
+          _properties.addProperty(new Property::Int(kNatronOfxInteractPropKeyModifiers, 1, true, 0));
+        }
+#     endif
         _properties.setChainedSet(&other.getProps());
 
         _properties.setPointerProperty(kOfxImageEffectPropPluginHandle, _plugin->getPluginHandle()->getOfxPlugin());
@@ -4716,6 +4732,10 @@ namespace OFX {
         { kNatronOfxImageEffectPropDefaultCursors, Property::eString, 0, true, "" },
         { kNatronOfxPropNativeOverlays, Property::eString, 0, true, ""},
         { kOfxImageEffectPropCanDistort, Property::eInt, 1, false, "0" },
+        // extension 13 of ofxNatron.h: set to 1 by host applications that implement
+        // Interact::Instance::getKeyModifiers() and set kNatronOfxInteractPropKeyModifiers
+        // on the effect instance before the selection rectangle instanceChanged
+        { kNatronOfxHostPropInteractKeyModifiers, Property::eInt, 1, true, "0" },
 #    endif
         // OFX 1.5 / 1.5.1 host capabilities, with "not supported" defaults (a host
         // application that implements one of these sets it on its host descriptor).
