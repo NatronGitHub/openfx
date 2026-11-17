@@ -306,6 +306,7 @@ public :
       std::string text;
       fetchStringParam("messageText")->getValue(text);
       sendMessage(OFX::Message::eMessageMessage, "", text);
+      setPersistentMessage(OFX::Message::eMessageWarning, "", text);
     }
     else if(paramName=="widgetPos")
     {

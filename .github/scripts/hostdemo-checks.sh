@@ -322,6 +322,7 @@ echo "huge RoD without tiles: OK"
 # '%' in a message (a file name, an error text) is shown as is
 run hostdemo-percent.log -p net.sf.openfx.GenericTestPlugin -s 'messageText=100% done: %d %s %x %%' --frames 0 --query --report percent.json
 jcheck "a message with %" percent.json '
-assert [m["text"] for m in r["messages"]] == ["100% done: %d %s %x %%"], r["messages"]
+t = "100% done: %d %s %x %%"
+assert [(m["kind"], m["text"]) for m in r["messages"]] == [("message", t), ("persistentMessage", t)], r["messages"]
 '
 

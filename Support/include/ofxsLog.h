@@ -61,14 +61,22 @@ namespace OFX {
     /** @brief Closes the log file. */
     void close(void);
 
+    // format is a printf format: gcc and clang check the arguments, and warn about a non-literal
+    // format with -Wformat-security (text should be passed as a "%s" argument)
+#if defined(__GNUC__) || defined(__clang__)
+#  define OFXS_LOG_PRINTF_FORMAT(f, a) __attribute__((format(printf, f, a)))
+#else
+#  define OFXS_LOG_PRINTF_FORMAT(f, a)
+#endif
+
     /** @brief Prints to the log file. */
-    void print(const char *format, ...);
+    void print(const char *format, ...) OFXS_LOG_PRINTF_FORMAT(1, 2);
 
     /** @brief Prints to the log file only if the condition is true and prepends a warning notice. */
-    void warning(bool condition, const char *format, ...);
+    void warning(bool condition, const char *format, ...) OFXS_LOG_PRINTF_FORMAT(2, 3);
 
     /** @brief Prints to the log file only if the condition is true and prepends an error notice. */
-    void error(bool condition, const char *format, ...);
+    void error(bool condition, const char *format, ...) OFXS_LOG_PRINTF_FORMAT(2, 3);
   };
 };
 
