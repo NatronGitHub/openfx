@@ -259,6 +259,14 @@ namespace MyHost {
         ((unsigned int)p[3] << 24) | ((unsigned int)p[2] << 16) | ((unsigned int)p[1] << 8) | (unsigned int)p[0];
       float v;
       std::memcpy(&v, &u, 4);
+      if (!std::isfinite(v)) { // NaN or infinite: an input must be finite (NaN marks unwritten output pixels)
+        std::ostringstream ss;
+        const size_t pixel = i / nComps;
+        ss << path << ": the value of channel " << i % nComps << " of pixel (" << pixel % w << "," << pixel / w
+           << ") (x,y from the bottom left) is not finite";
+        error = ss.str();
+        return false;
+      }
       image.data[i] = v;
     }
     return true;
@@ -278,6 +286,26 @@ namespace MyHost {
     }
     if (s == "ramp") {
       spec.type = InputSpec::eRamp;
+      return true;
+    }
+    if (s.compare(0, 4, "rod:") == 0) {
+      spec.type = InputSpec::eRod;
+      std::vector<std::string> v;
+      std::string::size_type start = 4;
+      for (;;) {
+        const std::string::size_type comma = s.find(',', start);
+        v.push_back(s.substr(start, comma == std::string::npos ? std::string::npos : comma - start));
+        if (comma == std::string::npos) {
+          break;
+        }
+        start = comma + 1;
+      }
+      if (v.size() != 4 || !parseFiniteDouble(v[0], spec.rod[0]) || !parseFiniteDouble(v[1], spec.rod[1]) ||
+          !parseFiniteDouble(v[2], spec.rod[2]) || !parseFiniteDouble(v[3], spec.rod[3]) ||
+          spec.rod[2] < spec.rod[0] || spec.rod[3] < spec.rod[1]) {
+        error = "invalid RoD, expected rod:x1,y1,x2,y2 with x1<=x2 and y1<=y2";
+        return false;
+      }
       return true;
     }
     if (s.compare(0, 5, "file:") == 0) {
@@ -442,6 +470,9 @@ namespace MyHost {
         }
         return;
       }
+      case InputSpec::eRod:
+        rgba[0] = rgba[1] = rgba[2] = rgba[3] = 0.;
+        return;
       case InputSpec::eNone:
       case InputSpec::eDefault:
       default:
@@ -532,10 +563,23 @@ namespace MyHost {
     assert(isSupported(_depth, _components));
     if (_bounds.x2 < _bounds.x1) _bounds.x2 = _bounds.x1;
     if (_bounds.y2 < _bounds.y1) _bounds.y2 = _bounds.y1;
-    const int width = _bounds.x2 - _bounds.x1;
-    const int height = _bounds.y2 - _bounds.y1;
-    _rowBytes = width * _nComps * _bytesPerComp;
-    const size_t size = (size_t)_rowBytes * (size_t)height;
+    // sizes in 64 bits: the bounds come from the plug-in or the command line (--window). An
+    // image of more than kMaxImagePixels pixels is refused instead of an int overflow of the row
+    // bytes and a buffer overrun: the plug-in gets an empty image, and the render fails (counted
+    // in gImageErrors, like the other image fetch errors)
+    const long long width = (long long)_bounds.x2 - (long long)_bounds.x1;
+    const long long height = (long long)_bounds.y2 - (long long)_bounds.y1;
+    const long long kMaxImagePixels = 1LL << 28;
+    if (width > kMaxImagePixels || height > kMaxImagePixels || width * height > kMaxImagePixels ||
+        width * _nComps * _bytesPerComp > 0x7fffffffLL) {
+      std::cerr << "Error: image of " << width << "x" << height << " pixels at time " << time
+                << ": too large (more than " << kMaxImagePixels << " pixels)" << std::endl;
+      ++gImageErrors;
+      _bounds.x2 = _bounds.x1;
+      _bounds.y2 = _bounds.y1;
+    }
+    _rowBytes = (int)((_bounds.x2 - _bounds.x1) * _nComps * _bytesPerComp);
+    const size_t size = (size_t)_rowBytes * (size_t)(_bounds.y2 - _bounds.y1);
 
     // make some memory (new[] returns memory suitably aligned for float)
     _data = new unsigned char[size > 0 ? size : 1];
@@ -770,8 +814,9 @@ namespace MyHost {
       v.y2 = (int)std::ceil((_input.fileY + _input.file.height) / _input.fileScaleY);
       return v;
     }
-    /// our clip is pretending to be progressive PAL SD, so return 0<=x<768, 0<=y<576
-    v.x2 = 768;
+    /// our clip is pretending to be progressive PAL SD: the format is in pixel coordinates,
+    /// 0<=x<720, 0<=y<576 (768x576 is its canonical size, with the PAR 768/720)
+    v.x2 = 720;
     v.y2 = 576;
     return v;
   }
@@ -889,6 +934,13 @@ namespace MyHost {
     }
     if (!getConnected()) {
       return v; // a disconnected clip has an empty RoD
+    }
+    if (_input.type == InputSpec::eRod) {
+      v.x1 = _input.rod[0];
+      v.y1 = _input.rod[1];
+      v.x2 = _input.rod[2];
+      v.y2 = _input.rod[3];
+      return v;
     }
     if (_input.type == InputSpec::eFile) {
       // a PFM file: one file pixel per clip pixel at the render scale fileScale, from

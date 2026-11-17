@@ -16,9 +16,10 @@ execute() runs hostDemo once per node and time:
 2. Inputs first, it renders each node once per time, and passes each output to the nodes
    that use it, as an Image (positioned at its bounds, with its premultiplication).
 
-Limits: the query in step 1 doesn't know the inputs' RoDs yet (they are only rendered in
-step 2), so a node is queried with project-sized inputs ("default"). And hostDemo's inputs
-are the same image at all times, so a node may need only one frame of each input Node.
+Before step 1, the RoD of each node is computed inputs first, so that the queries see the real
+RoDs of the input nodes (given as transparent images of that RoD). Limit: hostDemo's inputs are
+the same image at all times, so a node may need only one time of each input Node (a range of
+frames needed raises NotImplementedError).
 """
 
 from __future__ import annotations
@@ -26,11 +27,12 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
+import numbers
 import os
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from . import Image, render
+from . import HostDemoError, Image, render, resolve_file_spec
 
 __all__ = ["Node", "topological_order", "load", "execute"]
 
@@ -84,6 +86,13 @@ def load(path: str | os.PathLike) -> tuple[Node, dict[str, Node]]:
     with open(path, encoding="utf-8") as f:
         doc = json.load(f)
     base = os.path.dirname(os.path.abspath(path))
+    if not isinstance(doc, dict) or not isinstance(doc.get("nodes"), dict):
+        raise ValueError('a graph file needs "nodes": {name: {"plugin": ...}, ...}')
+    for name, d in doc["nodes"].items():
+        if not isinstance(d, dict) or "plugin" not in d:
+            raise ValueError(f'node {name!r}: expected {{"plugin": id, ...}}')
+        if not isinstance(d.get("inputs", {}), dict) or not isinstance(d.get("params", {}), dict):
+            raise ValueError(f'node {name!r}: "inputs" and "params" are objects')
     nodes = {name: Node(d["plugin"], d.get("context", "filter"), dict(d.get("params", {})),
                         name=name)
              for name, d in doc["nodes"].items()}
@@ -94,7 +103,9 @@ def load(path: str | os.PathLike) -> tuple[Node, dict[str, Node]]:
                     raise ValueError(f"{name}.{clip}: unknown node {v.get('node')!r}")
                 v = nodes[v["node"]]
             elif isinstance(v, str) and v.startswith("file:"):
-                v = "file:" + os.path.join(base, v[5:])
+                v = resolve_file_spec(v, base)
+            elif not isinstance(v, str):
+                raise ValueError(f"{name}.{clip}: an input is {{\"node\": name}} or a string, not {v!r}")
             nodes[name].inputs[clip] = v
     if doc.get("output") not in nodes:
         raise ValueError(f"unknown output node {doc.get('output')!r}")
@@ -108,13 +119,34 @@ def _union(a, b):
 
 
 def _frames(ranges: Sequence[Sequence[float]]) -> list[float]:
-    """The frames in the frames-needed ranges: the integer frames of each [min,max] range,
-    or min if it has none."""
+    """The frames in the frames-needed ranges: each range must be a single time [t, t]
+    (hostDemo's inputs are the same image at all times); a longer range raises."""
     out: list[float] = []
     for lo, hi in ranges:
-        fs = [float(f) for f in range(math.ceil(lo), math.floor(hi) + 1)] or [float(lo)]
-        out += [f for f in fs if f not in out]
+        if abs(hi - lo) > 1e-9:
+            raise NotImplementedError(f"frames needed [{lo}, {hi}]: hostDemo inputs are the same "
+                                      "image at all times, so a node can't use a range of times")
+        if float(lo) not in out:
+            out.append(float(lo))
     return out
+
+
+_EPS = 1e-6  # as hostDemo's canonicalToPixelEnclosing
+
+
+def _to_pixels(rect, sx, sy, par):
+    """A canonical rectangle to the enclosing pixel rectangle at the render scale."""
+    return (math.floor(rect[0] * sx / par + _EPS), math.floor(rect[1] * sy + _EPS),
+            math.ceil(rect[2] * sx / par - _EPS), math.ceil(rect[3] * sy - _EPS))
+
+
+def _placeholder(rod):
+    """A transparent input with the given RoD (canonical; None or empty: an empty RoD), for the
+    queries, and for an input node that rendered nothing: hostDemo's "rod:" input, which has no
+    pixels to write."""
+    if rod is None or rod[2] <= rod[0] or rod[3] <= rod[1]:
+        return "rod:0,0,0,0"
+    return "rod:" + ",".join(repr(float(v)) for v in rod)
 
 
 def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float = 1.0,
@@ -125,6 +157,31 @@ def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float 
     ofxhost.render() (host_binary, timeout...)."""
     order = topological_order(output)
     common: dict[str, Any] = dict(depth=depth, scale=scale, **render_args)
+    sx, sy = (float(scale), float(scale)) if isinstance(scale, numbers.Real) else map(float, scale)
+
+    # 0. inputs first: the RoD of each node at the requested times, from its inputs' RoDs (given
+    # to the queries as transparent images of that RoD), so that the next queries see the real
+    # input RoDs, not project-sized ones
+    rods: dict[tuple[Node, float], Any] = {}
+    pars: dict[Node, float] = {}
+
+    def child_rod(child: Node, t: float):
+        """The child's RoD at t; at another time than the output's frames, the RoD at the first
+        of them (hostDemo's inputs and parameters don't change with time)."""
+        if (child, t) in rods:
+            return rods[(child, t)]
+        return next((r for (n, _), r in rods.items() if n is child), None)
+
+    def child_input(child: Node, t: float):
+        return _placeholder(child_rod(child, t))
+
+    for node in order:
+        for t in sorted({float(f) for f in frames}):
+            inputs = {c: (child_input(v, t) if isinstance(v, Node) else v) for c, v in node.inputs.items()}
+            r = render(bundles, node.plugin, node.context, inputs, node.params, frames=[t],
+                       query=True, **common).report
+            rods[(node, t)] = r["renders"][0]["regionOfDefinition"].get("rod")
+            pars[node] = r["clipPreferences"]["clips"]["Output"]["pixelAspectRatio"]
     asked: dict[Node, dict[float, Any]] = {output: {float(t): window for t in frames}}
     needs: dict[tuple[Node, float], dict[str, float]] = {}  # (node, t) -> {clip: frame}
 
@@ -133,8 +190,8 @@ def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float 
         children = {c: v for c, v in node.inputs.items() if isinstance(v, Node)}
         if not children:
             continue
-        inputs = {c: ("default" if isinstance(v, Node) else v) for c, v in node.inputs.items()}
         for t, win in sorted(asked.get(node, {}).items()):
+            inputs = {c: (child_input(v, t) if isinstance(v, Node) else v) for c, v in node.inputs.items()}
             r = render(bundles, node.plugin, node.context, inputs, node.params, frames=[t],
                        window=win, query=True, **common).report
             x = r["renders"][0]
@@ -152,9 +209,11 @@ def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float 
                 if roi is None:
                     continue
                 par = clips[clip]["pixelAspectRatio"]
-                sx, sy = x["renderScale"]
-                px = (math.floor(roi[0] * sx / par), math.floor(roi[1] * sy),
-                      math.ceil(roi[2] * sx / par), math.ceil(roi[3] * sy))
+                px = _to_pixels(roi, *x["renderScale"], par)
+                crod = child_rod(child, fs[0])
+                if crod is not None:  # the child renders its RoD at most
+                    cpx = _to_pixels(crod, *x["renderScale"], pars.get(child, par))
+                    px = (max(px[0], cpx[0]), max(px[1], cpx[1]), min(px[2], cpx[2]), min(px[3], cpx[3]))
                 if px[0] < px[2] and px[1] < px[3]:
                     w = asked.setdefault(child, {})
                     w[fs[0]] = _union(w.get(fs[0]), px)
@@ -167,11 +226,18 @@ def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float 
             for clip, v in node.inputs.items():
                 if isinstance(v, Node):
                     f = needs.get((node, t), {}).get(clip)
-                    v = images.get((v, f)) if f is not None else None
-                    if v is None:  # not needed (empty RoI, nothing to render): transparent
-                        v = "solid:0,0,0,0"
+                    img = images.get((v, f)) if f is not None else None
+                    # not needed, or nothing rendered: transparent, with the input's RoD
+                    v = img if img is not None else child_input(v, t if f is None else f)
                 inputs[clip] = v
             r = render(bundles, node.plugin, node.context, inputs, node.params, frames=[t],
                        window=win, **common)
-            images[(node, t)] = next(iter(r.images.values()))
-    return {float(t): images[(output, float(t))] for t in frames}
+            images[(node, t)] = next(iter(r.images.values()), None)  # None: nothing rendered
+    out = {}
+    for t in frames:
+        img = images.get((output, float(t)))
+        if img is None:
+            raise HostDemoError(f"{output!r} renders nothing at time {t} (its RoD doesn't intersect "
+                                "the window, or the project if no window is given)")
+        out[float(t)] = img
+    return out

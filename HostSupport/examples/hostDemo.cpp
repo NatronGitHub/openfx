@@ -692,7 +692,7 @@ static void usage(const char* prog)
     "  -o prefix          write <prefix>.<t>[l|r].ppm|pfm (default: Output)\n"
     "  --format ppm|pfm   output format: plain 8-bit PPM (default), or float PFM\n"
     "  -d byte|short|float  input depth before clip preferences (default: byte)\n"
-    "  -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|none, or\n"
+    "  -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none, or\n"
     "                     file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]\n"
     "  --frames t,...     render (or query) at these times (default: 0,1)\n"
     "  --scale s[,sy]     render scale, in (0,1] (default: 1)\n"
@@ -912,7 +912,7 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
 // Returns false (after printing an error) on failure.
 static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstance* outputClip,
                         OfxTime t, int view, int nViews, const OfxPointD& renderScale,
-                        const OfxRectI* window, bool query,
+                        const OfxRectI* window, bool query, bool sequential,
                         bool allowUnwritten, const std::string& base, OutputFormat format,
                         Json* rep)
 {
@@ -1058,7 +1058,7 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
                                 kOfxImageFieldNone, // const std::string &  field,
                                 renderWindow, // const OfxRectI &renderRoI,
                                 renderScale, // OfxPointD   renderScale,
-                                true, // bool     sequentialRender,
+                                sequential, // bool     sequentialRender,
                                 false, // bool     interactiveRender,
 #ifdef OFX_SUPPORTS_OPENGLRENDER
                                 false, // bool     openGLRender,
@@ -1223,7 +1223,11 @@ static int run(int argc, char **argv)
         std::string error = "no clip name";
         if (eq == std::string::npos || eq == 0 || !MyHost::parseInputSpec(optarg.substr(eq + 1), spec, error)) {
           std::cerr << "Error: invalid input \"" << optarg << "\" (" << error
-                    << "), expected Clip=default|solid:r,g,b,a|ramp|checker:N|none|file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]" << std::endl;
+                    << "), expected Clip=default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none|file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]" << std::endl;
+          return 1;
+        }
+        if (inputSpecs.count(optarg.substr(0, eq))) {
+          std::cerr << "Error: input clip \"" << optarg.substr(0, eq) << "\" given twice (-i)" << std::endl;
           return 1;
         }
         inputs.push_back(std::make_pair(optarg.substr(0, eq), spec));
@@ -1243,6 +1247,19 @@ static int run(int argc, char **argv)
           }
           frames.push_back(f);
         }
+        // the output files are named after the time with 12 significant digits: distinct times
+        // must give distinct names
+        std::set<std::string> names;
+        for (size_t k = 0; k < frames.size(); ++k) {
+          std::ostringstream tname;
+          tname.precision(12);
+          tname << frames[k];
+          if (!names.insert(tname.str()).second) {
+            std::cerr << "Error: invalid frames \"" << optarg << "\": " << tname.str()
+                      << " is given twice to 12 significant digits (the output file names)" << std::endl;
+            return 1;
+          }
+        }
       } else if (arg == "--scale") {
         double s[2];
         if (parseDoubles(optarg, 1, s)) {
@@ -1258,8 +1275,11 @@ static int run(int argc, char **argv)
         renderScale.y = s[1];
       } else if (arg == "--window") {
         int w[4];
-        if (!parseInts(optarg, 4, w) || w[0] >= w[2] || w[1] >= w[3]) {
-          std::cerr << "Error: invalid render window \"" << optarg << "\", expected x1,y1,x2,y2 with x1<x2 and y1<y2" << std::endl;
+        if (!parseInts(optarg, 4, w) || w[0] >= w[2] || w[1] >= w[3] ||
+            (long long)w[2] - w[0] > 1000000 || (long long)w[3] - w[1] > 1000000 ||
+            ((long long)w[2] - w[0]) * ((long long)w[3] - w[1]) > (1LL << 28)) {
+          std::cerr << "Error: invalid render window \"" << optarg << "\", expected x1,y1,x2,y2 with x1<x2 and y1<y2, "
+                    << "at most 1000000 pixels wide or high and 2^28 pixels in all" << std::endl;
           return 1;
         }
         haveWindow = true;
@@ -1574,13 +1594,28 @@ static int run(int argc, char **argv)
     {
       const double firstFrame = *std::min_element(frames.begin(), frames.end());
       const double lastFrame = *std::max_element(frames.begin(), frames.end());
+      // kOfxImageEffectPropSequentialRenderStatus and kOfxImageEffectPropFrameStep: the frames are
+      // a sequential render if they increase with a constant step (any single frame is one)
+      double frameStep = 1.;
+      bool sequential = true;
+      if (frames.size() > 1) {
+        frameStep = frames[1] - frames[0];
+        for (size_t k = 1; k < frames.size(); ++k) {
+          if (!(frames[k] - frames[k - 1] > 0.) || std::fabs(frames[k] - frames[k - 1] - frameStep) > 1e-9) {
+            sequential = false;
+          }
+        }
+        if (!sequential) {
+          frameStep = 1.;
+        }
+      }
       const OfxRectI* win = haveWindow ? &window : NULL;
 
       // say we are about to render a bunch of frames (not for --query: the query actions may
       // be called outside a render sequence)
       OfxStatus stat = kOfxStatOK;
       if (!query) {
-        stat = instance->beginRenderAction(firstFrame, lastFrame, 1.0, false, renderScale, /*sequential=*/true, /*interactive=*/false,
+        stat = instance->beginRenderAction(firstFrame, lastFrame, frameStep, false, renderScale, sequential, /*interactive=*/false,
 #                                        ifdef OFX_SUPPORTS_OPENGLRENDER
                                            /*openGLRender=*/false,
 #                                        ifdef OFX_EXTENSIONS_NATRON
@@ -1611,7 +1646,7 @@ static int run(int argc, char **argv)
           std::ostringstream ss;
           ss << outputPrefix << "." << tname.str() << (view == 0 ? "l" : "r");
           Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, win, query, allowUnwritten, ss.str(), format, r)) {
+          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, r)) {
             ret = 1;
           }
         }
@@ -1619,14 +1654,14 @@ static int run(int argc, char **argv)
         std::ostringstream ss;
         ss << outputPrefix << "." << tname.str();
         Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, win, query, allowUnwritten, ss.str(), format, r)) {
+        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, r)) {
           ret = 1;
         }
 #endif
       }
 
       if (!query) {
-        stat = instance->endRenderAction(firstFrame, lastFrame, 1.0, false, renderScale, /*sequential=*/true, /*interactive=*/false,
+        stat = instance->endRenderAction(firstFrame, lastFrame, frameStep, false, renderScale, sequential, /*interactive=*/false,
 #                               ifdef OFX_SUPPORTS_OPENGLRENDER
                                   /*openGLRender=*/false,
 #                               ifdef OFX_EXTENSIONS_NATRON

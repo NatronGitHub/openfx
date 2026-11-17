@@ -191,12 +191,32 @@ _PREMULT = {"OfxImageAlphaPremultiplied": "premult", "OfxImageAlphaUnPremultipli
             "OfxImageOpaque": "opaque"}
 
 
+# as hostDemo parses it (hostDemoClipInstance.cpp): "#premult|#unpremult|#opaque" at the end,
+# then "@x1,y1", then the alpha file after the last ".pfm+"
+_FILE_SPEC = re.compile(r"(?P<rest>.*?)(?P<pos>@-?\d+,-?\d+)?(?P<premult>#(?:premult|unpremult|opaque))?$")
+
+
+def resolve_file_spec(spec: str, base: str | os.PathLike | None = None) -> str:
+    """Make the paths of a hostDemo "file:rgb.pfm[+alpha.pfm][@x1,y1][#premult]" input spec
+    absolute (relative to base, default the current directory), keeping the suffixes."""
+    body = spec[5:] if spec.startswith("file:") else spec
+    base = Path(base) if base is not None else Path.cwd()
+    m = _FILE_SPEC.match(body)
+    rest = m["rest"]
+    rgb, sep, alpha = rest.rpartition(".pfm+")
+    if sep:
+        out = "file:" + str((base / (rgb + ".pfm")).resolve()) + "+" + str((base / alpha).resolve())
+    else:
+        out = "file:" + str((base / rest).resolve())
+    return out + (m["pos"] or "") + (m["premult"] or "")
+
+
 def _input_spec(clip: str, value: Any, workdir: Path, index: int) -> str:
     if isinstance(value, os.PathLike):
         return "file:" + str(Path(value).resolve())
     if isinstance(value, str):
         if value.startswith("file:"):
-            return "file:" + str(Path(value[5:]).resolve())
+            return resolve_file_spec(value)
         return value
     bounds, premult = None, None
     if isinstance(value, Image):

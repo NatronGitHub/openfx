@@ -94,6 +94,15 @@ Builds use the same extension flags as the consumers (NATRON, NUKE...), so Natro
 
 - **Part B, graph execution, is implemented:** `ofxhost.graph` (about 180 lines): `Node`, `topological_order` (with cycle detection), `load` (a JSON graph file) and `execute(output, bundles, frames, scale, window)`. Outputs first, `--query` gives each node's frames needed and regions of interest. Requests for the same node and time are merged (the union of the windows). Inputs first, each node is rendered once per time, and its output becomes an `ofxhost.Image` input (bounds, alpha, premultiplication). `render()` takes `frames`, `scale`, `window` and `query`, and returns `images`; RGBA array inputs may have any alpha. `hostDemo.py -g graph.json` runs a graph file. Limits: the queries use project-sized inputs, and a node can use only one frame of each input node. Tests: topological order and cycles, loading, Invert(Invert(x)) = x at a render scale and window, alpha included, and a diamond (one node feeding two inputs) rendered once.
 
+- **Review of #117–#123 (two independent reviewers, after the merge), fixed:**
+  - images larger than 2^28 pixels are refused instead of overflowing (a blocker: `--window` had no limit);
+  - a clip given twice, times with the same file name, and NaN or infinite PFM input values are refused;
+  - begin/endSequenceRender and the render action declare the real frame step and sequential state;
+  - the Natron format of the default input is in pixels (720x576);
+  - ofxhost resolves both paths of `file:rgb.pfm+alpha.pfm`;
+  - the graph executor computes each node's RoD inputs first, so the queries see the real input RoDs (inputs outside the project were dropped or clipped), gives a transparent input with the right RoD when a node renders nothing, raises a clear error when the output renders nothing, and refuses a range of frames needed instead of collapsing it;
+  - graph files with errors give messages instead of tracebacks.
+
 ## Part B: Python test wrapper (`ofxhost`), subprocess first
 
 Each test must run in its own process anyway: HostSupport has process-wide singletons (`PluginCache::getPluginCache()`, `gImageEffectHost`), plug-ins can't be unloaded, and a crashing plug-in would take down the interpreter. So v1 is a pure-Python wrapper around the hostDemo CLI, not in-process bindings:

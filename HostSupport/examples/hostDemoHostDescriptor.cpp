@@ -82,6 +82,9 @@ namespace MyHost
     // MyEffectInstance::newParam() implements MyBytesInstance
     _properties.setIntProperty(kOfxHostSupportHostPropSupportsBytes, 1);
     _properties.setIntProperty(kOfxImageEffectPropSupportsMultipleClipPARs, 0);
+    // 2: "the host will have set kOfxImageEffectPropSequentialRenderStatus on the relevant
+    // actions" (hostDemo does, from --frames)
+    _properties.setIntProperty(kOfxImageEffectInstancePropSequentialRender, 2);
     _properties.setIntProperty(kOfxImageEffectPropSetableFrameRate, 0);
     _properties.setIntProperty(kOfxImageEffectPropSetableFielding, 0);
     _properties.setIntProperty(kOfxParamHostPropSupportsCustomInteract, 0 );
