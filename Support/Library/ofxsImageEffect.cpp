@@ -4482,7 +4482,12 @@ namespace OFX {
           gEffectDescriptors.erase(it);
         }
       }
-      { 
+      {
+        // The entry is kept, with a NULL _plug, instead of being erased: the other plug-ins of
+        // this binary may run actions on other threads (e.g. renders) while this one is
+        // unloaded, and their mainEntryStr looks up plugInfoMap. Erasing would change the
+        // map's structure under that lookup (a data race). The map's structure only changes
+        // in init(), before any action.
         OFX::OfxPlugInfoMap::iterator it = OFX::plugInfoMap.find(id);
         assert( it != OFX::plugInfoMap.end() );
         if (it != OFX::plugInfoMap.end() ) {
@@ -4492,7 +4497,7 @@ namespace OFX {
             (*it2) = 0;
           }
           delete plug;
-          OFX::plugInfoMap.erase(it);
+          it->second._plug = NULL; // (unloaded: OfxGetPlugin makes a new one)
         }
       }
     }
@@ -5488,7 +5493,7 @@ namespace OFX {
       try {
 
         OfxPlugInfoMap::iterator it = plugInfoMap.find(plugname);
-        if(it==plugInfoMap.end()) {
+        if(it==plugInfoMap.end() || it->second._plug == NULL) {
           // e.g. an action was sent after kOfxActionUnload. Don't use a bare "throw;" here:
           // there is no active exception, so it would call std::terminate().
           OFX::Log::error(true, "Action '%s' sent to unknown or unloaded plugin '%s'.", actionRaw, plugname);
@@ -6109,7 +6114,8 @@ We call the plugin side defined OFX::Plugin::getPluginIDs function to find out w
 OfxPlugin* OfxGetPlugin(int nth)
 {
   init();
-  // ofxPlugs has one entry per plugin returned by OfxGetNumberOfPlugins (plugInfoMap shrinks on unload)
+  // ofxPlugs has one entry per plugin returned by OfxGetNumberOfPlugins (an unloaded plugin's
+  // entry is 0, and its plugInfoMap entry has a NULL _plug)
   int numPlugs = (int)OFX::ofxPlugs.size();
   if (nth < 0 || nth >= numPlugs) {
     OFX::Log::error(true, "Host attempted to get plugin %d, when there is only %d plugin(s).", nth, numPlugs);
