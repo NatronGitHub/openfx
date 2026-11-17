@@ -680,8 +680,15 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NATRON
       bool hostSupportsKeyModifiers()
       {
-        return gImageEffectHost &&
-               gImageEffectHost->getProperties().getIntProperty(kNatronOfxInteractHostPropSupportsKeyModifiers) != 0;
+        if (!gImageEffectHost) {
+          return false;
+        }
+        const Property::Set &props = gImageEffectHost->getProperties();
+        return props.getIntProperty(kNatronOfxInteractHostPropSupportsKeyModifiers) != 0
+#  ifdef kOfxInteractHostPropSupportsKeyModifiers
+               || props.getIntProperty(kOfxInteractHostPropSupportsKeyModifiers) != 0
+#  endif
+               ;
       }
 #endif
 

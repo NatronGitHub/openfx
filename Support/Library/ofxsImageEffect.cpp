@@ -2743,11 +2743,15 @@ namespace OFX {
         return false;
       }
       int value = 0;
+      bool found = false;
 #ifdef kOfxInteractPropKeyModifiers
       // OFX 1.6: same bits as the Natron extension
-      if (gPropSuite->propGetInt(props.propSetHandle(), kOfxInteractPropKeyModifiers, 0, &value) != kOfxStatOK)
+      found = gPropSuite->propGetInt(props.propSetHandle(), kOfxInteractPropKeyModifiers, 0, &value) == kOfxStatOK;
 #endif
-      if (gPropSuite->propGetInt(props.propSetHandle(), kNatronOfxInteractPropKeyModifiers, 0, &value) != kOfxStatOK) {
+      if (!found) {
+        found = gPropSuite->propGetInt(props.propSetHandle(), kNatronOfxInteractPropKeyModifiers, 0, &value) == kOfxStatOK;
+      }
+      if (!found) {
         return false;
       }
       *modifiers = value & (kNatronOfxKeyModifierShift | kNatronOfxKeyModifierControl |

@@ -577,7 +577,7 @@ namespace OFX {
     /// proposed extension NatronGitHub/openfx#4); empty if the host doesn't support it
     std::vector<std::string> supportedCursors;
 
-    /// does the host pass the keyboard modifiers (kNatronOfxHostPropInteractKeyModifiers, extension 13
+    /// does the host pass the keyboard modifiers (kNatronOfxInteractHostPropSupportsKeyModifiers, extension 13
     /// of ofxNatron.h)? Informative only: ImageEffect::getKeyModifiers() works on all hosts.
     bool supportsInteractKeyModifiers;
 #endif

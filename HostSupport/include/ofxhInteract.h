@@ -203,6 +203,10 @@ namespace OFX {
         /// getKeyModifiers() makes plug-ins fall back to tracking, instead of silently reporting
         /// "no modifier".
         ///
+        /// When ofxInteract.h defines the OFX 1.6 names, either host property enables it, and both
+        /// kOfxInteractPropKeyModifiers and kNatronOfxInteractPropKeyModifiers are passed: the host
+        /// application should then set both host properties to 1.
+        ///
         /// A host application that sets kNatronOfxInteractHostPropSupportsKeyModifiers to 1 should
         /// override both functions in all its interacts. Not overriding them is safe: the plug-ins
         /// of that interact then get no property and fall back to tracking the modifier keys.
