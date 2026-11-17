@@ -117,7 +117,9 @@ outputPremultiplication, outputFielding, outputFrameRate, continuousSamples, fra
 
 Each `renders` item is one time and view: {time, view, renderScale, inputs {Clip: {connected,
 regionOfDefinition}} (null for a disconnected clip), regionOfDefinition {ok, status, rod},
-renderWindow, isIdentity {ok, status, identity, clip, time}, framesNeeded {ok, status, clips
+supportsTiles {effect, clips {Clip: bool}} (the instance's values, which a plug-in may change in
+instanceChanged: without tiles, the render window is the whole RoD and the input images are
+whole-RoD, if hostDemo can make images that large), renderWindow, isIdentity {ok, status, identity, clip, time}, framesNeeded {ok, status, clips
 {Clip: [[min,max]...]}}, regionsOfInterest {ok, status, regionOfInterest, clips {Clip:
 rect}}, render {ok, status, imageFetchErrors}, output}. `output` is null if nothing was
 written, else {w, h, bounds, depth (byte|short|float), comps (RGBA|RGB|Alpha), min, max,
@@ -171,8 +173,9 @@ nodes by name:
 
 `execute()` sorts the graph topologically. It runs hostDemo `--query` on each node, outputs
 first, to get the frames and regions it needs from its inputs. The requests for the same node
-and time are merged. Then it renders each node once per time, inputs first, and passes each
-output on with its bounds, alpha and premultiplication. Limits:
+and time are merged; an input of a node or clip without tiles is asked for its whole RoD (as
+hostDemo gives whole-RoD images then). Then it renders each node once per time, inputs first,
+and passes each output on with its bounds, alpha and premultiplication. Limits:
 - the queries use project-sized inputs, since the real ones aren't rendered yet;
 - a node can use only one frame of each input node, since hostDemo's inputs are the same
   image at all times.

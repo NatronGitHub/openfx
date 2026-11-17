@@ -49,6 +49,13 @@ class Node:
         return f"Node({self.name or self.plugin!r})"
 
 
+
+def _image_fits(px) -> bool:
+    """As hostDemo's imageFits (float RGBA): at most 2^28 pixels, rows of less than 2^31 bytes."""
+    w, h = px[2] - px[0], px[3] - px[1]
+    m = 1 << 28
+    return w <= m and h <= m and w * h <= m and w * 16 <= 0x7fffffff
+
 def topological_order(output: Node) -> list[Node]:
     """The nodes that output depends on, inputs first, output last. Raises ValueError on a
     cycle."""
@@ -208,8 +215,10 @@ def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float 
                 roi = x["regionsOfInterest"]["clips"].get(clip)
                 crod = child_rod(child, fs[0])
                 tiles = x.get("supportsTiles") or {}
-                if not (tiles.get("effect", True) and tiles.get("clips", {}).get(clip, True)) and crod is not None:
-                    # no tiles: hostDemo fetches the whole RoD of the input (kOfxImageEffectPropSupportsTiles)
+                if (not (tiles.get("effect", True) and tiles.get("clips", {}).get(clip, True)) and crod is not None
+                        and _image_fits(_to_pixels(crod, *x["renderScale"], pars.get(child, clips[clip]["pixelAspectRatio"])))):
+                    # no tiles: hostDemo fetches the whole RoD of the input (kOfxImageEffectPropSupportsTiles),
+                    # unless it is too large for hostDemo
                     roi = crod
                 if roi is None:
                     continue

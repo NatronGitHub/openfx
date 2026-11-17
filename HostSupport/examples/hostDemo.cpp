@@ -972,14 +972,18 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
   const OfxRectI rodPixels = MyHost::canonicalToPixelEnclosing(rod, renderScale, par);
   OfxRectI renderWindow = MyHost::intersect(rodPixels, window ? *window : instance->getProjectPixelRect(renderScale));
   if (!outputTiles) {
+    // (each warning once per run, not per frame and view)
+    static bool warnedWindow = false, warnedLarge = false;
     if (MyHost::imageFits(rodPixels)) {
-      if (window && (renderWindow.x1 != rodPixels.x1 || renderWindow.y1 != rodPixels.y1 ||
-                     renderWindow.x2 != rodPixels.x2 || renderWindow.y2 != rodPixels.y2)) {
-        std::cerr << "Warning: the plug-in doesn't support tiles: rendering the whole RoD, not --window" << std::endl;
+      if (window && !warnedWindow && (renderWindow.x1 != rodPixels.x1 || renderWindow.y1 != rodPixels.y1 ||
+                                      renderWindow.x2 != rodPixels.x2 || renderWindow.y2 != rodPixels.y2)) {
+        warnedWindow = true;
+        std::cerr << "Warning: the plug-in or its output clip doesn't support tiles: rendering the whole RoD, not --window" << std::endl;
       }
       renderWindow = rodPixels;
-    } else {
-      std::cerr << "Warning: the plug-in doesn't support tiles, but its RoD (" << rod.x1 << "," << rod.y1 << ","
+    } else if (!warnedLarge) {
+      warnedLarge = true;
+      std::cerr << "Warning: the plug-in or its output clip doesn't support tiles, but the RoD (" << rod.x1 << "," << rod.y1 << ","
                 << rod.x2 << "," << rod.y2 << ") is too large for hostDemo: rendering "
                 << (window ? "--window" : "the project") << " instead" << std::endl;
     }
@@ -1305,7 +1309,7 @@ static int run(int argc, char **argv)
         int w[4];
         if (!parseInts(optarg, 4, w) || w[0] >= w[2] || w[1] >= w[3] ||
             (long long)w[2] - w[0] > 1000000 || (long long)w[3] - w[1] > 1000000 ||
-            ((long long)w[2] - w[0]) * ((long long)w[3] - w[1]) > (1LL << 28)) {
+            ((long long)w[2] - w[0]) * ((long long)w[3] - w[1]) > MyHost::kMaxImagePixels) {
           std::cerr << "Error: invalid render window \"" << optarg << "\", expected x1,y1,x2,y2 with x1<x2 and y1<y2, "
                     << "at most 1000000 pixels wide or high and 2^28 pixels in all" << std::endl;
           return 1;

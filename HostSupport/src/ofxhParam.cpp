@@ -879,7 +879,8 @@ namespace OFX {
         return kOfxStatErrBadIndex; // "the nthKey does not exist"
       }
 
-      OfxStatus KeyframeParam::getKeyIndex(OfxTime /*time*/, int /*direction*/, int & /*index*/) const {
+      OfxStatus KeyframeParam::getKeyIndex(OfxTime /*time*/, int /*direction*/, int &index) const {
+        index = -1; // "set to -1 if no key was found"
         return kOfxStatFailed; // "the search failed to find a key"
       }
 

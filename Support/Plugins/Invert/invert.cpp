@@ -104,16 +104,21 @@ public :
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-/** @brief The plugin that does our work */
-// a test of hosts: unchecked, the instance doesn't support tiles (kOfxImageEffectPropSupportsTiles=0)
+// Two parameters to test hosts (a real plug-in wouldn't have them):
+// - supportsTiles, unchecked: the instance doesn't support tiles (kOfxImageEffectPropSupportsTiles=0);
+// - testSmallRoI, checked: the plug-in asks for the centre of the region it needs only, so the
+//   output is right only if the host gives it whole-RoD images (as it must without tiles).
 #define kParamSupportsTiles "supportsTiles"
+#define kParamTestSmallRoI "testSmallRoI"
 
+/** @brief The plugin that does our work */
 class InvertPlugin : public OFX::ImageEffect {
 protected :
   // do not need to delete these, the ImageEffect is managing them for us
   OFX::Clip *dstClip_;
   OFX::Clip *srcClip_;
   OFX::BooleanParam *supportsTiles_;
+  OFX::BooleanParam *testSmallRoI_;
 
 public :
   /** @brief ctor */
@@ -122,13 +127,28 @@ public :
     , dstClip_(NULL)
     , srcClip_(NULL)
     , supportsTiles_(NULL)
+    , testSmallRoI_(NULL)
   {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
     supportsTiles_ = fetchBooleanParam(kParamSupportsTiles);
-    // the instance's value of kOfxImageEffectPropSupportsTiles follows the parameter (it may be
-    // changed in createInstance and instanceChanged since OFX 1.4)
+    testSmallRoI_ = fetchBooleanParam(kParamTestSmallRoI);
+    // the instance's value of kOfxImageEffectPropSupportsTiles follows the parameter. OFX 1.4
+    // defines changing it in instanceChanged; setting it here, in createInstance, works with
+    // HostSupport and Natron
     setSupportsTiles(supportsTiles_->getValue());
+  }
+
+  /* testSmallRoI: the centre half of the region needed only */
+  virtual void getRegionsOfInterest(const OFX::RegionsOfInterestArguments &args, OFX::RegionOfInterestSetter &rois)
+  {
+    if (!testSmallRoI_->getValue()) {
+      return; // the default: the region needed
+    }
+    const OfxRectD& r = args.regionOfInterest;
+    const double dx = (r.x2 - r.x1) / 4, dy = (r.y2 - r.y1) / 4;
+    OfxRectD roi = { r.x1 + dx, r.y1 + dy, r.x2 - dx, r.y2 - dy };
+    rois.setRegionOfInterest(*srcClip_, roi);
   }
 
   /* the instance supports tiles if the parameter is checked */
@@ -136,8 +156,9 @@ public :
   {
     if (paramName == kParamSupportsTiles) {
       setSupportsTiles(supportsTiles_->getValue());
-      // also a test of the host's keyframe functions on a parameter without keys: ofxParam.h
-      // allows only kOfxStatOK or kOfxStatErrBadHandle (Support throws on any other status)
+      // also a test of the host's keyframe functions on a parameter without keys (a real plug-in
+      // wouldn't do this): ofxParam.h allows only kOfxStatOK or kOfxStatErrBadHandle for these
+      // (Support throws on any other status)
       if (supportsTiles_->getNumKeys() != 0) {
         OFX::throwSuiteStatusException(kOfxStatFailed);
       }
@@ -302,6 +323,14 @@ void InvertExamplePluginFactory::describeInContext(OFX::ImageEffectDescriptor &d
                  "A test of hosts: the result is the same.");
   tiles->setDefault(true);
   tiles->setAnimates(false);
+
+  BooleanParamDescriptor *smallRoI = desc.defineBooleanParam(kParamTestSmallRoI);
+  smallRoI->setLabel("Test: Small RoI");
+  smallRoI->setHint("Checked, the plug-in asks for the centre of the region it needs only: the output is right "
+                    "only where the host gives it more, e.g. everywhere if Supports Tiles is unchecked (the host "
+                    "must then give whole-RoD images). A test of hosts.");
+  smallRoI->setDefault(false);
+  smallRoI->setAnimates(false);
 }
 
 OFX::ImageEffect* InvertExamplePluginFactory::createInstance(OfxImageEffectHandle handle, OFX::ContextEnum /*context*/)

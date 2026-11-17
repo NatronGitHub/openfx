@@ -107,8 +107,11 @@ namespace MyHost {
   /// the smallest rectangle in pixel coordinates enclosing a rectangle in canonical coordinates
   /// (coordinates beyond the int range, e.g. of an infinite RoD, are clamped to it)
   OfxRectI canonicalToPixelEnclosing(const OfxRectD& r, const OfxPointD& renderScale, double par);
-  /// true if hostDemo can make an image with these bounds (MyImage refuses more than 2^28 pixels)
-  bool imageFits(const OfxRectI& bounds);
+  /// the largest image hostDemo makes, in pixels (MyImage refuses larger ones)
+  const long long kMaxImagePixels = 1LL << 28;
+  /// true if hostDemo can make an image with these bounds and bytes per pixel (at most
+  /// kMaxImagePixels pixels, and rows of less than 2^31 bytes; the default is float RGBA)
+  bool imageFits(const OfxRectI& bounds, int bytesPerPixel = 16);
 
   /// number of image fetches that failed because of an unsupported pixel depth or components
   /// (hostDemo then exits with a non-zero status)

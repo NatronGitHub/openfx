@@ -2202,7 +2202,9 @@ namespace OFX {
     OfxStatus stat = OFX::Private::gParamSuite->paramGetKeyTime(_paramHandle, nthKey, &v);
 
     // oops?
-    if(stat == kOfxStatFailed) throw std::out_of_range("ValueParam::getKeyTime key index out of range");
+    // kOfxStatErrBadIndex is what ofxParam.h specifies ("the nthKey does not exist"), kOfxStatFailed
+    // what older hosts return
+    if(stat == kOfxStatFailed || stat == kOfxStatErrBadIndex) throw std::out_of_range("ValueParam::getKeyTime key index out of range");
     throwSuiteStatusException(stat); 
     return v;
   }
@@ -2243,7 +2245,9 @@ namespace OFX {
 #  endif
     if(!OFX::Private::gParamSuite->paramDeleteKey) throwHostMissingSuiteException("paramDeleteKey");
     OfxStatus stat = OFX::Private::gParamSuite->paramDeleteKey(_paramHandle, time);
-    if(stat == kOfxStatFailed) return; // if no key at time, fail quietly
+    // if no key at time, fail quietly: kOfxStatErrBadIndex is what ofxParam.h specifies ("no key at
+    // the given time"), kOfxStatFailed what older hosts return
+    if(stat == kOfxStatFailed || stat == kOfxStatErrBadIndex) return;
     throwSuiteStatusException(stat); 
   }
 

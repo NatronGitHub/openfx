@@ -569,9 +569,7 @@ namespace MyHost {
     // in gImageErrors, like the other image fetch errors)
     const long long width = (long long)_bounds.x2 - (long long)_bounds.x1;
     const long long height = (long long)_bounds.y2 - (long long)_bounds.y1;
-    const long long kMaxImagePixels = 1LL << 28;
-    if (width > kMaxImagePixels || height > kMaxImagePixels || width * height > kMaxImagePixels ||
-        width * _nComps * _bytesPerComp > 0x7fffffffLL) {
+    if (!imageFits(_bounds, _nComps * _bytesPerComp)) {
       std::cerr << "Error: image of " << width << "x" << height << " pixels at time " << time
                 << ": too large (more than " << kMaxImagePixels << " pixels)" << std::endl;
       ++gImageErrors;
@@ -992,12 +990,12 @@ namespace MyHost {
     return p;
   }
 
-  bool imageFits(const OfxRectI& b)
+  bool imageFits(const OfxRectI& b, int bytesPerPixel)
   {
     const long long width = (long long)b.x2 - (long long)b.x1;
     const long long height = (long long)b.y2 - (long long)b.y1;
-    const long long kMaxImagePixels = 1LL << 28; // as in MyImage
-    return width <= kMaxImagePixels && height <= kMaxImagePixels && width * height <= kMaxImagePixels;
+    return width <= kMaxImagePixels && height <= kMaxImagePixels && width * height <= kMaxImagePixels &&
+           width * bytesPerPixel <= 0x7fffffffLL;
   }
 
   MyImage* MyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds)
@@ -1040,9 +1038,25 @@ namespace MyHost {
     // render, else the RoD; clipped to the RoD.
     // kOfxImageEffectPropSupportsTiles: "If a clip or plugin does not support tiled images, then
     // the host should supply full RoD images to the effect whenever it fetches one."
+    // (If the RoD is too large for hostDemo, e.g. infinite, the RoI or optionalBounds are used,
+    // clipped to the render window if they are still too large: HostSupport's default RoI of a
+    // clip without tiles is its RoD.)
     OfxRectD region = rodCanonical;
     OfxRectD roi;
-    if (!(_effect->supportsTiles() && supportsTiles())) {
+    bool wholeRoD = !(_effect->supportsTiles() && supportsTiles());
+    bool tooLarge = false;
+    if (wholeRoD && !imageFits(rod)) {
+      tooLarge = true;
+      static bool warned = false; // (once per run)
+      if (!warned) {
+        warned = true;
+        std::cerr << "Warning: clip " << _name << ": the plug-in or the clip doesn't support tiles, but the RoD ("
+                  << rodCanonical.x1 << "," << rodCanonical.y1 << "," << rodCanonical.x2 << "," << rodCanonical.y2
+                  << ") is too large for hostDemo: fetching the region of interest instead" << std::endl;
+      }
+      wholeRoD = false;
+    }
+    if (wholeRoD) {
       // the full RoD
     } else if (optionalBounds) {
       region = *optionalBounds;
@@ -1054,6 +1068,9 @@ namespace MyHost {
       return NULL; // nothing to fetch
     }
     OfxRectI bounds = intersect(canonicalToPixelEnclosing(region, renderScale, par), rod);
+    if (tooLarge && !imageFits(bounds) && _effect->isRendering()) {
+      bounds = intersect(bounds, _effect->getRenderWindow());
+    }
     if (bounds.x2 <= bounds.x1 || bounds.y2 <= bounds.y1) {
       return NULL;
     }
