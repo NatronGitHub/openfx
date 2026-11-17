@@ -205,7 +205,8 @@ endfunction()
 #   only have the @loader_path rpaths), as Makefile.master's -Wl,-rpath: installers
 #   (osxDeploy.sh, Natron's Linux installer) find the libraries there, then rewrite the rpath.
 #   Unlike Makefile.master's list, it has no system directory (/usr/lib64, ...): CMake leaves
-#   out its implicit link directories, which the loader searches anyway.
+#   out its implicit link directories, which the loader searches anyway. (CMake puts the
+#   directories of the linked libraries before the others in the installed binary.)
 # - The installed binary is mode 755 (Debian's CMake strips the execute bit of modules).
 # - OFX_OPTFLAG is added to the compile options of the release configurations (not with MSVC).
 # - RPATH and OFX_PLUGIN_RPATH are ignored on Windows.
@@ -305,8 +306,8 @@ function(add_ofx_plugin TARGET)
     set_property(TARGET ${TARGET} APPEND PROPERTY LINK_DEPENDS "${_exports}")
   endif()
 
-  # Install rpath: the libraries that the installers put in the bundle, then the explicit extra
-  # directories, then (CMake) the directories of the linked libraries outside the project
+  # Install rpath: the libraries that the installers put in the bundle and the explicit extra
+  # directories, plus (CMake, first) the directories of the linked libraries outside the project
   if(APPLE)
     set(_rpath "@loader_path/../Frameworks;@loader_path/../Libraries")
   elseif(CMAKE_SYSTEM_NAME MATCHES "Linux|FreeBSD")
