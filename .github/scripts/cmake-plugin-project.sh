@@ -25,6 +25,16 @@ run() { # mode: package | subdirectory
   # with add_subdirectory(openfx), BUILD_EXAMPLE_HOSTS=ON still gives the hostDemo target
   if [ "$mode" = subdirectory ]; then cmake --build "$w/build" --parallel --target hostDemo; fi
   cmake --install "$w/build" 2>&1 | tee "$w/install.log"
+  if [ "$os" = Darwin ]; then
+    # installing again: the plug-in binaries are copied again (not "Up-to-date"), so that the
+    # install rpaths aren't added twice (install_name_tool: "would duplicate path"). The race
+    # (signed within the second of the link: the same mtime as the built file) is forced here.
+    for f in "$w/install/OFX/Plugins"/*.ofx.bundle/Contents/MacOS/*.ofx; do
+      touch -r "$w/build/Plugins/${f#"$w/install/OFX/Plugins/"}" "$f"
+    done
+    cmake --install "$w/build" > "$w/install2.log" 2>&1 || { cat "$w/install2.log"; fail "second install"; }
+    if grep -E "Up-to-date: .*\.ofx$|would duplicate" "$w/install2.log"; then fail "second install: binaries not copied again"; fi
+  fi
   if [ "$deploy" = ON ]; then
     warned=$(tr -s ' \n' ' ' < "$w/install.log" | grep -oE '[A-Za-z]+\.(ofx|dylib) \([a-z0-9_]+\) requires macOS' | sort -u | tr '\n' ' ' || true)
     echo "minos warnings: $warned"
@@ -85,7 +95,10 @@ done
 # the extra rpath of the non-deployed TestPlist
 tp="$installed/TestPlist.ofx.bundle/Contents/$arch/TestPlist.ofx"
 case $os in
-  Darwin) otool -l "$tp" | grep -q ' path /opt/ofx-test-rpath ' || fail "TestPlist: no RPATH /opt/ofx-test-rpath" ;;
+  Darwin) otool -l "$tp" | grep -q ' path /opt/ofx-test-rpath ' || fail "TestPlist: no RPATH /opt/ofx-test-rpath"
+          # a non-deployed plug-in with OpenMP: exactly Makefile.master's two (no libomp directory)
+          op=$(otool -l "$installed/TestOmpNoDeploy.ofx.bundle/Contents/MacOS/TestOmpNoDeploy.ofx" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }' | tr '\n' ' ')
+          [ "$op" = "@loader_path/../Frameworks @loader_path/../Libraries " ] || fail "TestOmpNoDeploy rpath: '$op'" ;;
   Linux|FreeBSD) readelf -d "$tp" | grep -q '/opt/ofx-test-rpath' || fail "TestPlist: no RPATH /opt/ofx-test-rpath" ;;
 esac
 if [ "$os" = Darwin ]; then

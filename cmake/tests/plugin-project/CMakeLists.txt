@@ -34,6 +34,13 @@ if(OFX_TEST_REQUIRE_OPENMP)
 else()
   ofx_target_openmp(TestInvert)
 endif()
+# Apple clang: a dependency that links -lomp by name (as a static ImageMagick's .pc does) finds
+# libomp through the link directory that ofx_target_openmp adds
+if(OFX_TEST_REQUIRE_OPENMP AND APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+  add_library(TestOmpByName INTERFACE)
+  target_link_libraries(TestOmpByName INTERFACE omp)
+  target_link_libraries(TestInvert PRIVATE TestOmpByName)
+endif()
 ofx_deploy_bundle(TestInvert)
 
 # the plug-in's own Info.plist, used as-is
@@ -65,3 +72,8 @@ add_subdirectory(filter-a)
 add_subdirectory(filter-b)
 target_link_libraries(TestPlist openfx::Support OpenGL::GL Test::MissingInc) # the plain form works too
 ofx_plugin_resources(TestPlist icon.txt) # not deployed: the installed bundle's signature must still be valid
+
+# not deployed, with OpenMP: on macOS its install rpath is Makefile.master's (no libomp directory)
+add_ofx_plugin(TestOmpNoDeploy SOURCES "${OFX_SOURCE_DIR}/Support/Plugins/Basic/basic.cpp")
+target_link_libraries(TestOmpNoDeploy PRIVATE openfx::Support OpenGL::GL)
+ofx_target_openmp(TestOmpNoDeploy)

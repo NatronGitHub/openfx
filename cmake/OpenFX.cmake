@@ -199,8 +199,9 @@ endfunction()
 #   plug-ins that link static libraries, e.g. OSMesa or LLVM).
 # - Install rpath: @loader_path/../Frameworks and @loader_path/../Libraries on macOS,
 #   $ORIGIN/../../Libraries on Linux and FreeBSD (libraries bundled by the installers), then the
-#   RPATH and OFX_PLUGIN_RPATH directories, then the directories of the linked libraries outside
-#   the project (INSTALL_RPATH_USE_LINK_PATH), as Makefile.master's -Wl,-rpath: installers
+#   RPATH and OFX_PLUGIN_RPATH directories, then (not on macOS, where libraries have absolute
+#   install names) the directories of the linked libraries outside the project
+#   (INSTALL_RPATH_USE_LINK_PATH), as Makefile.master's -Wl,-rpath: installers
 #   (osxDeploy.sh, Natron's Linux installer) find the libraries there, then rewrite the rpath.
 #   Unlike Makefile.master's list, it has no system directory (/usr/lib64, ...): CMake leaves
 #   out its implicit link directories, which the loader searches anyway.
@@ -314,7 +315,12 @@ function(add_ofx_plugin TARGET)
   endif()
   if(NOT WIN32)
     list(APPEND _rpath ${OFX_RPATH} ${OFX_PLUGIN_RPATH})
-    set_target_properties(${TARGET} PROPERTIES INSTALL_RPATH "${_rpath}" INSTALL_RPATH_USE_LINK_PATH ON)
+    set_target_properties(${TARGET} PROPERTIES INSTALL_RPATH "${_rpath}")
+    if(NOT APPLE)
+      # (macOS: the libraries of MacPorts and Homebrew have absolute install names, so their
+      # directories aren't needed, and Makefile.master only has the @loader_path ones)
+      set_target_properties(${TARGET} PROPERTIES INSTALL_RPATH_USE_LINK_PATH ON)
+    endif()
   endif()
   ofx_target_optflag(${TARGET})
 
@@ -333,6 +339,19 @@ function(add_ofx_plugin TARGET)
   # (on Windows, the import library of the DLL is not installed)
   set(_perms PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
                          WORLD_READ WORLD_EXECUTE)
+  if(APPLE)
+    if(IS_ABSOLUTE "${_dest}")
+      set(_bin "${_dest}/${ARCHDIR}/${OFX_BUNDLE_NAME}.ofx")
+    else()
+      set(_bin "\${CMAKE_INSTALL_PREFIX}/${_dest}/${ARCHDIR}/${OFX_BUNDLE_NAME}.ofx")
+    endif()
+    string(REPLACE "/./" "/" _bin "${_bin}") # (PLUGIN_INSTALLDIR=.: for the messages)
+    # macOS: a new copy at each install. The installed binary is signed again after install (see
+    # _ofx_install_sign); if that happens within the second of the link, CMake later finds it
+    # "Up-to-date", doesn't copy it, but still adds the install rpaths again (install_name_tool:
+    # "would duplicate path")
+    install(CODE "file(REMOVE \"\$ENV{DESTDIR}${_bin}\")")
+  endif()
   install(
     TARGETS ${TARGET}
     LIBRARY DESTINATION "${_dest}/${ARCHDIR}" ${_perms}
@@ -340,11 +359,6 @@ function(add_ofx_plugin TARGET)
     ARCHIVE DESTINATION "${_dest}/${ARCHDIR}" EXCLUDE_FROM_ALL)
   install(FILES "${_info}" DESTINATION "${_dest}" RENAME Info.plist)
   if(APPLE)
-    if(IS_ABSOLUTE "${_dest}")
-      set(_bin "${_dest}/${ARCHDIR}/${OFX_BUNDLE_NAME}.ofx")
-    else()
-      set(_bin "\${CMAKE_INSTALL_PREFIX}/${_dest}/${ARCHDIR}/${OFX_BUNDLE_NAME}.ofx")
-    endif()
     set_target_properties(${TARGET} PROPERTIES OFX_INSTALLED_BINARY "${_bin}")
     _ofx_install_sign(${TARGET})
   endif()
@@ -423,6 +437,16 @@ function(ofx_plugin_resources TARGET)
   add_dependencies(${TARGET} ${_rt})
 endfunction()
 
+# Apple clang: the directory of libomp (OFX_LIBOMP_LIBRARY) on the link path of the target, so that
+# its other dependencies built with OpenMP find it too, e.g. a static ImageMagick whose .pc has
+# -lomp (MacPorts' lib/libomp isn't searched by default)
+function(_ofx_libomp_link_directory TARGET)
+  if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang" AND OFX_LIBOMP_LIBRARY)
+    get_filename_component(_dir "${OFX_LIBOMP_LIBRARY}" DIRECTORY)
+    target_link_directories(${TARGET} PRIVATE "${_dir}")
+  endif()
+endfunction()
+
 # Compile and link a target with OpenMP, if OFX_USE_OPENMP is ON:
 #
 #   ofx_target_openmp(<target> [REQUIRED])
@@ -432,6 +456,8 @@ endfunction()
 # With Apple clang, it sets OpenMP_CXX_FLAGS, OpenMP_CXX_LIB_NAMES and OpenMP_omp_LIBRARY as
 # normal variables before find_package(OpenMP), so they hide the cache entries of the same
 # names: -DOpenMP_CXX_FLAGS=... is ignored there. Use OFX_LIBOMP_ROOT to choose another libomp.
+# The directory of libomp is also added to the target's link directories (Apple clang), for its
+# dependencies that link -lomp.
 # MSYS2: OpenMP needs the mingw-w64-ucrt-x86_64-libgomp package, and the plug-in then depends on
 # libgomp-1.dll (also with -static-libgcc -static-libstdc++).
 function(ofx_target_openmp TARGET)
@@ -441,6 +467,7 @@ function(ofx_target_openmp TARGET)
   endif()
   if(TARGET OpenMP::OpenMP_CXX) # found by an earlier call
     target_link_libraries(${TARGET} PRIVATE OpenMP::OpenMP_CXX)
+    _ofx_libomp_link_directory(${TARGET})
     return()
   endif()
   if(APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
@@ -467,6 +494,7 @@ function(ofx_target_openmp TARGET)
   find_package(OpenMP COMPONENTS CXX)
   if(TARGET OpenMP::OpenMP_CXX)
     target_link_libraries(${TARGET} PRIVATE OpenMP::OpenMP_CXX)
+    _ofx_libomp_link_directory(${TARGET})
   elseif(OFX_REQUIRED)
     message(FATAL_ERROR "ofx_target_openmp(${TARGET}): OpenMP not found (MacPorts: port install libomp; MSYS2: pacboy libgomp:p)")
   else()
