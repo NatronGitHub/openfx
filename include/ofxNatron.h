@@ -621,12 +621,21 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
 
  6) The kOfxInteractPropPenPosition and kOfxInteractPropPenViewportPosition properties have been added to all overlay interacts actions as they are sometimes needed to know the position of the cursor during the draw action, for example to draw something only if the cursor is in the window.
 
- 7) Add a way to use the host native selection rectangle to define the selection of items. To advertise to the host that we are interested in the selection state of the rectangle, we declare a Int parameter with the name kNatronOfxParamSelectionRectangleState. The host notifies the plug-in of the selection state change via the kOfxActionInstanceChanged action.
+ 7) Add a way to use the host native selection rectangle to define the selection of items. To advertise to the host that we are interested in the selection state of the rectangle, we declare a Int parameter with the name kNatronOfxParamSelectionRectangleState. The host notifies the plug-in of the selection state change via the kOfxActionInstanceChanged action, with kOfxPropChangeReason = kOfxChangeUserEdited (not kOfxChangePluginEdited).
      The value of the parameter can be 3-fold:
          0 meaning that the selection has been cleared by the user
-         1 meaning that the selection is being actively edited by the user (i.e: during pen motion)
-         2 meaning that the selection is finilized by the user (i.e: during pen up)
-    The property kNatronOfxImageEffectSelectionRectangle will be updated prior to calling the kOfxActionInstanceChanged action for this parameter by the host, indicating the region covered by the selection rectangle. 
+         1 meaning that the selection is being actively edited by the user (e.g. during pen motion)
+         2 meaning that the selection is finalized by the user (e.g. on pen up)
+    The property kNatronOfxImageEffectSelectionRectangle is updated on the effect instance before the host calls the kOfxActionInstanceChanged action for this parameter, indicating the region covered by the selection rectangle, in canonical coordinates (those of kOfxInteractPropPenPosition), with x1 <= x2 and y1 <= y2; it is (0,0,0,0) after a clear.
+    The parameter should have the following property settings, like the undo/redo parameters of extension 11):
+     - kOfxParamPropEvaluateOnChange = 0 (otherwise every pen motion during a drag would render the effect and everything downstream)
+     - kOfxParamPropPersistent = 0 (so that the selection state is not saved in projects)
+     - kOfxParamPropSecret = 1
+     - kOfxParamPropAnimates = 0 and kOfxParamPropCanUndo = 0 are recommended too (a state that follows the pen should get no keyframes and no undo entries)
+    The plug-in should declare the default 0 and never set the parameter itself. A host may enforce these settings, with a warning.
+    The host calls the kOfxActionInstanceChanged action for this parameter on every update of the rectangle and on every clear, even if the value of the parameter doesn't change (e.g. 1 during each pen motion).
+    A host may send the updates (1 and 2) only to the effect whose overlay is displayed, and only if the pen moved since the pen down; it may send clears (0) to every effect that has the parameter, at any time, e.g. when the user clicks on an empty area of the viewer: a plug-in must accept a clear without a preceding update. The host starts a selection rectangle only on a pen down that no overlay interact caught, so the overlay should not return kOfxStatOK from kOfxInteractActionPenDown where the user may start a selection. Natron sends a clear on that pen down, unless Ctrl (Cmd on macOS) alone is held: a host may start a new rectangle without a clear, to extend the selection, so a 1 after a 2 starts a new rectangle. The instanceChanged action gives no modifiers: a plug-in that keeps its selection on a clear when a modifier is held must track it through its overlay's kOfxInteractActionKeyDown and kOfxInteractActionKeyUp (e.g. Natron's RotoPaint keeps it with Shift, which Natron doesn't treat specially; by default, Ctrl+click over an image is Natron's colour picker, so the "Ctrl alone, no clear" case only happens where the picker doesn't take the click, e.g. outside the image).
+    Compatibility: Natron versions without Natron#1196 (2.6.0-alpha1 and earlier) only look for a parameter named "NatronOfxImageEffectSelectionRectangle" (the name of the property), and don't force the notification (a drag that keeps the value at 1 notifies once); later versions still accept that name.
 
  8) DEPRECATED, see kNatronOfxParamCursorName. The host application cursor can be controled by the plug-in via a secret String parameter with the name kNatronOfxParamCursorName. If this parameter is found, the host should display a cursor depending on the value of this parameter.  The value of the parameter should be the name of the cursor. Several default cursor can be made available by the host as advertised by the kNatronOfxImageEffectPropDefaultCursors property. The plug-in may also embed custom cursors as PNG files located in the Resources directory of the plug-in bundle. To specify one the image in the plug-in bundle as an icon, you may set the value of this parameter to the filename of the image without any leading path. This is up to the host to figure out the path to the plug-in bundle Resources directory.
      Whenever an event is sent to overlay interacts (PenDown, PenMotion, PenUp, KeyDown, KeyUp, KeyRepeat, GainFocus, LoseFocus, the OFX Host should set the cursor to the one of the first interact which catches the event by returning kOfxStatOK to the corresponding action. If no overlay interact returns kOfxStatOK, the cursor should be set to the default cursor.
@@ -800,12 +809,12 @@ property is set to 1.
 
 /**
  double property that defines the current selection rectangle drawn by the user on the host viewport.
- See 7) for the associated extension. This value is refreshed whenever calling the kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState to let the plug-in a change to correctly synchronized its selection.
+ See 7) for the associated extension. The host updates this value before it calls the kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState, so that the plug-in can synchronize its selection.
 
  - Type - double x 4
- - Property Set - plugin parameter descriptor (read/write) and instance (read/write)
+ - Property Set - image effect instance (read only for the plug-in, written by the host). Also present on the image effect descriptor, where it is always (0,0,0,0).
  - Default - (0,0,0,0)
- - Valid Values - (x1,y1,x2,y2) quadruplet such as x1 < x2 and y1 < y2
+ - Valid Values - (x1,y1,x2,y2) in canonical coordinates, with x1 <= x2 and y1 <= y2; (0,0,0,0) when there is no selection
 
     @propdef
     type: double

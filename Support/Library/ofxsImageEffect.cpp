@@ -1299,8 +1299,8 @@ namespace OFX {
     _effectProps.propSetInt(kNatronOfxPropDescriptionIsMarkdown, (int)markdown, 0, false);
   }
 
-  /*The current selection rectangle drawn by the user on the host viewport.
-   This property is refreshed whenever calling the kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState to let the plug-in a change to correctly synchronized its selection.
+  /* The selection rectangle property of the descriptor (deprecated: the host updates the
+   property on the instance, see ImageEffect::getSelectionRectangle()).
    */
   OfxRectI ImageEffectDescriptor::getSelectionRectangle()
   {

@@ -908,11 +908,12 @@ namespace OFX {
       /** @brief Indicates if the plug-in description is written in markdown or plain-text otherwise. */
       void setDescriptionIsMarkdown(bool markdown);
 
-      /** @brief The current selection rectangle drawn by the user on the host viewport.
+      /** @brief The selection rectangle property of the descriptor, clamped and rounded outward to integers.
 
-       This property is refreshed whenever calling the kOfxActionInstanceChanged action 
-       for the parameter kNatronOfxParamSelectionRectangleState to let the plug-in a change
-       to correctly synchronized its selection.
+       @deprecated The host updates kNatronOfxImageEffectSelectionRectangle on the effect instance,
+       before the kOfxActionInstanceChanged action for the parameter
+       kNatronOfxParamSelectionRectangleState: use ImageEffect::getSelectionRectangle() there.
+       Kept for source compatibility.
        */
       OfxRectI getSelectionRectangle();
 
@@ -2087,8 +2088,8 @@ namespace OFX {
 
     /** @brief The current selection rectangle drawn by the user on the host viewport, in canonical coordinates.
 
-     This property is refreshed whenever the host calls the kOfxActionInstanceChanged action
-     for the parameter kNatronOfxParamSelectionRectangleState.
+     The host updates this property before it calls the kOfxActionInstanceChanged action for the
+     parameter kNatronOfxParamSelectionRectangleState; it is (0,0,0,0) after a clear.
      */
     OfxRectD getSelectionRectangle() const;
 #endif
