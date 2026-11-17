@@ -756,7 +756,7 @@ static void usage(const char* prog)
     "  -s name@t=value    set a key at time t (numeric parameters that animate: linear\n"
     "                     interpolation, rounded for integers, stepped for booleans and choices),\n"
     "                     with instanceChanged at time t\n"
-    "  -s button          press a push button (instanceChanged)\n"
+    "  -s button[@t]      press a push button (instanceChanged, at time t)\n"
     "  --report file.json write a JSON report of the run (even if it failed)\n"
     "  --describe file.json  describe the plug-in as JSON (no instance, no render)\n"
     "  --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH\n"
@@ -835,6 +835,9 @@ static bool parseInts(const std::string& s, int n, int* d)
   return true;
 }
 
+// the largest key time of -s name@t=value (a finite time far from double overflow)
+static const double kMaxKeyTime = 1e15;
+
 // set the parameter value from the string "name=value[,value...]", or a key from
 // "name@time=value[,value...]" (numeric parameters that animate), or press a push button ("name", or
 // "name=" anything), and return its name in paramName, and the time in time (0 without one).
@@ -849,7 +852,7 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
   time = 0.;
   std::string::size_type at = name.find('@');
   if (at != std::string::npos) {
-    if (!parseDouble(name.substr(at + 1), time) || !(time > -1e15 && time < 1e15)) {
+    if (!parseDouble(name.substr(at + 1), time) || !(std::fabs(time) < kMaxKeyTime)) {
       std::cerr << "Error: invalid key time in \"" << assignment << "\", expected name@time=value[,value...]" << std::endl;
       return false;
     }
@@ -858,6 +861,10 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
   }
   OFX::Host::Param::Instance* param = name.empty() ? 0 : instance->getParam(name);
   const bool button = param && param->getType() == kOfxParamTypePushButton;
+  if (!name.empty() && !param) {
+    std::cerr << "Error: the plug-in has no parameter named \"" << name << "\"" << std::endl;
+    return false;
+  }
   if (name.empty() || (eq == std::string::npos && !button)) {
     std::cerr << "Error: invalid parameter assignment \"" << assignment << "\", expected name=value[,value...], "
               << "name@time=value[,value...] or a push button name" << std::endl;
@@ -871,7 +878,8 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
   const std::string& type = param->getType();
   const bool numeric = !(type == kOfxParamTypeString || type == kOfxParamTypeCustom || type == kOfxParamTypeStrChoice ||
                          type == kOfxParamTypeBytes || button);
-  if (hasTime && (!numeric || param->getProperties().getIntProperty(kOfxParamPropAnimates) == 0)) {
+  // (a push button may be pressed at a time: -s name@t)
+  if (hasTime && !button && (!numeric || param->getProperties().getIntProperty(kOfxParamPropAnimates) == 0)) {
     std::cerr << "Error: parameter \"" << name << "\" doesn't animate (" << type << "): no key at a time" << std::endl;
     return false;
   }

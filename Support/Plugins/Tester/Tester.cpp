@@ -281,7 +281,9 @@ protected :
   OFX::Clip *srcClip_;
 
 public :
-  GenericTestPlugin(OfxImageEffectHandle handle) : ImageEffect(handle), dstClip_(NULL), srcClip_(NULL)
+  double nestedTime_; ///< the time of the last plug-in edit of keysDouble (keysTest)
+
+  GenericTestPlugin(OfxImageEffectHandle handle) : ImageEffect(handle), dstClip_(NULL), srcClip_(NULL), nestedTime_(0.)
   {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
@@ -294,16 +296,22 @@ public :
   // paramGetKeyIndex, paramDeleteKey, paramDeleteAllKeys, paramGetValueAtTime, paramGetDerivative,
   // paramGetIntegral), for a host that interpolates linearly (hostDemo): returns "" if all is as
   // expected, else what isn't.
-  std::string keysTest()
+  std::string keysTest(double time)
   {
     std::ostringstream err;
 #   define KEYS_CHECK(cond) do { if (!(cond)) { err << #cond << "; "; } } while (0)
 #   define KEYS_NEAR(a, b) KEYS_CHECK(std::fabs((a) - (b)) < 1e-9)
     try {
+      // the timeline is at the time of the action
+      KEYS_NEAR(timeLineGetTime(), time);
+
       OFX::DoubleParam* d = fetchDoubleParam("keysDouble");
       d->deleteAllKeys();
       KEYS_CHECK(d->getNumKeys() == 0);
+      KEYS_NEAR(d->differentiate(5.), 0.); // no key
       d->setValueAtTime(0., 1.);
+      KEYS_NEAR(d->differentiate(5.), 0.); // one key
+      KEYS_NEAR(d->integrate(2., 5.), 3.);
       d->setValueAtTime(10., 3.);
       d->setValueAtTime(4., 2.);
       KEYS_CHECK(d->getNumKeys() == 3);
@@ -318,6 +326,7 @@ public :
       }
       KEYS_CHECK(outOfRange);
       KEYS_CHECK(d->getKeyIndex(4., OFX::eKeySearchNear) == 1);
+      KEYS_CHECK(d->getKeyIndex(4. + 5e-5, OFX::eKeySearchNear) == 1); // "some small delta"
       KEYS_CHECK(d->getKeyIndex(5., OFX::eKeySearchNear) == -1);
       KEYS_CHECK(d->getKeyIndex(5., OFX::eKeySearchForwards) == 2);
       KEYS_CHECK(d->getKeyIndex(5., OFX::eKeySearchBackwards) == 1);
@@ -333,14 +342,35 @@ public :
       KEYS_NEAR(d->integrate(0., 4.), 6.);
       KEYS_NEAR(d->integrate(-2., 0.), 2.);
       KEYS_NEAR(d->integrate(4., 0.), -6.);
+      d->setValueAtTime(4. + 5e-5, 2.5); // the same key
+      KEYS_CHECK(d->getNumKeys() == 3);
+      KEYS_NEAR(d->getValueAtTime(4.), 2.5);
       d->deleteKeyAtTime(4.);
       KEYS_CHECK(d->getNumKeys() == 2);
       KEYS_NEAR(d->getValueAtTime(5.), 2.);
       d->deleteKeyAtTime(5.); // no key there: fails quietly
       KEYS_CHECK(d->getNumKeys() == 2);
-      d->deleteAllKeys(); // the value at the current time stays
+      // paramSetValue on a parameter with keys: the key at the current time, and the plug-in's
+      // instanceChanged for its own change is at that time too
+      nestedTime_ = -1e9;
+      d->setValue(7.);
+      KEYS_NEAR(d->getValueAtTime(time), 7.);
+      KEYS_CHECK(d->getKeyIndex(time, OFX::eKeySearchNear) >= 0);
+      KEYS_NEAR(nestedTime_, time);
+      // deleteAllKeys: the value at the current time stays
+      d->deleteAllKeys();
+      d->setValueAtTime(0., 1.);
+      d->setValueAtTime(10., 3.);
+      const double atTime = d->getValueAtTime(time);
+      d->deleteAllKeys();
       KEYS_CHECK(d->getNumKeys() == 0);
-      KEYS_NEAR(d->getValueAtTime(100.), d->getValueAtTime(-100.));
+      KEYS_NEAR(d->getValueAtTime(-100.), atTime);
+      KEYS_NEAR(d->getValueAtTime(100.), atTime);
+      // deleting the last key: its value stays
+      d->setValueAtTime(2., 5.);
+      d->deleteKeyAtTime(2.);
+      KEYS_CHECK(d->getNumKeys() == 0);
+      KEYS_NEAR(d->getValueAtTime(100.), 5.);
 
       OFX::IntParam* i = fetchIntParam("keysInt");
       i->deleteAllKeys();
@@ -353,8 +383,37 @@ public :
       b->deleteAllKeys();
       b->setValueAtTime(0., false);
       b->setValueAtTime(10., true);
-      KEYS_CHECK(!b->getValueAtTime(9.)); // stepped
+      KEYS_CHECK(!b->getValueAtTime(9.)); // held
       KEYS_CHECK(b->getValueAtTime(10.));
+
+      OFX::ChoiceParam* c = fetchChoiceParam("keysChoice");
+      c->deleteAllKeys();
+      c->setValueAtTime(0., 0);
+      c->setValueAtTime(10., 2);
+      int ci = -1;
+      c->getValueAtTime(9., ci);
+      KEYS_CHECK(ci == 0); // held
+      c->getValueAtTime(10., ci);
+      KEYS_CHECK(ci == 2);
+
+      OFX::RGBParam* rgb = fetchRGBParam("keysRGB");
+      rgb->deleteAllKeys();
+      rgb->setValueAtTime(0., 0., 0., 0.);
+      rgb->setValueAtTime(10., 1., 2., 3.);
+      double r, g, bl;
+      rgb->getValueAtTime(5., r, g, bl);
+      KEYS_NEAR(r, 0.5); KEYS_NEAR(g, 1.); KEYS_NEAR(bl, 1.5);
+
+      // the derivative and integral of a 2D double (Support has them for 1D and 2D doubles)
+      OFX::Double2DParam* xy = fetchDouble2DParam("keys2D");
+      xy->deleteAllKeys();
+      xy->setValueAtTime(0., 0., 0.);
+      xy->setValueAtTime(10., 1., 2.);
+      double x, y;
+      xy->differentiate(5., x, y);
+      KEYS_NEAR(x, 0.1); KEYS_NEAR(y, 0.2);
+      xy->integrate(0., 10., x, y);
+      KEYS_NEAR(x, 5.); KEYS_NEAR(y, 10.);
     } catch (const std::exception& e) {
       err << "exception: " << e.what() << "; ";
     }
@@ -376,9 +435,13 @@ public :
     {
       sendMessage(OFX::Message::eMessageMessage, "", "Push Button Pressed - TestPassed!");
     }
+    else if(paramName=="keysDouble" && args.reason == OFX::eChangePluginEdit)
+    {
+      nestedTime_ = args.time; // (keysTest: the time of the instanceChanged of its own change)
+    }
     else if(paramName=="keysTest")
     {
-      const std::string err = keysTest();
+      const std::string err = keysTest(args.time);
       sendMessage(OFX::Message::eMessageMessage, "", err.empty() ? "Keys test passed" : "Keys test FAILED: " + err);
     }
     else if(paramName=="widgetPos")
@@ -468,6 +531,13 @@ void GenericTestPlugin::setupAndProcess(GenericTestBase &processor, const OFX::R
 
 void GenericTestPlugin::render(const OFX::RenderArguments &args)
 {
+  // a test of hosts: paramGetValue during a render is the value at the render's time
+  {
+    OFX::DoubleParam* keysDouble = fetchDoubleParam("keysDouble");
+    if (std::fabs(keysDouble->getValue() - keysDouble->getValueAtTime(args.time)) > 1e-9) {
+      setPersistentMessage(OFX::Message::eMessageError, "", "render: paramGetValue isn't the value at the render's time");
+    }
+  }
   OFX::BitDepthEnum       dstBitDepth    = dstClip_->getPixelDepth();
   OFX::PixelComponentEnum dstComponents  = dstClip_->getPixelComponents();
 
@@ -627,6 +697,16 @@ void GenericTestExamplePluginFactory::describeInContext(OFX::ImageEffectDescript
   BooleanParamDescriptor* keysBool = desc.defineBooleanParam("keysBool");
   keysBool->setLabels("Keys Bool", "Keys Bool", "Keys Bool");
   keysBool->setAnimates(true);
+  ChoiceParamDescriptor* keysChoice = desc.defineChoiceParam("keysChoice");
+  keysChoice->setLabels("Keys Choice", "Keys Choice", "Keys Choice");
+  keysChoice->appendOption("a");
+  keysChoice->appendOption("b");
+  keysChoice->appendOption("c");
+  keysChoice->setAnimates(true);
+  RGBParamDescriptor* keysRGB = desc.defineRGBParam("keysRGB");
+  keysRGB->setLabels("Keys RGB", "Keys RGB", "Keys RGB");
+  Double2DParamDescriptor* keys2D = desc.defineDouble2DParam("keys2D");
+  keys2D->setLabels("Keys 2D", "Keys 2D", "Keys 2D");
 
   DoubleParamDescriptor *param7 = desc.defineDoubleParam("analysisParam");
   param7->setLabels("Analysis Slave", "Analysis Slave", "Analysis Slave");

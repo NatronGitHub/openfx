@@ -216,6 +216,8 @@ namespace MyHost {
     OfxStatus get(OfxTime time, double&,double&,double&,double&);
     OfxStatus set(double,double,double,double);
     OfxStatus set(OfxTime time, double,double,double,double);
+    OfxStatus derive(OfxTime time, double&,double&,double&,double&);
+    OfxStatus integrate(OfxTime time1, OfxTime time2, double&,double&,double&,double&);
     MYHOST_CURVE_METHODS
   };
 
@@ -230,6 +232,8 @@ namespace MyHost {
     OfxStatus get(OfxTime time, double&,double&,double&);
     OfxStatus set(double,double,double);
     OfxStatus set(OfxTime time, double,double,double);
+    OfxStatus derive(OfxTime time, double&,double&,double&);
+    OfxStatus integrate(OfxTime time1, OfxTime time2, double&,double&,double&);
     MYHOST_CURVE_METHODS
   };
 
@@ -244,6 +248,8 @@ namespace MyHost {
     OfxStatus get(OfxTime time, double&,double&);
     OfxStatus set(double,double);
     OfxStatus set(OfxTime time, double,double);
+    OfxStatus derive(OfxTime time, double&,double&);
+    OfxStatus integrate(OfxTime time1, OfxTime time2, double&,double&);
     MYHOST_CURVE_METHODS
   };
 
@@ -272,6 +278,8 @@ namespace MyHost {
     OfxStatus get(OfxTime time, double&,double&,double&);
     OfxStatus set(double,double,double);
     OfxStatus set(OfxTime time, double,double,double);
+    OfxStatus derive(OfxTime time, double&,double&,double&);
+    OfxStatus integrate(OfxTime time1, OfxTime time2, double&,double&,double&);
     MYHOST_CURVE_METHODS
   };
 

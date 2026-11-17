@@ -327,8 +327,8 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
     params: parameter name -> value (number, bool, string, or a sequence for
         multi-dimensional parameters), passed as -s name=value; or keys, a mapping
         {time: value} (numeric parameters that animate; hostDemo interpolates linearly), passed
-        as -s name@time=value; or None to press a push button (-s name). In order: each one is
-        followed by the instance changed action (at the key's time for a key).
+        as -s name@time=value (in time order); or None to press a push button (-s name). In
+        order: each one is followed by the instance changed action (at the key's time for a key).
     depth: the input clips' depth before clip preferences: "byte", "short" or "float".
     frames: the times to render (hostDemo --frames; default 0 and 1).
     scale: the render scale, s or (sx, sy), in (0,1] (--scale). Image inputs are at that scale.

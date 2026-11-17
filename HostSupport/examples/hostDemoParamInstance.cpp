@@ -58,7 +58,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace MyHost {
 
-  // All the param instances store their value, initialised from the default
+  // All the param instances belong to the effect's parameter set (so that HostSupport sends
+  // kOfxActionInstanceChanged, kOfxChangePluginEdited, when the plug-in sets a value), and store
+  // their value, initialised from the default
   // value of the descriptor (kOfxParamPropDefault). The numeric ones may have keys (MyCurve);
   // the string, custom, string choice and bytes ones don't animate: get(time, ...) returns the
   // stored value and set(time, ...) sets it.
@@ -70,7 +72,7 @@ namespace MyHost {
   MyStringInstance::MyStringInstance(MyEffectInstance* effect,
                                      const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::StringInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::StringInstance(descriptor, effect), _effect(effect), _descriptor(descriptor)
   {
     _s = _descriptor.getProperties().getStringProperty(kOfxParamPropDefault);
   }
@@ -104,7 +106,7 @@ namespace MyHost {
   MyCustomInstance::MyCustomInstance(MyEffectInstance* effect,
                                      const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::CustomInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::CustomInstance(descriptor, effect), _effect(effect), _descriptor(descriptor)
   {
     _s = _descriptor.getProperties().getStringProperty(kOfxParamPropDefault);
   }
@@ -138,7 +140,7 @@ namespace MyHost {
   MyBytesInstance::MyBytesInstance(MyEffectInstance* effect,
                                    const std::string& /*name*/,
                                    OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::BytesInstance(descriptor), _value(getDefault()), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::BytesInstance(descriptor, effect), _value(getDefault()), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -191,13 +193,17 @@ namespace MyHost {
     return _effect ? _effect->timeLineGetTime() : 0.;
   }
 
+  // the key nearest to time, if within kKeyTimeEpsilon
   MyCurve::Keys::const_iterator MyCurve::findKey(OfxTime time) const
   {
-    Keys::const_iterator it = _keys.lower_bound(time - kKeyTimeEpsilon);
-    if (it != _keys.end() && it->first <= time + kKeyTimeEpsilon) {
-      return it;
+    Keys::const_iterator best = _keys.end();
+    for (Keys::const_iterator it = _keys.lower_bound(time - kKeyTimeEpsilon);
+         it != _keys.end() && it->first <= time + kKeyTimeEpsilon; ++it) {
+      if (best == _keys.end() || std::fabs(it->first - time) < std::fabs(best->first - time)) {
+        best = it;
+      }
     }
-    return _keys.end();
+    return best;
   }
 
   void MyCurve::getCurrent(double* v) const
@@ -422,7 +428,7 @@ namespace MyHost {
   MyIntegerInstance::MyIntegerInstance(MyEffectInstance* effect,
                                        const std::string& /*name*/,
                                        OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::IntegerInstance(descriptor), _curve(effect, descriptor, 1, MyCurve::eLinearRounded, defaultValue(descriptor, effect, 1, false)), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::IntegerInstance(descriptor, effect), _curve(effect, descriptor, 1, MyCurve::eLinearRounded, defaultValue(descriptor, effect, 1, false)), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -463,7 +469,7 @@ namespace MyHost {
   MyDoubleInstance::MyDoubleInstance(MyEffectInstance* effect,
                                      const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::DoubleInstance(descriptor), _curve(effect, descriptor, 1, MyCurve::eLinear, defaultValue(descriptor, effect, 1, true)), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::DoubleInstance(descriptor, effect), _curve(effect, descriptor, 1, MyCurve::eLinear, defaultValue(descriptor, effect, 1, true)), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -516,7 +522,7 @@ namespace MyHost {
   MyBooleanInstance::MyBooleanInstance(MyEffectInstance* effect,
                                        const std::string& /*name*/,
                                        OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::BooleanInstance(descriptor), _curve(effect, descriptor, 1, MyCurve::eConstant, defaultValue(descriptor, effect, 1, false)), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::BooleanInstance(descriptor, effect), _curve(effect, descriptor, 1, MyCurve::eConstant, defaultValue(descriptor, effect, 1, false)), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -557,7 +563,7 @@ namespace MyHost {
   MyStrChoiceInstance::MyStrChoiceInstance(MyEffectInstance* effect,
                                      const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::StrChoiceInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::StrChoiceInstance(descriptor, effect), _effect(effect), _descriptor(descriptor)
   {
       _choice = getDefaultEnum();
   }
@@ -591,7 +597,7 @@ namespace MyHost {
   MyChoiceInstance::MyChoiceInstance(MyEffectInstance* effect,
                                      const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::ChoiceInstance(descriptor), _curve(effect, descriptor, 1, MyCurve::eConstant, defaultValue(descriptor, effect, 1, false)), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::ChoiceInstance(descriptor, effect), _curve(effect, descriptor, 1, MyCurve::eConstant, defaultValue(descriptor, effect, 1, false)), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -638,7 +644,7 @@ namespace MyHost {
   MyRGBAInstance::MyRGBAInstance(MyEffectInstance* effect,
                                  const std::string& /*name*/,
                                  OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::RGBAInstance(descriptor), _curve(effect, descriptor, 4, MyCurve::eLinear, defaultValue(descriptor, effect, 4, true)), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::RGBAInstance(descriptor, effect), _curve(effect, descriptor, 4, MyCurve::eLinear, defaultValue(descriptor, effect, 4, true)), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -678,6 +684,29 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
+  // ("Only double and colour params can have their derivatives found", "can be integrated")
+  OfxStatus MyRGBAInstance::derive(OfxTime time, double& r, double& g, double& b, double& a)
+  {
+    double d[4];
+    _curve.derive(time, d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
+    a = d[3];
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyRGBAInstance::integrate(OfxTime time1, OfxTime time2, double& r, double& g, double& b, double& a)
+  {
+    double d[4];
+    _curve.integrate(time1, time2, d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
+    a = d[3];
+    return kOfxStatOK;
+  }
+
   //
   // MyRGBInstance
   //
@@ -685,7 +714,7 @@ namespace MyHost {
   MyRGBInstance::MyRGBInstance(MyEffectInstance* effect,
                                const std::string& /*name*/,
                                OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::RGBInstance(descriptor), _curve(effect, descriptor, 3, MyCurve::eLinear, defaultValue(descriptor, effect, 3, true)), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::RGBInstance(descriptor, effect), _curve(effect, descriptor, 3, MyCurve::eLinear, defaultValue(descriptor, effect, 3, true)), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -723,6 +752,27 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
+  // ("Only double and colour params can have their derivatives found", "can be integrated")
+  OfxStatus MyRGBInstance::derive(OfxTime time, double& r, double& g, double& b)
+  {
+    double d[3];
+    _curve.derive(time, d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyRGBInstance::integrate(OfxTime time1, OfxTime time2, double& r, double& g, double& b)
+  {
+    double d[3];
+    _curve.integrate(time1, time2, d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
+    return kOfxStatOK;
+  }
+
   //
   // MyDouble2DInstance
   //
@@ -730,7 +780,7 @@ namespace MyHost {
   MyDouble2DInstance::MyDouble2DInstance(MyEffectInstance* effect,
                                          const std::string& /*name*/,
                                          OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::Double2DInstance(descriptor), _curve(effect, descriptor, 2, MyCurve::eLinear, defaultValue(descriptor, effect, 2, true)), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::Double2DInstance(descriptor, effect), _curve(effect, descriptor, 2, MyCurve::eLinear, defaultValue(descriptor, effect, 2, true)), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -766,6 +816,25 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
+  // ("Only double and colour params can have their derivatives found", "can be integrated")
+  OfxStatus MyDouble2DInstance::derive(OfxTime time, double& x, double& y)
+  {
+    double d[2];
+    _curve.derive(time, d);
+    x = d[0];
+    y = d[1];
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyDouble2DInstance::integrate(OfxTime time1, OfxTime time2, double& x, double& y)
+  {
+    double d[2];
+    _curve.integrate(time1, time2, d);
+    x = d[0];
+    y = d[1];
+    return kOfxStatOK;
+  }
+
   //
   // MyInteger2DInstance
   //
@@ -773,7 +842,7 @@ namespace MyHost {
   MyInteger2DInstance::MyInteger2DInstance(MyEffectInstance* effect,
                                            const std::string& /*name*/,
                                            OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::Integer2DInstance(descriptor), _curve(effect, descriptor, 2, MyCurve::eLinearRounded, defaultValue(descriptor, effect, 2, false)), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::Integer2DInstance(descriptor, effect), _curve(effect, descriptor, 2, MyCurve::eLinearRounded, defaultValue(descriptor, effect, 2, false)), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -816,7 +885,7 @@ namespace MyHost {
   MyDouble3DInstance::MyDouble3DInstance(MyEffectInstance* effect,
                                          const std::string& /*name*/,
                                          OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::Double3DInstance(descriptor), _curve(effect, descriptor, 3, MyCurve::eLinear, defaultValue(descriptor, effect, 3, true)), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::Double3DInstance(descriptor, effect), _curve(effect, descriptor, 3, MyCurve::eLinear, defaultValue(descriptor, effect, 3, true)), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -854,6 +923,27 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
+  // ("Only double and colour params can have their derivatives found", "can be integrated")
+  OfxStatus MyDouble3DInstance::derive(OfxTime time, double& x, double& y, double& z)
+  {
+    double d[3];
+    _curve.derive(time, d);
+    x = d[0];
+    y = d[1];
+    z = d[2];
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyDouble3DInstance::integrate(OfxTime time1, OfxTime time2, double& x, double& y, double& z)
+  {
+    double d[3];
+    _curve.integrate(time1, time2, d);
+    x = d[0];
+    y = d[1];
+    z = d[2];
+    return kOfxStatOK;
+  }
+
   //
   // MyInteger3DInstance
   //
@@ -861,7 +951,7 @@ namespace MyHost {
   MyInteger3DInstance::MyInteger3DInstance(MyEffectInstance* effect,
                                            const std::string& /*name*/,
                                            OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::Integer3DInstance(descriptor), _curve(effect, descriptor, 3, MyCurve::eLinearRounded, defaultValue(descriptor, effect, 3, false)), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::Integer3DInstance(descriptor, effect), _curve(effect, descriptor, 3, MyCurve::eLinearRounded, defaultValue(descriptor, effect, 3, false)), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -904,7 +994,7 @@ namespace MyHost {
   MyPushbuttonInstance::MyPushbuttonInstance(MyEffectInstance* effect, 
                                              const std::string& /*name*/, 
                                              OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::PushbuttonInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::PushbuttonInstance(descriptor, effect), _effect(effect), _descriptor(descriptor)
   {
   }
 

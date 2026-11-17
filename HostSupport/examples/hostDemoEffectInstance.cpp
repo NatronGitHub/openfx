@@ -240,7 +240,7 @@ namespace MyHost {
   /// the recursive instanceChangedAction will be fed the correct frame 
   double MyEffectInstance::getFrameRecursive() const
   {
-    return 0.0;    
+    return _timeLineTime; // (the time of the current action)
   }
 
   /// This is called whenever a param is changed by the plugin so that
