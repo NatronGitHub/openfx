@@ -109,11 +109,15 @@ namespace OFX
   namespace Private
   {
     /** @brief Library side (extension 13 of ofxNatron.h): update the keyboard modifiers of
-        \p effect before an action of one of its overlay interacts, or before the
-        kOfxActionInstanceChanged of kNatronOfxParamSelectionRectangleState.
-        See ImageEffect::getKeyModifiers(). Returns true if \p props has
-        kNatronOfxInteractPropKeyModifiers. */
+        \p effect before an action of one of its overlay interacts.
+        See ImageEffect::getKeyModifiers(). Returns true if \p props has the host's modifiers. */
     bool updateKeyModifiers(ImageEffect &effect, const std::string &action, const PropertySet &props);
+    /** @brief Library side (extension 13 of ofxNatron.h): get the host's keyboard modifiers from
+        the inArgs \p props of an interact action, without logging an error if they are missing:
+        kOfxInteractPropKeyModifiers if ofxInteract.h defines it (OFX 1.6) and the host sets it,
+        else kNatronOfxInteractPropKeyModifiers. Returns false if the host set neither. The value
+        is masked to the four kNatronOfxKeyModifier* bits (the other bits are reserved). */
+    bool fetchKeyModifiers(const PropertySet &props, int *modifiers);
   }
 }
 #endif
@@ -2126,14 +2130,14 @@ namespace OFX {
 
         Plug-ins should call this instead of counting the modifier key events in their overlay
         interact: it works the same on hosts with and without the extension. Call it from the
-        actions of the interacts of this instance (also available as InteractArgs::keyModifiers;
-        in parameter interacts, that is this instance's overlay state, since the host passes no
-        property there and parameter interacts don't update it) and from changedParam(), e.g. for the host selection rectangle
-        (kNatronOfxParamSelectionRectangleState). It returns the last state seen by this
-        instance, not a live query of the keyboard:
-        - if the host passes kNatronOfxInteractPropKeyModifiers in the inArgs of an action of an
-          overlay interact of this instance, or sets it on this instance before the kOfxActionInstanceChanged
-          action for kNatronOfxParamSelectionRectangleState, the state is that value;
+        actions of the overlay interacts of this instance (also available as
+        InteractArgs::keyModifiers) and from changedParam() called because of an overlay action,
+        e.g. for the host selection rectangle (kNatronOfxParamSelectionRectangleState): the
+        instanceChanged action gives no modifiers, so this is the state of the last overlay
+        action, e.g. the pen down that started the rectangle (see extension 7 of ofxNatron.h).
+        It returns the last state seen by this instance, not a live query of the keyboard:
+        - if the host passes kNatronOfxInteractPropKeyModifiers (or kOfxInteractPropKeyModifiers)
+          in the inArgs of an action of an overlay interact of this instance, the state is that value;
         - otherwise, it is tracked from the kOfxInteractActionKeyDown, kOfxInteractActionKeyRepeat
           and kOfxInteractActionKeyUp actions of the modifier keys (kOfxKey_Shift_L/R,
           kOfxKey_Control_L/R, kOfxKey_Alt_L/R, kOfxKey_Meta_L/R) received by the overlay interacts of

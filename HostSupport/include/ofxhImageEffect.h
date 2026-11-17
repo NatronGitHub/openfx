@@ -200,11 +200,9 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_NATRON
       /// does the host application pass the keyboard modifiers (extension 13 of ofxNatron.h)?
-      /// true if kNatronOfxHostPropInteractKeyModifiers is 1 on gImageEffectHost. Then
-      /// kNatronOfxInteractPropKeyModifiers is declared in the inArgs of the overlay interact actions
-      /// (OverlayInteract only, not parameter interacts; set from Interact::Instance::getKeyModifiers())
-      /// and on the effect instances (the host application sets it before the instanceChanged of
-      /// kNatronOfxParamSelectionRectangleState).
+      /// true if kNatronOfxInteractHostPropSupportsKeyModifiers is 1 on gImageEffectHost. Then
+      /// kNatronOfxInteractPropKeyModifiers is declared in the inArgs of the actions of the interacts
+      /// whose Interact::Instance::supportsKeyModifiers() returns true, see there.
       bool hostSupportsKeyModifiers();
 #endif
 

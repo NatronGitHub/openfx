@@ -22,7 +22,7 @@ def test_props():
     # ofxNatron.h extension 13: keyboard modifiers (NatronGitHub/openfx#131)
     p = PROPS[k.kNatronOfxInteractPropKeyModifiers]
     assert (p.type, p.dimension, p.extension) == ("int", 1, "natron")
-    p = PROPS[k.kNatronOfxHostPropInteractKeyModifiers]
+    p = PROPS[k.kNatronOfxInteractHostPropSupportsKeyModifiers]
     assert (p.type, p.dimension, p.extension) == ("bool", 1, "natron")
     assert (k.kNatronOfxKeyModifierShift, k.kNatronOfxKeyModifierControl,
             k.kNatronOfxKeyModifierAlt, k.kNatronOfxKeyModifierMeta) == (1, 2, 4, 8)

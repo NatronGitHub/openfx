@@ -391,7 +391,9 @@ namespace OFX {
     screenPixelRatio = props.propGetDouble(kOfxInteractPropScreenPixelRatio, 0, false);
     // the dispatcher (interactMainEntry) updated the effect's state from these inArgs before
     // building the args, see Private::updateKeyModifiers()
-    hasKeyModifiers = props.propExists(kNatronOfxInteractPropKeyModifiers, false);
+    int hostModifiers = 0;
+    hasKeyModifiers = OFX::Private::fetchKeyModifiers(props, &hostModifiers); // the value: see the dispatcher
+    (void)hostModifiers;
     keyModifiers = 0;
 #endif
   }
@@ -648,7 +650,12 @@ namespace OFX {
       if ( isInteractAction && effect && inArgs.propSetHandle() && dynamic_cast<OverlayInteract *>(interact) ) {
         OFX::Private::updateKeyModifiers(*effect, action, inArgs);
       }
-      const int keyModifiers = (isInteractAction && effect) ? effect->getKeyModifiers() : 0;
+      // the host's value in this action's inArgs (also for parameter interacts, which don't update
+      // the effect's state), else the effect's state
+      int keyModifiers = (isInteractAction && effect) ? effect->getKeyModifiers() : 0;
+      if ( isInteractAction && inArgs.propSetHandle() ) {
+        OFX::Private::fetchKeyModifiers(inArgs, &keyModifiers);
+      }
 #endif
 
       if(action == kOfxActionDestroyInstance) {
