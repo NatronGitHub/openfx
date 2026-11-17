@@ -3,9 +3,9 @@
 #
 # Ported from AcademySoftwareFoundation/openfx and adapted to the
 # NatronGitHub fork: the fork's extension headers and defines, the bundled
-# expat, and the fork's examples. The Makefiles are kept and remain the
-# reference build for the plug-in repositories (openfx-misc, openfx-io, ...),
-# which compile Support/Library/*.cpp themselves.
+# expat, and the fork's examples. It is also the reference for the CMake build of the plug-in
+# repositories (openfx-misc, openfx-io, ...: cmake/OpenFX.cmake and
+# Documentation/proposals/cmake-plugins.md); the Makefiles are kept until Natron's build switches.
 cmake_minimum_required(VERSION 3.16.0)
 
 option(OFX_SUPPORTS_CUDARENDER "Build examples with support for CUDA GPU rendering" OFF)
@@ -18,10 +18,20 @@ else()
   project(openfx VERSION 1.5.1 LANGUAGES C CXX)
 endif()
 
+# A plug-in repository that uses openfx with add_subdirectory() usually needs only the headers and
+# the Support library: HostSupport (and expat) and openfx's install rules are then off by default.
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+  set(_ofx_top_level ON)
+else()
+  set(_ofx_top_level OFF)
+endif()
+option(OFX_BUILD_HOSTSUPPORT "Build the HostSupport library (and the bundled expat)" ${_ofx_top_level})
+option(OFX_INSTALL "Install the headers, libraries and CMake package of openfx" ${_ofx_top_level})
+
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_STATIC_LIBRARY_PREFIX "lib")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
+if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES AND _ofx_top_level)
   # universal binaries, like the Makefiles; override with -DCMAKE_OSX_ARCHITECTURES=arm64
   set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64")
 endif()
@@ -51,7 +61,11 @@ option(OFX_USE_SYSTEM_EXPAT "HostSupport: use the system expat (find_package(EXP
 
 option(BUILD_EXAMPLE_PLUGINS "Build the example plug-ins (Examples/, Support/Plugins/, Support/PropTester/)" OFF)
 option(BUILD_EXAMPLE_HOSTS "Build the example hosts (HostSupport/examples: hostDemo, cacheDemo, propsetDump)" OFF)
-set(PLUGIN_INSTALLDIR "" CACHE PATH "Location to install plug-ins (default depends on OS)")
+# the example hosts need HostSupport, also when openfx is used with add_subdirectory()
+if(BUILD_EXAMPLE_HOSTS AND NOT OFX_BUILD_HOSTSUPPORT)
+  set(OFX_BUILD_HOSTSUPPORT ON CACHE BOOL "Build the HostSupport library (and the bundled expat)" FORCE)
+endif()
+set(PLUGIN_INSTALLDIR "" CACHE STRING "Where the OFX bundles are installed (relative: to CMAKE_INSTALL_PREFIX; default depends on OS)")
 
 # ---------------------------------------------------------------------------
 # Compile definitions shared by the libraries and anything linking them.
@@ -93,7 +107,9 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake ${CMAKE_BINARY_DIR})
 
 # ---------------------------------------------------------------------------
 # expat, for the HostSupport plug-in cache
-if(OFX_USE_SYSTEM_EXPAT)
+if(NOT OFX_BUILD_HOSTSUPPORT)
+  # no HostSupport, no expat
+elseif(OFX_USE_SYSTEM_EXPAT)
   find_package(EXPAT REQUIRED)
   if(NOT TARGET expat::expat)
     # CMake's FindEXPAT provides EXPAT::EXPAT; conan's CMakeDeps provides expat::expat
@@ -132,9 +148,22 @@ target_include_directories(OfxApi INTERFACE
   $<INSTALL_INTERFACE:include>)
 set_target_properties(OfxApi PROPERTIES EXPORT_NAME Api)
 add_library(openfx::Api ALIAS OfxApi)
+# Usage requirements of every plug-in, built on Support or on the C API alone
+# (Documentation/proposals/cmake-plugins.md): the OFX_EXTENSIONS_* and OFX_SUPPORTS_* definitions
+# (they change class layouts), the MinGW definitions of Support/Plugins/Makefile.master, and
+# MSVC's real __cplusplus value.
+# (decided at configure time: $<CXX_COMPILER_FRONTEND_VARIANT> needs CMake 3.30, and the
+# expression would be exported to the consumers of the package)
+target_compile_definitions(OfxApi INTERFACE ${OFX_DEFINITIONS})
+if(WIN32 AND NOT MSVC AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+  target_compile_definitions(OfxApi INTERFACE _USE_MATH_DEFINES __USE_MINGW_ANSI_STDIO=1)
+endif()
+target_compile_options(OfxApi INTERFACE "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/Zc:__cplusplus>")
 
 # ---------------------------------------------------------------------------
-add_subdirectory(HostSupport)
+if(OFX_BUILD_HOSTSUPPORT)
+  add_subdirectory(HostSupport)
+endif()
 add_subdirectory(Support)
 if(BUILD_EXAMPLE_PLUGINS)
   add_subdirectory(Examples)
@@ -142,6 +171,7 @@ endif()
 
 # ---------------------------------------------------------------------------
 # Install: headers, libraries, and a CMake package (find_package(openfx))
+if(OFX_INSTALL)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 install(DIRECTORY include/ DESTINATION include
@@ -151,8 +181,12 @@ install(DIRECTORY Support/include/ DESTINATION include/Support FILES_MATCHING PA
 install(DIRECTORY Support/Plugins/include/ DESTINATION include/Support/Plugins
         FILES_MATCHING PATTERN "*.h" PATTERN "*.H")
 install(FILES cmake/OpenFX.cmake Examples/Info.plist.in DESTINATION lib/cmake/openfx)
-set(_ofx_export_targets OfxApi OfxHost OfxSupport)
-if(NOT OFX_USE_SYSTEM_EXPAT)
+install(PROGRAMS Support/include/osxDeploy.sh DESTINATION lib/cmake/openfx)
+set(_ofx_export_targets OfxApi OfxSupport)
+if(OFX_BUILD_HOSTSUPPORT)
+  list(APPEND _ofx_export_targets OfxHost)
+endif()
+if(OFX_BUILD_HOSTSUPPORT AND NOT OFX_USE_SYSTEM_EXPAT)
   # static bundled expat must be exported with OfxHost
   list(APPEND _ofx_export_targets expat)
 endif()
@@ -168,3 +202,4 @@ write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/openfxConfigVersio
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/openfxConfig.cmake"
               "${CMAKE_CURRENT_BINARY_DIR}/openfxConfigVersion.cmake"
         DESTINATION lib/cmake/openfx)
+endif()

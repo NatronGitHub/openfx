@@ -3,12 +3,14 @@ name: Build
 # Per push / pull request: exactly three full builds plus tests, one per OS
 # (policy for all Natron-related repos). macOS runs after Linux and Windows pass, and isn't
 # required for merging (macOS arm64 runners are scarce); extended.yml builds it nightly:
-#   - Linux (ubuntu-24.04): Makefiles, plus the header and property metadata checks and the
-#     Python wrapper tests (HostSupport/examples/python)
-#   - macOS 15 arm64: Makefiles, system (Xcode) clang, MacPorts tools, no Homebrew
+#   - Linux (ubuntu-24.04): CMake (.github/scripts/cmake-build-test.sh: build, install, the hostDemo
+#     checks, and a plug-in project built against the installed package), plus the header and
+#     property metadata checks and the Python tests (HostSupport/examples/python, Support/Plugins/tests)
+#   - macOS 15 arm64: CMake, system (Xcode) clang, MacPorts tools and libomp, no Homebrew
 #   - Windows: MSYS2 UCRT64, CMake
-# Other variants (C++20/23, CMake on Linux/macOS, MSVC, debug builds) are in
-# extended.yml, which runs weekly and on demand.
+# The plug-in repositories build with CMake (Natron#1181), so the per-PR builds do too. Other
+# variants (the Makefiles, C++20/23, MSVC, debug builds) are in extended.yml, which runs nightly
+# and on demand.
 #
 # Frugal CI (NatronGitHub runners are shared by all repos): one run per change.
 # Pushes run CI only on master and tags; feature branches run through their pull
@@ -38,7 +40,7 @@ defaults:
 
 jobs:
   linux:
-    name: Linux (ubuntu-24.04, Make)
+    name: Linux (ubuntu-24.04, CMake)
     # no CI for draft pull requests
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
@@ -70,14 +72,15 @@ jobs:
             done
           done
       - name: Build and test
-        run: .github/scripts/make-build-test.sh
+        run: .github/scripts/cmake-build-test.sh
       - name: Python wrapper and sample plug-in tests (ofxhost)
         run: |
           pip install numpy pytest
-          python -m pytest -q -p no:cacheprovider HostSupport/examples/python/tests Support/Plugins/tests
+          OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" \
+            python -m pytest -q -p no:cacheprovider HostSupport/examples/python/tests Support/Plugins/tests
 
   macos:
-    name: macOS 15 arm64 (Make, Xcode clang, MacPorts)
+    name: macOS 15 arm64 (CMake, Xcode clang, MacPorts)
     # macOS arm64 runners are scarce: start only once Linux and Windows have passed. Merging only
     # requires Linux and Windows; macOS is also built nightly (extended.yml).
     needs: [linux, windows]
@@ -101,8 +104,11 @@ jobs:
           test "$(command -v c++)" = /usr/bin/c++
           c++ --version
           gsed --version | head -1
+          test "$(command -v cmake)" = /opt/local/bin/cmake
+          cmake --version | head -1
+          ls /opt/local/lib/libomp/libomp.dylib
       - name: Build and test
-        run: .github/scripts/make-build-test.sh
+        run: .github/scripts/cmake-build-test.sh
 
   windows:
     name: Windows (MSYS2 UCRT64, CMake)
@@ -146,6 +152,10 @@ jobs:
           test "$(find install -name '*.ofx' | wc -l)" -ge 5
           # the example hosts are only compiled on Windows (the test renders run on Linux and macOS)
           ls install/bin/hostDemo.exe install/bin/cacheDemo.exe install/bin/propsetDump.exe
+      - name: Plug-in project built against the installed package and with add_subdirectory
+        run: |
+          set -eo pipefail
+          CMAKE_GENERATOR=Ninja .github/scripts/cmake-plugin-project.sh "$PWD/install" "$PWD/plugin-project"
       - name: Every plug-in exports OfxGetPlugin
         run: |
           set -eo pipefail

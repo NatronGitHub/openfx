@@ -94,9 +94,25 @@ jobs:
           grep -c "Contexts:" cachedemo.log
           test "$(grep -c "Contexts:" cachedemo.log)" -ge 5
 
+  make-linux:
+    name: Linux nightly (Makefiles)
+    # The Makefile builds (still used by Natron's build-plugins.sh until it switches to CMake,
+    # Natron#1181), with the hostDemo checks; the per-PR builds use CMake (build.yml)
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev
+      - name: Build and test
+        run: .github/scripts/make-build-test.sh
+
   macos:
-    name: macOS 15 arm64 nightly (Make, Xcode clang, MacPorts)
-    # the per-PR macOS build (Makefiles, MacPorts), nightly: it isn't required for merging
+    name: macOS 15 arm64 nightly (Makefiles, Xcode clang, MacPorts)
+    # The Makefile builds (still used by Natron's build-plugins.sh until it switches to CMake,
+    # Natron#1181), with the hostDemo checks; the per-PR builds use CMake (build.yml)
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: macos-15

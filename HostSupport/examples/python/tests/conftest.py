@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -13,9 +14,13 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 @pytest.fixture(scope="session")
 def sample_plugins():
-    """The Support/Plugins sample bundles (make -C Support/Plugins CONFIG=release)."""
-    dirs = sorted(p for p in (REPO_ROOT / "Support" / "Plugins").glob("*/*-release")
-                  if any(p.glob("*.ofx.bundle")))
+    """The Support/Plugins sample bundles: $OFX_TEST_PLUGIN_PATH, else the Make build
+    (make -C Support/Plugins CONFIG=release), else a CMake build tree (build*/Plugins)."""
+    env = os.environ.get("OFX_TEST_PLUGIN_PATH")
+    cands = ([Path(d) for d in env.split(os.pathsep) if d] if env else
+             sorted((REPO_ROOT / "Support" / "Plugins").glob("*/*-release"))
+             or sorted(REPO_ROOT.glob("build*/Plugins")))
+    dirs = [p for p in cands if any(p.glob("*.ofx.bundle"))]
     if not dirs:
         pytest.skip("Support/Plugins samples not built (make -C Support/Plugins CONFIG=release)")
     return dirs

@@ -6,6 +6,7 @@ directories). Tests that need hostDemo or the bundles are skipped if they aren't
 """
 
 import functools
+import os
 import sys
 from pathlib import Path
 
@@ -14,8 +15,11 @@ import pytest
 # --- adapt these to your repo ----------------------------------------------------------------
 REPO = Path(__file__).resolve().parents[3]  # the repo root (these tests are in Support/Plugins/tests)
 OPENFX = REPO  # the openfx checkout; in a plug-in repo: REPO / "openfx"
-# the directories that contain the .ofx.bundle directories (make -C Support/Plugins CONFIG=release)
-BUNDLE_DIRS = sorted(REPO.glob("Support/Plugins/*/*-release"))
+# the directories that contain the .ofx.bundle directories: $OFX_TEST_PLUGIN_PATH, else the Make
+# build (make -C Support/Plugins CONFIG=release), else a CMake build tree (build*/Plugins)
+BUNDLE_DIRS = ([Path(d) for d in os.environ["OFX_TEST_PLUGIN_PATH"].split(os.pathsep) if d]
+               if os.environ.get("OFX_TEST_PLUGIN_PATH") else
+               sorted(REPO.glob("Support/Plugins/*/*-release")) or sorted(REPO.glob("build*/Plugins")))
 # ---------------------------------------------------------------------------------------------
 
 # ofxhost is a plain directory in openfx, not an installed package
@@ -30,8 +34,9 @@ def bundles():
     """The plug-in directories (OFX_PLUGIN_PATH); skips the test if no bundle is built."""
     dirs = [d for d in BUNDLE_DIRS if any(d.glob("*.ofx.bundle"))]
     if not dirs:
-        pytest.skip(f"no .ofx.bundle in {REPO}/Support/Plugins/*/*-release: "
-                    "build them with make -C Support/Plugins CONFIG=release")
+        pytest.skip(f"no .ofx.bundle in {REPO}/Support/Plugins/*/*-release or {REPO}/build*/Plugins: "
+                    "build them with make -C Support/Plugins CONFIG=release, or CMake, "
+                    "or set OFX_TEST_PLUGIN_PATH")
     return dirs
 
 
