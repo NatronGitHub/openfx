@@ -68,6 +68,7 @@ namespace MyHost {
                                      : OFX::Host::ImageEffect::Instance(plugin,desc,context,false)
                                      , _rendering(false)
                                      , _defaultDepth(kOfxBitDepthByte)
+                                     , _timeLineTime(0.)
   {
     _renderScale.x = _renderScale.y = 1.;
     _renderWindow.x1 = _renderWindow.y1 = _renderWindow.x2 = _renderWindow.y2 = 0;
@@ -239,7 +240,7 @@ namespace MyHost {
   /// the recursive instanceChangedAction will be fed the correct frame 
   double MyEffectInstance::getFrameRecursive() const
   {
-    return 0.0;    
+    return _timeLineTime; // (the time of the current action)
   }
 
   /// This is called whenever a param is changed by the plugin so that
@@ -292,13 +293,14 @@ namespace MyHost {
       return 0;
   }
 
-  OfxStatus MyEffectInstance::editBegin(const std::string& name)
+  // undo/redo blocks: hostDemo has no undo, so they only succeed ("kOfxStatOK - all was OK")
+  OfxStatus MyEffectInstance::editBegin(const std::string& /*name*/)
   {
-    return kOfxStatErrMissingHostFeature;
+    return kOfxStatOK;
   }
 
   OfxStatus MyEffectInstance::editEnd(){
-    return kOfxStatErrMissingHostFeature;
+    return kOfxStatOK;
   }
 
   /// Start doing progress. 
@@ -335,14 +337,17 @@ namespace MyHost {
 
   /// get the current time on the timeline. This is not necessarily the same
   /// time as being passed to an action (eg render)
+  // the timeline is at the time of the current action (hostDemo sets it before each one), which is
+  // also the time of paramSetValue on a parameter with keys
   double  MyEffectInstance::timeLineGetTime()
   {
-    return 0;
+    return _timeLineTime;
   }
   
   /// set the timeline to a specific time
   void  MyEffectInstance::timeLineGotoTime(double t)
   {
+    _timeLineTime = t;
   }
   
   /// get the first and last times available on the effect's timeline

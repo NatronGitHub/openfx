@@ -87,3 +87,18 @@ def test_orientation(hostdemo, sample_plugins):
     # g grows downwards in the input, so 1-g decreases downwards (below the marked row)
     assert out[1, 0, 1] > out[-1, 0, 1]
 
+
+def test_keys_and_buttons(hostdemo, sample_plugins):
+    """Keys ({time: value}) are interpolated linearly by hostDemo; None presses a push button."""
+    src = np.full((8, 8, 4), 0.5, np.float32)
+    src[..., 3] = 1
+    r = ofxhost.render(sample_plugins, "net.sf.openfx.basicPlugin", "general",
+                       inputs={"Source": src, "Mask": "none"}, params={"scale": {0: 1., 10: 2.}},
+                       frames=[0, 5], host_binary=hostdemo)
+    assert r.report["params"]["scale"]["keys"] == [[0, 1], [10, 2]]
+    assert [x["params"]["scale"] for x in r.report["renders"]] == [1, 1.5]
+    assert_close(r.images[5.0].pixels[..., 0], np.full((8, 8), 0.75, np.float32), atol=1e-6)
+    r = ofxhost.render(sample_plugins, "net.sf.openfx.GenericTestPlugin", params={"keysTest": None},
+                       frames=[0], query=True, host_binary=hostdemo)
+    assert [m["text"] for m in r.report["messages"]] == ["Keys test passed"]
+

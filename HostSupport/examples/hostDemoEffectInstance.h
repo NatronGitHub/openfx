@@ -65,6 +65,7 @@ namespace MyHost {
     std::string _defaultDepth; ///< the depth of the output when no input is connected (hostDemo -d)
     std::vector<MessageRecord>  _messages; ///< the messages sent by the plug-in, in order
     std::vector<ProgressRecord> _progress; ///< the progresses started by the plug-in, in order
+    double _timeLineTime; ///< the time of the current action (timeLineGetTime)
 
     /// format, print (on stdout) and record a message
     OfxStatus recordMessage(const char* kind, const char* type, const char* id, const char* format, va_list args);
