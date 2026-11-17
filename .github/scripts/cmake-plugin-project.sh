@@ -26,7 +26,7 @@ run() { # mode: package | subdirectory
   if [ "$mode" = subdirectory ]; then cmake --build "$w/build" --parallel --target hostDemo; fi
   cmake --install "$w/build" 2>&1 | tee "$w/install.log"
   if [ "$deploy" = ON ]; then
-    warned=$(tr -s ' \n' ' ' < "$w/install.log" | grep -oE '[A-Za-z]+\.(ofx|dylib) \([a-z0-9_]+\) requires macOS' | sort -u | tr '\n' ' ')
+    warned=$(tr -s ' \n' ' ' < "$w/install.log" | grep -oE '[A-Za-z]+\.(ofx|dylib) \([a-z0-9_]+\) requires macOS' | sort -u | tr '\n' ' ' || true)
     echo "minos warnings: $warned"
     case $warned in *InvertBundle.ofx*) fail "minos warning on the plug-in itself: $warned" ;; esac
     case $warned in *libomp.dylib*) ;; *) fail "no minos warning on libomp: $warned" ;; esac
