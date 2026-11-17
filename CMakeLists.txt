@@ -7,6 +7,11 @@
 # repositories (openfx-misc, openfx-io, ...: cmake/OpenFX.cmake and
 # Documentation/proposals/cmake-plugins.md); the Makefiles are kept until Natron's build switches.
 cmake_minimum_required(VERSION 3.16.0)
+# install(DESTINATION) paths are normalized (CMake 3.31; e.g. PLUGIN_INSTALLDIR=.). The functions of
+# cmake/OpenFX.cmake keep the policies of where they are defined, so this applies to them too.
+if(POLICY CMP0177)
+  cmake_policy(SET CMP0177 NEW)
+endif()
 
 option(OFX_SUPPORTS_CUDARENDER "Build examples with support for CUDA GPU rendering" OFF)
 if(APPLE)

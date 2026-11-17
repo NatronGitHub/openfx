@@ -815,7 +815,7 @@ namespace OFX {
    **/
   void Double2DParamDescriptor::setRectanglePart(RectangleParamPartEnum rectanglePart)
   {
-    int i;
+    int i = 0; // (eRectangleParamPartNone)
     switch (rectanglePart) {
       case eRectangleParamPartNone:
         i = 0;

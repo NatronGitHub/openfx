@@ -7,8 +7,9 @@ prefix=$1 work=$2
 src="$(cd "$(dirname "$0")/../.." && pwd)"
 os=$(uname -s)
 deploy=OFF; [ "$os" = Darwin ] && deploy=ON
-# OpenMP must be found on macOS (MacPorts libomp) and Linux (gcc); MSYS2: not yet (see the CMake output)
-openmp=ON; case $os in MINGW*|MSYS*|CYGWIN*) openmp=OFF ;; esac
+# OpenMP must be found: MacPorts libomp on macOS, gcc's libgomp on Linux and MSYS2 (the
+# mingw-w64-ucrt-x86_64-libgomp package)
+openmp=ON
 rm -rf "$work"
 run() { # mode: package | subdirectory
   local mode=$1 w="$work/$1" via=OFF
@@ -64,6 +65,16 @@ case $os in Darwin) want="_OfxGetNumberOfPlugins _OfxGetPlugin " ;; *) want="Ofx
 case $os in
   Darwin) [ "$rpath" = "@loader_path/../Frameworks @loader_path/../Libraries " ] || fail "rpath: '$rpath'" ;;
   Linux|FreeBSD) [ "$rpath" = '$ORIGIN/../../Libraries ' ] || fail "rpath: '$rpath'" ;;
+esac
+# the installed binaries are executable (Debian's CMake strips the execute bit of modules)
+for f in "$installed"/*.ofx.bundle/Contents/"$arch"/*.ofx; do
+  [ -x "$f" ] || fail "$f is not executable"
+done
+# the extra rpath of the non-deployed TestPlist
+tp="$installed/TestPlist.ofx.bundle/Contents/$arch/TestPlist.ofx"
+case $os in
+  Darwin) otool -l "$tp" | grep -q ' path /opt/ofx-test-rpath ' || fail "TestPlist: no RPATH /opt/ofx-test-rpath" ;;
+  Linux|FreeBSD) readelf -d "$tp" | grep -q '/opt/ofx-test-rpath' || fail "TestPlist: no RPATH /opt/ofx-test-rpath" ;;
 esac
 if [ "$os" = Darwin ]; then
   # a bundle that isn't deployed, with resources: its signature is valid too
