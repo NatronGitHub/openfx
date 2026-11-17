@@ -190,6 +190,18 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NATRON
         // hooks to live kOfxInteractPropScreenPixelRatio in the property set
         virtual double getScreenPixelRatio() const = 0;
+
+        /// the keyboard modifiers (extension 13 of ofxNatron.h): a bitmask of kNatronOfxKeyModifier*,
+        /// with the meaning of the key symbols the host passes to keyDownAction() and keyUpAction()
+        /// (in the key actions of a modifier key, the state after the event). Only used for overlay
+        /// interacts (ImageEffect::OverlayInteract), if the host sets
+        /// kNatronOfxHostPropInteractKeyModifiers to 1; then it is passed in the inArgs of every
+        /// overlay interact action. Parameter interacts don't get the property, so the Support
+        /// library falls back to tracking the modifier keys there. The default returns 0.
+        /// Host contract (not enforced): a host that sets kNatronOfxHostPropInteractKeyModifiers
+        /// to 1 MUST override this in its overlay interacts, otherwise plug-ins see no modifier
+        /// at all (they trust the property and stop tracking the modifier keys).
+        virtual int getKeyModifiers() const { return 0; }
 #endif
 
         // hooks to kOfxInteractPropBackgroundColour in the property set

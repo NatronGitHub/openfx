@@ -581,6 +581,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
     11) A plug-in might want to be able to access the host undo/redo actions of the Edit menu when doing special actions from within the overlay interact actions not involving parameters.
     12) Deprecate kOfxParamPropUseHostOverlayHandle, instead add a property on the image effect descriptor indicating group of parameters which altogether control
  more complex overlays. A host can then provide default overlay interact handling.
+    13) Pass the state of the keyboard modifiers (Shift, Control, Alt, Meta) to the overlay interact actions and to the selection rectangle notifications of 7).
 
 1) In the host viewport, parameters can be arranged by widget rows controlled by the kNatronOfxImageEffectPropInViewerContextParamsOrder property.
  This index indicates the order of the parameter in the rows.
@@ -634,7 +635,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
      - kOfxParamPropAnimates = 0 and kOfxParamPropCanUndo = 0 are recommended too (a state that follows the pen should get no keyframes and no undo entries)
     The plug-in should declare the default 0 and never set the parameter itself. A host may enforce these settings, with a warning.
     The host calls the kOfxActionInstanceChanged action for this parameter on every update of the rectangle and on every clear, even if the value of the parameter doesn't change (e.g. 1 during each pen motion).
-    A host may send the updates (1 and 2) only to the effect whose overlay is displayed, and only if the pen moved since the pen down; it may send clears (0) to every effect that has the parameter, at any time, e.g. when the user clicks on an empty area of the viewer: a plug-in must accept a clear without a preceding update. The host starts a selection rectangle only on a pen down that no overlay interact caught, so the overlay should not return kOfxStatOK from kOfxInteractActionPenDown where the user may start a selection. Natron sends a clear on that pen down, unless Ctrl (Cmd on macOS) alone is held: a host may start a new rectangle without a clear, to extend the selection, so a 1 after a 2 starts a new rectangle. The instanceChanged action gives no modifiers: a plug-in that keeps its selection on a clear when a modifier is held must track it through its overlay's kOfxInteractActionKeyDown and kOfxInteractActionKeyUp (e.g. Natron's RotoPaint keeps it with Shift, which Natron doesn't treat specially; by default, Ctrl+click over an image is Natron's colour picker, so the "Ctrl alone, no clear" case only happens where the picker doesn't take the click, e.g. outside the image).
+    A host may send the updates (1 and 2) only to the effect whose overlay is displayed, and only if the pen moved since the pen down; it may send clears (0) to every effect that has the parameter, at any time, e.g. when the user clicks on an empty area of the viewer: a plug-in must accept a clear without a preceding update. The host starts a selection rectangle only on a pen down that no overlay interact caught, so the overlay should not return kOfxStatOK from kOfxInteractActionPenDown where the user may start a selection. Natron sends a clear on that pen down, unless Ctrl (Cmd on macOS) alone is held: a host may start a new rectangle without a clear, to extend the selection, so a 1 after a 2 starts a new rectangle. The instanceChanged action itself gives no modifiers: a host that supports 13) sets kNatronOfxInteractPropKeyModifiers on the effect instance before it calls the kOfxActionInstanceChanged action for this parameter, for every update (1 and 2) and for every clear (0); for a clear sent on the pen down that starts a rectangle, it holds the modifiers of that pen down. This lets a plug-in that keeps its selection on a clear when a modifier is held (e.g. "Shift+drag adds to the selection") tell it from "drag replaces the selection". On other hosts, the plug-in must track the modifiers through its overlay's kOfxInteractActionKeyDown and kOfxInteractActionKeyUp; the Support library's OFX::ImageEffect::getKeyModifiers() does both (e.g. Natron's RotoPaint keeps the selection with Shift, which Natron doesn't treat specially; by default, Ctrl+click over an image is Natron's colour picker, so the "Ctrl alone, no clear" case only happens where the picker doesn't take the click, e.g. outside the image).
     Compatibility: Natron versions without Natron#1196 (2.6.0-alpha1 and earlier) only look for a parameter named "NatronOfxImageEffectSelectionRectangle" (the name of the property), and don't force the notification (a drag that keeps the value at 1 notifies once); later versions still accept that name.
 
  8) DEPRECATED, see kNatronOfxParamCursorName. The host application cursor can be controled by the plug-in via a secret String parameter with the name kNatronOfxParamCursorName. If this parameter is found, the host should display a cursor depending on the value of this parameter.  The value of the parameter should be the name of the cursor. Several default cursor can be made available by the host as advertised by the kNatronOfxImageEffectPropDefaultCursors property. The plug-in may also embed custom cursors as PNG files located in the Resources directory of the plug-in bundle. To specify one the image in the plug-in bundle as an icon, you may set the value of this parameter to the filename of the image without any leading path. This is up to the host to figure out the path to the plug-in bundle Resources directory.
@@ -660,6 +661,16 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  It adds a way for a plug-in to let the host handle overlay interacts.
  kOfxParamPropUseHostOverlayHandle is no longer needed with this new property.
  See property description for more infos.
+
+  13) The OFX interact actions give no keyboard modifier state, so overlays that need it (e.g. Shift+click to add to a selection) had to count the kOfxKey_Shift_L/R, kOfxKey_Control_L/R... key events. Key events only reach an overlay while it has the keyboard focus, so that count can be wrong.
+ A host that supports this extension sets the host property kNatronOfxHostPropInteractKeyModifiers to 1, and sets the int property kNatronOfxInteractPropKeyModifiers, a bitmask of kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta:
+     - in the inArgs of all the actions of the image effect overlay interacts (kOfxImageEffectPluginPropOverlayInteractV1/V2; not the parameter interacts of kOfxParamPropInteractV1): kOfxInteractActionDraw, kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp, kOfxInteractActionKeyRepeat, kOfxInteractActionGainFocus and kOfxInteractActionLoseFocus;
+     - on the image effect instance, before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState of 7). There, its value is only valid during that kOfxActionInstanceChanged action.
+ Parameter interacts don't get the property (in the Support library, their InteractArgs::keyModifiers is the effect instance's overlay state).
+ Each bit has exactly the meaning of the host's key symbols: kNatronOfxKeyModifierControl is set while a key that the host reports as kOfxKey_Control_L or kOfxKey_Control_R is down, and likewise for Shift (kOfxKey_Shift_L/R), Alt (kOfxKey_Alt_L/R) and Meta (kOfxKey_Meta_L/R). So the bits mean the same keys as the key symbols a plug-in would track (though tracking misses the keys pressed or released while the interact doesn't have the focus). On macOS, a host built with Qt reports Cmd as kOfxKey_Control_L/R and the physical Control key as kOfxKey_Meta_L/R (unless Qt::AA_MacDontSwapCtrlAndMeta is set), so kNatronOfxKeyModifierControl is set while Cmd is down.
+ In kOfxInteractActionKeyDown, kOfxInteractActionKeyUp and kOfxInteractActionKeyRepeat of a modifier key, the property holds the state after the event: on the key down of Shift, kNatronOfxKeyModifierShift is set; on its key up, it is cleared.
+ The state is per effect instance: the host passes it to the interacts of each instance, and sets it on that instance before the selection rectangle notification.
+ A plug-in should not rely on the host supporting this extension: without it, it can track the modifier key events of the overlay interacts of each effect instance, and reset that state on kOfxInteractActionLoseFocus. The Support library does both: OFX::ImageEffect::getKeyModifiers() returns the last state given by the host to that instance, or the tracked state on hosts without this extension.
  
  */
 
@@ -1227,6 +1238,47 @@ says:
     extension: natron
  */
 #define kNatronOfxPropPickerColour "NatronOfxPropPickerColour"
+
+/** @brief Int property telling whether the host passes the keyboard modifiers to the overlay interact actions and to the selection rectangle notifications. See 13) of the in-viewer interface extension.
+
+ - Type - int x 1
+ - Property Set - host descriptor (read only)
+ - Default - 0
+ - Valid Values - 0 or 1
+ If 1, the host sets kNatronOfxInteractPropKeyModifiers in the inArgs of all the actions of the image effect overlay interacts (not of the parameter interacts), and on the image effect instance before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState.
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
+ */
+#define kNatronOfxHostPropInteractKeyModifiers "NatronOfxHostPropInteractKeyModifiers"
+
+/** @brief Int property holding the state of the keyboard modifiers, as a bitmask of kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta. See 13) of the in-viewer interface extension.
+
+ - Type - int x 1
+ - Property Set - inArgs of the overlay interact actions kOfxInteractActionDraw, kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp, kOfxInteractActionKeyRepeat, kOfxInteractActionGainFocus and kOfxInteractActionLoseFocus of the image effect overlay interacts (read only); image effect instance (read only), set by the host before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState, and only valid during that action
+ - Default - 0
+ - Valid Values - a bitwise OR of kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta
+
+ A bit is set while a key that the host reports with the corresponding key symbols of ofxKeySyms.h is down (e.g. kNatronOfxKeyModifierControl while kOfxKey_Control_L or kOfxKey_Control_R is down, which is Cmd on macOS hosts built with Qt). In the key actions of a modifier key, the value is the state after the event.
+ The host only sets this property if kNatronOfxHostPropInteractKeyModifiers is 1 on the host descriptor: a plug-in should check that the property exists, and otherwise track the modifier key events. On the image effect instance, the value is only valid during the kOfxActionInstanceChanged action for kNatronOfxParamSelectionRectangleState. Parameter interacts (kOfxParamPropInteractV1) don't get this property.
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: natron
+ */
+#define kNatronOfxInteractPropKeyModifiers "NatronOfxInteractPropKeyModifiers"
+
+/** @brief Bits of kNatronOfxInteractPropKeyModifiers: set while kOfxKey_Shift_L or kOfxKey_Shift_R is down */
+#define kNatronOfxKeyModifierShift 1
+/** @brief Bits of kNatronOfxInteractPropKeyModifiers: set while kOfxKey_Control_L or kOfxKey_Control_R is down (Cmd on macOS hosts built with Qt) */
+#define kNatronOfxKeyModifierControl 2
+/** @brief Bits of kNatronOfxInteractPropKeyModifiers: set while kOfxKey_Alt_L or kOfxKey_Alt_R is down */
+#define kNatronOfxKeyModifierAlt 4
+/** @brief Bits of kNatronOfxInteractPropKeyModifiers: set while kOfxKey_Meta_L or kOfxKey_Meta_R is down (the Control key on macOS hosts built with Qt) */
+#define kNatronOfxKeyModifierMeta 8
 
 /** @brief Property to indicate the whether the curves in the parametric parametric
  are considered to be periodic or not. If periodic the first and last control point

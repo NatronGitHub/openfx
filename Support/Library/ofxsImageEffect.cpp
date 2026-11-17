@@ -2584,6 +2584,9 @@ namespace OFX {
     , _effectProps(NULL)
     , _context(eContextNone)
     , _progressStartSuccess(false)
+#ifdef OFX_EXTENSIONS_NATRON
+    , _modifierKeysDown(0)
+#endif
   {
     // get the property handle
     _effectProps = OFX::Private::fetchEffectProps(handle);
@@ -2653,6 +2656,85 @@ namespace OFX {
     OfxRectD bounds = { 0., 0., 0., 0. };
     _effectProps.propGetDoubleN(kNatronOfxImageEffectSelectionRectangle, &bounds.x1, 4, false);
     return bounds;
+  }
+
+  // Keyboard modifiers (extension 13 of ofxNatron.h). Main thread only, like the interact
+  // actions and kOfxActionInstanceChanged that update them, so no locking.
+  namespace {
+    // the modifier key symbols, by kNatronOfxKeyModifier* bit (index 0: left, 1: right)
+    struct ModifierKeys {
+      int modifier;
+      int keySym[2];
+    };
+    const ModifierKeys gModifierKeys[] = {
+      { kNatronOfxKeyModifierShift,   { kOfxKey_Shift_L,   kOfxKey_Shift_R } },
+      { kNatronOfxKeyModifierControl, { kOfxKey_Control_L, kOfxKey_Control_R } },
+      { kNatronOfxKeyModifierAlt,     { kOfxKey_Alt_L,     kOfxKey_Alt_R } },
+      { kNatronOfxKeyModifierMeta,    { kOfxKey_Meta_L,    kOfxKey_Meta_R } },
+    };
+    const int gNModifierKeys = (int)(sizeof(gModifierKeys) / sizeof(gModifierKeys[0]));
+  }
+
+  int ImageEffect::getKeyModifiers() const
+  {
+    int modifiers = 0;
+    for (int i = 0; i < gNModifierKeys; ++i) {
+      if ( _modifierKeysDown & (3 << (2 * i)) ) {
+        modifiers |= gModifierKeys[i].modifier;
+      }
+    }
+    return modifiers;
+  }
+
+  bool ImageEffect::updateKeyModifiers(const std::string &action, const PropertySet &props)
+  {
+    if ( props.propExists(kNatronOfxInteractPropKeyModifiers, false) ) {
+      // the state given by the host. Keep the keys that are down consistent with it, so that
+      // tracking (if a later action doesn't carry the property) starts from it. The side of a
+      // modifier that the host reports is unknown, so it is recorded as the left key: on a host
+      // that passes the property in some actions but not in others, a later key up of the right
+      // key without the property doesn't clear that modifier (the next action with the property,
+      // or a kOfxInteractActionLoseFocus, does). That is acceptable for such mixed hosts.
+      const int modifiers = props.propGetInt(kNatronOfxInteractPropKeyModifiers, 0, false);
+      for (int i = 0; i < gNModifierKeys; ++i) {
+        const int sides = 3 << (2 * i);
+        if ( !(modifiers & gModifierKeys[i].modifier) ) {
+          _modifierKeysDown &= ~sides;
+        } else if ( !(_modifierKeysDown & sides) ) {
+          _modifierKeysDown |= 1 << (2 * i); // the side is unknown: say left
+        }
+      }
+      return true;
+    }
+    if (action == kOfxInteractActionLoseFocus) {
+      // the key up events of the keys released after this are not sent to the interact
+      _modifierKeysDown = 0;
+    } else if (action == kOfxInteractActionKeyDown ||
+               action == kOfxInteractActionKeyRepeat ||
+               action == kOfxInteractActionKeyUp) {
+      const bool down = (action != kOfxInteractActionKeyUp);
+      const int keySym = props.propGetInt(kOfxPropKeySym, 0, false);
+      for (int i = 0; i < gNModifierKeys; ++i) {
+        for (int side = 0; side < 2; ++side) {
+          if (keySym == gModifierKeys[i].keySym[side]) {
+            const int bit = 1 << (2 * i + side);
+            if (down) {
+              _modifierKeysDown |= bit;
+            } else {
+              _modifierKeysDown &= ~bit;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  namespace Private {
+    bool updateKeyModifiers(ImageEffect &effect, const std::string &action, const PropertySet &props)
+    {
+      return effect.updateKeyModifiers(action, props);
+    }
   }
 #endif
 
@@ -4217,6 +4299,7 @@ namespace OFX {
         gHostDescription.supportsCascadingChoices   = hostProps.propGetInt(kNatronOfxParamPropChoiceCascading, false) != 0;
         gHostDescription.supportsChannelSelector    = hostProps.propGetString(kNatronOfxImageEffectPropChannelSelector, false) == kOfxImageComponentRGBA;
         gHostDescription.canDistort                 = hostProps.propGetInt(kOfxImageEffectPropCanDistort, false) != 0;
+        gHostDescription.supportsInteractKeyModifiers = hostProps.propGetInt(kNatronOfxHostPropInteractKeyModifiers, false) != 0;
 
         int nOverlayHandles = hostProps.propGetDimension(kNatronOfxPropNativeOverlays, false);
         for (int i = 0; i < nOverlayHandles; ++i) {
@@ -5131,6 +5214,13 @@ namespace OFX {
       std::string changedName = inArgs.propGetString(kOfxPropName);
 
       if(changedType == kOfxTypeParameter) {
+#ifdef OFX_EXTENSIONS_NATRON
+        // extension 13 of ofxNatron.h: the host sets the modifiers on the instance before the
+        // selection rectangle notifications (its value at other times is unspecified)
+        if (changedName == kNatronOfxParamSelectionRectangleState) {
+          updateKeyModifiers(*effectInstance, kOfxActionInstanceChanged, effectInstance->getPropertySet());
+        }
+#endif
         // and call the plugin client code
         effectInstance->changedParam(args, changedName);
       }

@@ -397,6 +397,9 @@ namespace OFX {
           props.setDoublePropertyN(kNatronOfxPropPickerColour, noColor, 4);
         }
         props.setDoubleProperty(kOfxInteractPropScreenPixelRatio, getScreenPixelRatio());
+        if (props.fetchProperty(kNatronOfxInteractPropKeyModifiers)) {
+          props.setIntProperty(kNatronOfxInteractPropKeyModifiers, getKeyModifiers());
+        }
 #endif
       }
 

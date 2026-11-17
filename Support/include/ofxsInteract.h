@@ -121,8 +121,19 @@ namespace OFX {
 
     /**@brief pixel ratio of the screen, typically 2 for Retina screen. Should be used for functions using screen pixels such as glPointSize, glLineWidth, etc...*/
     double          screenPixelRatio;
+
+    /** @brief The keyboard modifiers, a bitmask of kNatronOfxKeyModifier* (ofxNatron.h, extension 13):
+        the value of ImageEffect::getKeyModifiers() for the effect of the interact when the action
+        was called, i.e. the host's kNatronOfxInteractPropKeyModifiers if it passed it, else the
+        state tracked from the modifier key events. Only valid in the args built by the Support
+        dispatch for an interact action (the constructor sets it to 0) */
+    int             keyModifiers;
+    /** @brief If true, the host passed kNatronOfxInteractPropKeyModifiers in the inArgs of this action
+        (otherwise keyModifiers is the tracked state) */
+    bool            hasKeyModifiers;
 #endif
   };
+
 
   /** @brief struct to pass arguments into OFX::Interact::draw */
   struct DrawArgs : public InteractArgs {
@@ -257,6 +268,14 @@ namespace OFX {
   public : 
     /** @brief ctor */
     Interact(OfxInteractHandle handle);
+
+    /** @brief The effect instance this interact belongs to */
+    ImageEffect *getEffect() const { return _effect; }
+
+#ifdef OFX_EXTENSIONS_NATRON
+    /** @brief The keyboard modifiers of the effect of this interact, see ImageEffect::getKeyModifiers() */
+    int getKeyModifiers() const;
+#endif
 
     /** @brief virtual destructor */
     virtual ~Interact();

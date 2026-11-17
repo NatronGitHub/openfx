@@ -105,6 +105,13 @@ namespace OFX {
     _effect = retrieveEffectFromInteractHandle(handle);
   }
 
+#ifdef OFX_EXTENSIONS_NATRON
+  int Interact::getKeyModifiers() const
+  {
+    return _effect ? _effect->getKeyModifiers() : 0;
+  }
+#endif
+
   /** @brief virtual destructor */
   Interact::~Interact()
   {
@@ -382,6 +389,10 @@ namespace OFX {
     }
     screenPixelRatio = 1.;
     screenPixelRatio = props.propGetDouble(kOfxInteractPropScreenPixelRatio, 0, false);
+    // the dispatcher (interactMainEntry) updated the effect's state from these inArgs before
+    // building the args, see Private::updateKeyModifiers()
+    hasKeyModifiers = props.propExists(kNatronOfxInteractPropKeyModifiers, false);
+    keyModifiers = 0;
 #endif
   }
 
@@ -616,6 +627,30 @@ namespace OFX {
       if(!interact)
         return stat;
 
+#ifdef OFX_EXTENSIONS_NATRON
+      // extension 13 of ofxNatron.h: before the action, update the modifiers of the effect, only
+      // from its image effect overlay interacts (the property and the key tracking): the key
+      // events and loseFocus of a parameter interact (e.g. a parametric parameter's curve
+      // editor) must not clear or overwrite the state tracked by the overlay
+      // Only the nine interact actions touch the effect: not kOfxActionDestroyInstance, where the
+      // host may already have destroyed the effect of a parameter interact.
+      ImageEffect *effect = interact->getEffect();
+      const bool isInteractAction =
+           ( action == kOfxInteractActionDraw ||
+             action == kOfxInteractActionPenMotion ||
+             action == kOfxInteractActionPenDown ||
+             action == kOfxInteractActionPenUp ||
+             action == kOfxInteractActionKeyDown ||
+             action == kOfxInteractActionKeyUp ||
+             action == kOfxInteractActionKeyRepeat ||
+             action == kOfxInteractActionGainFocus ||
+             action == kOfxInteractActionLoseFocus );
+      if ( isInteractAction && effect && inArgs.propSetHandle() && dynamic_cast<OverlayInteract *>(interact) ) {
+        OFX::Private::updateKeyModifiers(*effect, action, inArgs);
+      }
+      const int keyModifiers = (isInteractAction && effect) ? effect->getKeyModifiers() : 0;
+#endif
+
       if(action == kOfxActionDestroyInstance) {
         delete interact;
         stat = kOfxStatOK;
@@ -623,6 +658,9 @@ namespace OFX {
       else if(action ==   kOfxInteractActionDraw) {
         // make the draw args
         DrawArgs drawArgs(inArgs);
+#ifdef OFX_EXTENSIONS_NATRON
+        drawArgs.keyModifiers = keyModifiers;
+#endif
         if(interact->draw(drawArgs))
           stat = kOfxStatOK;
       }
@@ -630,47 +668,71 @@ namespace OFX {
 
         // make the draw args
         PenArgs args(inArgs);
+#ifdef OFX_EXTENSIONS_NATRON
+        args.keyModifiers = keyModifiers;
+#endif
         if(interact->penMotion(args))
           stat = kOfxStatOK;
       }
       else if(action ==   kOfxInteractActionPenDown) {
         // make the draw args
         PenArgs args(inArgs);
+#ifdef OFX_EXTENSIONS_NATRON
+        args.keyModifiers = keyModifiers;
+#endif
         if(interact->penDown(args))
           stat = kOfxStatOK;
       }
       else if(action ==   kOfxInteractActionPenUp) {
         // make the draw args
         PenArgs args(inArgs);
+#ifdef OFX_EXTENSIONS_NATRON
+        args.keyModifiers = keyModifiers;
+#endif
         if(interact->penUp(args))
           stat = kOfxStatOK;
       }
       else if(action ==   kOfxInteractActionKeyDown) {
         // make the draw args
         KeyArgs args(inArgs);
+#ifdef OFX_EXTENSIONS_NATRON
+        args.keyModifiers = keyModifiers;
+#endif
         if(interact->keyDown(args))
           stat = kOfxStatOK;
       }
       else if(action ==   kOfxInteractActionKeyUp) {
         // make the draw args
         KeyArgs args(inArgs);
+#ifdef OFX_EXTENSIONS_NATRON
+        args.keyModifiers = keyModifiers;
+#endif
         if(interact->keyUp(args))
           stat = kOfxStatOK;
       }
       else if(action ==   kOfxInteractActionKeyRepeat) {
         // make the draw args
         KeyArgs args(inArgs);
+#ifdef OFX_EXTENSIONS_NATRON
+        args.keyModifiers = keyModifiers;
+#endif
         if(interact->keyRepeat(args))
           stat = kOfxStatOK;
       }
       else if(action ==   kOfxInteractActionGainFocus) {
         // make the draw args
         FocusArgs args(inArgs);
+#ifdef OFX_EXTENSIONS_NATRON
+        args.keyModifiers = keyModifiers;
+#endif
         interact->gainFocus(args);
       }
       else if(action ==   kOfxInteractActionLoseFocus) {
         // make the draw args
         FocusArgs args(inArgs);
+#ifdef OFX_EXTENSIONS_NATRON
+        args.keyModifiers = keyModifiers;
+#endif
         interact->loseFocus(args);
       }
 

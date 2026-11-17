@@ -101,6 +101,23 @@ namespace OFX
   }
 }
 
+#ifdef OFX_EXTENSIONS_NATRON
+namespace OFX
+{
+  class ImageEffect;
+  class PropertySet;
+  namespace Private
+  {
+    /** @brief Library side (extension 13 of ofxNatron.h): update the keyboard modifiers of
+        \p effect before an action of one of its overlay interacts, or before the
+        kOfxActionInstanceChanged of kNatronOfxParamSelectionRectangleState.
+        See ImageEffect::getKeyModifiers(). Returns true if \p props has
+        kNatronOfxInteractPropKeyModifiers. */
+    bool updateKeyModifiers(ImageEffect &effect, const std::string &action, const PropertySet &props);
+  }
+}
+#endif
+
 
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
 */
@@ -555,6 +572,10 @@ namespace OFX {
     /// cursors the host can display for interacts (kOfxInteractHostPropSupportedCursors,
     /// proposed extension NatronGitHub/openfx#4); empty if the host doesn't support it
     std::vector<std::string> supportedCursors;
+
+    /// does the host pass the keyboard modifiers (kNatronOfxHostPropInteractKeyModifiers, extension 13
+    /// of ofxNatron.h)? Informative only: ImageEffect::getKeyModifiers() works on all hosts.
+    bool supportsInteractKeyModifiers;
 #endif
 
   public:
@@ -1991,6 +2012,12 @@ namespace OFX {
     /** @brief cached result of whether progress start succeeded. */
     bool _progressStartSuccess;
 
+#ifdef OFX_EXTENSIONS_NATRON
+    /** @brief the modifier keys that are down (see getKeyModifiers()): bit 2*i is the left key
+        and bit 2*i+1 the right key of the i-th kNatronOfxKeyModifier* (Shift, Control, Alt, Meta) */
+    int _modifierKeysDown;
+#endif
+
     /** @brief used to disable checks on some hosts.
 
     in Resolve, kOfxImagePropField property is always kOfxImageFieldNone on OFX images, regardless of the clip properties
@@ -2092,6 +2119,56 @@ namespace OFX {
      parameter kNatronOfxParamSelectionRectangleState; it is (0,0,0,0) after a clear.
      */
     OfxRectD getSelectionRectangle() const;
+
+    /** @brief The state of the keyboard modifiers for this effect instance, a bitmask of
+        kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and
+        kNatronOfxKeyModifierMeta (extension 13 of ofxNatron.h).
+
+        Plug-ins should call this instead of counting the modifier key events in their overlay
+        interact: it works the same on hosts with and without the extension. Call it from the
+        actions of the interacts of this instance (also available as InteractArgs::keyModifiers;
+        in parameter interacts, that is this instance's overlay state, since the host passes no
+        property there and parameter interacts don't update it) and from changedParam(), e.g. for the host selection rectangle
+        (kNatronOfxParamSelectionRectangleState). It returns the last state seen by this
+        instance, not a live query of the keyboard:
+        - if the host passes kNatronOfxInteractPropKeyModifiers in the inArgs of an action of an
+          overlay interact of this instance, or sets it on this instance before the kOfxActionInstanceChanged
+          action for kNatronOfxParamSelectionRectangleState, the state is that value;
+        - otherwise, it is tracked from the kOfxInteractActionKeyDown, kOfxInteractActionKeyRepeat
+          and kOfxInteractActionKeyUp actions of the modifier keys (kOfxKey_Shift_L/R,
+          kOfxKey_Control_L/R, kOfxKey_Alt_L/R, kOfxKey_Meta_L/R) received by the overlay interacts of
+          this instance, and cleared by their kOfxInteractActionLoseFocus (parameter interacts
+          don't update it). A modifier pressed or released while no overlay interact of this
+          instance had the keyboard focus is missed.
+        It is 0 until the instance has seen an event.
+
+        Only valid on the main (UI) thread, where the host calls the interact actions and
+        kOfxActionInstanceChanged: never call it from a render thread.
+
+        kNatronOfxKeyModifierControl is set while the key that the host reports as
+        kOfxKey_Control_L/R is down, which is Cmd on macOS hosts built with Qt (e.g. Natron), and
+        kNatronOfxKeyModifierMeta is then the Control key.
+     */
+    int getKeyModifiers() const;
+
+    /** @brief true if kNatronOfxKeyModifierShift is set in getKeyModifiers() */
+    bool isShiftDown() const { return (getKeyModifiers() & kNatronOfxKeyModifierShift) != 0; }
+    /** @brief true if kNatronOfxKeyModifierControl is set in getKeyModifiers() (Cmd on macOS hosts built with Qt) */
+    bool isControlDown() const { return (getKeyModifiers() & kNatronOfxKeyModifierControl) != 0; }
+    /** @brief true if kNatronOfxKeyModifierAlt is set in getKeyModifiers() */
+    bool isAltDown() const { return (getKeyModifiers() & kNatronOfxKeyModifierAlt) != 0; }
+    /** @brief true if kNatronOfxKeyModifierMeta is set in getKeyModifiers() (the Control key on macOS hosts built with Qt) */
+    bool isMetaDown() const { return (getKeyModifiers() & kNatronOfxKeyModifierMeta) != 0; }
+
+  private:
+    friend bool Private::updateKeyModifiers(ImageEffect &effect, const std::string &action, const PropertySet &props);
+
+    /** @brief update the keyboard modifiers from the host's kNatronOfxInteractPropKeyModifiers
+        if \p props has it, else (interact actions only) from the modifier key events. Returns
+        true if \p props has the property. Called through Private::updateKeyModifiers(). */
+    bool updateKeyModifiers(const std::string &action, const PropertySet &props);
+
+  public:
 #endif
 
     /** @brief Can this instance render on the CPU (kOfxImageEffectPropCPURenderSupported, OFX 1.5.1). Ignored by hosts that don't know it. */
