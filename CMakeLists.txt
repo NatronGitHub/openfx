@@ -99,9 +99,8 @@ foreach(_def
   endif()
 endforeach()
 list(APPEND OFX_DEFINITIONS ${OFX_EXTRA_DEFINITIONS})
-if(APPLE)
-  list(APPEND OFX_DEFINITIONS GL_SILENCE_DEPRECATION)
-endif()
+# GL_SILENCE_DEPRECATION (Apple's OpenGL headers) is a plug-in-side definition: it is set by
+# add_ofx_plugin and openfx::Support, not by openfx::Api or openfx::HostSupport (hosts don't need it)
 if(OFX_SUPPORTS_OPENCLRENDER AND NOT APPLE)
   find_package(OpenCLHeaders REQUIRED)
   find_package(OpenCLICDLoader REQUIRED)
