@@ -29,6 +29,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <iostream>
 #include <fstream>
+#include <algorithm>
+#include <cmath>
+#include <iterator>
 
 // ofx
 #include "ofxCore.h"
@@ -55,9 +58,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace MyHost {
 
-  // All the param instances store their value, initialised from the default
-  // value of the descriptor (kOfxParamPropDefault). Parameters are not animated:
-  // get(time, ...) returns the stored value and set(time, ...) sets it.
+  // All the param instances belong to the effect's parameter set (so that HostSupport sends
+  // kOfxActionInstanceChanged, kOfxChangePluginEdited, when the plug-in sets a value), and store
+  // their value, initialised from the default
+  // value of the descriptor (kOfxParamPropDefault). The numeric ones may have keys (MyCurve);
+  // the string, custom, string choice and bytes ones don't animate: get(time, ...) returns the
+  // stored value and set(time, ...) sets it.
 
   //
   // MyStringInstance
@@ -66,7 +72,7 @@ namespace MyHost {
   MyStringInstance::MyStringInstance(MyEffectInstance* effect,
                                      const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::StringInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::StringInstance(descriptor, effect), _effect(effect), _descriptor(descriptor)
   {
     _s = _descriptor.getProperties().getStringProperty(kOfxParamPropDefault);
   }
@@ -100,7 +106,7 @@ namespace MyHost {
   MyCustomInstance::MyCustomInstance(MyEffectInstance* effect,
                                      const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::CustomInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::CustomInstance(descriptor, effect), _effect(effect), _descriptor(descriptor)
   {
     _s = _descriptor.getProperties().getStringProperty(kOfxParamPropDefault);
   }
@@ -134,7 +140,7 @@ namespace MyHost {
   MyBytesInstance::MyBytesInstance(MyEffectInstance* effect,
                                    const std::string& /*name*/,
                                    OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::BytesInstance(descriptor), _value(getDefault()), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::BytesInstance(descriptor, effect), _value(getDefault()), _effect(effect), _descriptor(descriptor)
   {
   }
 
@@ -166,42 +172,202 @@ namespace MyHost {
   }
 
   //
-  // MyIntegerInstance
+  // MyCurve
   //
 
-  MyIntegerInstance::MyIntegerInstance(MyEffectInstance* effect, 
-                                       const std::string& /*name*/, 
-                                       OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::IntegerInstance(descriptor), _effect(effect), _descriptor(descriptor)
+  // two key times closer than this are the same key ("some small delta", paramGetKeyIndex)
+  static const double kKeyTimeEpsilon = 1e-4;
+
+  MyCurve::MyCurve(MyEffectInstance* effect, const OFX::Host::Param::Descriptor& descriptor, int dimension,
+                   InterpolationEnum interpolation, const double* defaultValue)
+    : _effect(effect)
+    , _dimension(dimension)
+    , _interpolation(interpolation)
+    , _animates(descriptor.getProperties().getIntProperty(kOfxParamPropAnimates) != 0)
+    , _value(defaultValue, defaultValue + dimension)
   {
-    _i = _descriptor.getProperties().getIntProperty(kOfxParamPropDefault);
   }
 
-  OfxStatus MyIntegerInstance::get(int& i)
+  OfxTime MyCurve::currentTime() const
   {
-    i = _i;
+    return _effect ? _effect->timeLineGetTime() : 0.;
+  }
+
+  // the key nearest to time, if within kKeyTimeEpsilon
+  MyCurve::Keys::const_iterator MyCurve::findKey(OfxTime time) const
+  {
+    Keys::const_iterator best = _keys.end();
+    for (Keys::const_iterator it = _keys.lower_bound(time - kKeyTimeEpsilon);
+         it != _keys.end() && it->first <= time + kKeyTimeEpsilon; ++it) {
+      if (best == _keys.end() || std::fabs(it->first - time) < std::fabs(best->first - time)) {
+        best = it;
+      }
+    }
+    return best;
+  }
+
+  void MyCurve::getCurrent(double* v) const
+  {
+    get(currentTime(), v);
+  }
+
+  void MyCurve::get(OfxTime time, double* v) const
+  {
+    if (_keys.empty()) {
+      std::copy(_value.begin(), _value.end(), v);
+      return;
+    }
+    Keys::const_iterator hi = _keys.upper_bound(time); // the first key after time
+    if (hi == _keys.begin()) {
+      std::copy(hi->second.begin(), hi->second.end(), v); // before the first key
+      return;
+    }
+    Keys::const_iterator lo = hi;
+    --lo;
+    if (hi == _keys.end() || _interpolation == eConstant) {
+      std::copy(lo->second.begin(), lo->second.end(), v); // after the last key, or held
+      return;
+    }
+    const double a = (time - lo->first) / (hi->first - lo->first);
+    for (int k = 0; k < _dimension; ++k) {
+      v[k] = lo->second[k] + a * (hi->second[k] - lo->second[k]);
+      if (_interpolation == eLinearRounded) {
+        v[k] = std::floor(v[k] + 0.5);
+      }
+    }
+  }
+
+  void MyCurve::set(const double* v)
+  {
+    if (_keys.empty()) {
+      _value.assign(v, v + _dimension);
+    } else {
+      set(currentTime(), v); // a parameter with keys: the key at the current time
+    }
+  }
+
+  void MyCurve::set(OfxTime time, const double* v)
+  {
+    if (!_animates) {
+      _value.assign(v, v + _dimension);
+      return;
+    }
+    Keys::const_iterator it = findKey(time);
+    if (it != _keys.end()) {
+      time = it->first; // the same key
+    }
+    _keys[time].assign(v, v + _dimension);
+  }
+
+  void MyCurve::derive(OfxTime time, double* v) const
+  {
+    std::fill(v, v + _dimension, 0.);
+    if (_keys.size() < 2 || _interpolation == eConstant) {
+      return;
+    }
+    Keys::const_iterator hi = _keys.upper_bound(time);
+    if (hi == _keys.begin() || hi == _keys.end()) {
+      return; // constant before the first key and after the last one
+    }
+    Keys::const_iterator lo = hi;
+    --lo;
+    for (int k = 0; k < _dimension; ++k) {
+      v[k] = (hi->second[k] - lo->second[k]) / (hi->first - lo->first);
+    }
+  }
+
+  // the integral of the (piecewise linear or piecewise constant) curve from time1 to time2
+  void MyCurve::integrate(OfxTime time1, OfxTime time2, double* v) const
+  {
+    std::fill(v, v + _dimension, 0.);
+    const double sign = time2 < time1 ? -1. : 1.;
+    if (time2 < time1) {
+      std::swap(time1, time2);
+    }
+    // the breakpoints: the key times between time1 and time2
+    std::vector<OfxTime> t;
+    t.push_back(time1);
+    for (Keys::const_iterator it = _keys.upper_bound(time1); it != _keys.end() && it->first < time2; ++it) {
+      t.push_back(it->first);
+    }
+    t.push_back(time2);
+    std::vector<double> a(_dimension), b(_dimension);
+    for (size_t i = 0; i + 1 < t.size(); ++i) {
+      get(t[i], &a[0]);
+      // the curve is linear (or constant, with the value at its start) on [t[i], t[i+1]]
+      if (_interpolation == eConstant) {
+        b = a;
+      } else {
+        get(t[i + 1], &b[0]);
+      }
+      for (int k = 0; k < _dimension; ++k) {
+        v[k] += 0.5 * (a[k] + b[k]) * (t[i + 1] - t[i]);
+      }
+    }
+    for (int k = 0; k < _dimension; ++k) {
+      v[k] *= sign;
+    }
+  }
+
+  OfxStatus MyCurve::getNumKeys(unsigned int& nKeys) const
+  {
+    nKeys = (unsigned int)_keys.size();
     return kOfxStatOK;
   }
 
-  OfxStatus MyIntegerInstance::get(OfxTime, int& i)
+  OfxStatus MyCurve::getKeyTime(int nth, OfxTime& time) const
   {
-    return get(i);
-  }
-
-  OfxStatus MyIntegerInstance::set(int i)
-  {
-    _i = i;
+    if (nth < 0 || nth >= (int)_keys.size()) {
+      return kOfxStatErrBadIndex; // "the nthKey does not exist"
+    }
+    Keys::const_iterator it = _keys.begin();
+    std::advance(it, nth);
+    time = it->first;
     return kOfxStatOK;
   }
 
-  OfxStatus MyIntegerInstance::set(OfxTime, int i)
+  // direction == 0: the key at time (within kKeyTimeEpsilon); > 0: the next key after time;
+  // < 0: the previous key before time
+  OfxStatus MyCurve::getKeyIndex(OfxTime time, int direction, int& index) const
   {
-    return set(i);
+    index = -1; // "set to -1 if no key was found"
+    Keys::const_iterator it;
+    if (direction == 0) {
+      it = findKey(time);
+    } else if (direction > 0) {
+      it = _keys.upper_bound(time + kKeyTimeEpsilon);
+    } else {
+      it = _keys.lower_bound(time - kKeyTimeEpsilon);
+      it = it == _keys.begin() ? _keys.end() : --it;
+    }
+    if (it == _keys.end()) {
+      return kOfxStatFailed; // "the search failed to find a key"
+    }
+    index = (int)std::distance(_keys.begin(), it);
+    return kOfxStatOK;
   }
 
-  //
-  // MyDoubleInstance
-  //
+  OfxStatus MyCurve::deleteKey(OfxTime time)
+  {
+    Keys::const_iterator it = findKey(time);
+    if (it == _keys.end()) {
+      return kOfxStatErrBadIndex; // "no key at the given time"
+    }
+    if (_keys.size() == 1) {
+      _value = it->second; // the last key: its value stays
+    }
+    _keys.erase(it->first);
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyCurve::deleteAllKeys()
+  {
+    if (!_keys.empty()) {
+      getCurrent(&_value[0]); // the value at the current time stays
+      _keys.clear();
+    }
+    return kOfxStatOK;
+  }
 
   // Spatial double params may give their default in normalised coordinates
   // (kOfxParamPropDefaultCoordinateSystem, OFX 1.2): convert it to canonical
@@ -239,48 +405,113 @@ namespace MyHost {
     }
   }
 
-  MyDoubleInstance::MyDoubleInstance(MyEffectInstance* effect, 
-                                     const std::string& /*name*/, 
+  // the default value of a numeric parameter (kOfxParamPropDefault), as doubles, with the
+  // normalised defaults of spatial double parameters converted to canonical coordinates
+  static const double*
+  defaultValue(const OFX::Host::Param::Descriptor& descriptor, const MyEffectInstance* effect, int n, bool isDouble)
+  {
+    static double v[4];
+    const OFX::Host::Property::Set& props = descriptor.getProperties();
+    for (int k = 0; k < n; ++k) {
+      v[k] = isDouble ? props.getDoubleProperty(kOfxParamPropDefault, k) : (double)props.getIntProperty(kOfxParamPropDefault, k);
+    }
+    if (isDouble) {
+      defaultToCanonical(descriptor, effect, v, n);
+    }
+    return v;
+  }
+
+  //
+  // MyIntegerInstance
+  //
+
+  MyIntegerInstance::MyIntegerInstance(MyEffectInstance* effect,
+                                       const std::string& /*name*/,
+                                       OFX::Host::Param::Descriptor& descriptor)
+    : OFX::Host::Param::IntegerInstance(descriptor, effect), _curve(effect, descriptor, 1, MyCurve::eLinearRounded, defaultValue(descriptor, effect, 1, false)), _effect(effect), _descriptor(descriptor)
+  {
+  }
+
+  OfxStatus MyIntegerInstance::get(int& v)
+  {
+    double d;
+    _curve.getCurrent(&d);
+    v = (int)d;
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyIntegerInstance::get(OfxTime time, int& v)
+  {
+    double d;
+    _curve.get(time, &d);
+    v = (int)d;
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyIntegerInstance::set(int v)
+  {
+    const double d = (double)v;
+    _curve.set(&d);
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyIntegerInstance::set(OfxTime time, int v)
+  {
+    const double d = (double)v;
+    _curve.set(time, &d);
+    return kOfxStatOK;
+  }
+
+  //
+  // MyDoubleInstance
+  //
+
+  MyDoubleInstance::MyDoubleInstance(MyEffectInstance* effect,
+                                     const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::DoubleInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::DoubleInstance(descriptor, effect), _curve(effect, descriptor, 1, MyCurve::eLinear, defaultValue(descriptor, effect, 1, true)), _effect(effect), _descriptor(descriptor)
   {
-    _d = _descriptor.getProperties().getDoubleProperty(kOfxParamPropDefault);
-    defaultToCanonical(_descriptor, _effect, &_d, 1);
   }
 
-  OfxStatus MyDoubleInstance::get(double& d)
+  OfxStatus MyDoubleInstance::get(double& v)
   {
-    d = _d;
+    double d;
+    _curve.getCurrent(&d);
+    v = d;
     return kOfxStatOK;
   }
 
-  OfxStatus MyDoubleInstance::get(OfxTime, double& d)
+  OfxStatus MyDoubleInstance::get(OfxTime time, double& v)
   {
-    return get(d);
-  }
-
-  OfxStatus MyDoubleInstance::set(double d)
-  {
-    _d = d;
+    double d;
+    _curve.get(time, &d);
+    v = d;
     return kOfxStatOK;
   }
 
-  OfxStatus MyDoubleInstance::set(OfxTime, double d)
+  OfxStatus MyDoubleInstance::set(double v)
   {
-    return set(d);
+    const double d = v;
+    _curve.set(&d);
+    return kOfxStatOK;
   }
 
-  // parameters don't animate in hostDemo: the derivative is 0, and the integral is
-  // value * (time2 - time1)
-  OfxStatus MyDoubleInstance::derive(OfxTime, double& d)
+  OfxStatus MyDoubleInstance::set(OfxTime time, double v)
   {
-    d = 0.;
+    const double d = v;
+    _curve.set(time, &d);
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyDoubleInstance::derive(OfxTime time, double& d)
+  {
+    _curve.derive(time, &d);
     return kOfxStatOK;
   }
 
   OfxStatus MyDoubleInstance::integrate(OfxTime time1, OfxTime time2, double& d)
   {
-    d = _d * (time2 - time1);
+    _curve.integrate(time1, time2, &d);
     return kOfxStatOK;
   }
 
@@ -288,34 +519,41 @@ namespace MyHost {
   // MyBooleanInstance
   //
 
-  MyBooleanInstance::MyBooleanInstance(MyEffectInstance* effect, 
-                                       const std::string& /*name*/, 
+  MyBooleanInstance::MyBooleanInstance(MyEffectInstance* effect,
+                                       const std::string& /*name*/,
                                        OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::BooleanInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::BooleanInstance(descriptor, effect), _curve(effect, descriptor, 1, MyCurve::eConstant, defaultValue(descriptor, effect, 1, false)), _effect(effect), _descriptor(descriptor)
   {
-    _b = _descriptor.getProperties().getIntProperty(kOfxParamPropDefault) != 0;
   }
 
-  OfxStatus MyBooleanInstance::get(bool& b)
+  OfxStatus MyBooleanInstance::get(bool& v)
   {
-    b = _b;
+    double d;
+    _curve.getCurrent(&d);
+    v = d != 0.;
     return kOfxStatOK;
   }
 
-  OfxStatus MyBooleanInstance::get(OfxTime, bool& b)
+  OfxStatus MyBooleanInstance::get(OfxTime time, bool& v)
   {
-    return get(b);
-  }
-
-  OfxStatus MyBooleanInstance::set(bool b)
-  {
-    _b = b;
+    double d;
+    _curve.get(time, &d);
+    v = d != 0.;
     return kOfxStatOK;
   }
 
-  OfxStatus MyBooleanInstance::set(OfxTime, bool b)
+  OfxStatus MyBooleanInstance::set(bool v)
   {
-    return set(b);
+    const double d = v ? 1. : 0.;
+    _curve.set(&d);
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyBooleanInstance::set(OfxTime time, bool v)
+  {
+    const double d = v ? 1. : 0.;
+    _curve.set(time, &d);
+    return kOfxStatOK;
   }
 
   //
@@ -325,7 +563,7 @@ namespace MyHost {
   MyStrChoiceInstance::MyStrChoiceInstance(MyEffectInstance* effect,
                                      const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::StrChoiceInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::StrChoiceInstance(descriptor, effect), _effect(effect), _descriptor(descriptor)
   {
       _choice = getDefaultEnum();
   }
@@ -356,293 +594,407 @@ namespace MyHost {
   // MyChoiceInstance
   //
 
-  MyChoiceInstance::MyChoiceInstance(MyEffectInstance* effect, 
-                                     const std::string& /*name*/, 
+  MyChoiceInstance::MyChoiceInstance(MyEffectInstance* effect,
+                                     const std::string& /*name*/,
                                      OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::ChoiceInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::ChoiceInstance(descriptor, effect), _curve(effect, descriptor, 1, MyCurve::eConstant, defaultValue(descriptor, effect, 1, false)), _effect(effect), _descriptor(descriptor)
   {
-    _i = _descriptor.getProperties().getIntProperty(kOfxParamPropDefault);
   }
 
-  OfxStatus MyChoiceInstance::get(int& i)
+  OfxStatus MyChoiceInstance::get(int& v)
   {
-    i = _i;
+    double d;
+    _curve.getCurrent(&d);
+    v = (int)d;
     return kOfxStatOK;
   }
 
-  OfxStatus MyChoiceInstance::get(OfxTime, int& i)
+  OfxStatus MyChoiceInstance::get(OfxTime time, int& v)
   {
-    return get(i);
+    double d;
+    _curve.get(time, &d);
+    v = (int)d;
+    return kOfxStatOK;
   }
 
-  OfxStatus MyChoiceInstance::set(int i)
+  OfxStatus MyChoiceInstance::set(int v)
   {
-    if ( i < 0 || i >= (int)getProperties().getDimension(kOfxParamPropChoiceOption) ) {
+    if (v < 0 || v >= (int)getProperties().getDimension(kOfxParamPropChoiceOption)) {
       return kOfxStatErrValue;
     }
-    _i = i;
+    const double d = (double)v;
+    _curve.set(&d);
     return kOfxStatOK;
   }
 
-  OfxStatus MyChoiceInstance::set(OfxTime, int i)
+  OfxStatus MyChoiceInstance::set(OfxTime time, int v)
   {
-    return set(i);
+    if (v < 0 || v >= (int)getProperties().getDimension(kOfxParamPropChoiceOption)) {
+      return kOfxStatErrValue;
+    }
+    const double d = (double)v;
+    _curve.set(time, &d);
+    return kOfxStatOK;
   }
 
   //
   // MyRGBAInstance
   //
 
-  MyRGBAInstance::MyRGBAInstance(MyEffectInstance* effect, 
-                                 const std::string& /*name*/, 
+  MyRGBAInstance::MyRGBAInstance(MyEffectInstance* effect,
+                                 const std::string& /*name*/,
                                  OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::RGBAInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::RGBAInstance(descriptor, effect), _curve(effect, descriptor, 4, MyCurve::eLinear, defaultValue(descriptor, effect, 4, true)), _effect(effect), _descriptor(descriptor)
   {
-    const OFX::Host::Property::Set& props = _descriptor.getProperties();
-    _r = props.getDoubleProperty(kOfxParamPropDefault, 0);
-    _g = props.getDoubleProperty(kOfxParamPropDefault, 1);
-    _b = props.getDoubleProperty(kOfxParamPropDefault, 2);
-    _a = props.getDoubleProperty(kOfxParamPropDefault, 3);
   }
 
-  OfxStatus MyRGBAInstance::get(double& r, double& g, double& b, double& a)
+  OfxStatus MyRGBAInstance::get(double& r,double& g,double& b,double& a)
   {
-    r = _r;
-    g = _g;
-    b = _b;
-    a = _a;
+    double d[4];
+    _curve.getCurrent(d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
+    a = d[3];
     return kOfxStatOK;
   }
 
-  OfxStatus MyRGBAInstance::get(OfxTime, double& r, double& g, double& b, double& a)
+  OfxStatus MyRGBAInstance::get(OfxTime time, double& r,double& g,double& b,double& a)
   {
-    return get(r, g, b, a);
-  }
-
-  OfxStatus MyRGBAInstance::set(double r, double g, double b, double a)
-  {
-    _r = r;
-    _g = g;
-    _b = b;
-    _a = a;
+    double d[4];
+    _curve.get(time, d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
+    a = d[3];
     return kOfxStatOK;
   }
 
-  OfxStatus MyRGBAInstance::set(OfxTime, double r, double g, double b, double a)
+  OfxStatus MyRGBAInstance::set(double r,double g,double b,double a)
   {
-    return set(r, g, b, a);
+    const double d[4] = { (double)r, (double)g, (double)b, (double)a };
+    _curve.set(d);
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyRGBAInstance::set(OfxTime time, double r,double g,double b,double a)
+  {
+    const double d[4] = { (double)r, (double)g, (double)b, (double)a };
+    _curve.set(time, d);
+    return kOfxStatOK;
+  }
+
+  // ("Only double and colour params can have their derivatives found", "can be integrated")
+  OfxStatus MyRGBAInstance::derive(OfxTime time, double& r, double& g, double& b, double& a)
+  {
+    double d[4];
+    _curve.derive(time, d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
+    a = d[3];
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyRGBAInstance::integrate(OfxTime time1, OfxTime time2, double& r, double& g, double& b, double& a)
+  {
+    double d[4];
+    _curve.integrate(time1, time2, d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
+    a = d[3];
+    return kOfxStatOK;
   }
 
   //
   // MyRGBInstance
   //
 
-  MyRGBInstance::MyRGBInstance(MyEffectInstance* effect, 
-                               const std::string& /*name*/, 
+  MyRGBInstance::MyRGBInstance(MyEffectInstance* effect,
+                               const std::string& /*name*/,
                                OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::RGBInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::RGBInstance(descriptor, effect), _curve(effect, descriptor, 3, MyCurve::eLinear, defaultValue(descriptor, effect, 3, true)), _effect(effect), _descriptor(descriptor)
   {
-    const OFX::Host::Property::Set& props = _descriptor.getProperties();
-    _r = props.getDoubleProperty(kOfxParamPropDefault, 0);
-    _g = props.getDoubleProperty(kOfxParamPropDefault, 1);
-    _b = props.getDoubleProperty(kOfxParamPropDefault, 2);
   }
 
-  OfxStatus MyRGBInstance::get(double& r, double& g, double& b)
+  OfxStatus MyRGBInstance::get(double& r,double& g,double& b)
   {
-    r = _r;
-    g = _g;
-    b = _b;
+    double d[3];
+    _curve.getCurrent(d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
     return kOfxStatOK;
   }
 
-  OfxStatus MyRGBInstance::get(OfxTime, double& r, double& g, double& b)
+  OfxStatus MyRGBInstance::get(OfxTime time, double& r,double& g,double& b)
   {
-    return get(r, g, b);
-  }
-
-  OfxStatus MyRGBInstance::set(double r, double g, double b)
-  {
-    _r = r;
-    _g = g;
-    _b = b;
+    double d[3];
+    _curve.get(time, d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
     return kOfxStatOK;
   }
 
-  OfxStatus MyRGBInstance::set(OfxTime, double r, double g, double b)
+  OfxStatus MyRGBInstance::set(double r,double g,double b)
   {
-    return set(r, g, b);
+    const double d[3] = { (double)r, (double)g, (double)b };
+    _curve.set(d);
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyRGBInstance::set(OfxTime time, double r,double g,double b)
+  {
+    const double d[3] = { (double)r, (double)g, (double)b };
+    _curve.set(time, d);
+    return kOfxStatOK;
+  }
+
+  // ("Only double and colour params can have their derivatives found", "can be integrated")
+  OfxStatus MyRGBInstance::derive(OfxTime time, double& r, double& g, double& b)
+  {
+    double d[3];
+    _curve.derive(time, d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyRGBInstance::integrate(OfxTime time1, OfxTime time2, double& r, double& g, double& b)
+  {
+    double d[3];
+    _curve.integrate(time1, time2, d);
+    r = d[0];
+    g = d[1];
+    b = d[2];
+    return kOfxStatOK;
   }
 
   //
   // MyDouble2DInstance
   //
 
-  MyDouble2DInstance::MyDouble2DInstance(MyEffectInstance* effect, 
-                                         const std::string& /*name*/, 
+  MyDouble2DInstance::MyDouble2DInstance(MyEffectInstance* effect,
+                                         const std::string& /*name*/,
                                          OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::Double2DInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::Double2DInstance(descriptor, effect), _curve(effect, descriptor, 2, MyCurve::eLinear, defaultValue(descriptor, effect, 2, true)), _effect(effect), _descriptor(descriptor)
   {
-    const OFX::Host::Property::Set& props = _descriptor.getProperties();
-    double v[2] = { props.getDoubleProperty(kOfxParamPropDefault, 0),
-                    props.getDoubleProperty(kOfxParamPropDefault, 1) };
-    defaultToCanonical(_descriptor, _effect, v, 2);
-    _x = v[0];
-    _y = v[1];
   }
 
-  OfxStatus MyDouble2DInstance::get(double& x, double& y)
+  OfxStatus MyDouble2DInstance::get(double& x,double& y)
   {
-    x = _x;
-    y = _y;
+    double d[2];
+    _curve.getCurrent(d);
+    x = d[0];
+    y = d[1];
     return kOfxStatOK;
   }
 
-  OfxStatus MyDouble2DInstance::get(OfxTime, double& x, double& y)
+  OfxStatus MyDouble2DInstance::get(OfxTime time, double& x,double& y)
   {
-    return get(x, y);
-  }
-
-  OfxStatus MyDouble2DInstance::set(double x, double y)
-  {
-    _x = x;
-    _y = y;
+    double d[2];
+    _curve.get(time, d);
+    x = d[0];
+    y = d[1];
     return kOfxStatOK;
   }
 
-  OfxStatus MyDouble2DInstance::set(OfxTime, double x, double y)
+  OfxStatus MyDouble2DInstance::set(double x,double y)
   {
-    return set(x, y);
+    const double d[2] = { (double)x, (double)y };
+    _curve.set(d);
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyDouble2DInstance::set(OfxTime time, double x,double y)
+  {
+    const double d[2] = { (double)x, (double)y };
+    _curve.set(time, d);
+    return kOfxStatOK;
+  }
+
+  // ("Only double and colour params can have their derivatives found", "can be integrated")
+  OfxStatus MyDouble2DInstance::derive(OfxTime time, double& x, double& y)
+  {
+    double d[2];
+    _curve.derive(time, d);
+    x = d[0];
+    y = d[1];
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyDouble2DInstance::integrate(OfxTime time1, OfxTime time2, double& x, double& y)
+  {
+    double d[2];
+    _curve.integrate(time1, time2, d);
+    x = d[0];
+    y = d[1];
+    return kOfxStatOK;
   }
 
   //
   // MyInteger2DInstance
   //
 
-  MyInteger2DInstance::MyInteger2DInstance(MyEffectInstance* effect, 
-                                           const std::string& /*name*/, 
+  MyInteger2DInstance::MyInteger2DInstance(MyEffectInstance* effect,
+                                           const std::string& /*name*/,
                                            OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::Integer2DInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::Integer2DInstance(descriptor, effect), _curve(effect, descriptor, 2, MyCurve::eLinearRounded, defaultValue(descriptor, effect, 2, false)), _effect(effect), _descriptor(descriptor)
   {
-    const OFX::Host::Property::Set& props = _descriptor.getProperties();
-    _x = props.getIntProperty(kOfxParamPropDefault, 0);
-    _y = props.getIntProperty(kOfxParamPropDefault, 1);
   }
 
-  OfxStatus MyInteger2DInstance::get(int& x, int& y)
+  OfxStatus MyInteger2DInstance::get(int& x,int& y)
   {
-    x = _x;
-    y = _y;
+    double d[2];
+    _curve.getCurrent(d);
+    x = (int)d[0];
+    y = (int)d[1];
     return kOfxStatOK;
   }
 
-  OfxStatus MyInteger2DInstance::get(OfxTime, int& x, int& y)
+  OfxStatus MyInteger2DInstance::get(OfxTime time, int& x,int& y)
   {
-    return get(x, y);
-  }
-
-  OfxStatus MyInteger2DInstance::set(int x, int y)
-  {
-    _x = x;
-    _y = y;
+    double d[2];
+    _curve.get(time, d);
+    x = (int)d[0];
+    y = (int)d[1];
     return kOfxStatOK;
   }
 
-  OfxStatus MyInteger2DInstance::set(OfxTime, int x, int y)
+  OfxStatus MyInteger2DInstance::set(int x,int y)
   {
-    return set(x, y);
+    const double d[2] = { (double)x, (double)y };
+    _curve.set(d);
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyInteger2DInstance::set(OfxTime time, int x,int y)
+  {
+    const double d[2] = { (double)x, (double)y };
+    _curve.set(time, d);
+    return kOfxStatOK;
   }
 
   //
   // MyDouble3DInstance
   //
 
-  MyDouble3DInstance::MyDouble3DInstance(MyEffectInstance* effect, 
-                                         const std::string& /*name*/, 
+  MyDouble3DInstance::MyDouble3DInstance(MyEffectInstance* effect,
+                                         const std::string& /*name*/,
                                          OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::Double3DInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::Double3DInstance(descriptor, effect), _curve(effect, descriptor, 3, MyCurve::eLinear, defaultValue(descriptor, effect, 3, true)), _effect(effect), _descriptor(descriptor)
   {
-    const OFX::Host::Property::Set& props = _descriptor.getProperties();
-    _x = props.getDoubleProperty(kOfxParamPropDefault, 0);
-    _y = props.getDoubleProperty(kOfxParamPropDefault, 1);
-    _z = props.getDoubleProperty(kOfxParamPropDefault, 2);
   }
 
-  OfxStatus MyDouble3DInstance::get(double& x, double& y, double& z)
+  OfxStatus MyDouble3DInstance::get(double& x,double& y,double& z)
   {
-    x = _x;
-    y = _y;
-    z = _z;
+    double d[3];
+    _curve.getCurrent(d);
+    x = d[0];
+    y = d[1];
+    z = d[2];
     return kOfxStatOK;
   }
 
-  OfxStatus MyDouble3DInstance::get(OfxTime, double& x, double& y, double& z)
+  OfxStatus MyDouble3DInstance::get(OfxTime time, double& x,double& y,double& z)
   {
-    return get(x, y, z);
-  }
-
-  OfxStatus MyDouble3DInstance::set(double x, double y, double z)
-  {
-    _x = x;
-    _y = y;
-    _z = z;
+    double d[3];
+    _curve.get(time, d);
+    x = d[0];
+    y = d[1];
+    z = d[2];
     return kOfxStatOK;
   }
 
-  OfxStatus MyDouble3DInstance::set(OfxTime, double x, double y, double z)
+  OfxStatus MyDouble3DInstance::set(double x,double y,double z)
   {
-    return set(x, y, z);
+    const double d[3] = { (double)x, (double)y, (double)z };
+    _curve.set(d);
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyDouble3DInstance::set(OfxTime time, double x,double y,double z)
+  {
+    const double d[3] = { (double)x, (double)y, (double)z };
+    _curve.set(time, d);
+    return kOfxStatOK;
+  }
+
+  // ("Only double and colour params can have their derivatives found", "can be integrated")
+  OfxStatus MyDouble3DInstance::derive(OfxTime time, double& x, double& y, double& z)
+  {
+    double d[3];
+    _curve.derive(time, d);
+    x = d[0];
+    y = d[1];
+    z = d[2];
+    return kOfxStatOK;
+  }
+
+  OfxStatus MyDouble3DInstance::integrate(OfxTime time1, OfxTime time2, double& x, double& y, double& z)
+  {
+    double d[3];
+    _curve.integrate(time1, time2, d);
+    x = d[0];
+    y = d[1];
+    z = d[2];
+    return kOfxStatOK;
   }
 
   //
   // MyInteger3DInstance
   //
 
-  MyInteger3DInstance::MyInteger3DInstance(MyEffectInstance* effect, 
-                                           const std::string& /*name*/, 
+  MyInteger3DInstance::MyInteger3DInstance(MyEffectInstance* effect,
+                                           const std::string& /*name*/,
                                            OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::Integer3DInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::Integer3DInstance(descriptor, effect), _curve(effect, descriptor, 3, MyCurve::eLinearRounded, defaultValue(descriptor, effect, 3, false)), _effect(effect), _descriptor(descriptor)
   {
-    const OFX::Host::Property::Set& props = _descriptor.getProperties();
-    _x = props.getIntProperty(kOfxParamPropDefault, 0);
-    _y = props.getIntProperty(kOfxParamPropDefault, 1);
-    _z = props.getIntProperty(kOfxParamPropDefault, 2);
   }
 
-  OfxStatus MyInteger3DInstance::get(int& x, int& y, int& z)
+  OfxStatus MyInteger3DInstance::get(int& x,int& y,int& z)
   {
-    x = _x;
-    y = _y;
-    z = _z;
+    double d[3];
+    _curve.getCurrent(d);
+    x = (int)d[0];
+    y = (int)d[1];
+    z = (int)d[2];
     return kOfxStatOK;
   }
 
-  OfxStatus MyInteger3DInstance::get(OfxTime, int& x, int& y, int& z)
+  OfxStatus MyInteger3DInstance::get(OfxTime time, int& x,int& y,int& z)
   {
-    return get(x, y, z);
-  }
-
-  OfxStatus MyInteger3DInstance::set(int x, int y, int z)
-  {
-    _x = x;
-    _y = y;
-    _z = z;
+    double d[3];
+    _curve.get(time, d);
+    x = (int)d[0];
+    y = (int)d[1];
+    z = (int)d[2];
     return kOfxStatOK;
   }
 
-  OfxStatus MyInteger3DInstance::set(OfxTime, int x, int y, int z)
+  OfxStatus MyInteger3DInstance::set(int x,int y,int z)
   {
-    return set(x, y, z);
+    const double d[3] = { (double)x, (double)y, (double)z };
+    _curve.set(d);
+    return kOfxStatOK;
   }
 
-  //
-  // MyPushbuttonInstance
+  OfxStatus MyInteger3DInstance::set(OfxTime time, int x,int y,int z)
+  {
+    const double d[3] = { (double)x, (double)y, (double)z };
+    _curve.set(time, d);
+    return kOfxStatOK;
+  }
+
   //
 
   MyPushbuttonInstance::MyPushbuttonInstance(MyEffectInstance* effect, 
                                              const std::string& /*name*/, 
                                              OFX::Host::Param::Descriptor& descriptor)
-    : OFX::Host::Param::PushbuttonInstance(descriptor), _effect(effect), _descriptor(descriptor)
+    : OFX::Host::Param::PushbuttonInstance(descriptor, effect), _effect(effect), _descriptor(descriptor)
   {
   }
 

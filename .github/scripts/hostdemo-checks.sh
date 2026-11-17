@@ -98,7 +98,7 @@ expect "RT2.0.pfm: pixels (57,52) and (57,523)" "$(pfmpixel RT2.0.pfm 57 52 3) $
 fails hostdemo-pfm-scale.log "only little-endian" -i Source=file:big-endian.pfm
 
 # the JSON files are removed first, so that a check never reads the file of an earlier run
-rm -f report.json describe.json changed.json dot.json fail.json escape.json
+rm -f report.json describe.json changed.json dot.json fail.json escape.json keys.json buttons.json render-keys.json
 
 # jcheck NAME FILE CODE: run the Python statements CODE (assertions) with r = the JSON document in
 # FILE, using only the standard library. Any failed assertion or missing key fails the check.
@@ -318,3 +318,36 @@ grep -q "is too large for hostDemo: rendering --window" hostdemo-hugerod.log &&
   { echo "huge RoD without tiles: no fallback warnings"; cat hostdemo-hugerod.log; exit 1; }
 echo "huge RoD without tiles: OK"
 
+
+# Animation keys (-s name@t=value): linear interpolation, the values at each render, instanceChanged
+# at the key's time, the keys and the value at time 0 in the report
+run hostdemo-keys.log -p net.sf.openfx.basicPlugin -c general -i Source=solid:0.5,0.5,0.5,1 -i Mask=none -d float \
+  -s scale@0=1 -s scale@10=2 -s scale@4=1.2 --frames 0,5,10,12 --report keys.json -o Keys
+jcheck "keys" keys.json '
+p = r["params"]["scale"]
+assert p["keys"] == [[0, 1], [4, 1.2], [10, 2]] and p["value"] == 1, p
+v = [x["params"]["scale"] for x in r["renders"]]
+assert v[0] == 1 and abs(v[1] - 4 / 3) < 1e-12 and v[2] == 2 and v[3] == 2, v
+m = [x["output"]["mean"][0] for x in r["renders"]]
+assert abs(m[1] - 0.5 * 4 / 3) < 1e-6 and abs(m[2] - 1) < 1e-6, m
+assert [a["time"] for a in r["actions"] if a.get("param") == "scale" and a["action"] == "instanceChanged"] == [0, 10, 4]
+'
+# push buttons (-s name), paramSetValueAtTime from instanceChanged (Tester's analyseButton keys
+# analysisParam at each frame), and the keyframe functions (Tester's keysTest checks them all)
+# (keysTest pressed at 0 and at 3.5: the plug-in checks the time it gets and the timeline)
+run hostdemo-buttons.log -p net.sf.openfx.GenericTestPlugin -s pbButton -s analyseButton -s keysTest -s keysTest@3.5 --frames 0 --query --report buttons.json
+jcheck "push buttons and keys from the plug-in" buttons.json '
+assert [m["text"] for m in r["messages"]] == ["Push Button Pressed - TestPassed!", "Keys test passed", "Keys test passed"], r["messages"]
+k = r["params"]["analysisParam"]["keys"]
+assert len(k) == 25 and all(t == v for t, v in k), k
+'
+# paramGetValue during a render is the value at the render's time (Tester checks it, with an error
+# message otherwise)
+run hostdemo-renderkeys.log -p net.sf.openfx.GenericTestPlugin -s keysDouble@0=1 -s keysDouble@10=3 --frames 5,10 -d float --report render-keys.json -o RenderKeys
+jcheck "paramGetValue in render" render-keys.json '
+assert r["ok"] and r["messages"] == [], r["messages"]
+assert [x["params"]["keysDouble"] for x in r["renders"]] == [2, 3]
+'
+fails hostdemo-keynoanim.log "doesn't animate" -p net.sf.openfx.GenericTestPlugin -s animateDbl@1=2
+fails hostdemo-keytime.log "invalid key time" -s supportsTiles@x=1
+fails hostdemo-nobutton.log "invalid parameter assignment" -s supportsTiles

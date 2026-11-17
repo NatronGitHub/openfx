@@ -26,7 +26,9 @@ assert np.allclose(r.outputs[0][..., :3], 1 - src, atol=1e-6)
     premultiplication: e.g. an output of another render), a `pathlib.Path` or
     `"file:x.pfm"`, or a hostDemo spec: `"none"` (disconnected), `"default"`,
     `"solid:r,g,b,a"`, `"ramp"`, `"checker:N"`.
-  - `params`: name to value (number, bool, string, or a sequence), passed as `-s name=value`.
+  - `params`: name to value (number, bool, string, or a sequence), passed as `-s name=value`;
+    or keys, `{time: value}` (numeric parameters that animate), passed as `-s name@time=value`;
+    or None, to press a push button (`-s name`).
   - A non-zero exit or a timeout raises `HostDemoError` (with the command, stdout and stderr),
     unless `check=False`.
 - The result has `.outputs` (frame to float32 H×W×C, top-down; RGBA outputs merge the
@@ -79,8 +81,18 @@ the tests when hostDemo isn't built.
   getClipPreferences, each one between begin/end instanceChanged (kOfxChangeUserEdited, time
   0); the clip preferences are run again if a clip preferences slave param changed.
   Multi-dimensional values are comma-separated; booleans take 0/1/true/false, Choice the
-  index or label, String/StrChoice/Custom the whole value. Parameters don't animate: the
-  derivative of a Double is 0, its integral from t1 to t2 is value * (t2 - t1).
+  index or label, String/StrChoice/Custom the whole value. `-s name` presses a push button
+  (instanceChanged only).
+- Keys: `-s name@t=value` sets a key at time t, followed by instanceChanged at time t; numeric
+  parameters that animate only (kOfxParamPropAnimates). Between keys, values are interpolated
+  linearly (rounded for integers), and held for booleans and choices; before the first key and
+  after the last one, they are those of the first and last keys. A plug-in may set keys too
+  (paramSetValueAtTime), and use paramGetNumKeys, paramGetKeyTime, paramGetKeyIndex (keys
+  within 1e-4 of a time match it), paramDeleteKey, paramDeleteAllKeys, and paramGetDerivative
+  and paramGetIntegral of a Double (exact, piecewise linear). paramSetValue on a parameter with
+  keys sets the key at the current time: the timeline (timeLineGetTime) is at the time of the
+  current action (the render's time, or the time of the instanceChanged). String, Custom,
+  StrChoice and Bytes parameters don't animate. paramEditBegin and paramEditEnd succeed.
 - Times, scale and window: `--frames t0,t1,...` (default 0,1; any distinct finite times,
   fractional too, distinct to 12 significant digits) renders each time, in the given order, into
   `<prefix>.<t>[l|r]` (12 significant digits). begin/endSequenceRender declare a sequential render
@@ -107,15 +119,17 @@ is invalid: hostDemo then exits with status 1 before running anything): `schema`
 versionMinor, label, grouping, filePath}, `context`, `host` {name, profile}, `depth`,
 `frames`, `renderScale` [sx, sy], `window` (`--window`, or null), `query`,
 `inputs` {Clip: {spec, connected, optional, isMask, unmappedDepth, unmappedComponents}},
-`actions` [{action, ok, status[, param, value]}] (createInstance, getClipPreferences,
+`actions` [{action, ok, status[, param, value, time]}] (value null for a button press) (createInstance, getClipPreferences,
 begin/end/instanceChanged, begin/endSequenceRender), `clipPreferences` {clips {Clip: {depth,
 components, pixelAspectRatio, unmappedDepth, unmappedComponents, connected}},
 outputPremultiplication, outputFielding, outputFrameRate, continuousSamples, frameVarying},
 `timeDomain` {ok, status, range} (null outside the general context), `renders`, `params`
-{name: {type, value, enabled, secret}} (after the run), `messages` [{kind, type, id, text}],
+{name: {type, value, enabled, secret[, keys]}} (after the run; value at time 0, keys
+[[time, value]...] for the numeric parameters), `messages` [{kind, type, id, text}],
 `progress` [{message, id, started, ended, updates, lastValue}].
 
-Each `renders` item is one time and view: {time, view, renderScale, inputs {Clip: {connected,
+Each `renders` item is one time and view: {time, view, renderScale, params {name: value} (at
+that time, for the parameters with keys), inputs {Clip: {connected,
 regionOfDefinition}} (null for a disconnected clip), regionOfDefinition {ok, status, rod},
 supportsTiles {effect, clips {Clip: bool}} (the instance's values, which a plug-in may change in
 instanceChanged: without tiles, the render window is the whole RoD and the input images are

@@ -636,6 +636,57 @@ static Json paramValueJson(OFX::Host::Param::Instance* param)
   return Json();
 }
 
+// the curve (keys) of a numeric parameter instance of hostDemo, or NULL
+static const MyHost::MyCurve* curveOf(OFX::Host::Param::Instance* param)
+{
+  using namespace MyHost;
+  if (MyIntegerInstance* p = dynamic_cast<MyIntegerInstance*>(param)) return &p->getCurve();
+  if (MyDoubleInstance* p = dynamic_cast<MyDoubleInstance*>(param)) return &p->getCurve();
+  if (MyBooleanInstance* p = dynamic_cast<MyBooleanInstance*>(param)) return &p->getCurve();
+  if (MyChoiceInstance* p = dynamic_cast<MyChoiceInstance*>(param)) return &p->getCurve();
+  if (MyRGBAInstance* p = dynamic_cast<MyRGBAInstance*>(param)) return &p->getCurve();
+  if (MyRGBInstance* p = dynamic_cast<MyRGBInstance*>(param)) return &p->getCurve();
+  if (MyDouble2DInstance* p = dynamic_cast<MyDouble2DInstance*>(param)) return &p->getCurve();
+  if (MyInteger2DInstance* p = dynamic_cast<MyInteger2DInstance*>(param)) return &p->getCurve();
+  if (MyDouble3DInstance* p = dynamic_cast<MyDouble3DInstance*>(param)) return &p->getCurve();
+  if (MyInteger3DInstance* p = dynamic_cast<MyInteger3DInstance*>(param)) return &p->getCurve();
+  return 0;
+}
+
+// a value of a curve as JSON, with the type of the parameter: a boolean, an integer, a number, or
+// an array of them (multi-dimensional parameters)
+static Json curveValueJson(const std::string& type, const double* v, int n)
+{
+  const bool isBool = type == kOfxParamTypeBoolean;
+  const bool isInt = type == kOfxParamTypeInteger || type == kOfxParamTypeChoice ||
+                     type == kOfxParamTypeInteger2D || type == kOfxParamTypeInteger3D;
+  Json a = Json::array();
+  for (int k = 0; k < n; ++k) {
+    Json e = isBool ? Json(v[k] != 0.) : isInt ? Json((int)v[k]) : Json(v[k]);
+    if (n == 1) {
+      return e;
+    }
+    a.push(e);
+  }
+  return a;
+}
+
+// the values at time of the parameters that have keys, by name (for --report)
+static Json keyedParamValuesJson(MyHost::MyEffectInstance* instance, OfxTime time)
+{
+  Json j = Json::object();
+  const std::list<OFX::Host::Param::Instance*>& pl = instance->getParamList();
+  for (std::list<OFX::Host::Param::Instance*>::const_iterator it = pl.begin(); it != pl.end(); ++it) {
+    const MyHost::MyCurve* c = curveOf(*it);
+    if (c && !c->getKeys().empty()) {
+      double v[4];
+      c->get(time, v);
+      j[(*it)->getName()] = curveValueJson((*it)->getType(), v, c->getDimension());
+    }
+  }
+  return j;
+}
+
 // the messages and progresses of the instance
 static void fillMessagesJson(const MyHost::MyEffectInstance& instance, Json& report)
 {
@@ -701,7 +752,11 @@ static void usage(const char* prog)
     "                     without tiles (kOfxImageEffectPropSupportsTiles=0) renders its whole RoD,\n"
     "                     and gets whole-RoD input images\n"
     "  --query            only call the query actions (RoD, identity, frames needed, RoI)\n"
-    "  -s name=value      set a parameter after createInstance, with instanceChanged\n"
+    "  -s name=value      set a parameter after createInstance, with instanceChanged (at time 0)\n"
+    "  -s name@t=value    set a key at time t (numeric parameters that animate: linear\n"
+    "                     interpolation, rounded for integers, stepped for booleans and choices),\n"
+    "                     with instanceChanged at time t\n"
+    "  -s button[@t]      press a push button (instanceChanged, at time t)\n"
     "  --report file.json write a JSON report of the run (even if it failed)\n"
     "  --describe file.json  describe the plug-in as JSON (no instance, no render)\n"
     "  --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH\n"
@@ -780,25 +835,61 @@ static bool parseInts(const std::string& s, int n, int* d)
   return true;
 }
 
-// set the parameter value from the string "name=value[,value...]", and return its name in paramName.
+// the largest key time of -s name@t=value (a finite time far from double overflow)
+static const double kMaxKeyTime = 1e15;
+
+// set the parameter value from the string "name=value[,value...]", or a key from
+// "name@time=value[,value...]" (numeric parameters that animate), or press a push button ("name", or
+// "name=" anything), and return its name in paramName, and the time in time (0 without one).
 // Returns false and prints an error on failure.
 static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const std::string& assignment, bool quiet,
-                               std::string& paramName)
+                               std::string& paramName, double& time)
 {
   std::string::size_type eq = assignment.find('=');
-  if (eq == std::string::npos || eq == 0) {
-    std::cerr << "Error: invalid parameter assignment \"" << assignment << "\", expected name=value[,value...]" << std::endl;
+  std::string name = assignment.substr(0, eq);
+  std::string value = eq == std::string::npos ? std::string() : assignment.substr(eq + 1);
+  bool hasTime = false;
+  time = 0.;
+  std::string::size_type at = name.find('@');
+  if (at != std::string::npos) {
+    if (!parseDouble(name.substr(at + 1), time) || !(std::fabs(time) < kMaxKeyTime)) {
+      std::cerr << "Error: invalid key time in \"" << assignment << "\", expected name@time=value[,value...]" << std::endl;
+      return false;
+    }
+    hasTime = true;
+    name = name.substr(0, at);
+  }
+  OFX::Host::Param::Instance* param = name.empty() ? 0 : instance->getParam(name);
+  const bool button = param && param->getType() == kOfxParamTypePushButton;
+  if (!name.empty() && !param) {
+    std::cerr << "Error: the plug-in has no parameter named \"" << name << "\"" << std::endl;
     return false;
   }
-  std::string name = assignment.substr(0, eq);
-  std::string value = assignment.substr(eq + 1);
+  if (name.empty() || (eq == std::string::npos && !button)) {
+    std::cerr << "Error: invalid parameter assignment \"" << assignment << "\", expected name=value[,value...], "
+              << "name@time=value[,value...] or a push button name" << std::endl;
+    return false;
+  }
   paramName = name;
-  OFX::Host::Param::Instance* param = instance->getParam(name);
   if (!param) {
     std::cerr << "Error: the plug-in has no parameter named \"" << name << "\"" << std::endl;
     return false;
   }
   const std::string& type = param->getType();
+  const bool numeric = !(type == kOfxParamTypeString || type == kOfxParamTypeCustom || type == kOfxParamTypeStrChoice ||
+                         type == kOfxParamTypeBytes || button);
+  // (a push button may be pressed at a time: -s name@t)
+  if (hasTime && !button && (!numeric || param->getProperties().getIntProperty(kOfxParamPropAnimates) == 0)) {
+    std::cerr << "Error: parameter \"" << name << "\" doesn't animate (" << type << "): no key at a time" << std::endl;
+    return false;
+  }
+  if (button) {
+    // a press: only the instance changed action
+    if (!quiet) {
+      std::cerr << "Pressed button " << name << std::endl;
+    }
+    return true;
+  }
   OfxStatus stat = kOfxStatErrUnsupported;
   bool parsed = false;
   double d[4];
@@ -823,13 +914,13 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
     bool b = false;
     parsed = parseBool(value, b);
     if (parsed && p) {
-      stat = p->set(b);
+      stat = hasTime ? p->set(time, b) : p->set(b);
     }
   } else if (type == kOfxParamTypeInteger) {
     OFX::Host::Param::IntegerInstance* p = dynamic_cast<OFX::Host::Param::IntegerInstance*>(param);
     parsed = parseInts(value, 1, i);
     if (parsed && p) {
-      stat = p->set(i[0]);
+      stat = hasTime ? p->set(time, i[0]) : p->set(i[0]);
     }
   } else if (type == kOfxParamTypeChoice) {
     OFX::Host::Param::ChoiceInstance* p = dynamic_cast<OFX::Host::Param::ChoiceInstance*>(param);
@@ -847,49 +938,49 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
       }
     }
     if (parsed && p) {
-      stat = p->set(i[0]);
+      stat = hasTime ? p->set(time, i[0]) : p->set(i[0]);
     }
   } else if (type == kOfxParamTypeDouble) {
     OFX::Host::Param::DoubleInstance* p = dynamic_cast<OFX::Host::Param::DoubleInstance*>(param);
     parsed = parseDoubles(value, 1, d);
     if (parsed && p) {
-      stat = p->set(d[0]);
+      stat = hasTime ? p->set(time, d[0]) : p->set(d[0]);
     }
   } else if (type == kOfxParamTypeDouble2D) {
     OFX::Host::Param::Double2DInstance* p = dynamic_cast<OFX::Host::Param::Double2DInstance*>(param);
     parsed = parseDoubles(value, 2, d);
     if (parsed && p) {
-      stat = p->set(d[0], d[1]);
+      stat = hasTime ? p->set(time, d[0], d[1]) : p->set(d[0], d[1]);
     }
   } else if (type == kOfxParamTypeInteger2D) {
     OFX::Host::Param::Integer2DInstance* p = dynamic_cast<OFX::Host::Param::Integer2DInstance*>(param);
     parsed = parseInts(value, 2, i);
     if (parsed && p) {
-      stat = p->set(i[0], i[1]);
+      stat = hasTime ? p->set(time, i[0], i[1]) : p->set(i[0], i[1]);
     }
   } else if (type == kOfxParamTypeDouble3D) {
     OFX::Host::Param::Double3DInstance* p = dynamic_cast<OFX::Host::Param::Double3DInstance*>(param);
     parsed = parseDoubles(value, 3, d);
     if (parsed && p) {
-      stat = p->set(d[0], d[1], d[2]);
+      stat = hasTime ? p->set(time, d[0], d[1], d[2]) : p->set(d[0], d[1], d[2]);
     }
   } else if (type == kOfxParamTypeInteger3D) {
     OFX::Host::Param::Integer3DInstance* p = dynamic_cast<OFX::Host::Param::Integer3DInstance*>(param);
     parsed = parseInts(value, 3, i);
     if (parsed && p) {
-      stat = p->set(i[0], i[1], i[2]);
+      stat = hasTime ? p->set(time, i[0], i[1], i[2]) : p->set(i[0], i[1], i[2]);
     }
   } else if (type == kOfxParamTypeRGB) {
     OFX::Host::Param::RGBInstance* p = dynamic_cast<OFX::Host::Param::RGBInstance*>(param);
     parsed = parseDoubles(value, 3, d);
     if (parsed && p) {
-      stat = p->set(d[0], d[1], d[2]);
+      stat = hasTime ? p->set(time, d[0], d[1], d[2]) : p->set(d[0], d[1], d[2]);
     }
   } else if (type == kOfxParamTypeRGBA) {
     OFX::Host::Param::RGBAInstance* p = dynamic_cast<OFX::Host::Param::RGBAInstance*>(param);
     parsed = parseDoubles(value, 4, d);
     if (parsed && p) {
-      stat = p->set(d[0], d[1], d[2], d[3]);
+      stat = hasTime ? p->set(time, d[0], d[1], d[2], d[3]) : p->set(d[0], d[1], d[2], d[3]);
     }
   } else {
     std::cerr << "Error: cannot set parameter \"" << name << "\" of type " << type << std::endl;
@@ -904,7 +995,11 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
     return false;
   }
   if (!quiet) {
-    std::cerr << "Set parameter " << name << " = " << value << std::endl;
+    if (hasTime) {
+      std::cerr << "Set a key of parameter " << name << " at " << time << " = " << value << std::endl;
+    } else {
+      std::cerr << "Set parameter " << name << " = " << value << std::endl;
+    }
   }
   return true;
 }
@@ -926,6 +1021,10 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
   r["time"] = t;
   r["view"] = view;
   r["renderScale"] = pointJson(renderScale.x, renderScale.y);
+  // the timeline is at the time of the frame (paramGetValue gives the values at that time)
+  instance->timeLineGotoTime(t);
+  // the values of the parameters with keys at this time
+  r["params"] = keyedParamValuesJson(instance, t);
 
   // the regions of definition of the connected input clips
   const std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>& clips = instance->getClipInstances();
@@ -1544,22 +1643,30 @@ static int run(int argc, char **argv)
     // begin and end instance changed actions
     for (size_t k = 0; ret == 0 && k < paramAssignments.size(); ++k) {
       std::string name;
-      if (!setParamFromString(instance.get(), paramAssignments[k], quiet, name)) {
+      double time = 0.;
+      // (the timeline is at the time of the change: a paramSetValue in instanceChanged on a
+      // parameter with keys sets the key at that time)
+      instance->timeLineGotoTime(0.);
+      if (!setParamFromString(instance.get(), paramAssignments[k], quiet, name, time)) {
         ret = 1;
         break;
       }
       OfxPointD scale;
       scale.x = scale.y = 1.;
+      instance->timeLineGotoTime(time);
       const OfxStatus st[3] = {
         instance->beginInstanceChangedAction(kOfxChangeUserEdited),
-        instance->paramInstanceChangedAction(name, kOfxChangeUserEdited, 0., scale),
+        instance->paramInstanceChangedAction(name, kOfxChangeUserEdited, time, scale),
         instance->endInstanceChangedAction(kOfxChangeUserEdited)
       };
+      instance->timeLineGotoTime(0.);
       const char* names[3] = { "beginInstanceChanged", "instanceChanged", "endInstanceChanged" };
       for (int i = 0; i < 3; ++i) {
         Json& a = actions.push(namedActionJson(names[i], actionJson(st[i])));
         a["param"] = name;
-        a["value"] = paramAssignments[k].substr(paramAssignments[k].find('=') + 1);
+        const std::string::size_type eq = paramAssignments[k].find('=');
+        a["value"] = eq == std::string::npos ? Json() : Json(paramAssignments[k].substr(eq + 1));
+        a["time"] = time;
         if (!statusOK(st[i])) {
           std::cerr << "Error: " << names[i] << " action failed for parameter " << name << " (status " << st[i] << ")" << std::endl;
           ret = 1;
@@ -1718,12 +1825,23 @@ static int run(int argc, char **argv)
     // the final parameter values and states, the messages and the progresses (before the
     // instance is destroyed)
     if (reportInstance) {
+      // the values at time 0 (for a parameter with keys; the keys are reported too)
+      reportInstance->timeLineGotoTime(0.);
       Json& params = report["params"] = Json::object();
       const std::list<OFX::Host::Param::Instance*>& pl = reportInstance->getParamList();
       for (std::list<OFX::Host::Param::Instance*>::const_iterator it = pl.begin(); it != pl.end(); ++it) {
         Json& p = params[(*it)->getName()] = Json::object();
         p["type"] = (*it)->getType();
         p["value"] = paramValueJson(*it);
+        // the keys (numeric parameters), [[time, value]...], in time order
+        if (const MyHost::MyCurve* c = curveOf(*it)) {
+          Json& keys = p["keys"] = Json::array();
+          for (MyHost::MyCurve::Keys::const_iterator k = c->getKeys().begin(); k != c->getKeys().end(); ++k) {
+            Json& key = keys.push(Json::array());
+            key.push(k->first);
+            key.push(curveValueJson((*it)->getType(), &k->second[0], c->getDimension()));
+          }
+        }
         p["enabled"] = (*it)->getEnabled();
         p["secret"] = (*it)->getSecret();
       }
