@@ -20,4 +20,4 @@ bin=$(dirname "$(find "$build" -name hostDemo -type f -perm -u+x | head -1)")
 mkdir -p "$build/checks"
 cd "$build/checks"
 "$root/.github/scripts/hostdemo-checks.sh" "$bin" "$build/Plugins"
-"$root/.github/scripts/cmake-plugin-project.sh" "$build/install" "$build/plugin-project"
+"$root/.github/scripts/cmake-plugin-project.sh" "$build/install" "$build/plugin project"  # a space: osxDeploy.sh and the helpers quote paths

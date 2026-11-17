@@ -127,6 +127,7 @@ jobs:
           cache: true
           install: >-
             mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-libgomp
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
       - name: Configure
@@ -155,7 +156,7 @@ jobs:
       - name: Plug-in project built against the installed package and with add_subdirectory
         run: |
           set -eo pipefail
-          CMAKE_GENERATOR=Ninja .github/scripts/cmake-plugin-project.sh "$PWD/install" "$PWD/plugin-project"
+          CMAKE_GENERATOR=Ninja .github/scripts/cmake-plugin-project.sh "$PWD/install" "$PWD/plugin project"
       - name: Every plug-in exports OfxGetPlugin
         run: |
           set -eo pipefail

@@ -25,12 +25,14 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
 
 ## API (cmake/OpenFX.cmake)
 
-`add_ofx_plugin(<target> [DIR <d>] [BUNDLE_NAME <name>] [INFO_PLIST <file>] [IDENTIFIER <id>] [VERSION <x.y.z>] [EXPORT_SYMBOLS <symbol>...] [SOURCES ...])`
+`add_ofx_plugin(<target> [DIR <d>] [BUNDLE_NAME <name>] [INFO_PLIST <file>] [IDENTIFIER <id>] [VERSION <x.y.z>] [EXPORT_SYMBOLS <symbol>...] [RPATH <dir>...] [SOURCES ...])`
 - The old form, `add_ofx_plugin(TARGET [DIR])`, keeps working.
 - `INFO_PLIST`: the repository's own file. It's run through `configure_file(@ONLY)`, so a file without `@VAR@` is copied unchanged. Without it, the generic template is used with `IDENTIFIER` and `VERSION`.
 - Always applied, as in `Support/Plugins/Makefile.master`:
   - hidden visibility, and an export list generated per target (macOS `-exported_symbols_list`, a Linux and FreeBSD version script), so that only OfxGetPlugin, OfxGetNumberOfPlugins and the `EXPORT_SYMBOLS` are exported. Hidden visibility alone isn't enough for bundles that statically link OSMesa or LLVM. OfxSetHost isn't in the default list, because a macOS export list that names a missing symbol is a link error: add `EXPORT_SYMBOLS OfxSetHost` if the plug-in defines it;
-  - rpath: `@loader_path/../Frameworks` and `@loader_path/../Libraries` on macOS, `$ORIGIN/../../Libraries` on Linux;
+  - install rpath: `@loader_path/../Frameworks` and `@loader_path/../Libraries` on macOS, `$ORIGIN/../../Libraries` on Linux; then the `RPATH` directories and `OFX_PLUGIN_RPATH`; then the directories of the linked libraries outside the project (`INSTALL_RPATH_USE_LINK_PATH`), as Makefile.master's `-Wl,-rpath`. The installers (osxDeploy.sh, Natron's Linux installer) find the libraries there, then rewrite the rpath;
+  - the installed binary has mode 755 (Debian's CMake would strip the execute bit of a module);
+  - `OFX_OPTFLAG` is appended to the compile options of the release configurations;
   - `DEBUG` in Debug builds, `NDEBUG` otherwise (CMake's default);
   - `/bigobj` (MSVC) and `-Wa,-mbig-obj` (MinGW);
   - MinGW: `-static-libgcc -static-libstdc++`;
@@ -45,6 +47,12 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
 - Links OpenMP::OpenMP_CXX.
 - With Apple clang it uses `-Xpreprocessor -fopenmp` and libomp from MacPorts (`/opt/local/include/libomp`, `/opt/local/lib/libomp`), or from `OFX_LIBOMP_ROOT`.
 - Does nothing if `OFX_USE_OPENMP` is OFF.
+- MSYS2 (UCRT64): OpenMP needs the `mingw-w64-ucrt-x86_64-libgomp` package (`pacboy libgomp:p`). The plug-in then needs `libgomp-1.dll` at run time, even with `-static-libgcc -static-libstdc++`: the installer bundles it with the other MinGW DLLs.
+- With Apple clang it sets `OpenMP_CXX_FLAGS`, `OpenMP_CXX_LIB_NAMES` and `OpenMP_omp_LIBRARY` as normal variables, which hide the cache entries of the same names: `-DOpenMP_CXX_FLAGS=...` has no effect there. `OFX_LIBOMP_ROOT` is the override.
+
+`ofx_target_filter_missing_includes(<target>...)`
+- Drops the include directories that don't exist from imported targets, and from the imported targets they link, recursively. Generation fails otherwise: e.g. Ubuntu 24.04's OpenImageIO config lists `/usr/include/opencv4` without libopencv-dev (openfx-io).
+- Call it after `find_package()`. Entries with generator expressions are kept, and each dropped directory is reported once.
 
 `ofx_deploy_bundle(<target>)`
 - An install-time step, enabled by `OFX_DEPLOY_BUNDLES`, that makes the bundle self-contained.
@@ -53,8 +61,11 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
   - LC_RPATHs into `/opt/local`, `/usr/local` or `/opt/homebrew` are deleted from the bundled files (MacPorts' libomp has `/opt/local/lib/libomp`);
   - every file in `Libraries` and `Frameworks`, subfolders included, is re-signed ad hoc, then the bundle, and `codesign --verify --strict` must pass (arm64 requires a valid signature);
   - the install fails if a Mach-O file still references `/opt/local`, `/usr/local` or `/opt/homebrew` (`otool -L`) or has an LC_RPATH there (`otool -l`);
+  - if `CMAKE_OSX_DEPLOYMENT_TARGET` is set: one warning per bundle lists the files with an architecture that requires a newer macOS (the minos of `LC_BUILD_VERSION` or `LC_VERSION_MIN_MACOSX`; arm64 is never below 11.0). `OFX_DEPLOY_STRICT_MINOS` makes it an error. MacPorts builds libraries for the build machine's macOS unless `macosx_deployment_target` is set in macports.conf;
+  - CMake's own install-time rpath edit prints `install_name_tool: warning: changes being made to the file will invalidate the code signature`: harmless, the files are signed again afterwards;
+  - the build-tree binary has the build rpath (the linked libraries' directories), not `@loader_path/../Libraries`: only the installed bundle is deployed;
   - call `ofx_deploy_bundle` after the last `ofx_plugin_resources` of the target (it's an error otherwise): files installed into the bundle after it would break the signature;
-  - the install path must not contain spaces (osxDeploy.sh word-splits paths).
+  - the install path may contain spaces, and `osxDeploy.sh` fails if a copy or an `install_name_tool` call fails;
   - the bundle gets an ad hoc signature (`Contents/_CodeSignature`, which the Makefile bundles don't have): an installer that later changes files in the bundle must sign it again (`codesign -f -s -`). Without it, `codesign --verify --strict` fails on the deployed bundle.
 - **macOS, not implemented yet:** checking that every `@rpath/X` is in `Contents/Libraries`, and resolving the `@rpath` dependencies of copied dylibs against their original LC_RPATHs (MacPorts libraries use absolute install names, so this matters little today).
 - **Windows** (not implemented yet; Natron's Windows installer does this itself, so Natron keeps `OFX_DEPLOY_BUNDLES` OFF there):
@@ -93,6 +104,7 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
 - Download plus verify (G'MIC's sources): `file(DOWNLOAD ... EXPECTED_HASH SHA256=...)`, or FetchContent, then `execute_process` for the patches.
 - Debug-only plug-ins: `if(CMAKE_BUILD_TYPE STREQUAL "Debug")`.
 - Tests: `add_test()`, run when `BUILD_TESTING` is on.
+- CI package lists: a `--static` pkg-config link can pull in more than the direct dependencies. E.g. libzip brings `-lssl -lcrypto`, so a bare Ubuntu 24.04 image needs `libssl-dev` (openfx-arena).
 
 ## Conventions
 
@@ -101,15 +113,17 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
   - `OFX_USE_OPENMP` (ON);
   - `OFX_DEPLOY_BUNDLES` (OFF). Natron's builds set it ON on macOS only, where it replaces Makefile.master's osxDeploy step. On Windows it stays OFF: build-Windows-installer.sh strips the `.ofx`, copies the DLLs and embeds its own manifest;
   - `PLUGIN_INSTALLDIR` (default `OFX/Plugins`, relative to `CMAKE_INSTALL_PREFIX`: set the prefix to `/usr` or `/Library` for the standard OFX folders);
+  - `OFX_OPTFLAG` (empty): optimization flags of the release configurations of the plug-ins and of openfx::Support, after CMake's (so `-O2` overrides Release's `-O3`). `ofx_target_optflag(<target>)` applies it to a repository's own libraries. An installed openfx::Support keeps the flags it was built with. Ignored with MSVC. The level is decided after the per-repository -O2/-O3 study;
+  - `OFX_PLUGIN_RPATH` (empty): extra install rpath directories of every plug-in (ignored on Windows, like `RPATH`);
   - `OFX_LICENSE=GPL|COMMERCIAL`, only where it changes what's built (openfx-arena: no poppler when COMMERCIAL);
   - `BUILD_TESTING`.
 - **Paths for build-plugins.sh** (CMake equivalents of the Makefile variables):
   - OSMESA_PATH and LLVM_PATH (or LLVM_CONFIG), and the choice of mangled OSMesa or GLU (openfx-misc);
   - OIIO_HOME and SEEXPR_HOME (openfx-io); FFmpeg and LibRaw through CMAKE_PREFIX_PATH or their pkg-config paths;
-  - OPTFLAG goes into CMAKE_CXX_FLAGS_RELWITHDEBINFO (or CMAKE_CXX_FLAGS_RELEASE). CMake's Release flags are `-O3 -DNDEBUG`, Makefile.master's are `-O2 -DNDEBUG`: set CMAKE_CXX_FLAGS_RELEASE if a bundle diff needs identical code;
+  - OPTFLAG becomes `OFX_OPTFLAG`. CMake's Release flags are `-O3 -DNDEBUG`, Makefile.master's are `-O2 -DNDEBUG`: pass `-DOFX_OPTFLAG=-O2` if a bundle diff needs identical code;
   - OFX_USE_OPENMP defaults to ON, which also enables OpenMP with Apple clang (the Makefiles don't): Natron passes it explicitly.
 - **Repository options** keep their Makefile variable names (USE_OSMESA, IM, AUDIO, RICHTEXT, LEGACYIM, MAGICK_PKG_CONFIG, FFMPEG_PKG_CONFIG_PATH, SEEXPR_HOME...), so build-plugins.sh maps them one to one.
-- **CMake minimum:** 3.16 everywhere.
+- **CMake minimum:** 3.16 everywhere. A project sets policy CMP0177 to NEW (normalized install paths, CMake 3.31) with `if(POLICY CMP0177)`, before `include(OpenFX)` or `find_package(openfx)`; OpenFX.cmake sets it too.
 
 ## Per-repository notes
 

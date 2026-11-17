@@ -6,20 +6,31 @@ set -eo pipefail
 prefix=$1 work=$2
 src="$(cd "$(dirname "$0")/../.." && pwd)"
 os=$(uname -s)
-deploy=OFF; [ "$os" = Darwin ] && deploy=ON
-# OpenMP must be found on macOS (MacPorts libomp) and Linux (gcc); MSYS2: not yet (see the CMake output)
-openmp=ON; case $os in MINGW*|MSYS*|CYGWIN*) openmp=OFF ;; esac
+deploy=OFF; osxtarget=""
+# macOS: deploy, with a deployment target older than MacPorts' libomp (built for the runner's
+# macOS): libomp must get the minos warning, the plug-in itself must not. (11.0, the arm64 floor:
+# libc++ doesn't support older targets)
+[ "$os" = Darwin ] && deploy=ON osxtarget=-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+# OpenMP must be found: MacPorts libomp on macOS, gcc's libgomp on Linux and MSYS2 (the
+# mingw-w64-ucrt-x86_64-libgomp package)
+openmp=ON
 rm -rf "$work"
 run() { # mode: package | subdirectory
   local mode=$1 w="$work/$1" via=OFF
   [ "$mode" = subdirectory ] && via=ON
   cmake -S "$src/cmake/tests/plugin-project" -B "$w/build" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$prefix" -DOFX_SOURCE_DIR="$src" -DOFX_VIA_SUBDIRECTORY=$via -DBUILD_EXAMPLE_HOSTS=$via -DOFX_TEST_REQUIRE_OPENMP=$openmp \
-    -DCMAKE_INSTALL_PREFIX="$w/install" -DOFX_DEPLOY_BUNDLES=$deploy ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
+    -DCMAKE_INSTALL_PREFIX="$w/install" -DOFX_DEPLOY_BUNDLES=$deploy $osxtarget ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
   cmake --build "$w/build" --parallel
   # with add_subdirectory(openfx), BUILD_EXAMPLE_HOSTS=ON still gives the hostDemo target
   if [ "$mode" = subdirectory ]; then cmake --build "$w/build" --parallel --target hostDemo; fi
-  cmake --install "$w/build"
+  cmake --install "$w/build" 2>&1 | tee "$w/install.log"
+  if [ "$deploy" = ON ]; then
+    warned=$(tr -s ' \n' ' ' < "$w/install.log" | grep -oE '[A-Za-z]+\.(ofx|dylib) \([a-z0-9_]+\) requires macOS' | sort -u | tr '\n' ' ' || true)
+    echo "minos warnings: $warned"
+    case $warned in *InvertBundle.ofx*) fail "minos warning on the plug-in itself: $warned" ;; esac
+    case $warned in *libomp.dylib*) ;; *) fail "no minos warning on libomp: $warned" ;; esac
+  fi
   # openfx's own libraries and headers aren't installed by a project that uses add_subdirectory
   # (nor the example hosts, nor the bundled expat headers)
   if [ "$mode" = subdirectory ] && [ -e "$w/install/include" -o -e "$w/install/bin" ]; then fail "add_subdirectory(openfx) installed openfx itself: $(ls "$w/install")"; fi
@@ -65,6 +76,17 @@ case $os in Darwin) want="_OfxGetNumberOfPlugins _OfxGetPlugin " ;; *) want="Ofx
 case $os in
   Darwin) [ "$rpath" = "@loader_path/../Frameworks @loader_path/../Libraries " ] || fail "rpath: '$rpath'" ;;
   Linux|FreeBSD) [ "$rpath" = '$ORIGIN/../../Libraries ' ] || fail "rpath: '$rpath'" ;;
+esac
+# the installed binaries are executable (Debian's CMake strips the execute bit of modules; the CI
+# runners have Kitware's CMake, so this only guards against regressions)
+for f in "$installed"/*.ofx.bundle/Contents/"$arch"/*.ofx; do
+  [ -x "$f" ] || fail "$f is not executable"
+done
+# the extra rpath of the non-deployed TestPlist
+tp="$installed/TestPlist.ofx.bundle/Contents/$arch/TestPlist.ofx"
+case $os in
+  Darwin) otool -l "$tp" | grep -q ' path /opt/ofx-test-rpath ' || fail "TestPlist: no RPATH /opt/ofx-test-rpath" ;;
+  Linux|FreeBSD) readelf -d "$tp" | grep -q '/opt/ofx-test-rpath' || fail "TestPlist: no RPATH /opt/ofx-test-rpath" ;;
 esac
 if [ "$os" = Darwin ]; then
   # a bundle that isn't deployed, with resources: its signature is valid too
