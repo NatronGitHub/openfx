@@ -54,7 +54,7 @@ jobs:
           cache-dependency-path: .github/workflows/build.yml
       - name: Install dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev
+          sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev
           pip install pyyaml
       - name: Property metadata (@propdef)
         run: python scripts/check-props.py

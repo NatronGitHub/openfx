@@ -59,6 +59,13 @@ option(OFX_EXTENSIONS_RESOLVE "DaVinci Resolve extensions" OFF)
 # so only enable them for a host that implements them (Natron enables both).
 option(OFX_SUPPORTS_MULTITHREAD "HostSupport: the host implements OfxMultiThreadSuiteV1" OFF)
 option(OFX_SUPPORTS_DIALOG "HostSupport: the host implements the dialog suite" OFF)
+# Parametric parameters (ofxParametricParam.h) in HostSupport: the host provides
+# ofxhParametricParam.h and its implementation (e.g. Natron's libs/OpenFX_extensions), and adds
+# them to the HostSupport target after add_subdirectory(openfx):
+#   target_sources(OfxHost PRIVATE <dir>/ofxhParametricParam.cpp)
+#   target_include_directories(OfxHost PUBLIC <dir>)
+option(OFX_SUPPORTS_PARAMETRIC "HostSupport: the host provides parametric parameters (ofxhParametricParam.h)" OFF)
+option(OFX_SUPPORTS_PARAMETRIC_V2 "HostSupport: parametric parameters with interpolations (with OFX_SUPPORTS_PARAMETRIC)" OFF)
 set(OFX_EXTRA_DEFINITIONS "" CACHE STRING
     "Additional compile definitions for the libraries and examples (;-separated)")
 
@@ -81,7 +88,8 @@ foreach(_def
     OFX_SUPPORTS_OPENGLRENDER OFX_SUPPORTS_OPENCLRENDER OFX_SUPPORTS_CUDARENDER
     OFX_EXTENSIONS_NATRON OFX_EXTENSIONS_NUKE OFX_EXTENSIONS_VEGAS
     OFX_EXTENSIONS_TUTTLE OFX_EXTENSIONS_RESOLVE
-    OFX_SUPPORTS_MULTITHREAD OFX_SUPPORTS_DIALOG)
+    OFX_SUPPORTS_MULTITHREAD OFX_SUPPORTS_DIALOG
+    OFX_SUPPORTS_PARAMETRIC OFX_SUPPORTS_PARAMETRIC_V2)
   if(${_def})
     list(APPEND OFX_DEFINITIONS ${_def})
   endif()

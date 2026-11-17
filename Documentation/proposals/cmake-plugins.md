@@ -5,11 +5,12 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
 ## Order
 
 1. **openfx PR A:** the `cmake/OpenFX.cmake` API below. The Support plug-ins and the examples are built with it, and openfx's per-PR Linux and macOS CI moves to CMake (Windows already uses it).
-2. **openfx PR B:** HostSupport usable by Natron's CMake build:
-   - the defines as options, set before the sources compile: OFX_EXTENSIONS_NUKE/TUTTLE/VEGAS/NATRON/RESOLVE and OFX_SUPPORTS_PARAMETRIC/OPENGLRENDER/MULTITHREAD/DIALOG;
-   - a static library with PIC;
-   - expat bundled or from the system;
-   - no `include_directories` leaking to the consumer.
+2. **openfx PR B:** HostSupport usable by Natron's CMake build. `openfx::HostSupport` (target `OfxHost`) is a static PIC library, with its include directories and definitions as PUBLIC usage requirements and expat linked PUBLIC (ofxhPluginCache.h includes expat.h). A host uses it with `add_subdirectory(openfx)`, setting the options first (CMP0077 is NEW with CMake 3.16):
+   - OFX_EXTENSIONS_NUKE/TUTTLE/VEGAS/NATRON/RESOLVE, and OFX_SUPPORTS_OPENGLRENDER/MULTITHREAD/DIALOG/PARAMETRIC(_V2);
+   - `OFX_USE_SYSTEM_EXPAT=ON` for the system expat (CMake's FindEXPAT, `EXPAT::EXPAT`), otherwise the bundled one;
+   - with OFX_SUPPORTS_PARAMETRIC, the host provides `ofxhParametricParam.h` and its implementation (Natron: `libs/OpenFX_extensions`) and adds them: `target_sources(OfxHost PRIVATE <dir>/ofxhParametricParam.cpp)`, `target_include_directories(OfxHost PUBLIC <dir>)`;
+   - nothing is installed and nothing is added to the parent's global include directories or compile options (OFX_INSTALL is OFF under add_subdirectory).
+   Tested by `cmake/tests/host-project` (`.github/scripts/cmake-host-project.sh`).
 3. **openfx-supportext** (openfx-supportext#45): `supportext_add_sources(<target> [ALL] [OPENGL] [OSMESA] [EGL] [COMPONENTS ...])` in `SupportExt/cmake/SupportExt.cmake`. The components are THREADS, FILEOPEN, LUT, MULTIPLANE, SHUTTER, TRANSFORM3X3, TRANSFORM_INTERACT, RECTANGLE_INTERACT, GENERATOR, TEXT, RAMP, TRACKING, OGL_FUNCTIONS and EGL, with their dependencies pulled in; OSMESA links `OSMesa::OSMesa`, which the consumer provides.
    - the sources are added PRIVATE to the plug-in target, so they compile with the plug-in's exact defines. OFX_EXTENSIONS_* and OFXS_HAVE_DRAWSUITE change class layouts, so a separately compiled library would break the one-definition rule;
    - it also adds the include directories, and links openfx::Support if that target exists.
