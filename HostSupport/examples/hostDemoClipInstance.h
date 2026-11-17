@@ -64,10 +64,13 @@ namespace MyHost {
       eRamp,    ///< "ramp": r=g=b=a go from 0 (left) to 1 (right of the RoD)
       eChecker, ///< "checker:N": N×N pixel (at render scale 1) squares, alternating 0 and 1 (r=g=b=a)
       eFile,    ///< "file:path.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]": a PFM image, the same at all times (see PFMImage)
-      eNone     ///< "none": the clip is disconnected
+      eNone,    ///< "none": the clip is disconnected
+      eRod      ///< "rod:x1,y1,x2,y2": transparent (0,0,0,0), with this RoD in canonical coordinates
+                ///< (possibly empty): a placeholder for an input whose content doesn't matter
     };
     Type   type;
     double colour[4]; ///< for eSolid
+    double rod[4];    ///< for eRod
     int    checkerSize; ///< for eChecker
     std::string path; ///< for eFile
     PFMImage    file; ///< for eFile: the content of the file, read by parseInputSpec
@@ -83,7 +86,7 @@ namespace MyHost {
     std::string premult;
     double      fileScaleX, fileScaleY; ///< for eFile: hostDemo --scale
     InputSpec() : type(eDefault), checkerSize(16), fileX(0), fileY(0), fileScaleX(1.), fileScaleY(1.)
-    { colour[0] = colour[1] = colour[2] = colour[3] = 0.; }
+    { colour[0] = colour[1] = colour[2] = colour[3] = 0.; rod[0] = rod[1] = rod[2] = rod[3] = 0.; }
   };
 
   /// parse "solid:r,g,b,a", "ramp", "checker:N", "file:path.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]",

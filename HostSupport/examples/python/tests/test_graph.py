@@ -92,6 +92,9 @@ def test_file_spec_paths(tmp_path, monkeypatch):
     assert resolve_file_spec("file:a.pfm+b.pfm@3,-4#premult") == \
         f"file:{tmp_path.resolve() / 'a.pfm'}+{tmp_path.resolve() / 'b.pfm'}@3,-4#premult"
     assert resolve_file_spec("file:sub/a.pfm", "/base") == "file:" + str(Path("/base/sub/a.pfm").resolve())
+    # an alpha file with another extension, and '@', '#' and '+' in names
+    assert resolve_file_spec("file:x@1.pfm+a#b.dat@0,0", "/base") == \
+        "file:" + str(Path("/base/x@1.pfm").resolve()) + "+" + str(Path("/base/a#b.dat").resolve()) + "@0,0"
 
 
 def test_frames_ranges():
@@ -126,3 +129,18 @@ def test_nothing_to_render(hostdemo, sample_plugins):
     with pytest.raises(ofxhost.HostDemoError, match="renders nothing"):
         execute(Node(INVERT, inputs={"Source": "ramp"}), sample_plugins, frames=[0],
                 window=(5000, 5000, 5010, 5010), host_binary=hostdemo)
+
+
+def test_large_input(hostdemo, sample_plugins):
+    """An input larger than the project (3000x1500, more pixels than a 2048x2048 image) keeps all
+    its bounds through a chain, and a window outside the project renders."""
+    h, w = 1500, 3000
+    y, x = np.mgrid[0:h, 0:w].astype(np.float32)
+    src = np.dstack([x / w, y / h, np.full_like(x, 0.25), np.ones_like(x)]).astype(np.float32)
+    inv2 = Node(INVERT, inputs={"Source": Node(INVERT, inputs={"Source": ofxhost.Image(src, (0, 0, w, h))})})
+    out = execute(inv2, sample_plugins, frames=[0], window=(0, 0, w, h), host_binary=hostdemo)[0]
+    assert out.bounds == (0, 0, w, h)
+    assert_close(out.pixels, src, atol=1e-6)
+    out = execute(inv2, sample_plugins, frames=[0], window=(1000, 1000, 1100, 1100), host_binary=hostdemo)[0]
+    assert out.bounds == (1000, 1000, 1100, 1100)
+    assert_close(out.pixels, src[h - 1100:h - 1000, 1000:1100], atol=1e-6)

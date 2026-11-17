@@ -191,8 +191,9 @@ _PREMULT = {"OfxImageAlphaPremultiplied": "premult", "OfxImageAlphaUnPremultipli
             "OfxImageOpaque": "opaque"}
 
 
-_FILE_SPEC = re.compile(r"(?P<rgb>.*?\.pfm)(?:\+(?P<alpha>.*?\.pfm))?(?P<pos>@-?\d+,-?\d+)?(?P<premult>#\w+)?$",
-                        re.IGNORECASE)
+# as hostDemo parses it (hostDemoClipInstance.cpp): "#premult|#unpremult|#opaque" at the end,
+# then "@x1,y1", then the alpha file after the last ".pfm+"
+_FILE_SPEC = re.compile(r"(?P<rest>.*?)(?P<pos>@-?\d+,-?\d+)?(?P<premult>#(?:premult|unpremult|opaque))?$")
 
 
 def resolve_file_spec(spec: str, base: str | os.PathLike | None = None) -> str:
@@ -201,11 +202,12 @@ def resolve_file_spec(spec: str, base: str | os.PathLike | None = None) -> str:
     body = spec[5:] if spec.startswith("file:") else spec
     base = Path(base) if base is not None else Path.cwd()
     m = _FILE_SPEC.match(body)
-    if not m:  # not a .pfm name: resolve it whole, hostDemo reports the error
-        return "file:" + str((base / body).resolve())
-    out = "file:" + str((base / m["rgb"]).resolve())
-    if m["alpha"]:
-        out += "+" + str((base / m["alpha"]).resolve())
+    rest = m["rest"]
+    rgb, sep, alpha = rest.rpartition(".pfm+")
+    if sep:
+        out = "file:" + str((base / (rgb + ".pfm")).resolve()) + "+" + str((base / alpha).resolve())
+    else:
+        out = "file:" + str((base / rest).resolve())
     return out + (m["pos"] or "") + (m["premult"] or "")
 
 

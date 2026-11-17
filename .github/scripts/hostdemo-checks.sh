@@ -276,3 +276,11 @@ printf 'Pf\n1 1\n-1.0\n\000\000\300\177' > nan.pfm
 fails hostdemo-nanpfm.log "is not finite" -d float -i Source=file:nan.pfm
 run hostdemo-unsorted.log -d float --frames 2,0,1 -o Unsorted
 echo "hostDemo --frames 2,0,1: OK"
+# rod:x1,y1,x2,y2: a transparent placeholder input with a given RoD (used by ofxhost.graph)
+run hostdemo-rod.log -d float --frames 0 -i Source=rod:-100.5,0,2000,300 --query --report rod.json
+jcheck "rod: input" rod.json '
+x = r["renders"][0]
+assert x["inputs"]["Source"]["regionOfDefinition"] == [-100.5, 0, 2000, 300], x["inputs"]
+assert x["regionOfDefinition"]["rod"] == [-100.5, 0, 2000, 300]
+'
+fails hostdemo-badrod.log "invalid RoD" -i Source=rod:1,0,0,1

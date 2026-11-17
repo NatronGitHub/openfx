@@ -27,11 +27,10 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
+import numbers
 import os
 from collections.abc import Mapping, Sequence
 from typing import Any
-
-import numpy as np
 
 from . import HostDemoError, Image, render, resolve_file_spec
 
@@ -87,11 +86,13 @@ def load(path: str | os.PathLike) -> tuple[Node, dict[str, Node]]:
     with open(path, encoding="utf-8") as f:
         doc = json.load(f)
     base = os.path.dirname(os.path.abspath(path))
-    if not isinstance(doc.get("nodes"), dict):
+    if not isinstance(doc, dict) or not isinstance(doc.get("nodes"), dict):
         raise ValueError('a graph file needs "nodes": {name: {"plugin": ...}, ...}')
     for name, d in doc["nodes"].items():
         if not isinstance(d, dict) or "plugin" not in d:
             raise ValueError(f'node {name!r}: expected {{"plugin": id, ...}}')
+        if not isinstance(d.get("inputs", {}), dict) or not isinstance(d.get("params", {}), dict):
+            raise ValueError(f'node {name!r}: "inputs" and "params" are objects')
     nodes = {name: Node(d["plugin"], d.get("context", "filter"), dict(d.get("params", {})),
                         name=name)
              for name, d in doc["nodes"].items()}
@@ -139,19 +140,13 @@ def _to_pixels(rect, sx, sy, par):
             math.ceil(rect[2] * sx / par - _EPS), math.ceil(rect[3] * sy - _EPS))
 
 
-_MAX_PLACEHOLDER = 1 << 22  # pixels
-
-
-def _placeholder(rod, sx, sy, par):
-    """A transparent input with the given RoD (canonical), for the queries: an Image of zeros,
-    or "default" (project-sized) if the RoD is empty or too large."""
-    if rod is None:
-        return "default"
-    x1, y1, x2, y2 = _to_pixels(rod, sx, sy, par)
-    w, h = x2 - x1, y2 - y1
-    if w <= 0 or h <= 0 or w * h > _MAX_PLACEHOLDER:
-        return "default"
-    return Image(np.zeros((h, w, 4), np.float32), (x1, y1, x2, y2))
+def _placeholder(rod):
+    """A transparent input with the given RoD (canonical; None or empty: an empty RoD), for the
+    queries, and for an input node that rendered nothing: hostDemo's "rod:" input, which has no
+    pixels to write."""
+    if rod is None or rod[2] <= rod[0] or rod[3] <= rod[1]:
+        return "rod:0,0,0,0"
+    return "rod:" + ",".join(repr(float(v)) for v in rod)
 
 
 def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float = 1.0,
@@ -162,7 +157,7 @@ def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float 
     ofxhost.render() (host_binary, timeout...)."""
     order = topological_order(output)
     common: dict[str, Any] = dict(depth=depth, scale=scale, **render_args)
-    sx, sy = (scale, scale) if isinstance(scale, (int, float)) else scale
+    sx, sy = (float(scale), float(scale)) if isinstance(scale, numbers.Real) else map(float, scale)
 
     # 0. inputs first: the RoD of each node at the requested times, from its inputs' RoDs (given
     # to the queries as transparent images of that RoD), so that the next queries see the real
@@ -170,11 +165,15 @@ def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float 
     rods: dict[tuple[Node, float], Any] = {}
     pars: dict[Node, float] = {}
 
+    def child_rod(child: Node, t: float):
+        """The child's RoD at t; at another time than the output's frames, the RoD at the first
+        of them (hostDemo's inputs and parameters don't change with time)."""
+        if (child, t) in rods:
+            return rods[(child, t)]
+        return next((r for (n, _), r in rods.items() if n is child), None)
+
     def child_input(child: Node, t: float):
-        rod = rods.get((child, t))
-        if rod is None and rods:
-            rod = next((r for (n, _), r in rods.items() if n is child), None)
-        return _placeholder(rod, sx, sy, pars.get(child, 1.0))
+        return _placeholder(child_rod(child, t))
 
     for node in order:
         for t in sorted({float(f) for f in frames}):
@@ -211,6 +210,10 @@ def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float 
                     continue
                 par = clips[clip]["pixelAspectRatio"]
                 px = _to_pixels(roi, *x["renderScale"], par)
+                crod = child_rod(child, fs[0])
+                if crod is not None:  # the child renders its RoD at most
+                    cpx = _to_pixels(crod, *x["renderScale"], pars.get(child, par))
+                    px = (max(px[0], cpx[0]), max(px[1], cpx[1]), min(px[2], cpx[2]), min(px[3], cpx[3]))
                 if px[0] < px[2] and px[1] < px[3]:
                     w = asked.setdefault(child, {})
                     w[fs[0]] = _union(w.get(fs[0]), px)

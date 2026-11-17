@@ -692,7 +692,7 @@ static void usage(const char* prog)
     "  -o prefix          write <prefix>.<t>[l|r].ppm|pfm (default: Output)\n"
     "  --format ppm|pfm   output format: plain 8-bit PPM (default), or float PFM\n"
     "  -d byte|short|float  input depth before clip preferences (default: byte)\n"
-    "  -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|none, or\n"
+    "  -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none, or\n"
     "                     file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]\n"
     "  --frames t,...     render (or query) at these times (default: 0,1)\n"
     "  --scale s[,sy]     render scale, in (0,1] (default: 1)\n"
@@ -1223,7 +1223,7 @@ static int run(int argc, char **argv)
         std::string error = "no clip name";
         if (eq == std::string::npos || eq == 0 || !MyHost::parseInputSpec(optarg.substr(eq + 1), spec, error)) {
           std::cerr << "Error: invalid input \"" << optarg << "\" (" << error
-                    << "), expected Clip=default|solid:r,g,b,a|ramp|checker:N|none|file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]" << std::endl;
+                    << "), expected Clip=default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none|file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]" << std::endl;
           return 1;
         }
         if (inputSpecs.count(optarg.substr(0, eq))) {
