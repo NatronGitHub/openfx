@@ -4751,10 +4751,43 @@ namespace OFX {
       };    
 
       /// ctor
+#ifdef OFX_EXTENSIONS_NATRON
+      namespace {
+        // The host property of extension 13 was renamed before Natron 2.6: plug-in binaries built
+        // against the old ofxNatron.h query "NatronOfxHostPropInteractKeyModifiers". It is declared
+        // on the host descriptor with this hook, so it always has the value of
+        // kNatronOfxInteractHostPropSupportsKeyModifiers on gImageEffectHost.
+        const char *const kOldKeyModifiersHostProp = "NatronOfxHostPropInteractKeyModifiers";
+        class OldKeyModifiersHostPropHook : public Property::GetHook {
+        public:
+          int getIntProperty(const std::string &/*name*/, int /*index*/) const OFX_EXCEPTION_SPEC
+          {
+            return (gImageEffectHost &&
+                    gImageEffectHost->getProperties().getIntProperty(kNatronOfxInteractHostPropSupportsKeyModifiers) != 0) ? 1 : 0;
+          }
+          void getIntPropertyN(const std::string &name, int *values, int count) const OFX_EXCEPTION_SPEC
+          {
+            for (int i = 0; i < count; ++i) {
+              values[i] = getIntProperty(name, i);
+            }
+          }
+          int getDimension(const std::string &/*name*/) const OFX_EXCEPTION_SPEC
+          {
+            return 1;
+          }
+        };
+        OldKeyModifiersHostPropHook gOldKeyModifiersHostPropHook;
+      }
+#endif
+
       Host::Host() 
       {
         /// add the properties for an image effect host, derived classs to set most of them
         _properties.addProperties(hostStuffs);
+#ifdef OFX_EXTENSIONS_NATRON
+        _properties.addProperty(new Property::Int(kOldKeyModifiersHostProp, 1, true, 0));
+        _properties.setGetHook(kOldKeyModifiersHostProp, &gOldKeyModifiersHostPropHook);
+#endif
       }
 
       /// optionally over-ridden function to register the creation of a new descriptor in the host app
