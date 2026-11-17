@@ -318,3 +318,10 @@ grep -q "is too large for hostDemo: rendering --window" hostdemo-hugerod.log &&
   { echo "huge RoD without tiles: no fallback warnings"; cat hostdemo-hugerod.log; exit 1; }
 echo "huge RoD without tiles: OK"
 
+# Support's sendMessage passes the text as a "%s" argument of the message suite's printf format: a
+# '%' in a message (a file name, an error text) is shown as is
+run hostdemo-percent.log -p net.sf.openfx.GenericTestPlugin -s 'messageText=100% done: %d %s %x %%' --frames 0 --query --report percent.json
+jcheck "a message with %" percent.json '
+assert [m["text"] for m in r["messages"]] == ["100% done: %d %s %x %%"], r["messages"]
+'
+

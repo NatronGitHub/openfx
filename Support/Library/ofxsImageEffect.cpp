@@ -2948,7 +2948,9 @@ namespace OFX {
       }
       return OFX::Message::eMessageReplyFailed;
     }
-    OfxStatus stat = OFX::Private::gMessageSuite->message(_effectHandle, mapMessageTypeEnumToStr(type), id.c_str(), msg.c_str());
+    // the message suite's last argument is a printf format: the message is passed as a "%s"
+    // argument, so that a '%' in it (a file name, an error text) is shown as is
+    OfxStatus stat = OFX::Private::gMessageSuite->message(_effectHandle, mapMessageTypeEnumToStr(type), id.c_str(), "%s", msg.c_str());
     return mapToMessageReplyEnum(stat);
   }
 
@@ -2963,7 +2965,8 @@ namespace OFX {
       }
       return OFX::Message::eMessageReplyFailed;
     }
-    OfxStatus stat = OFX::Private::gMessageSuiteV2->setPersistentMessage(_effectHandle, mapMessageTypeEnumToStr(type), id.c_str(), msg.c_str());
+    // (a printf format, as for sendMessage)
+    OfxStatus stat = OFX::Private::gMessageSuiteV2->setPersistentMessage(_effectHandle, mapMessageTypeEnumToStr(type), id.c_str(), "%s", msg.c_str());
     return mapToMessageReplyEnum(stat);
   }
 

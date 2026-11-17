@@ -299,6 +299,14 @@ public :
     {
       sendMessage(OFX::Message::eMessageMessage, "", "Push Button Pressed - TestPassed!");
     }
+    else if(paramName=="messageText")
+    {
+      // the text is sent as a message, as is, even with printf conversions in it (Support passes
+      // it as a "%s" argument of the message suite's format)
+      std::string text;
+      fetchStringParam("messageText")->getValue(text);
+      sendMessage(OFX::Message::eMessageMessage, "", text);
+    }
     else if(paramName=="widgetPos")
     {
       redrawOverlays();
@@ -530,6 +538,11 @@ void GenericTestExamplePluginFactory::describeInContext(OFX::ImageEffectDescript
 
   PushButtonParamDescriptor* pb = desc.definePushButtonParam("pbButton");
   pb->setLabels("Push Me", "Push Me", "Push Me");
+
+  // messageText: sent as a message when it changes (a test of the message suite's format)
+  StringParamDescriptor* messageText = desc.defineStringParam("messageText");
+  messageText->setLabels("Message Text", "Message Text", "Message Text");
+  messageText->setAnimates(false);
 
   PushButtonParamDescriptor* pb2 = desc.definePushButtonParam("analyseButton");
   pb2->setLabels("Analyse", "Analyse", "Analyse");
