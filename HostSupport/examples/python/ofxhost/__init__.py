@@ -310,10 +310,11 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
            inputs: Mapping[str, Any] | None = None,
            params: Mapping[str, Any] | None = None,
            depth: str = "float",
-           frames: Sequence[float] | None = None, scale: float | Sequence[float] | None = None,
+           frames: Sequence[float] | str | None = None, scale: float | Sequence[float] | None = None,
            window: Sequence[int] | None = None, query: bool = False,
            host_binary: str | os.PathLike | None = None, timeout: float | None = 60,
-           extra_args: Sequence[str] = (), check: bool = True) -> RenderResult:
+           extra_args: Sequence[str] = (), check: bool = True,
+           load: Mapping[str, Any] | None = None) -> RenderResult:
     """Render a plug-in with hostDemo (by default at frames 0 and 1); return its output
     images and report.
 
@@ -330,11 +331,14 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
         as -s name@time=value (in time order); or None to press a push button (-s name). In
         order: each one is followed by the instance changed action (at the key's time for a key).
     depth: the input clips' depth before clip preferences: "byte", "short" or "float".
-    frames: the times to render (hostDemo --frames; default 0 and 1).
+    frames: the times to render (hostDemo --frames; default 0 and 1), or "domain": every frame
+        of the effect's time domain (getTimeDomain; general context only).
     scale: the render scale, s or (sx, sy), in (0,1] (--scale). Image inputs are at that scale.
     window: the render window (x1, y1, x2, y2), in pixels at the render scale (--window).
     query: only run the query actions (--query): no output, see .report["renders"].
     check: raise HostDemoError on a non-zero exit status (default).
+    load: parameters set before createInstance, without instanceChanged, as a host loading a
+        project (--load; values or keys as in params, no button presses).
     """
     if depth not in DEPTHS:
         raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
@@ -348,8 +352,16 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
                "-p", plugin_id, "-c", context, "-d", depth, "-o", OUTPUT_PREFIX]
         for i, (clip, value) in enumerate((inputs or {}).items()):
             cmd += ["-i", f"{clip}={_input_spec(clip, value, workdir, i)}"]
-        if frames is not None:
+        if frames == "domain":
+            cmd += ["--frames", "domain"]
+        elif frames is not None:
+            if isinstance(frames, str):
+                raise ValueError(f"frames {frames!r}: expected a sequence of times or 'domain'")
             cmd += ["--frames", ",".join(_format_value(float(f)) for f in frames)]
+        for name, value in (load or {}).items():
+            if value is None:
+                raise ValueError(f"load {name!r}: a push button can't be pressed before createInstance")
+            cmd += ["--load" if a == "-s" else a for a in _param_args(name, value)]
         if scale is not None:
             cmd += ["--scale", _format_value(scale)]
         if window is not None:

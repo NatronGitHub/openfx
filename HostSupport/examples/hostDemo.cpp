@@ -671,7 +671,8 @@ static Json curveValueJson(const std::string& type, const double* v, int n)
   return a;
 }
 
-// the values at time of the parameters that have keys, by name (for --report)
+// the values at time of the parameters that change with time, by name (for --report): those
+// with keys, and the file paths with a frame number pattern (the file of that frame)
 static Json keyedParamValuesJson(MyHost::MyEffectInstance* instance, OfxTime time)
 {
   Json j = Json::object();
@@ -682,6 +683,11 @@ static Json keyedParamValuesJson(MyHost::MyEffectInstance* instance, OfxTime tim
       double v[4];
       c->get(time, v);
       j[(*it)->getName()] = curveValueJson((*it)->getType(), v, c->getDimension());
+    } else if (MyHost::MyStringInstance* s = dynamic_cast<MyHost::MyStringInstance*>(*it)) {
+      std::string raw, atTime;
+      if (s->get(raw) == kOfxStatOK && s->get(time, atTime) == kOfxStatOK && atTime != raw) {
+        j[(*it)->getName()] = Json(atTime);
+      }
     }
   }
   return j;
@@ -746,6 +752,7 @@ static void usage(const char* prog)
     "  -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none, or\n"
     "                     file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]\n"
     "  --frames t,...     render (or query) at these times (default: 0,1)\n"
+    "  --frames domain    every frame of the time domain (getTimeDomain, general context only)\n"
     "  --scale s[,sy]     render scale, in (0,1] (default: 1)\n"
     "  --window x1,y1,x2,y2  render window, in pixels at the render scale, clipped to the RoD\n"
     "                     (default: the RoD clipped to the project). A plug-in or output clip\n"
@@ -757,6 +764,8 @@ static void usage(const char* prog)
     "                     interpolation, rounded for integers, stepped for booleans and choices),\n"
     "                     with instanceChanged at time t\n"
     "  -s button[@t]      press a push button (instanceChanged, at time t)\n"
+    "  --load name=value  set a parameter (or name@t=value, a key) before createInstance,\n"
+    "                     without instanceChanged, as a host loading a project\n"
     "  --report file.json write a JSON report of the run (even if it failed)\n"
     "  --describe file.json  describe the plug-in as JSON (no instance, no render)\n"
     "  --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH\n"
@@ -837,6 +846,9 @@ static bool parseInts(const std::string& s, int n, int* d)
 
 // the largest key time of -s name@t=value (a finite time far from double overflow)
 static const double kMaxKeyTime = 1e15;
+
+// the largest number of frames that --frames domain renders
+static const double kMaxDomainFrames = 10000.;
 
 // set the parameter value from the string "name=value[,value...]", or a key from
 // "name@time=value[,value...]" (numeric parameters that animate), or press a push button ("name", or
@@ -1267,6 +1279,8 @@ static int run(int argc, char **argv)
   std::string outputPrefix = "Output";
   std::string inputDepth = kOfxBitDepthByte;
   std::vector<std::string> paramAssignments;
+  std::vector<std::string> loadAssignments; ///< --load: set before createInstance (a project load)
+  bool framesFromDomain = false; ///< --frames domain: the frames of the time domain
   std::vector<std::pair<std::string, MyHost::InputSpec> > inputs;
   std::map<std::string, std::string> inputSpecs; ///< the -i spec text of each clip, for --report
   std::string reportPath;   ///< --report
@@ -1303,7 +1317,7 @@ static int run(int argc, char **argv)
     } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
                arg == "-d" || arg == "-i" || arg == "--format" ||
                arg == "--report" || arg == "--describe" ||
-               arg == "--frames" || arg == "--scale" || arg == "--window") {
+               arg == "--frames" || arg == "--scale" || arg == "--window" || arg == "--load") {
       if (a + 1 >= argc) {
         std::cerr << "Error: option " << arg << " requires an argument" << std::endl;
         usage(argv[0]);
@@ -1367,9 +1381,15 @@ static int run(int argc, char **argv)
         reportPath = optarg;
       } else if (arg == "--describe") {
         describePath = optarg;
+      } else if (arg == "--load") {
+        loadAssignments.push_back(optarg);
+      } else if (arg == "--frames" && optarg == "domain") {
+        frames.clear();
+        framesFromDomain = true;
       } else if (arg == "--frames") {
         const std::vector<std::string> v = splitValues(optarg);
         frames.clear();
+        framesFromDomain = false;
         for (size_t k = 0; k < v.size(); ++k) {
           double f = 0.;
           if (!parseDouble(v[k], f) || std::find(frames.begin(), frames.end(), f) != frames.end()) {
@@ -1430,9 +1450,14 @@ static int run(int argc, char **argv)
     }
   }
 
-  if (frames.empty()) {
+  if (frames.empty() && !framesFromDomain) {
     frames.push_back(0.);
     frames.push_back(OFXHOSTDEMOCLIPLENGTH);
+  }
+  if (framesFromDomain && context != kOfxImageEffectContextGeneral) {
+    // ("Only effects instantiated in the General Context can have this called on them")
+    std::cerr << "Error: --frames domain needs the general context (-c " << kOfxImageEffectContextGeneral << ")" << std::endl;
+    return 1;
   }
   // the pixels of a file input are pixels at the render scale
   for (size_t k = 0; k < inputs.size(); ++k) {
@@ -1615,8 +1640,31 @@ static int run(int argc, char **argv)
     }
 
     // now we need to call the create instance action. A host that loads a saved project sets the
-    // parameters from that state before this. hostDemo sets the command-line parameters after it,
-    // as a user would, so that the plug-in's instance changed logic runs.
+    // parameters from that state before this: that's --load (no instance changed action). The -s
+    // parameters are set after it, as a user would, so that the plug-in's instance changed logic
+    // runs.
+    Json& loaded = report["load"] = Json::array();
+    for (size_t k = 0; ret == 0 && k < loadAssignments.size(); ++k) {
+      const std::string& as = loadAssignments[k];
+      const std::string pname = as.substr(0, std::min(as.find('='), as.find('@')));
+      OFX::Host::Param::Instance* param = instance->getParam(pname);
+      if (param && param->getType() == kOfxParamTypePushButton) {
+        std::cerr << "Error: --load " << as << ": a push button can't be pressed before createInstance" << std::endl;
+        ret = 1;
+        break;
+      }
+      std::string name;
+      double time = 0.;
+      instance->timeLineGotoTime(0.);
+      if (!setParamFromString(instance.get(), as, quiet, name, time)) {
+        ret = 1;
+        break;
+      }
+      Json& l = loaded.push(Json::object());
+      l["param"] = name;
+      l["value"] = as.substr(as.find('=') + 1);
+      l["time"] = time;
+    }
     if (ret == 0) {
       reportInstance = myInstance;
       OfxStatus stat = instance->createInstanceAction();
@@ -1707,9 +1755,10 @@ static int run(int argc, char **argv)
     }
 
     // the time domain ("Only effects instantiated in the General Context can have this called on them")
+    OfxRangeD timeDomain;
+    timeDomain.min = timeDomain.max = 0.;
     if (ret == 0 && context == kOfxImageEffectContextGeneral) {
-      OfxRangeD range;
-      range.min = range.max = 0.;
+      OfxRangeD& range = timeDomain;
       OfxStatus stat = instance->getTimeDomainAction(range);
       Json& td = report["timeDomain"] = actionJson(stat);
       td["range"] = stat == kOfxStatOK ? pointJson(range.min, range.max) : Json();
@@ -1717,6 +1766,23 @@ static int run(int argc, char **argv)
       if (!statusOK(stat)) {
         std::cerr << "Error: get time domain action failed (status " << stat << ")" << std::endl;
         ret = 1;
+      }
+    }
+    // --frames domain: every frame (integer time) of the time domain
+    if (ret == 0 && framesFromDomain) {
+      const double first = std::ceil(timeDomain.min), last = std::floor(timeDomain.max);
+      if (!(first <= last) || last - first + 1 > kMaxDomainFrames) {
+        std::cerr << "Error: --frames domain: the time domain [" << timeDomain.min << "," << timeDomain.max
+                  << "] has no frame, or more than " << kMaxDomainFrames << " (use --frames t0,t1,...)" << std::endl;
+        ret = 1;
+      } else {
+        for (double f = first; f <= last; f += 1.) {
+          frames.push_back(f);
+        }
+        Json& fr = report["frames"] = Json::array();
+        for (size_t k = 0; k < frames.size(); ++k) {
+          fr.push(frames[k]);
+        }
       }
     }
     // get the output clip

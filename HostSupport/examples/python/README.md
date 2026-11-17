@@ -83,6 +83,14 @@ the tests when hostDemo isn't built.
   Multi-dimensional values are comma-separated; booleans take 0/1/true/false, Choice the
   index or label, String/StrChoice/Custom the whole value. `-s name` presses a push button
   (instanceChanged only).
+- `--load name=value` (or `name@t=value`) sets a parameter before createInstance, without
+  instanceChanged, as a host that loads a project does: the plug-in's createInstance (e.g. a
+  reader's restore-state code) sees the value.
+- File paths (`kOfxParamStringIsFilePath`) with a frame number pattern (`####`, `%d`, `%04d`)
+  give the file of each frame when read at a time (paramGetValueAtTime), as Natron does for
+  image sequences; without a time (paramGetValue), the pattern.
+- `--frames domain` renders every frame (integer time) of the effect's time domain
+  (getTimeDomain, general context only), e.g. a reader's or a writer's frame range.
 - Keys: `-s name@t=value` sets a key at time t, followed by instanceChanged at time t; numeric
   parameters that animate only (kOfxParamPropAnimates). Between keys, values are interpolated
   linearly (rounded for integers), and held for booleans and choices; before the first key and
@@ -124,12 +132,13 @@ begin/end/instanceChanged, begin/endSequenceRender), `clipPreferences` {clips {C
 components, pixelAspectRatio, unmappedDepth, unmappedComponents, connected}},
 outputPremultiplication, outputFielding, outputFrameRate, continuousSamples, frameVarying},
 `timeDomain` {ok, status, range} (null outside the general context), `renders`, `params`
-{name: {type, value, enabled, secret[, keys]}} (after the run; value at time 0, keys
+`load` [{param, value, time}] (--load), {name: {type, value, enabled, secret[, keys]}} (after the run; value at time 0, keys
 [[time, value]...] for the numeric parameters), `messages` [{kind, type, id, text}],
 `progress` [{message, id, started, ended, updates, lastValue}].
 
 Each `renders` item is one time and view: {time, view, renderScale, params {name: value} (at
-that time, for the parameters with keys), inputs {Clip: {connected,
+that time, for the parameters with keys, and the file paths with a frame number pattern),
+inputs {Clip: {connected,
 regionOfDefinition}} (null for a disconnected clip), regionOfDefinition {ok, status, rod},
 supportsTiles {effect, clips {Clip: bool}} (the instance's values, which a plug-in may change in
 instanceChanged: without tiles, the render window is the whole RoD and the input images are

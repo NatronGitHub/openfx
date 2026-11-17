@@ -29,6 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <iostream>
 #include <fstream>
+#include <cstdio>
 #include <algorithm>
 #include <cmath>
 #include <iterator>
@@ -83,9 +84,60 @@ namespace MyHost {
     return kOfxStatOK;
   }
 
-  OfxStatus MyStringInstance::get(OfxTime, std::string& s)
+  // The frame number of time t in a file name pattern: each run of N '#' becomes the frame on N
+  // digits (at least), and printf's %d and %0Nd too, as Natron does for image sequences. Other
+  // strings are unchanged.
+  std::string expandFramePattern(const std::string& pattern, OfxTime t)
   {
-    return get(s);
+    const long frame = (long)std::floor(t + 0.5);
+    std::string out;
+    for (size_t i = 0; i < pattern.size(); ) {
+      size_t n = 0;
+      int width = -1;
+      if (pattern[i] == '#') {
+        while (i + n < pattern.size() && pattern[i + n] == '#') {
+          ++n;
+        }
+        width = (int)n;
+      } else if (pattern[i] == '%') {
+        size_t j = i + 1;
+        int w = 0;
+        bool zero = false;
+        if (j < pattern.size() && pattern[j] == '0') {
+          zero = true;
+          ++j;
+        }
+        while (j < pattern.size() && pattern[j] >= '0' && pattern[j] <= '9' && w < 100) {
+          w = w * 10 + (pattern[j] - '0');
+          ++j;
+        }
+        if (j < pattern.size() && pattern[j] == 'd' && (zero || w == 0)) {
+          n = j + 1 - i;
+          width = w;
+        }
+      }
+      if (width < 0) {
+        out += pattern[i];
+        ++i;
+        continue;
+      }
+      char buf[128];
+      snprintf(buf, sizeof(buf), "%0*ld", width, frame);
+      out += buf;
+      i += n;
+    }
+    return out;
+  }
+
+  // at a time, a file path (kOfxParamStringIsFilePath) is the file of that frame: its frame number
+  // pattern is expanded (image sequences, as in Natron). Without a time, the pattern is returned.
+  OfxStatus MyStringInstance::get(OfxTime time, std::string& s)
+  {
+    s = _s;
+    if (_descriptor.getProperties().getStringProperty(kOfxParamPropStringMode) == kOfxParamStringIsFilePath) {
+      s = expandFramePattern(_s, time);
+    }
+    return kOfxStatOK;
   }
 
   OfxStatus MyStringInstance::set(const char* s)

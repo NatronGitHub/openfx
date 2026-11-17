@@ -47,6 +47,9 @@ namespace MyHost {
     MyPushbuttonInstance(MyEffectInstance* effect, const std::string& name, OFX::Host::Param::Descriptor& descriptor);
   };
 
+  /// a file name pattern (####, %d, %0Nd) expanded with the frame number of time t
+  std::string expandFramePattern(const std::string& pattern, OfxTime t);
+
   class MyStringInstance : public OFX::Host::Param::StringInstance {
     std::string _s;
   protected:

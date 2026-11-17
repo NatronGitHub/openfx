@@ -351,3 +351,27 @@ assert [x["params"]["keysDouble"] for x in r["renders"]] == [2, 3]
 fails hostdemo-keynoanim.log "doesn't animate" -p net.sf.openfx.GenericTestPlugin -s animateDbl@1=2
 fails hostdemo-keytime.log "invalid key time" -s supportsTiles@x=1
 fails hostdemo-nobutton.log "invalid parameter assignment" -s supportsTiles
+
+# Readers and writers (step 7): --load sets parameters before createInstance, without instanceChanged
+# (a project load: Invert reads supportsTiles in its constructor); --frames domain renders the time
+# domain's frames (Retimer: the input's 25 frames times Duration); a file path's #### or %0Nd is
+# expanded for each frame (image sequences), the value without a time stays the pattern
+run hostdemo-load.log --load supportsTiles=0 --frames 0 -d float -i Source=solid:0.25,0.5,0,1 --window 0,0,8,8 --report load.json -o Load
+jcheck "--load" load.json '
+assert r["load"] == [{"param": "supportsTiles", "value": "0", "time": 0}], r["load"]
+assert r["renders"][0]["renderWindow"] == [0, 0, 720, 576]
+assert not [a for a in r["actions"] if a.get("param")]
+'
+run hostdemo-domain.log -p net.sf.openfx.retimer -c general -s Duration=0.2 --frames domain --query --report domain.json
+jcheck "--frames domain" domain.json '
+assert r["timeDomain"]["range"] == [0, 5] and r["frames"] == [0, 1, 2, 3, 4, 5], (r["timeDomain"], r["frames"])
+assert [x["time"] for x in r["renders"]] == r["frames"]
+'
+fails hostdemo-domain2.log "needs the general context" --frames domain
+run hostdemo-pattern.log -p net.sf.openfx.propertyTester -c general -s 'filePath=/tmp/a.####.exr' -s 'dirPath=d.####' --frames 3,12 --query --report pattern.json
+jcheck "file name patterns" pattern.json '
+assert [x["params"] for x in r["renders"]] == [{"filePath": "/tmp/a.0003.exr"}, {"filePath": "/tmp/a.0012.exr"}], r["renders"]
+assert r["params"]["filePath"]["value"] == "/tmp/a.####.exr"
+'
+fails hostdemo-loadbutton.log "can.t be pressed before createInstance" -p net.sf.openfx.GenericTestPlugin --load pbButton
+

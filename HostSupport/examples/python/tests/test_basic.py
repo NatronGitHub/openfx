@@ -102,3 +102,21 @@ def test_keys_and_buttons(hostdemo, sample_plugins):
                        frames=[0], query=True, host_binary=hostdemo)
     assert [m["text"] for m in r.report["messages"]] == ["Keys test passed"]
 
+
+def test_load_domain_and_patterns(hostdemo, sample_plugins):
+    """load: parameters set before createInstance; frames="domain": the time domain's frames;
+    a file path with #### is the file of each frame."""
+    r = ofxhost.render(sample_plugins, "net.sf.openfx.invertPlugin", load={"supportsTiles": False},
+                       inputs={"Source": "solid:0.25,0.5,0,1"}, frames=[0], window=(0, 0, 8, 8),
+                       host_binary=hostdemo)
+    assert r.report["load"] == [{"param": "supportsTiles", "value": "0", "time": 0}]
+    assert r.report["renders"][0]["renderWindow"] == [0, 0, 720, 576]  # no tiles: the whole RoD
+    assert not any(a.get("param") == "supportsTiles" for a in r.report["actions"])  # no instanceChanged
+    r = ofxhost.render(sample_plugins, "net.sf.openfx.retimer", "general", params={"Duration": 0.2},
+                       frames="domain", query=True, host_binary=hostdemo)
+    assert r.report["frames"] == [0, 1, 2, 3, 4, 5]
+    r = ofxhost.render(sample_plugins, "net.sf.openfx.propertyTester", "general",
+                       params={"filePath": "a.%03d.exr"}, frames=[7], query=True, host_binary=hostdemo)
+    assert r.report["renders"][0]["params"]["filePath"] == "a.007.exr"
+    assert r.report["params"]["filePath"]["value"] == "a.%03d.exr"
+
