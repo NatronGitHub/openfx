@@ -76,7 +76,9 @@ ofx_plugin_resources(TestPlist icon.txt) # not deployed: the installed bundle's 
 # not deployed, with OpenMP: on macOS its install rpath has no libomp (MacPorts) directory, but
 # keeps that of a library with an @rpath install name in an SDK prefix (OFX_TEST_SDK_LIBRARY,
 # built by cmake-plugin-project.sh)
-add_ofx_plugin(TestOmpNoDeploy SOURCES "${OFX_SOURCE_DIR}/Support/Plugins/Basic/basic.cpp")
+add_ofx_plugin(TestOmpNoDeploy
+  RPATH /usr/local/ofx-test-keep # explicit: kept, although it is in /usr/local
+  SOURCES "${OFX_SOURCE_DIR}/Support/Plugins/Basic/basic.cpp")
 target_link_libraries(TestOmpNoDeploy PRIVATE openfx::Support OpenGL::GL)
 ofx_target_openmp(TestOmpNoDeploy)
 if(OFX_TEST_SDK_LIBRARY)

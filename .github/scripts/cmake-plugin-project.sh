@@ -20,7 +20,7 @@ sdkopt=()
 if [ "$os" = Darwin ]; then
   mkdir -p "$work/sdk/lib"
   echo 'int ofx_test_sdk_dep(void) { return 1; }' > "$work/sdk/dep.c"
-  cc -dynamiclib -install_name @rpath/libsdkdep.dylib -o "$work/sdk/lib/libsdkdep.dylib" "$work/sdk/dep.c"
+  cc -dynamiclib -mmacosx-version-min=11.0 -arch "$(uname -m)" -install_name @rpath/libsdkdep.dylib -o "$work/sdk/lib/libsdkdep.dylib" "$work/sdk/dep.c"
   sdkopt=(-DOFX_TEST_SDK_LIBRARY="$work/sdk/lib/libsdkdep.dylib")
 fi
 run() { # mode: package | subdirectory
@@ -105,10 +105,11 @@ tp="$installed/TestPlist.ofx.bundle/Contents/$arch/TestPlist.ofx"
 case $os in
   Darwin) otool -l "$tp" | grep -q ' path /opt/ofx-test-rpath ' || fail "TestPlist: no RPATH /opt/ofx-test-rpath"
           # a non-deployed plug-in with OpenMP and an @rpath library of an SDK prefix: Makefile.master's
-          # two, and the SDK's lib (no libomp directory: MacPorts libraries have absolute install names)
+          # two, the SDK's lib and its explicit RPATH (no libomp directory: MacPorts libraries have
+          # absolute install names)
           # (one per line: the work directory may contain spaces)
           op=$(otool -l "$installed/TestOmpNoDeploy.ofx.bundle/Contents/MacOS/TestOmpNoDeploy.ofx" | sed -n 's/^ *path \(.*\) (offset [0-9]*)$/\1/p' | LC_ALL=C sort)
-          [ "$op" = "$(printf '%s\n' "$work/sdk/lib" @loader_path/../Frameworks @loader_path/../Libraries | LC_ALL=C sort)" ] || fail "TestOmpNoDeploy rpath: '$op'" ;;
+          [ "$op" = "$(printf '%s\n' "$work/sdk/lib" @loader_path/../Frameworks @loader_path/../Libraries /usr/local/ofx-test-keep | LC_ALL=C sort)" ] || fail "TestOmpNoDeploy rpath: '$op'" ;;
   Linux|FreeBSD) readelf -d "$tp" | grep -q '/opt/ofx-test-rpath' || fail "TestPlist: no RPATH /opt/ofx-test-rpath" ;;
 esac
 if [ "$os" = Darwin ]; then
