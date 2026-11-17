@@ -333,6 +333,23 @@ namespace OFX {
         }
       }
     }
+
+    // Set the descriptor of a plug-in in a context, deleting the previous one. The entry
+    // exists (reserveEffectDescriptors): find() and an assignment, not operator[], which may
+    // insert, so the structure of the maps doesn't change under the render-thread lookups.
+    void setEffectDescriptor(const VersionIDKey& key, ContextEnum context, ImageEffectDescriptor* desc)
+    {
+      EffectDescriptorMap::iterator it = gEffectDescriptors.find(key);
+      EffectContextMap::iterator it2;
+      if (it == gEffectDescriptors.end() || (it2 = it->second.find(context)) == it->second.end()) {
+        OFX::Log::error(true, "No reserved descriptor entry for plugin '%s' %u.%u in context %d.",
+                        key.id.c_str(), key.majorVersion, key.minorVersion, (int)context);
+        delete desc;
+        throw OFX::Exception::Suite(kOfxStatFailed);
+      }
+      delete it2->second;
+      it2->second = desc;
+    }
   }
 
   /** @brief map a std::string to a context */
@@ -5585,15 +5602,7 @@ namespace OFX {
           key.id = it->first;
           key.majorVersion = it->second._plug->pluginVersionMajor;
           key.minorVersion = it->second._plug->pluginVersionMinor;
-          EffectDescriptorMap::iterator it = gEffectDescriptors.find(key);
-          if (it != gEffectDescriptors.end()) {
-            EffectContextMap& contextMap = it->second;
-            EffectContextMap::iterator it2 = contextMap.find(eContextNone);
-            if (it2 != contextMap.end()) {
-              delete it2->second;
-            }
-          }
-          gEffectDescriptors[key][eContextNone] = desc;
+          setEffectDescriptor(key, eContextNone, desc);
 
           // got here, must be good
           stat = kOfxStatOK;
@@ -5619,15 +5628,7 @@ namespace OFX {
           key.id = it->first;
           key.majorVersion = it->second._plug->pluginVersionMajor;
           key.minorVersion = it->second._plug->pluginVersionMinor;
-          EffectDescriptorMap::iterator it = gEffectDescriptors.find(key);
-          if (it != gEffectDescriptors.end()) {
-            EffectContextMap& contextMap = it->second;
-            EffectContextMap::iterator it2 = contextMap.find(context);
-            if (it2 != contextMap.end()) {
-              delete it2->second;
-            }
-          }
-          gEffectDescriptors[key][context] = desc;
+          setEffectDescriptor(key, context, desc);
 
           // got here, must be good
           stat = kOfxStatOK;
@@ -6155,7 +6156,14 @@ OfxPlugin* OfxGetPlugin(int nth)
   {
     std::string newID;
     OFX::OfxPlugInfo info = generatePlugInfo(OFX::PluginFactories::plugIDs()[nth], newID);
-    OFX::plugInfoMap[newID] = info;
+    // (the entry exists since init(): find() and an assignment, not operator[], which may insert)
+    OFX::OfxPlugInfoMap::iterator it = OFX::plugInfoMap.find(newID);
+    if (it == OFX::plugInfoMap.end()) {
+      OFX::Log::error(true, "Plugin %d ('%s') has no entry.", nth, newID.c_str());
+      delete info._plug;
+      return NULL;
+    }
+    it->second = info;
     OFX::ofxPlugs[nth] = info._plug;
   }
   return OFX::ofxPlugs[nth];
