@@ -2126,18 +2126,20 @@ namespace OFX {
 
         Plug-ins should call this instead of counting the modifier key events in their overlay
         interact: it works the same on hosts with and without the extension. Call it from the
-        actions of the interacts of this instance (also available as InteractArgs::keyModifiers)
-        and from changedParam(), e.g. for the host selection rectangle
+        actions of the interacts of this instance (also available as InteractArgs::keyModifiers;
+        in parameter interacts, that is this instance's overlay state, since the host passes no
+        property there and parameter interacts don't update it) and from changedParam(), e.g. for the host selection rectangle
         (kNatronOfxParamSelectionRectangleState). It returns the last state seen by this
         instance, not a live query of the keyboard:
         - if the host passes kNatronOfxInteractPropKeyModifiers in the inArgs of an action of an
-          interact of this instance, or sets it on this instance before the kOfxActionInstanceChanged
+          overlay interact of this instance, or sets it on this instance before the kOfxActionInstanceChanged
           action for kNatronOfxParamSelectionRectangleState, the state is that value;
         - otherwise, it is tracked from the kOfxInteractActionKeyDown, kOfxInteractActionKeyRepeat
           and kOfxInteractActionKeyUp actions of the modifier keys (kOfxKey_Shift_L/R,
-          kOfxKey_Control_L/R, kOfxKey_Alt_L/R, kOfxKey_Meta_L/R) received by the interacts of this
-          instance, and cleared by their kOfxInteractActionLoseFocus. A modifier pressed or
-          released while no interact of this instance had the keyboard focus is missed.
+          kOfxKey_Control_L/R, kOfxKey_Alt_L/R, kOfxKey_Meta_L/R) received by the overlay interacts of
+          this instance, and cleared by their kOfxInteractActionLoseFocus (parameter interacts
+          don't update it). A modifier pressed or released while no overlay interact of this
+          instance had the keyboard focus is missed.
         It is 0 until the instance has seen an event.
 
         Only valid on the main (UI) thread, where the host calls the interact actions and
