@@ -198,6 +198,9 @@ namespace OFX {
         /// kNatronOfxHostPropInteractKeyModifiers to 1; then it is passed in the inArgs of every
         /// overlay interact action. Parameter interacts don't get the property, so the Support
         /// library falls back to tracking the modifier keys there. The default returns 0.
+        /// Host contract (not enforced): a host that sets kNatronOfxHostPropInteractKeyModifiers
+        /// to 1 MUST override this in its overlay interacts, otherwise plug-ins see no modifier
+        /// at all (they trust the property and stop tracking the modifier keys).
         virtual int getKeyModifiers() const { return 0; }
 #endif
 

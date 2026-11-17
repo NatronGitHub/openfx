@@ -390,7 +390,7 @@ namespace OFX {
     screenPixelRatio = 1.;
     screenPixelRatio = props.propGetDouble(kOfxInteractPropScreenPixelRatio, 0, false);
     // the dispatcher (interactMainEntry) updated the effect's state from these inArgs before
-    // building the args, see ImageEffect::updateKeyModifiers()
+    // building the args, see Private::updateKeyModifiers()
     hasKeyModifiers = props.propExists(kNatronOfxInteractPropKeyModifiers, false);
     keyModifiers = 0;
 #endif
@@ -628,12 +628,27 @@ namespace OFX {
         return stat;
 
 #ifdef OFX_EXTENSIONS_NATRON
-      // extension 13 of ofxNatron.h: update the modifiers of the effect before the action
+      // extension 13 of ofxNatron.h: before the action, update the modifiers of the effect, only
+      // from its image effect overlay interacts (the property and the key tracking): the key
+      // events and loseFocus of a parameter interact (e.g. a parametric parameter's curve
+      // editor) must not clear or overwrite the state tracked by the overlay
+      // Only the nine interact actions touch the effect: not kOfxActionDestroyInstance, where the
+      // host may already have destroyed the effect of a parameter interact.
       ImageEffect *effect = interact->getEffect();
-      if (effect && action != kOfxActionDestroyInstance) {
-        effect->updateKeyModifiers(action, inArgs);
+      const bool isInteractAction =
+           ( action == kOfxInteractActionDraw ||
+             action == kOfxInteractActionPenMotion ||
+             action == kOfxInteractActionPenDown ||
+             action == kOfxInteractActionPenUp ||
+             action == kOfxInteractActionKeyDown ||
+             action == kOfxInteractActionKeyUp ||
+             action == kOfxInteractActionKeyRepeat ||
+             action == kOfxInteractActionGainFocus ||
+             action == kOfxInteractActionLoseFocus );
+      if ( isInteractAction && effect && inArgs.propSetHandle() && dynamic_cast<OverlayInteract *>(interact) ) {
+        OFX::Private::updateKeyModifiers(*effect, action, inArgs);
       }
-      const int keyModifiers = effect ? effect->getKeyModifiers() : 0;
+      const int keyModifiers = (isInteractAction && effect) ? effect->getKeyModifiers() : 0;
 #endif
 
       if(action == kOfxActionDestroyInstance) {

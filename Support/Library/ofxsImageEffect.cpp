@@ -2690,7 +2690,11 @@ namespace OFX {
   {
     if ( props.propExists(kNatronOfxInteractPropKeyModifiers, false) ) {
       // the state given by the host. Keep the keys that are down consistent with it, so that
-      // tracking (if a later action doesn't carry the property) starts from it.
+      // tracking (if a later action doesn't carry the property) starts from it. The side of a
+      // modifier that the host reports is unknown, so it is recorded as the left key: on a host
+      // that passes the property in some actions but not in others, a later key up of the right
+      // key without the property doesn't clear that modifier (the next action with the property,
+      // or a kOfxInteractActionLoseFocus, does). That is acceptable for such mixed hosts.
       const int modifiers = props.propGetInt(kNatronOfxInteractPropKeyModifiers, 0, false);
       for (int i = 0; i < gNModifierKeys; ++i) {
         const int sides = 3 << (2 * i);
@@ -2724,6 +2728,13 @@ namespace OFX {
       }
     }
     return false;
+  }
+
+  namespace Private {
+    bool updateKeyModifiers(ImageEffect &effect, const std::string &action, const PropertySet &props)
+    {
+      return effect.updateKeyModifiers(action, props);
+    }
   }
 #endif
 
@@ -5204,7 +5215,7 @@ namespace OFX {
         // extension 13 of ofxNatron.h: the host sets the modifiers on the instance before the
         // selection rectangle notifications (its value at other times is unspecified)
         if (changedName == kNatronOfxParamSelectionRectangleState) {
-          effectInstance->updateKeyModifiers(kOfxActionInstanceChanged, effectInstance->getPropertySet());
+          updateKeyModifiers(*effectInstance, kOfxActionInstanceChanged, effectInstance->getPropertySet());
         }
 #endif
         // and call the plugin client code

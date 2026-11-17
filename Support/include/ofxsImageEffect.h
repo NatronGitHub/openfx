@@ -101,6 +101,23 @@ namespace OFX
   }
 }
 
+#ifdef OFX_EXTENSIONS_NATRON
+namespace OFX
+{
+  class ImageEffect;
+  class PropertySet;
+  namespace Private
+  {
+    /** @brief Library side (extension 13 of ofxNatron.h): update the keyboard modifiers of
+        \p effect before an action of one of its overlay interacts, or before the
+        kOfxActionInstanceChanged of kNatronOfxParamSelectionRectangleState.
+        See ImageEffect::getKeyModifiers(). Returns true if \p props has
+        kNatronOfxInteractPropKeyModifiers. */
+    bool updateKeyModifiers(ImageEffect &effect, const std::string &action, const PropertySet &props);
+  }
+}
+#endif
+
 
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
 */
@@ -2141,11 +2158,15 @@ namespace OFX {
     /** @brief true if kNatronOfxKeyModifierMeta is set in getKeyModifiers() (the Control key on macOS hosts built with Qt) */
     bool isMetaDown() const { return (getKeyModifiers() & kNatronOfxKeyModifierMeta) != 0; }
 
-    /** @brief Library side, called by the Support dispatch before an interact action of this
-        instance or a kOfxActionInstanceChanged action, not by plug-ins: update the keyboard
-        modifiers from the host's kNatronOfxInteractPropKeyModifiers if \p props has it, else
-        (interact actions only) from the modifier key events. Returns true if \p props has the property. */
+  private:
+    friend bool Private::updateKeyModifiers(ImageEffect &effect, const std::string &action, const PropertySet &props);
+
+    /** @brief update the keyboard modifiers from the host's kNatronOfxInteractPropKeyModifiers
+        if \p props has it, else (interact actions only) from the modifier key events. Returns
+        true if \p props has the property. Called through Private::updateKeyModifiers(). */
     bool updateKeyModifiers(const std::string &action, const PropertySet &props);
+
+  public:
 #endif
 
     /** @brief Can this instance render on the CPU (kOfxImageEffectPropCPURenderSupported, OFX 1.5.1). Ignored by hosts that don't know it. */

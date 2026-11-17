@@ -4427,7 +4427,7 @@ namespace OFX {
         // modifiers, since plug-ins detect the extension by the presence of the property.
         // Interact::Instance::initArgProp() then sets it from getKeyModifiers().
         if (hostSupportsKeyModifiers()) {
-          _argProperties.addProperty(new Property::Int(kNatronOfxInteractPropKeyModifiers, 1, false, 0));
+          _argProperties.addProperty(new Property::Int(kNatronOfxInteractPropKeyModifiers, 1, true, 0)); // read only for the plug-in
         }
 #     endif
       }
@@ -4741,9 +4741,11 @@ namespace OFX {
         { kNatronOfxImageEffectPropDefaultCursors, Property::eString, 0, true, "" },
         { kNatronOfxPropNativeOverlays, Property::eString, 0, true, ""},
         { kOfxImageEffectPropCanDistort, Property::eInt, 1, false, "0" },
-        // extension 13 of ofxNatron.h: set to 1 by host applications that implement
-        // Interact::Instance::getKeyModifiers() and set kNatronOfxInteractPropKeyModifiers
-        // on the effect instance before the selection rectangle instanceChanged
+        // extension 13 of ofxNatron.h. Host contract (not enforced): a host application that
+        // sets this to 1 MUST also override Interact::Instance::getKeyModifiers() in its
+        // overlay interacts (the default returns 0, which plug-ins would take as "no modifier"
+        // and stop tracking the keys), and set kNatronOfxInteractPropKeyModifiers on the effect
+        // instance before each instanceChanged of kNatronOfxParamSelectionRectangleState
         { kNatronOfxHostPropInteractKeyModifiers, Property::eInt, 1, true, "0" },
 #    endif
         // OFX 1.5 / 1.5.1 host capabilities, with "not supported" defaults (a host
