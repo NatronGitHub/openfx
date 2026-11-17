@@ -1,4 +1,5 @@
 .. SPDX-License-Identifier: CC-BY-4.0
+
 Structure of The OFX and the Image Effect API
 =============================================
 

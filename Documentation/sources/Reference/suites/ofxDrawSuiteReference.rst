@@ -1,5 +1,6 @@
 .. SPDX-License-Identifier: CC-BY-4.0
 .. _OfxDrawSuiteV1:
+
 OfxDrawSuiteV1: Drawing Overlays
 ================================
 
