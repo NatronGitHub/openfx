@@ -1,0 +1,6 @@
+# a directory-scoped imported target named like the one in filter-a (see ../CMakeLists.txt)
+add_library(TestDirDep INTERFACE IMPORTED)
+set_target_properties(TestDirDep PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "/no-such-dir-b")
+ofx_target_filter_missing_includes(TestDirDep)
+add_library(TestFilterB STATIC "${CMAKE_CURRENT_SOURCE_DIR}/../includes.cpp")
+target_link_libraries(TestFilterB PRIVATE TestDirDep openfx::Support)

@@ -9,6 +9,12 @@
 # written into PLUGIN_INSTALLDIR at configure time, and the architecture folder
 # follows the OFX packaging spec.
 
+# install(DESTINATION) paths are normalized (CMake 3.31): for the functions below, also when this
+# module is used through find_package(openfx)
+if(POLICY CMP0177)
+  cmake_policy(SET CMP0177 NEW)
+endif()
+
 # Where the bundles are installed. A relative path is relative to CMAKE_INSTALL_PREFIX: the
 # default for the plug-in repositories is OFX/Plugins (e.g. /usr/OFX/Plugins with the prefix
 # /usr); openfx's own examples default to the system's OFX plug-in folder.
@@ -127,6 +133,27 @@ endif()
 set(OFX_CXX_STANDARD ${_ofx_std} CACHE STRING "C++ standard of the plug-ins built with add_ofx_plugin, and of openfx::Support")
 option(OFX_USE_OPENMP "ofx_target_openmp(): use OpenMP" ON)
 option(OFX_DEPLOY_BUNDLES "ofx_deploy_bundle(): make the installed bundles self-contained" OFF)
+option(OFX_DEPLOY_STRICT_MINOS "ofx_deploy_bundle(): fail, instead of warning, if a bundled library requires a newer macOS than CMAKE_OSX_DEPLOYMENT_TARGET" OFF)
+# Optimization flags of the release configurations (Release, RelWithDebInfo, MinSizeRel) of the
+# plug-ins and of openfx::Support, after CMake's own (so they win with gcc and clang), e.g. -O2.
+# Empty: CMake's defaults (-O3 for Release). An installed openfx::Support keeps the flags it was
+# built with.
+set(OFX_OPTFLAG "" CACHE STRING "Extra optimization flags of the plug-ins' release configurations (empty: CMake's defaults)")
+# Extra install rpath directories of every plug-in (e.g. dependency prefixes inside the source
+# tree, which INSTALL_RPATH_USE_LINK_PATH skips), after the bundle's own Libraries directory
+set(OFX_PLUGIN_RPATH "" CACHE STRING "Extra install rpath directories of the plug-ins (;-separated)")
+
+# Add OFX_OPTFLAG to the compile options of a target's release configurations (add_ofx_plugin
+# and openfx::Support do it; also for a repository's own static libraries linked into plug-ins):
+#
+#   ofx_target_optflag(<target>)
+function(ofx_target_optflag TARGET)
+  if(OFX_OPTFLAG AND NOT MSVC)
+    separate_arguments(_optflags UNIX_COMMAND "${OFX_OPTFLAG}")
+    target_compile_options(${TARGET} PRIVATE
+      "$<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>,$<CONFIG:MinSizeRel>>:${_optflags}>")
+  endif()
+endfunction()
 
 # Where bundles are assembled in the build tree
 if(NOT OFX_PLUGIN_BUILD_DIR)
@@ -158,7 +185,7 @@ endfunction()
 #   add_ofx_plugin(<target> [<dir>]
 #                  [DIR <dir>] [BUNDLE_NAME <name>] [INFO_PLIST <file>]
 #                  [IDENTIFIER <id>] [VERSION <x.y.z>]
-#                  [EXPORT_SYMBOLS <symbol>...] [SOURCES <file>...])
+#                  [EXPORT_SYMBOLS <symbol>...] [RPATH <dir>...] [SOURCES <file>...])
 #
 # Builds <BUNDLE_NAME>.ofx (default: <target>) into
 # ${OFX_PLUGIN_BUILD_DIR}/<BUNDLE_NAME>.ofx.bundle/Contents/<ARCHDIR>/, with the Info.plist in
@@ -171,7 +198,13 @@ endfunction()
 #   FreeBSD, as Support/Plugins/Makefile.master does (hidden visibility alone isn't enough for
 #   plug-ins that link static libraries, e.g. OSMesa or LLVM).
 # - Install rpath: @loader_path/../Frameworks and @loader_path/../Libraries on macOS,
-#   $ORIGIN/../../Libraries on Linux and FreeBSD (libraries bundled by the installers).
+#   $ORIGIN/../../Libraries on Linux and FreeBSD (libraries bundled by the installers), then the
+#   RPATH and OFX_PLUGIN_RPATH directories, then the directories of the linked libraries outside
+#   the project (INSTALL_RPATH_USE_LINK_PATH), as Makefile.master's -Wl,-rpath: installers
+#   (osxDeploy.sh, Natron's Linux installer) find the libraries there, then rewrite the rpath.
+# - The installed binary is mode 755 (Debian's CMake strips the execute bit of modules).
+# - OFX_OPTFLAG is added to the compile options of the release configurations (not with MSVC).
+# - RPATH and OFX_PLUGIN_RPATH are ignored on Windows.
 # - DEBUG is defined in Debug builds; CXX_STANDARD is ${OFX_CXX_STANDARD}, without GNU
 #   extensions; /bigobj (MSVC) or -Wa,-mbig-obj (MinGW gcc) for large translation units (not in
 #   Makefile.master). The MinGW runtime DLLs are bundled by the installers, as with the Makefiles.
@@ -180,7 +213,7 @@ endfunction()
 # Link the plug-in with openfx::Support (C++ Support library) or openfx::Api (C API only).
 function(add_ofx_plugin TARGET)
   cmake_parse_arguments(PARSE_ARGV 1 OFX "" "DIR;BUNDLE_NAME;INFO_PLIST;IDENTIFIER;VERSION"
-                        "EXPORT_SYMBOLS;SOURCES")
+                        "EXPORT_SYMBOLS;RPATH;SOURCES")
   if(OFX_UNPARSED_ARGUMENTS) # the old form: add_ofx_plugin(TARGET DIR)
     list(GET OFX_UNPARSED_ARGUMENTS 0 OFX_DIR)
   endif()
@@ -268,13 +301,20 @@ function(add_ofx_plugin TARGET)
     set_property(TARGET ${TARGET} APPEND PROPERTY LINK_DEPENDS "${_exports}")
   endif()
 
-  # Install rpath, for the libraries that the installers put in the bundle
+  # Install rpath: the libraries that the installers put in the bundle, then the explicit extra
+  # directories, then (CMake) the directories of the linked libraries outside the project
   if(APPLE)
-    set_target_properties(${TARGET} PROPERTIES
-      INSTALL_RPATH "@loader_path/../Frameworks;@loader_path/../Libraries")
+    set(_rpath "@loader_path/../Frameworks;@loader_path/../Libraries")
   elseif(CMAKE_SYSTEM_NAME MATCHES "Linux|FreeBSD")
-    set_target_properties(${TARGET} PROPERTIES INSTALL_RPATH "$ORIGIN/../../Libraries")
+    set(_rpath "$ORIGIN/../../Libraries")
+  else()
+    set(_rpath "")
   endif()
+  if(NOT WIN32)
+    list(APPEND _rpath ${OFX_RPATH} ${OFX_PLUGIN_RPATH})
+    set_target_properties(${TARGET} PROPERTIES INSTALL_RPATH "${_rpath}" INSTALL_RPATH_USE_LINK_PATH ON)
+  endif()
+  ofx_target_optflag(${TARGET})
 
   target_compile_definitions(${TARGET} PRIVATE $<$<CONFIG:Debug>:DEBUG>)
   set_target_properties(${TARGET} PROPERTIES CXX_STANDARD ${OFX_CXX_STANDARD}
@@ -289,10 +329,12 @@ function(add_ofx_plugin TARGET)
   # To install plugins: cmake --install Build
   set(_dest "${PLUGIN_INSTALLDIR}/${OFX_BUNDLE_NAME}.ofx.bundle/Contents")
   # (on Windows, the import library of the DLL is not installed)
+  set(_perms PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
+                         WORLD_READ WORLD_EXECUTE)
   install(
     TARGETS ${TARGET}
-    LIBRARY DESTINATION "${_dest}/${ARCHDIR}"
-    RUNTIME DESTINATION "${_dest}/${ARCHDIR}"
+    LIBRARY DESTINATION "${_dest}/${ARCHDIR}" ${_perms}
+    RUNTIME DESTINATION "${_dest}/${ARCHDIR}" ${_perms}
     ARCHIVE DESTINATION "${_dest}/${ARCHDIR}" EXCLUDE_FROM_ALL)
   install(FILES "${_info}" DESTINATION "${_dest}" RENAME Info.plist)
   if(APPLE)
@@ -312,6 +354,7 @@ endfunction()
 function(_ofx_install_sign TARGET)
   get_target_property(_bin ${TARGET} OFX_INSTALLED_BINARY)
   if(APPLE AND _bin)
+    string(REPLACE "/./" "/" _bin "${_bin}") # (PLUGIN_INSTALLDIR=.: for the messages)
     install(CODE "
       execute_process(COMMAND codesign -f -s - \"\$ENV{DESTDIR}${_bin}\" RESULT_VARIABLE _r OUTPUT_QUIET ERROR_VARIABLE _err)
       if(_r)
@@ -384,6 +427,11 @@ endfunction()
 #
 # With Apple clang, which has no OpenMP runtime, it uses libomp from MacPorts
 # (/opt/local/include/libomp, /opt/local/lib/libomp), or from OFX_LIBOMP_ROOT.
+# With Apple clang, it sets OpenMP_CXX_FLAGS, OpenMP_CXX_LIB_NAMES and OpenMP_omp_LIBRARY as
+# normal variables before find_package(OpenMP), so they hide the cache entries of the same
+# names: -DOpenMP_CXX_FLAGS=... is ignored there. Use OFX_LIBOMP_ROOT to choose another libomp.
+# MSYS2: OpenMP needs the mingw-w64-ucrt-x86_64-libgomp package, and the plug-in then depends on
+# libgomp-1.dll (also with -static-libgcc -static-libstdc++).
 function(ofx_target_openmp TARGET)
   cmake_parse_arguments(PARSE_ARGV 1 OFX "REQUIRED" "" "")
   if(NOT OFX_USE_OPENMP)
@@ -418,13 +466,76 @@ function(ofx_target_openmp TARGET)
   if(TARGET OpenMP::OpenMP_CXX)
     target_link_libraries(${TARGET} PRIVATE OpenMP::OpenMP_CXX)
   elseif(OFX_REQUIRED)
-    message(FATAL_ERROR "ofx_target_openmp(${TARGET}): OpenMP not found (MacPorts: port install libomp)")
+    message(FATAL_ERROR "ofx_target_openmp(${TARGET}): OpenMP not found (MacPorts: port install libomp; MSYS2: pacboy libgomp:p)")
   else()
     get_property(_warned GLOBAL PROPERTY _OFX_OPENMP_WARNED)
     if(NOT _warned)
       set_property(GLOBAL PROPERTY _OFX_OPENMP_WARNED TRUE)
-      message(WARNING "ofx_target_openmp: OpenMP not found, building ${TARGET} (and the next targets) without it (MacPorts: port install libomp; or set OFX_LIBOMP_ROOT, or OFX_USE_OPENMP=OFF)")
+      message(WARNING "ofx_target_openmp: OpenMP not found, building ${TARGET} (and the next targets) without it (MacPorts: port install libomp; MSYS2: pacboy libgomp:p; or set OFX_LIBOMP_ROOT, or OFX_USE_OPENMP=OFF)")
     endif()
+  endif()
+endfunction()
+
+# Drop the include directories that don't exist from an imported target, and from the imported
+# targets it links, recursively:
+#
+#   ofx_target_filter_missing_includes(<target>...)
+#
+# Generation fails if an imported target lists a missing include directory; e.g. Ubuntu 24.04's
+# OpenImageIO config lists /usr/include/opencv4 even without libopencv-dev. Call it after the
+# find_package(), before the targets are used. Entries with generator expressions are kept.
+# Non-imported targets are not changed (their link libraries are still visited). Link entries are
+# followed when they are target names or $<LINK_ONLY:...>, not inside other generator expressions.
+function(ofx_target_filter_missing_includes)
+  # targets visited by this call (non-global imported targets are directory-scoped: another
+  # directory may have a different target of the same name)
+  set_property(GLOBAL PROPERTY _OFX_FILTERED_TARGETS "")
+  foreach(_t IN LISTS ARGN)
+    _ofx_filter_missing_includes("${_t}")
+  endforeach()
+endfunction()
+
+function(_ofx_filter_missing_includes _t)
+  string(REGEX REPLACE "^\\$<LINK_ONLY:(.*)>$" "\\1" _t "${_t}")
+  if(NOT TARGET "${_t}")
+    return()
+  endif()
+  get_target_property(_aliased "${_t}" ALIASED_TARGET)
+  if(_aliased)
+    set(_t "${_aliased}")
+  endif()
+  get_property(_seen GLOBAL PROPERTY _OFX_FILTERED_TARGETS)
+  if("${_t}" IN_LIST _seen)
+    return()
+  endif()
+  set_property(GLOBAL APPEND PROPERTY _OFX_FILTERED_TARGETS "${_t}")
+  get_target_property(_imported "${_t}" IMPORTED)
+  if(_imported)
+    foreach(_prop INTERFACE_INCLUDE_DIRECTORIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES)
+      get_target_property(_dirs "${_t}" ${_prop})
+      if(_dirs)
+        set(_keep "")
+        foreach(_d IN LISTS _dirs)
+          if(_d MATCHES "\\$<" OR EXISTS "${_d}")
+            list(APPEND _keep "${_d}")
+          else()
+            # (once per directory: several targets may list it)
+            get_property(_reported GLOBAL PROPERTY _OFX_REPORTED_MISSING_INCLUDES)
+            if(NOT _d IN_LIST _reported)
+              set_property(GLOBAL APPEND PROPERTY _OFX_REPORTED_MISSING_INCLUDES "${_d}")
+              message(STATUS "${_t}: ignoring the missing include directory ${_d}")
+            endif()
+          endif()
+        endforeach()
+        set_target_properties("${_t}" PROPERTIES ${_prop} "${_keep}")
+      endif()
+    endforeach()
+  endif()
+  get_target_property(_libs "${_t}" INTERFACE_LINK_LIBRARIES)
+  if(_libs)
+    foreach(_l IN LISTS _libs)
+      _ofx_filter_missing_includes("${_l}")
+    endforeach()
   endif()
 endfunction()
 
@@ -437,9 +548,12 @@ endfunction()
 # Contents/Libraries (with @rpath install names), then the libraries and the bundle are signed
 # ad hoc (required on arm64), and the install fails if a Mach-O file still references
 # /opt/local, /usr/local or /opt/homebrew.
+# If CMAKE_OSX_DEPLOYMENT_TARGET is set, a bundled file with an architecture that requires a newer
+# macOS (LC_BUILD_VERSION minos, or LC_VERSION_MIN_MACOSX; at least 11.0 for arm64) gives a
+# warning, or an error with OFX_DEPLOY_STRICT_MINOS.
 # Call it after the last ofx_plugin_resources() of the target: files installed into the bundle
-# after it would break the bundle's signature. The install path must not contain spaces
-# (osxDeploy.sh). Windows (bundling the DLLs, with an embedded manifest) and Linux are not
+# after it would break the bundle's signature. Windows (bundling the DLLs, with an embedded
+# manifest) and Linux are not
 # implemented yet.
 function(ofx_deploy_bundle TARGET)
   get_target_property(_name ${TARGET} OFX_BUNDLE_NAME)
@@ -452,21 +566,27 @@ function(ofx_deploy_bundle TARGET)
     return()
   endif()
   if(APPLE)
-    if(PLUGIN_INSTALLDIR MATCHES " " OR CMAKE_INSTALL_PREFIX MATCHES " ")
-      message(FATAL_ERROR "ofx_deploy_bundle(${TARGET}): the install path (PLUGIN_INSTALLDIR, CMAKE_INSTALL_PREFIX) must not contain spaces (osxDeploy.sh)")
-    endif()
     _ofx_find_file(_deploy osxDeploy.sh)
+    if(OFX_DEPLOY_STRICT_MINOS)
+      set(_minos_level FATAL_ERROR)
+    else()
+      set(_minos_level WARNING)
+    endif()
     if(IS_ABSOLUTE "${PLUGIN_INSTALLDIR}")
       set(_bundle "${PLUGIN_INSTALLDIR}/${_name}.ofx.bundle")
     else()
       set(_bundle "\${CMAKE_INSTALL_PREFIX}/${PLUGIN_INSTALLDIR}/${_name}.ofx.bundle")
     endif()
+    string(REPLACE "/./" "/" _bundle "${_bundle}") # (PLUGIN_INSTALLDIR=.: for the messages)
     # release builds only, as in Makefile.master (or an empty build type with a single-config
     # generator)
     install(CODE "
      string(TOUPPER \"\${CMAKE_INSTALL_CONFIG_NAME}\" _cfg)
      if(_cfg STREQUAL \"\" OR _cfg MATCHES \"^(RELEASE|RELWITHDEBINFO|MINSIZEREL)\$\")
       set(_b \"\$ENV{DESTDIR}${_bundle}\")
+      set(_target \"${CMAKE_OSX_DEPLOYMENT_TARGET}\")
+      set(_minos_level ${_minos_level})
+      set(_minos_msg \"\")
       execute_process(COMMAND bash \"${_deploy}\" \"\${_b}\" \"${_name}.ofx\" RESULT_VARIABLE _r)
       if(_r)
         message(FATAL_ERROR \"osxDeploy.sh failed on \${_b}\")
@@ -499,7 +619,32 @@ function(ofx_deploy_bundle TARGET)
         if(_cmds MATCHES \" path (/opt/local|/usr/local|/opt/homebrew)/\")
           message(FATAL_ERROR \"\${_f} has an LC_RPATH in \${CMAKE_MATCH_1}\")
         endif()
+        # the minimum macOS of each architecture of the file: MacPorts builds libraries for the
+        # build machine's macOS, whatever the plug-in's deployment target. arm64 slices are never
+        # below 11.0 (the linker raises a lower target to 11.0).
+        if(NOT \"\${_target}\" STREQUAL \"\")
+          execute_process(COMMAND lipo -archs \"\${_f}\" OUTPUT_VARIABLE _archs ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+          separate_arguments(_archs UNIX_COMMAND \"\${_archs}\")
+          foreach(_a \${_archs})
+            execute_process(COMMAND otool -arch \${_a} -l \"\${_f}\" OUTPUT_VARIABLE _acmds ERROR_QUIET)
+            set(_minos \"\")
+            string(REGEX MATCH \" minos [0-9.]+|LC_VERSION_MIN_MACOSX\\n[^\\n]*\\n *version [0-9.]+\" _v \"\${_acmds}\")
+            if(_v)
+              string(REGEX REPLACE \".* \" \"\" _minos \"\${_v}\")
+            endif()
+            set(_atarget \"\${_target}\")
+            if(_a MATCHES \"^arm64\" AND _atarget VERSION_LESS 11.0)
+              set(_atarget 11.0)
+            endif()
+            if(NOT _minos STREQUAL \"\" AND _minos VERSION_GREATER _atarget)
+              string(APPEND _minos_msg \"\\n  \${_f} (\${_a}) requires macOS \${_minos}\")
+            endif()
+          endforeach()
+        endif()
       endforeach()
+      if(_minos_msg)
+        message(\${_minos_level} \"\${_b}: files newer than CMAKE_OSX_DEPLOYMENT_TARGET \${_target}, so the plug-in won't load on older macOS versions:\${_minos_msg}\\nBuild the dependencies for \${_target} (MacPorts: macosx_deployment_target in macports.conf)\")
+      endif()
       execute_process(COMMAND codesign -f -s - \"\${_b}\" RESULT_VARIABLE _r)
       if(_r)
         message(FATAL_ERROR \"codesign failed on \${_b}\")

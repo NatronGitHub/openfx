@@ -37,6 +37,29 @@ ofx_deploy_bundle(TestInvert)
 # the plug-in's own Info.plist, used as-is
 add_ofx_plugin(TestPlist
   INFO_PLIST Info.plist
+  RPATH /opt/ofx-test-rpath # an extra install rpath directory (not deployed: it stays)
   SOURCES "${OFX_SOURCE_DIR}/Support/Plugins/Basic/basic.cpp")
-target_link_libraries(TestPlist openfx::Support OpenGL::GL) # the plain form works too
+# an imported dependency listing missing include directories, used through an alias, with an
+# inner imported target reached only through $<LINK_ONLY:> (as OpenImageIO's config on Ubuntu
+# 24.04, with /usr/include/opencv4)
+add_library(TestMissingIncInner INTERFACE IMPORTED)
+set_target_properties(TestMissingIncInner PROPERTIES
+  INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_BINARY_DIR}/no-such-dir")
+add_library(TestMissingInc INTERFACE IMPORTED GLOBAL) # (GLOBAL: an ALIAS needs it with CMake < 3.18)
+set_target_properties(TestMissingInc PROPERTIES
+  INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "/no-such-system-dir"
+  INTERFACE_INCLUDE_DIRECTORIES "/no-such-dir-either"
+  INTERFACE_LINK_LIBRARIES "$<LINK_ONLY:TestMissingIncInner>")
+add_library(Test::MissingInc ALIAS TestMissingInc)
+ofx_target_filter_missing_includes(Test::MissingInc)
+get_target_property(_inc TestMissingIncInner INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(_inc2 TestMissingInc INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(_inc3 TestMissingInc INTERFACE_SYSTEM_INCLUDE_DIRECTORIES)
+if(NOT _inc STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}" OR _inc2 OR _inc3)
+  message(FATAL_ERROR "ofx_target_filter_missing_includes: '${_inc}' '${_inc2}' '${_inc3}'")
+endif()
+# same-named imported targets in two sibling directories, each filtered, each linked
+add_subdirectory(filter-a)
+add_subdirectory(filter-b)
+target_link_libraries(TestPlist openfx::Support OpenGL::GL Test::MissingInc) # the plain form works too
 ofx_plugin_resources(TestPlist icon.txt) # not deployed: the installed bundle's signature must still be valid

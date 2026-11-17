@@ -95,9 +95,13 @@ if [[ ! ("$rpath" == *"@loader_path/../$libdir"*) ]]; then
     exit 1
 fi
 # Test dirs
-test -d "$pkglib" || mkdir "$pkglib"
+if [ ! -d "$pkglib" ] && ! mkdir "$pkglib"; then
+    echo "Error: cannot create $pkglib"
+    exit 1
+fi
 
-LIBADD=
+# extra Mach-O files to process (an array, so that paths may contain spaces)
+LIBADD=()
 
 #############################
 # test if ImageMagick is used
@@ -119,46 +123,66 @@ if otool -L "$binary"  | grep -F libMagick > /dev/null; then
     # sed -e "s,IMAGEMAGICKVER,$IMAGEMAGICKVER,g" -i "" $pkgbin/DisparityKillerM
 
     # copy the ImageMagick libraries (.la and .so)
-    test -d "$pkglib/share" || mkdir "$pkglib/share"
+    if [ ! -d "$pkglib/share" ] && ! mkdir "$pkglib/share"; then
+        echo "Error: cannot create $pkglib/share"
+        exit 1
+    fi
     if [ -d  "$IMAGEMAGICKLIB/ImageMagick-$IMAGEMAGICKVER" ]; then
 	# MacPorts
-	cp -r "$IMAGEMAGICKLIB/ImageMagick-$IMAGEMAGICKVER" "$pkglib/"
+	cp -r "$IMAGEMAGICKLIB/ImageMagick-$IMAGEMAGICKVER" "$pkglib/" || exit 1
     elif [ -d  "$IMAGEMAGICKLIB/ImageMagick" ]; then
 	# HomeBrew
-	cp -r "$IMAGEMAGICKLIB/ImageMagick" "$pkglib/"
+	cp -r "$IMAGEMAGICKLIB/ImageMagick" "$pkglib/" || exit 1
     fi
-    cp -r "$IMAGEMAGICKSHARE/ImageMagick-$IMAGEMAGICKMAJ" "$pkglib/share/"
+    cp -r "$IMAGEMAGICKSHARE/ImageMagick-$IMAGEMAGICKMAJ" "$pkglib/share/" || exit 1
 
-    LIBADD="$LIBADD $pkglib/ImageMagick-$IMAGEMAGICKVER/modules-*/*/*.so"
+    for f in "$pkglib/ImageMagick-$IMAGEMAGICKVER"/modules-*/*/*.so; do
+        if [ -f "$f" ]; then
+            LIBADD+=("$f")
+        fi
+    done
     WITH_IMAGEMAGICK=yes
 fi
 
-# expand glob patterns in LIBADD
-LIBADD=$(echo $LIBADD)
+# Print the libraries from $LOCAL, $HOMEBREW or $MACPORTS referenced by the Mach-O files given
+# as arguments, one per line. (Arguments that are not Mach-O files are ignored by otool.)
+external_libs() {
+    otool -L "$@" 2>/dev/null | grep -F compatibility | cut -d\( -f1 | \
+        sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | \
+        grep -E "^($LOCAL|$HOMEBREW|$MACPORTS)/" | sort -u
+}
 
 # Find out the library dependencies
 # (i.e. $LOCAL or $MACPORTS), then loop until no changes.
-a=1
-nfiles=0
+# alllibs holds the libraries found, one per line.
 alllibs=""
-endl=true
-while $endl; do
-    #echo -e "\033[1mLooking for dependencies.\033[0m Round" $a
-    pkglibs=
-    if compgen -G "$pkglib/*" > /dev/null; then
-        pkglibs="$pkglib"/*
-    fi
-    libs="$(otool -L $pkglibs $LIBADD "$binary" 2>/dev/null | grep -F compatibility | cut -d\( -f1 | grep -e $LOCAL'\|'$HOMEBREW'\|'$MACPORTS | sort | uniq)"
-    if [ -n "$libs" ]; then
-        cp -f $libs "$pkglib"
-        alllibs="$(ls $alllibs $libs | sort | uniq)"
-    fi
-    let "a+=1"      
-    nnfiles=$(ls "$pkglib" | wc -l)
-    if [ "$nnfiles" = "$nfiles" ]; then
-        endl=false
-    else
-        nfiles="$nnfiles"
+nl='
+'
+while true; do
+    files=()
+    for f in "$pkglib"/*; do
+        if [ -f "$f" ]; then
+            files+=("$f")
+        fi
+    done
+    libs=$(external_libs "${files[@]}" "${LIBADD[@]}" "$binary")
+    added=no
+    while IFS= read -r l; do
+        if [ -z "$l" ]; then
+            continue
+        fi
+        case "$nl$alllibs$nl" in
+            *"$nl$l$nl"*) continue ;;
+        esac
+        if ! cp -f "$l" "$pkglib/"; then
+            echo "Error: cannot copy $l to $pkglib"
+            exit 1
+        fi
+        alllibs="$alllibs$l$nl"
+        added=yes
+    done <<< "$libs"
+    if [ "$added" = no ]; then
+        break
     fi
 done
 
@@ -170,20 +194,25 @@ done
 ## or the binary has to be linked with the following flags:
 ## -Wl,-rpath,@loader_path/../Frameworks -Wl,-rpath,@loader_path/../Libraries
 if [ -n "$alllibs" ]; then
-    changes=""
-    for l in $alllibs; do
-        changes="$changes -change $l @rpath/$(basename "$l")"
-    done
+    changes=()
+    while IFS= read -r l; do
+        if [ -n "$l" ]; then
+            changes+=(-change "$l" "@rpath/$(basename "$l")")
+        fi
+    done <<< "$alllibs"
 
-    for f in  $pkglib/* $LIBADD "$binary"; do
+    for f in "$pkglib"/* "${LIBADD[@]}" "$binary"; do
         # avoid directories
         if [ -f "$f" ]; then
-            chmod +w "$f"
-            if ! install_name_tool $changes "$f"; then
-                echo "Error: 'install_name_tool $changes $f' failed"
+            if ! chmod +w "$f"; then
+                echo "Error: cannot make $f writable"
                 exit 1
             fi
-            if ! install_name_tool -id @rpath/$(basename "$f") "$f"; then
+            if ! install_name_tool "${changes[@]}" "$f"; then
+                echo "Error: 'install_name_tool ${changes[*]} $f' failed"
+                exit 1
+            fi
+            if ! install_name_tool -id "@rpath/$(basename "$f")" "$f"; then
                 echo "Error: 'install_name_tool -id @rpath/$(basename "$f") $f' failed"
                 exit 1
             fi
