@@ -70,7 +70,7 @@ namespace OFX {
       char** strs = backtrace_symbols(callstack, frames);
       for (i = 0; i < frames; ++i) {
           std::cout << strs[i] << std::endl;
-          OFX::Log::print(strs[i]);
+          OFX::Log::print("%s", strs[i]);
       }
       free(strs);
 #     endif
