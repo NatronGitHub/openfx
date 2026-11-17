@@ -53,7 +53,7 @@ case $os in
   MINGW*|MSYS*|CYGWIN*)
      # the export table of the DLL: "[ordinal] name" lines
      # ("[   0] +base[   1]  0000 OfxGetNumberOfPlugins" with recent binutils): the last field
-     exports=$(objdump -p "$ofx" | sed -n '/\[Ordinal\/Name Pointer\] Table/,/^$/p' | awk '/^[[:space:]]*\[/ { print $NF }' | sort -u | tr '\n' ' ')
+     exports=$(objdump -p "$ofx" | sed -n '/\[Ordinal\/Name Pointer\] Table/,/^$/p' | awk '/^[[:space:]]*\[ *[0-9]+\]/ { print $NF }' | sort -u | tr '\n' ' ')
      rpath="" ;;
   # binutils >= 2.42 prints versioned names (OfxGetPlugin@@OFX_1.0)
   *) exports=$(nm -D --defined-only "$ofx" | awk '$2 == "T" { print $3 }' | sed 's/@.*//' | sort -u | tr '\n' ' ')
