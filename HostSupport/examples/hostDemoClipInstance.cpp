@@ -39,6 +39,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <cstdlib>
 #include <cstring> // memcpy
 #include <limits>
+#include <set>
 #include <sstream>
 
 // ofx
@@ -1047,9 +1048,8 @@ namespace MyHost {
     bool tooLarge = false;
     if (wholeRoD && !imageFits(rod)) {
       tooLarge = true;
-      static bool warned = false; // (once per run)
-      if (!warned) {
-        warned = true;
+      static std::set<std::string> warned; // (once per run and clip)
+      if (warned.insert(_name).second) {
         std::cerr << "Warning: clip " << _name << ": the plug-in or the clip doesn't support tiles, but the RoD ("
                   << rodCanonical.x1 << "," << rodCanonical.y1 << "," << rodCanonical.x2 << "," << rodCanonical.y2
                   << ") is too large for hostDemo: fetching the region of interest instead" << std::endl;
