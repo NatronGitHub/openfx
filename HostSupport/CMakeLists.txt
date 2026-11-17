@@ -29,8 +29,9 @@ target_include_directories(OfxHost PUBLIC
 
 add_library(openfx::HostSupport ALIAS OfxHost)
 
-if(NOT OFX_USE_SYSTEM_EXPAT)
-	# headers of the bundled expat, for ofxhPluginCache.h
+if(OFX_INSTALL AND NOT OFX_USE_SYSTEM_EXPAT)
+	# headers of the bundled expat, for ofxhPluginCache.h (not installed by a project that uses
+	# add_subdirectory(openfx): OFX_INSTALL is OFF there)
 	install(FILES expat-2.10.0/lib/expat.h expat-2.10.0/lib/expat_external.h
 	        DESTINATION include)
 endif()

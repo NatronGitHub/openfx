@@ -284,3 +284,21 @@ assert x["inputs"]["Source"]["regionOfDefinition"] == [-100.5, 0, 2000, 300], x[
 assert x["regionOfDefinition"]["rod"] == [-100.5, 0, 2000, 300]
 '
 fails hostdemo-badrod.log "invalid RoD" -i Source=rod:1,0,0,1
+
+# kOfxImageEffectPropSupportsTiles: "If a clip or plugin does not support tiled images, then the
+# host should supply full RoD images to the effect whenever it fetches one". Invert's supportsTiles
+# parameter sets it on the instance (OFX 1.4); setting it also calls paramGetNumKeys and
+# paramDeleteAllKeys, which must succeed on a parameter without keys.
+run hostdemo-tiles.log -d float --frames 0 -i Source=solid:0.25,0.5,0,1 -s supportsTiles=1 --window 100,100,164,148 --report tiles.json -o Tiles
+run hostdemo-notiles.log -d float --frames 0 -i Source=solid:0.25,0.5,0,1 -s supportsTiles=0 --window 100,100,164,148 --report notiles.json -o NoTiles
+jcheck "supportsTiles=1" tiles.json '
+x = r["renders"][0]
+assert x["supportsTiles"] == {"effect": True, "clips": {"Output": True, "Source": True}}, x["supportsTiles"]
+assert x["renderWindow"] == [100, 100, 164, 148], x["renderWindow"]
+'
+jcheck "supportsTiles=0: the whole RoD" notiles.json '
+x = r["renders"][0]
+assert x["supportsTiles"]["effect"] is False, x["supportsTiles"]
+assert x["renderWindow"] == x["output"]["bounds"] == [0, 0, 720, 576], (x["renderWindow"], x["output"])
+'
+grep -q "doesn.t support tiles: rendering the whole RoD" hostdemo-notiles.log || { echo "supportsTiles=0: no warning"; cat hostdemo-notiles.log; exit 1; }

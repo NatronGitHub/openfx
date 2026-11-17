@@ -206,11 +206,15 @@ def execute(output: Node, bundles, frames: Sequence[float] = (0,), scale: float 
                                               "inputs are the same image at all times")
                 needs[(node, t)][clip] = fs[0]
                 roi = x["regionsOfInterest"]["clips"].get(clip)
+                crod = child_rod(child, fs[0])
+                tiles = x.get("supportsTiles") or {}
+                if not (tiles.get("effect", True) and tiles.get("clips", {}).get(clip, True)) and crod is not None:
+                    # no tiles: hostDemo fetches the whole RoD of the input (kOfxImageEffectPropSupportsTiles)
+                    roi = crod
                 if roi is None:
                     continue
                 par = clips[clip]["pixelAspectRatio"]
                 px = _to_pixels(roi, *x["renderScale"], par)
-                crod = child_rod(child, fs[0])
                 if crod is not None:  # the child renders its RoD at most
                     cpx = _to_pixels(crod, *x["renderScale"], pars.get(child, par))
                     px = (max(px[0], cpx[0]), max(px[1], cpx[1]), min(px[2], cpx[2]), min(px[3], cpx[3]))

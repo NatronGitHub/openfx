@@ -992,6 +992,14 @@ namespace MyHost {
     return p;
   }
 
+  bool imageFits(const OfxRectI& b)
+  {
+    const long long width = (long long)b.x2 - (long long)b.x1;
+    const long long height = (long long)b.y2 - (long long)b.y1;
+    const long long kMaxImagePixels = 1LL << 28; // as in MyImage
+    return width <= kMaxImagePixels && height <= kMaxImagePixels && width * height <= kMaxImagePixels;
+  }
+
   MyImage* MyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds)
   {
     if (!getConnected()) {
@@ -1012,9 +1020,12 @@ namespace MyHost {
 
     if (isOutput()) {
       if (!_outputImage) {
-        // a new image for each render, covering the render window, i.e. the output RoD
-        // clipped to the project (outside of render, the whole RoD)
-        OfxRectI bounds = _effect->isRendering() ? _effect->getRenderWindow() : intersect(rod, _effect->getProjectPixelRect(renderScale));
+        // a new image for each render, covering the render window (outside of render: the RoD,
+        // clipped to the project if the effect supports tiles or if hostDemo can't make an image
+        // that large)
+        OfxRectI bounds = _effect->isRendering() ? _effect->getRenderWindow() :
+                          (!(_effect->supportsTiles() && supportsTiles()) && imageFits(rod)) ? rod :
+                          intersect(rod, _effect->getProjectPixelRect(renderScale));
         _outputImage = new MyImage(*this, time, view, bounds, rod, renderScale, /*isOutput=*/true);
       }
       // add another reference to the member image for this fetch: as we have a
@@ -1027,9 +1038,13 @@ namespace MyHost {
     // Input clip: fetch on demand, the image is deleted when the plug-in releases it.
     // The bounds are optionalBounds if given, else the RoI the plug-in asked for in this
     // render, else the RoD; clipped to the RoD.
+    // kOfxImageEffectPropSupportsTiles: "If a clip or plugin does not support tiled images, then
+    // the host should supply full RoD images to the effect whenever it fetches one."
     OfxRectD region = rodCanonical;
     OfxRectD roi;
-    if (optionalBounds) {
+    if (!(_effect->supportsTiles() && supportsTiles())) {
+      // the full RoD
+    } else if (optionalBounds) {
       region = *optionalBounds;
     } else if (_effect->getRegionOfInterest(this, roi)) {
       region = roi;

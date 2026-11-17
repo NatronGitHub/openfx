@@ -107,6 +107,8 @@ namespace MyHost {
   /// the smallest rectangle in pixel coordinates enclosing a rectangle in canonical coordinates
   /// (coordinates beyond the int range, e.g. of an infinite RoD, are clamped to it)
   OfxRectI canonicalToPixelEnclosing(const OfxRectD& r, const OfxPointD& renderScale, double par);
+  /// true if hostDemo can make an image with these bounds (MyImage refuses more than 2^28 pixels)
+  bool imageFits(const OfxRectI& bounds);
 
   /// number of image fetches that failed because of an unsupported pixel depth or components
   /// (hostDemo then exits with a non-zero status)

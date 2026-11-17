@@ -105,11 +105,15 @@ public :
 
 ////////////////////////////////////////////////////////////////////////////////
 /** @brief The plugin that does our work */
+// a test of hosts: unchecked, the instance doesn't support tiles (kOfxImageEffectPropSupportsTiles=0)
+#define kParamSupportsTiles "supportsTiles"
+
 class InvertPlugin : public OFX::ImageEffect {
 protected :
   // do not need to delete these, the ImageEffect is managing them for us
   OFX::Clip *dstClip_;
   OFX::Clip *srcClip_;
+  OFX::BooleanParam *supportsTiles_;
 
 public :
   /** @brief ctor */
@@ -117,9 +121,28 @@ public :
     : ImageEffect(handle)
     , dstClip_(NULL)
     , srcClip_(NULL)
+    , supportsTiles_(NULL)
   {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
+    supportsTiles_ = fetchBooleanParam(kParamSupportsTiles);
+    // the instance's value of kOfxImageEffectPropSupportsTiles follows the parameter (it may be
+    // changed in createInstance and instanceChanged since OFX 1.4)
+    setSupportsTiles(supportsTiles_->getValue());
+  }
+
+  /* the instance supports tiles if the parameter is checked */
+  virtual void changedParam(const OFX::InstanceChangedArgs &/*args*/, const std::string &paramName)
+  {
+    if (paramName == kParamSupportsTiles) {
+      setSupportsTiles(supportsTiles_->getValue());
+      // also a test of the host's keyframe functions on a parameter without keys: ofxParam.h
+      // allows only kOfxStatOK or kOfxStatErrBadHandle (Support throws on any other status)
+      if (supportsTiles_->getNumKeys() != 0) {
+        OFX::throwSuiteStatusException(kOfxStatFailed);
+      }
+      supportsTiles_->deleteAllKeys();
+    }
   }
 
   /* Override the render */
@@ -272,6 +295,13 @@ void InvertExamplePluginFactory::describeInContext(OFX::ImageEffectDescriptor &d
   dstClip->addSupportedComponent(ePixelComponentAlpha);
   dstClip->setSupportsTiles(true);
 
+  BooleanParamDescriptor *tiles = desc.defineBooleanParam(kParamSupportsTiles);
+  tiles->setLabel("Supports Tiles");
+  tiles->setHint("Unchecked, the instance doesn't support tiles (kOfxImageEffectPropSupportsTiles is 0), so the host "
+                 "should render the whole region of definition and give it whole-RoD input images. "
+                 "A test of hosts: the result is the same.");
+  tiles->setDefault(true);
+  tiles->setAnimates(false);
 }
 
 OFX::ImageEffect* InvertExamplePluginFactory::createInstance(OfxImageEffectHandle handle, OFX::ContextEnum /*context*/)

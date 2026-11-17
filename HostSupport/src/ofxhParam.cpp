@@ -866,24 +866,29 @@ namespace OFX {
       // KeyframeParam
       // 
 
-      OfxStatus KeyframeParam::getNumKeys(unsigned int &/*nKeys*/) const {
-        return kOfxStatErrMissingHostFeature; 
+      // The defaults are those of a parameter without keys (a host that doesn't animate
+      // parameters), with the statuses ofxParam.h allows: paramGetNumKeys and paramDeleteAllKeys
+      // only return kOfxStatOK or kOfxStatErrBadHandle, so a plug-in may treat any other status as
+      // a failure.
+      OfxStatus KeyframeParam::getNumKeys(unsigned int &nKeys) const {
+        nKeys = 0;
+        return kOfxStatOK;
       }
 
       OfxStatus KeyframeParam::getKeyTime(int /*nth*/, OfxTime& /*time*/) const {
-        return kOfxStatErrMissingHostFeature; 
+        return kOfxStatErrBadIndex; // "the nthKey does not exist"
       }
 
       OfxStatus KeyframeParam::getKeyIndex(OfxTime /*time*/, int /*direction*/, int & /*index*/) const {
-        return kOfxStatErrMissingHostFeature; 
+        return kOfxStatFailed; // "the search failed to find a key"
       }
 
       OfxStatus KeyframeParam::deleteKey(OfxTime /*time*/) {
-        return kOfxStatErrMissingHostFeature; 
+        return kOfxStatErrBadIndex; // "no key at the given time"
       }
 
-      OfxStatus KeyframeParam::deleteAllKeys() { 
-        return kOfxStatErrMissingHostFeature; 
+      OfxStatus KeyframeParam::deleteAllKeys() {
+        return kOfxStatOK; // (no keys)
       }
 
       //

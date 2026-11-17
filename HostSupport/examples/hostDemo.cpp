@@ -697,7 +697,9 @@ static void usage(const char* prog)
     "  --frames t,...     render (or query) at these times (default: 0,1)\n"
     "  --scale s[,sy]     render scale, in (0,1] (default: 1)\n"
     "  --window x1,y1,x2,y2  render window, in pixels at the render scale, clipped to the RoD\n"
-    "                     (default: the RoD clipped to the project)\n"
+    "                     (default: the RoD clipped to the project). A plug-in or output clip\n"
+    "                     without tiles (kOfxImageEffectPropSupportsTiles=0) renders its whole RoD,\n"
+    "                     and gets whole-RoD input images\n"
     "  --query            only call the query actions (RoD, identity, frames needed, RoI)\n"
     "  -s name=value      set a parameter after createInstance, with instanceChanged\n"
     "  --report file.json write a JSON report of the run (even if it failed)\n"
@@ -953,9 +955,35 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
   rodJ["rod"] = rectJson(rod);
 
   // The render window is in pixel coordinates (render scale and PAR applied): --window, or
-  // else the project frame, clipped to the output RoD
+  // else the project frame, clipped to the output RoD.
+  // kOfxImageEffectPropSupportsTiles: "If a clip or plugin does not support tiled images, then the
+  // host should supply full RoD images to the effect whenever it fetches one": for an effect or
+  // output clip without tiles, the render window is the whole RoD (unless hostDemo can't make an
+  // image that large, e.g. an infinite RoD).
+  {
+    Json& tiles = r["supportsTiles"] = Json::object();
+    tiles["effect"] = instance->supportsTiles();
+    Json& tc = tiles["clips"] = Json::object();
+    for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
+      tc[it->first] = it->second->supportsTiles();
+    }
+  }
+  const bool outputTiles = instance->supportsTiles() && outputClip->supportsTiles();
   const OfxRectI rodPixels = MyHost::canonicalToPixelEnclosing(rod, renderScale, par);
   OfxRectI renderWindow = MyHost::intersect(rodPixels, window ? *window : instance->getProjectPixelRect(renderScale));
+  if (!outputTiles) {
+    if (MyHost::imageFits(rodPixels)) {
+      if (window && (renderWindow.x1 != rodPixels.x1 || renderWindow.y1 != rodPixels.y1 ||
+                     renderWindow.x2 != rodPixels.x2 || renderWindow.y2 != rodPixels.y2)) {
+        std::cerr << "Warning: the plug-in doesn't support tiles: rendering the whole RoD, not --window" << std::endl;
+      }
+      renderWindow = rodPixels;
+    } else {
+      std::cerr << "Warning: the plug-in doesn't support tiles, but its RoD (" << rod.x1 << "," << rod.y1 << ","
+                << rod.x2 << "," << rod.y2 << ") is too large for hostDemo: rendering "
+                << (window ? "--window" : "the project") << " instead" << std::endl;
+    }
+  }
   if (renderWindow.x2 <= renderWindow.x1 || renderWindow.y2 <= renderWindow.y1) {
     std::cerr << "Warning: the output RoD (" << rod.x1 << "," << rod.y1 << "," << rod.x2 << "," << rod.y2
               << ") at time " << t << " doesn't intersect the " << (window ? "render window" : "project")

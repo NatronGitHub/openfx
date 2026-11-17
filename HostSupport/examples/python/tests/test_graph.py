@@ -144,3 +144,19 @@ def test_large_input(hostdemo, sample_plugins):
     out = execute(inv2, sample_plugins, frames=[0], window=(1000, 1000, 1100, 1100), host_binary=hostdemo)[0]
     assert out.bounds == (1000, 1000, 1100, 1100)
     assert_close(out.pixels, src[h - 1100:h - 1000, 1000:1100], atol=1e-6)
+
+
+def test_no_tiles(hostdemo, sample_plugins):
+    """A node without tiles (Invert with supportsTiles off) renders its whole RoD from whole-RoD
+    inputs, so its input node is rendered on its whole RoD too, whatever the window."""
+    src = rgba(40, 60)
+    img = ofxhost.Image(src, (100, 50, 160, 90))
+    inner = Node(INVERT, inputs={"Source": img})
+    outer = Node(INVERT, inputs={"Source": inner}, params={"supportsTiles": False})
+    out = execute(outer, sample_plugins, frames=[0], window=(120, 60, 130, 70), host_binary=hostdemo)[0]
+    assert out.bounds == (100, 50, 160, 90), out.bounds
+    assert_close(out.pixels, src, atol=1e-6)
+    # with tiles, only the window
+    outer.params["supportsTiles"] = True
+    out = execute(outer, sample_plugins, frames=[0], window=(120, 60, 130, 70), host_binary=hostdemo)[0]
+    assert out.bounds == (120, 60, 130, 70), out.bounds
