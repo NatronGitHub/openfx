@@ -61,6 +61,9 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
   - LC_RPATHs into `/opt/local`, `/usr/local` or `/opt/homebrew` are deleted from the bundled files (MacPorts' libomp has `/opt/local/lib/libomp`);
   - every file in `Libraries` and `Frameworks`, subfolders included, is re-signed ad hoc, then the bundle, and `codesign --verify --strict` must pass (arm64 requires a valid signature);
   - the install fails if a Mach-O file still references `/opt/local`, `/usr/local` or `/opt/homebrew` (`otool -L`) or has an LC_RPATH there (`otool -l`);
+  - if `CMAKE_OSX_DEPLOYMENT_TARGET` is set: one warning per bundle lists the files with an architecture that requires a newer macOS (the minos of `LC_BUILD_VERSION` or `LC_VERSION_MIN_MACOSX`; arm64 is never below 11.0). `OFX_DEPLOY_STRICT_MINOS` makes it an error. MacPorts builds libraries for the build machine's macOS unless `macosx_deployment_target` is set in macports.conf;
+  - CMake's own install-time rpath edit prints `install_name_tool: warning: changes being made to the file will invalidate the code signature`: harmless, the files are signed again afterwards;
+  - the build-tree binary has the build rpath (the linked libraries' directories), not `@loader_path/../Libraries`: only the installed bundle is deployed;
   - call `ofx_deploy_bundle` after the last `ofx_plugin_resources` of the target (it's an error otherwise): files installed into the bundle after it would break the signature;
   - the install path may contain spaces, and `osxDeploy.sh` fails if a copy or an `install_name_tool` call fails;
   - the bundle gets an ad hoc signature (`Contents/_CodeSignature`, which the Makefile bundles don't have): an installer that later changes files in the bundle must sign it again (`codesign -f -s -`). Without it, `codesign --verify --strict` fails on the deployed bundle.
@@ -110,8 +113,8 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
   - `OFX_USE_OPENMP` (ON);
   - `OFX_DEPLOY_BUNDLES` (OFF). Natron's builds set it ON on macOS only, where it replaces Makefile.master's osxDeploy step. On Windows it stays OFF: build-Windows-installer.sh strips the `.ofx`, copies the DLLs and embeds its own manifest;
   - `PLUGIN_INSTALLDIR` (default `OFX/Plugins`, relative to `CMAKE_INSTALL_PREFIX`: set the prefix to `/usr` or `/Library` for the standard OFX folders);
-  - `OFX_OPTFLAG` (empty): optimization flags of the release configurations, after CMake's (so `-O2` overrides Release's `-O3`). The level is decided after the per-repository -O2/-O3 study;
-  - `OFX_PLUGIN_RPATH` (empty): extra install rpath directories of every plug-in;
+  - `OFX_OPTFLAG` (empty): optimization flags of the release configurations of the plug-ins and of openfx::Support, after CMake's (so `-O2` overrides Release's `-O3`). `ofx_target_optflag(<target>)` applies it to a repository's own libraries. An installed openfx::Support keeps the flags it was built with. Ignored with MSVC. The level is decided after the per-repository -O2/-O3 study;
+  - `OFX_PLUGIN_RPATH` (empty): extra install rpath directories of every plug-in (ignored on Windows, like `RPATH`);
   - `OFX_LICENSE=GPL|COMMERCIAL`, only where it changes what's built (openfx-arena: no poppler when COMMERCIAL);
   - `BUILD_TESTING`.
 - **Paths for build-plugins.sh** (CMake equivalents of the Makefile variables):

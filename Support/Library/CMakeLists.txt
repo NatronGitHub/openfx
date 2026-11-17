@@ -34,4 +34,7 @@ target_include_directories(OfxSupport PUBLIC
 	$<INSTALL_INTERFACE:include/Support>
 	$<INSTALL_INTERFACE:include/Support/Plugins>)
 
+# the plug-ins' optimization flags (OFX_OPTFLAG), so that a plug-in and its Support code match
+ofx_target_optflag(OfxSupport)
+
 add_library(openfx::Support ALIAS OfxSupport)
