@@ -61,11 +61,15 @@ option(OFX_SUPPORTS_MULTITHREAD "HostSupport: the host implements OfxMultiThread
 option(OFX_SUPPORTS_DIALOG "HostSupport: the host implements the dialog suite" OFF)
 # Parametric parameters (ofxParametricParam.h) in HostSupport: the host provides
 # ofxhParametricParam.h and its implementation (e.g. Natron's libs/OpenFX_extensions), and adds
-# them to the HostSupport target after add_subdirectory(openfx):
-#   target_sources(OfxHost PRIVATE <dir>/ofxhParametricParam.cpp)
-#   target_include_directories(OfxHost PUBLIC <dir>)
+# them to the HostSupport target after add_subdirectory(openfx EXCLUDE_FROM_ALL), with absolute paths:
+#   target_sources(OfxHost PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/<dir>/ofxhParametricParam.cpp)
+#   target_include_directories(OfxHost PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/<dir>>)
+# OFX_SUPPORTS_PARAMETRIC_V2 needs an implementation of the V2 suite (Natron's doesn't build with it).
 option(OFX_SUPPORTS_PARAMETRIC "HostSupport: the host provides parametric parameters (ofxhParametricParam.h)" OFF)
-option(OFX_SUPPORTS_PARAMETRIC_V2 "HostSupport: parametric parameters with interpolations (with OFX_SUPPORTS_PARAMETRIC)" OFF)
+option(OFX_SUPPORTS_PARAMETRIC_V2 "HostSupport: parametric parameters with interpolations (needs OFX_SUPPORTS_PARAMETRIC and a V2 implementation)" OFF)
+if(OFX_SUPPORTS_PARAMETRIC_V2 AND NOT OFX_SUPPORTS_PARAMETRIC)
+  message(WARNING "OFX_SUPPORTS_PARAMETRIC_V2 has no effect on HostSupport without OFX_SUPPORTS_PARAMETRIC")
+endif()
 set(OFX_EXTRA_DEFINITIONS "" CACHE STRING
     "Additional compile definitions for the libraries and examples (;-separated)")
 
