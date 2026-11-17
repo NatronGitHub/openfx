@@ -625,8 +625,13 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
      The value of the parameter can be 3-fold:
          0 meaning that the selection has been cleared by the user
          1 meaning that the selection is being actively edited by the user (i.e: during pen motion)
-         2 meaning that the selection is finilized by the user (i.e: during pen up)
+         2 meaning that the selection is finalized by the user (i.e: during pen up)
     The property kNatronOfxImageEffectSelectionRectangle will be updated prior to calling the kOfxActionInstanceChanged action for this parameter by the host, indicating the region covered by the selection rectangle. 
+    The parameter should have the following properties settings, as the undo/redo parameters of 11):
+     - kOfxParamPropEvaluateOnChange = 0 (otherwise every pen motion during a drag would render the effect and everything downstream)
+     - kOfxParamPropPersistent = 0 (the selection state is not saved in projects)
+     - kOfxParamPropSecret = 1
+    A host may enforce these settings, with a warning. The host calls the kOfxActionInstanceChanged action for this parameter on every update of the rectangle and on every clear, even if the value of the parameter doesn't change (e.g. 1 during each pen motion).
 
  8) DEPRECATED, see kNatronOfxParamCursorName. The host application cursor can be controled by the plug-in via a secret String parameter with the name kNatronOfxParamCursorName. If this parameter is found, the host should display a cursor depending on the value of this parameter.  The value of the parameter should be the name of the cursor. Several default cursor can be made available by the host as advertised by the kNatronOfxImageEffectPropDefaultCursors property. The plug-in may also embed custom cursors as PNG files located in the Resources directory of the plug-in bundle. To specify one the image in the plug-in bundle as an icon, you may set the value of this parameter to the filename of the image without any leading path. This is up to the host to figure out the path to the plug-in bundle Resources directory.
      Whenever an event is sent to overlay interacts (PenDown, PenMotion, PenUp, KeyDown, KeyUp, KeyRepeat, GainFocus, LoseFocus, the OFX Host should set the cursor to the one of the first interact which catches the event by returning kOfxStatOK to the corresponding action. If no overlay interact returns kOfxStatOK, the cursor should be set to the default cursor.
