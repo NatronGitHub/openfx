@@ -535,11 +535,7 @@ namespace MyHost {
 
   OfxStatus MyDoubleInstance::integrate(OfxTime time1, OfxTime time2, double& d)
   {
-    const OfxStatus st = _curve.integrate(time1, time2, &d);
-    if (st != kOfxStatOK) {
-      return st;
-    }
-    return kOfxStatOK;
+    return _curve.integrate(time1, time2, &d);
   }
 
   //
