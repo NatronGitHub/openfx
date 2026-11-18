@@ -744,6 +744,10 @@ namespace OFX {
         
         // this will add parameters that are needed in an instance but not a Descriptor
         _properties.addProperties(effectInstanceStuff);
+        // the descriptor's kOfxPropType was copied by Base(other): an instance handle is
+        // kOfxTypeImageEffectInstance ("Used as a value for ::kOfxPropType on image effect instance
+        // handles", ofxImageEffect.h)
+        _properties.setStringProperty(kOfxPropType, kOfxTypeImageEffectInstance);
 
         // OFX 1.5: on the instance, kOfxImageEffectPropColourManagementStyle is the style
         // chosen by the host ("The chosen style must be set by the host using this property
