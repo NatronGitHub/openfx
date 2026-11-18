@@ -45,6 +45,7 @@ of the direct OFX objects and any library side only functions.
 #include <map>
 #include <string>
 #include <sstream> // stringstream
+#include <locale> // std::locale::classic
 #include <memory>
 #ifndef NDEBUG
 #include <stdio.h> // printf in debug
@@ -364,13 +365,15 @@ namespace OFX {
     std::string toString(unsigned int val)
     {
       std::ostringstream ss;
+      ss.imbue(std::locale::classic()); // no digit grouping, whatever the global locale
       ss << val;
       return ss.str();
     }
     FactoryMainEntryHelper(const std::string& id, unsigned int maj, unsigned int min): _id(id), _maj(maj), _min(min)
     {
       assert(uid().empty()); // constructor should only be called once
-      uid() = id + toString(maj) + toString(min);
+      // "<id>@<major>.<minor>": with separators, so that ("foo", 1, 23) and ("foo", 12, 3) differ
+      uid() = id + "@" + toString(maj) + "." + toString(min);
     }
     const std::string& getHelperUID() const { return uid(); }
     static OfxStatus mainEntry(const char *action, const void* handle, OfxPropertySetHandle in, OfxPropertySetHandle out)
