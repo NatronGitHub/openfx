@@ -1279,7 +1279,10 @@ namespace OFX {
     /** @brief set the clip hint */
     void setLabelAndHint(const std::string &label, const std::string &hint);
 
-    /* @brief Get the clip format in pixel coordinates */
+    /* @brief Get the clip format in pixel coordinates (kOfxImageClipPropFormat, a Natron
+       extension). If the host doesn't set it, the project format: the project offset and size
+       (kOfxImageEffectPropProjectOffset, kOfxImageEffectPropProjectSize, in canonical
+       coordinates) divided horizontally by the project pixel aspect ratio. */
     void getFormat(OfxRectI &format) const;
 #endif
 
@@ -1996,6 +1999,10 @@ namespace OFX {
 
     /** @brief the context of the effect */
     ContextEnum _context;
+
+    /** @brief the last persistent message shown with the V1 message suite (hosts without
+        OfxMessageSuiteV2), so that it is shown once, not on every render */
+    std::string _persistentMessageV1;
 
     /** @brief Set of all previously fetched clips, defined on demand */
     std::map<std::string, Clip *> _fetchedClips;
