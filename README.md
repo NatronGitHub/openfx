@@ -59,7 +59,7 @@ Each set is enabled with the matching `OFX_EXTENSIONS_*` define. The documentati
 
 The libraries are usually compiled as part of a host or plug-in build. The repository can also be built on its own.
 
-With Make (what the consumer repositories use):
+With Make (still used by the consumers' release builds, e.g. Natron's `build-plugins.sh`; their CI builds with CMake):
 ```sh
 make -C Support/Library        # libOfxSupport.a
 make -C HostSupport            # libofxHost.a (builds the bundled expat)
@@ -74,14 +74,14 @@ cmake --build build
 cmake --install build --prefix /path/to/prefix   # provides find_package(openfx): openfx::Api, openfx::Support, openfx::HostSupport
 ```
 Main options:
-- `OFX_EXTENSIONS_NATRON`, `_NUKE`, `_VEGAS`, `_TUTTLE` and `_RESOLVE`: the extension headers and code;
-- `OFX_SUPPORTS_OPENGLRENDER`, `_OPENCLRENDER` and `_CUDARENDER`: GPU rendering, in the libraries and the examples (CUDA is off on macOS);
-- `OFX_SUPPORTS_MULTITHREAD`, `_DIALOG` and `_PARAMETRIC`: HostSupport features, only for a host that implements them (they add pure virtual functions, and PARAMETRIC needs the host's `ofxhParametricParam.h`);
+- `OFX_EXTENSIONS_NATRON`, `_NUKE`, `_VEGAS`, `_TUTTLE` (ON) and `_RESOLVE` (OFF): enable the extensions in the Support and HostSupport code. They are PUBLIC compile definitions that change class layouts, so they must match between the libraries and the plug-in or host built with them (the extension headers are always installed);
+- `OFX_SUPPORTS_OPENGLRENDER` (ON), `_OPENCLRENDER` and `_CUDARENDER` (OFF): GPU rendering in the libraries and the examples (OpenCL needs the OpenCLHeaders and OpenCLICDLoader packages; CUDA is off on macOS);
+- `OFX_SUPPORTS_MULTITHREAD`, `_DIALOG`, `_PARAMETRIC` and `_PARAMETRIC_V2` (OFF): HostSupport features, only for a host that implements them (they add pure virtual functions, and PARAMETRIC needs the host's `ofxhParametricParam.h`);
 - `OFX_BUILD_HOSTSUPPORT`: build HostSupport, on by default at top level;
 - `BUILD_EXAMPLE_PLUGINS` and `BUILD_EXAMPLE_HOSTS`: the example plug-ins and hosts;
 - `OFX_CXX_STANDARD`: the C++ standard of the plug-ins and of openfx::Support (default: `CMAKE_CXX_STANDARD`, else 17);
 - `OFX_OPTFLAG`: extra optimization flags of the release configurations, after CMake's (empty: CMake's defaults; ignored with MSVC);
-- `OFX_DEPLOY_BUNDLES`: make the installed bundles self-contained (`ofx_deploy_bundle()`).
+- `OFX_DEPLOY_BUNDLES` (for plug-in projects, macOS only for now): make the installed bundles self-contained with `ofx_deploy_bundle()`.
 
 Plug-in projects use `add_ofx_plugin()` and the other helpers of `cmake/OpenFX.cmake`, with openfx as a subdirectory or as an installed package: see [Documentation/proposals/cmake-plugins.md](Documentation/proposals/cmake-plugins.md).
 A conan recipe (`conanfile.py`, with `test_package/`) is also provided.

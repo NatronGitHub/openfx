@@ -19,7 +19,7 @@ Overlays often need a cursor that shows what a click would do: move, rotate or s
 
 ## Proposal
 
-Defined in `include/ofxInteract.h` (see the `InteractCursor` group in this branch):
+Defined in `include/ofxInteract.h` (see the `InteractCursor` group):
 
 | Name | On | Type | Purpose |
 |---|---|---|---|

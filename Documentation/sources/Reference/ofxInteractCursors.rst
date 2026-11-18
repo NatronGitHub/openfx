@@ -10,8 +10,8 @@ Interact cursors (proposed extension)
    `NatronGitHub/openfx#4 <https://github.com/NatronGitHub/openfx/issues/4>`_,
    and is implemented in NatronGitHub/openfx since
    `#63 <https://github.com/NatronGitHub/openfx/pull/63>`_ (headers, HostSupport
-   and Support, behind ``OFX_EXTENSIONS_NATRON``), with the host side in Natron
-   2.6 and the plug-in side in openfx-supportext and openfx-misc. The full
+   and Support, behind ``OFX_EXTENSIONS_NATRON``), with the host side in Natron's
+   RB-2.6 branch (Natron 2.6, unreleased) and the plug-in side in openfx-supportext and openfx-misc. The full
    proposal is in ``Documentation/proposals/interact-cursor.md``.
 
 An overlay interact can draw its own cursor (with OpenGL or the DrawSuite), but
