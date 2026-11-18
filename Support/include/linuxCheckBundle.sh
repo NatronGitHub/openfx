@@ -32,6 +32,13 @@
 #   have its own rpath (e.g. $ORIGIN). --no-needed (or OFX_ABI_CHECK_NEEDED=0) skips this rule,
 #   for CI builds against the distribution's libraries; the other checks still apply.
 #
+# DT_RUNPATH and DT_RPATH: every entry must start with $ORIGIN (or ${ORIGIN}). An absolute entry
+# (e.g. a build-machine path such as /opt/rh/gcc-toolset-14/..., /__w/..., or an SDK prefix added
+# by CMake's INSTALL_RPATH_USE_LINK_PATH), a relative one or an empty one (both are relative to the
+# current directory) is a problem, unless it is listed in OFX_ABI_RPATH_ALLOW (default: none;
+# whitespace-separated, exact entries). The loader would search it on the user's machine. An
+# $ORIGIN entry that leads outside the bundle is a warning.
+#
 # Symbol versions: every version that a file needs (readelf -V, .gnu.version_r) must exist on the
 # baseline. The limits can be set in the environment; the defaults are EL9's, measured with
 # readelf -V on rockylinux/rockylinux:9 (glibc 2.34-290.el9_9, GCC 11.5.0-17.el9_9, zlib 1.2.11):
@@ -103,6 +110,7 @@ OFX_ABI_GLIBC_EXTRA=${OFX_ABI_GLIBC_EXTRA-}
 OFX_ABI_GLIBC_ABI_ALLOW=${OFX_ABI_GLIBC_ABI_ALLOW-}
 OFX_ABI_SYSTEM_LIBS=${OFX_ABI_SYSTEM_LIBS-}
 OFX_ABI_OPTIONAL_LIBS=${OFX_ABI_OPTIONAL_LIBS-libz.so.1}
+OFX_ABI_RPATH_ALLOW=${OFX_ABI_RPATH_ALLOW-}
 
 # word_in WORD LIST: WORD is one of the whitespace-separated words of LIST
 word_in() {
@@ -199,12 +207,30 @@ check_elf() {
   runpath=$(echo "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')
   [ -n "$runpath" ] || runpath=$(echo "$dyn" | sed -n 's/.*(RPATH).*\[\(.*\)\]/\1/p')
   local -a entries=() dirs=()
+  local rpathtag=RUNPATH
+  [ -n "$(echo "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')" ] || rpathtag=RPATH
+  if echo "$dyn" | grep -q '(RUNPATH)\|(RPATH)'; then
+    # read -a drops a trailing empty entry: check "a:" and "" by hand
+    case "$runpath" in
+      ""|:*|*:|*::*) report "$f" "has an empty $rpathtag entry ($runpath), which the loader takes as the current directory" ;;
+    esac
+  fi
   IFS=: read -r -a entries <<< "$runpath"
   for entry in "${entries[@]}"; do
+    case "$entry" in
+      '') ;; # reported above
+      '$ORIGIN'|'$ORIGIN/'*|'${ORIGIN}'|'${ORIGIN}/'*) ;;
+      *)
+        if ! word_in "$entry" "$OFX_ABI_RPATH_ALLOW"; then
+          report "$f" "has the $rpathtag entry $entry, which doesn't start with \$ORIGIN (a build-machine path?): the loader would search it on the user's machine (see OFX_ABI_RPATH_ALLOW)"
+        fi ;;
+    esac
     d=${entry//\$\{ORIGIN\}/"$dir"} # (quoted: bash 5.2 expands & in a replacement)
     d=${d//\$ORIGIN/"$dir"}
     if [ -n "$d" ] && inside "$d" "$root"; then
       dirs+=("$d")
+    elif [ -n "$d" ] && [ "$d" != "$entry" ]; then
+      warn "$f" "its $rpathtag entry $entry leads outside the bundle"
     fi
   done
   # DT_RELR (e.g. -z pack-relative-relocs) needs glibc 2.36's loader, even without a version need
