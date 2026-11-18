@@ -100,7 +100,10 @@ ColourManagementStyle ofxstring_to_style(const std::string & style)
 
 static space_info input_space_choices[]
 {
-  { "[Unspecified, accepts anything]", NULL, ColourManagementStyle::Basic },
+  // "" rather than upstream's NULL: the ident is used as a StrChoice enum value and
+  // default, which can't be NULL; getClipPreferences treats "" as unspecified. Style None,
+  // so that the param always has at least this option (see describeInContext).
+  { "[Unspecified, accepts anything]", "", ColourManagementStyle::None },
 
   // For this example plugin we'll offer every possible space defined in the header file
   // Real plugins do not need this flexibility!
@@ -176,7 +179,8 @@ static space_info input_space_choices[]
 
 static space_info output_space_choices[]
 {
-  { "[Same as input]", "OfxColourspace_Source", ColourManagementStyle::Basic },
+  // style None, so that the param always has at least this option (see describeInContext)
+  { "[Same as input]", "OfxColourspace_Source", ColourManagementStyle::None },
 
   // For this example plugin we'll offer every possible space defined in the header file
   // Real plugins do not need this flexibility!
@@ -283,7 +287,8 @@ OfxInteractSuiteV1    *gInteractHost = 0;
 
 // some flags about the host's behaviour
 int gHostSupportsMultipleBitDepths = false;
-ColourManagementStyle gHostColourManagementStyle;
+int gHostSupportsStrChoice = false; // kOfxParamHostPropSupportsStrChoice (OFX 1.5)
+ColourManagementStyle gHostColourManagementStyle = ColourManagementStyle::None;
 
 // private instance data type
 struct MyInstanceData {
@@ -442,7 +447,7 @@ createInstance( OfxImageEffectHandle effect)
   gEffectHost->getParamSet(effect, &paramSet);
 
   // make my private instance data
-  MyInstanceData *myData = new MyInstanceData;
+  MyInstanceData *myData = new MyInstanceData(); // value-initialised: NULL handles
   const char *context = 0;
 
   // is this instance a general effect ?
@@ -450,9 +455,13 @@ createInstance( OfxImageEffectHandle effect)
   myData->isGeneralEffect = context && (strcmp(context, kOfxImageEffectContextGeneral) == 0);
 
   // cache param handles
-  gParamHost->paramGetHandle(paramSet, "input_colourspace", &myData->inputSpaceParam, 0);
-  gParamHost->paramGetHandle(paramSet, "fallback_colourspace", &myData->fallbackInputSpaceParam, 0);
-  gParamHost->paramGetHandle(paramSet, "output_colourspace", &myData->outputSpaceParam, 0);
+  // (these params are not defined on a host without StrChoice: the handles stay NULL)
+  if (gParamHost->paramGetHandle(paramSet, "input_colourspace", &myData->inputSpaceParam, 0) != kOfxStatOK)
+    myData->inputSpaceParam = NULL;
+  if (gParamHost->paramGetHandle(paramSet, "fallback_colourspace", &myData->fallbackInputSpaceParam, 0) != kOfxStatOK)
+    myData->fallbackInputSpaceParam = NULL;
+  if (gParamHost->paramGetHandle(paramSet, "output_colourspace", &myData->outputSpaceParam, 0) != kOfxStatOK)
+    myData->outputSpaceParam = NULL;
 
   // cache clip handles
   gEffectHost->clipGetHandle(effect, kOfxImageEffectSimpleSourceClipName, &myData->sourceClip, 0);
@@ -558,12 +567,14 @@ getClipPreferences( OfxImageEffectHandle effect, OfxPropertySetHandle /*inArgs*/
   const char *componentStr = isRGBA ? kOfxImageComponentRGBA : kOfxImageComponentAlpha;
 
   const char * preferredInputSpace = NULL;
-  gParamHost->paramGetValue(myData->inputSpaceParam, &preferredInputSpace);
+  if (myData->inputSpaceParam)
+    gParamHost->paramGetValue(myData->inputSpaceParam, &preferredInputSpace);
   if(preferredInputSpace && preferredInputSpace[0] == '\0')
     preferredInputSpace = NULL;
 
   const char * fallbackInputSpace = NULL;
-  gParamHost->paramGetValue(myData->fallbackInputSpaceParam, &fallbackInputSpace);
+  if (myData->fallbackInputSpaceParam)
+    gParamHost->paramGetValue(myData->fallbackInputSpaceParam, &fallbackInputSpace);
   if(fallbackInputSpace && fallbackInputSpace[0] == '\0')
     fallbackInputSpace = NULL;
   
@@ -624,7 +635,8 @@ getOutputColourspace( OfxImageEffectHandle  effect,  OfxPropertySetHandle /*inAr
     
     // Get the colourspace from the parameter
     const char * outputSpace = NULL;
-    gParamHost->paramGetValue(myData->outputSpaceParam, &outputSpace);
+    if (myData->outputSpaceParam)
+      gParamHost->paramGetValue(myData->outputSpaceParam, &outputSpace);
   
     if (outputSpace == NULL || outputSpace[0] == '\0') {
       LOG_INFO("Not specifying an output colourspace");
@@ -812,6 +824,38 @@ static OfxStatus render( OfxImageEffectHandle  instance,
   return status;
 }
 
+// define a StrChoice param listing the spaces of the table available in the given
+// colour management style; returns false if the host refused to define it
+static bool
+defineSpaceParam(OfxParamSetHandle paramSet, const char *name, const char *label,
+                 const space_info *spaces, size_t nSpaces, ColourManagementStyle active_style)
+{
+  OfxPropertySetHandle props = NULL;
+  OfxStatus stat = gParamHost->paramDefine(paramSet, kOfxParamTypeStrChoice, name, &props);
+  if (stat != kOfxStatOK || props == NULL) {
+    LOG_WARN("paramDefine(kOfxParamTypeStrChoice, %s) failed: %s", name, errMsg(stat));
+    return false;
+  }
+  gPropHost->propSetString(props, kOfxPropLabel, 0, label);
+  gPropHost->propSetString(props, kOfxParamPropScriptName, 0, name);
+  int i = 0;
+  for (size_t k = 0; k < nSpaces; ++k) {
+    const space_info &space = spaces[k];
+    if(space.style > active_style) {
+      continue; // this space isn't available in the negotiated colour style
+    }
+    if(i == 0) {
+      // set first available space as the default
+      gPropHost->propSetString(props, kOfxParamPropDefault, 0, space.ident);
+    }
+    gPropHost->propSetString(props, kOfxParamPropChoiceEnum, i, space.ident);
+    gPropHost->propSetString(props, kOfxParamPropChoiceOption, i, space.ui_label);
+    gPropHost->propSetInt(props, kOfxParamPropChoiceOrder, i, i);
+    i++;
+  }
+  return true;
+}
+
 //  describe the plugin in context
 template<ColourManagementStyle STYLE>
 static OfxStatus
@@ -842,66 +886,42 @@ describeInContext( OfxImageEffectHandle  effect,  OfxPropertySetHandle /*inArgs*
 
   ////////////////////////////////////////////////////////////////////////////////
   // define the parameters for this context
-  OfxPropertySetHandle props;
+  //
+  // They are StrChoice params (OFX 1.5): on a host without StrChoice
+  // (kOfxParamHostPropSupportsStrChoice is 0 or missing, e.g. an OFX 1.4 host), they are not
+  // defined, and the plug-in specifies no colourspace (it still loads and renders).
+  //
+  // The first entry of each table ("[Unspecified...]", "[Same as input]") has style None,
+  // so it is always listed: without host colour management, each param has just that one
+  // option, rather than no option and no default.
+  if (!gHostSupportsStrChoice) {
+    LOG_INFO("describeInContext: host does not support StrChoice params; not defining the colourspace params");
+    return kOfxStatOK;
+  }
   OfxParamSetHandle paramSet;
   gEffectHost->getParamSet(effect, &paramSet);
 
-  gParamHost->paramDefine(paramSet, kOfxParamTypeStrChoice, "input_colourspace", &props);
-  gPropHost->propSetString(props, kOfxPropLabel, 0, "First-choice Input Colourspace");
-  int i = 0;
-  for(const auto & space : input_space_choices) {
-    if(space.style > active_style) {
-      continue; // this space isn't available in the negotiated colour style
-    }
-    if(i == 0) {
-      // set first available space as the default
-      gPropHost->propSetString(props, kOfxParamPropDefault, 0, space.ident);
-    }
-    gPropHost->propSetString(props, kOfxParamPropChoiceEnum, i, space.ident);
-    gPropHost->propSetString(props, kOfxParamPropChoiceOption, i, space.ui_label);
-    gPropHost->propSetInt(props, kOfxParamPropChoiceOrder, i, i);
-    i++;
-  }
+  const bool haveInput = defineSpaceParam(paramSet, "input_colourspace", "First-choice Input Colourspace",
+                                          input_space_choices, sizeof(input_space_choices) / sizeof(input_space_choices[0]),
+                                          active_style);
+  const bool haveFallback = defineSpaceParam(paramSet, "fallback_colourspace", "Second-choice Input Colourspace",
+                                             input_space_choices, sizeof(input_space_choices) / sizeof(input_space_choices[0]),
+                                             active_style);
+  const bool haveOutput = defineSpaceParam(paramSet, "output_colourspace", "Output Colourspace",
+                                           output_space_choices, sizeof(output_space_choices) / sizeof(output_space_choices[0]),
+                                           active_style);
 
-  gParamHost->paramDefine(paramSet, kOfxParamTypeStrChoice, "fallback_colourspace", &props);
-  gPropHost->propSetString(props, kOfxPropLabel, 0, "Second-choice Input Colourspace");
-  i = 0;
-  for(const auto & space : input_space_choices) {
-    if(space.style > active_style) {
-      continue; // this space isn't available in the negotiated colour style
-    }
-    if(i == 0) {
-      // set first available space as the default
-      gPropHost->propSetString(props, kOfxParamPropDefault, 0, space.ident);
-    }
-    gPropHost->propSetString(props, kOfxParamPropChoiceEnum, i, space.ident);
-    gPropHost->propSetString(props, kOfxParamPropChoiceOption, i, space.ui_label);
-    gPropHost->propSetInt(props, kOfxParamPropChoiceOrder, i, i);
-    i++;
-  }
- 
-  gParamHost->paramDefine(paramSet, kOfxParamTypeStrChoice, "output_colourspace", &props);
-  gPropHost->propSetString(props, kOfxPropLabel, 0, "Output Colourspace");
-  i = 0;
-  for(const auto & space : output_space_choices) {
-    if(space.style > active_style) {
-      continue; // this space isn't available in the negotiated colour style
-    }
-    if(i == 0) {
-      // set first available space as the default
-      gPropHost->propSetString(props, kOfxParamPropDefault, 0, space.ident);
-    }
-    gPropHost->propSetString(props, kOfxParamPropChoiceEnum, i, space.ident);
-    gPropHost->propSetString(props, kOfxParamPropChoiceOption, i, space.ui_label);
-    gPropHost->propSetInt(props, kOfxParamPropChoiceOrder, i, i);
-    i++;
-  }
-  
-  // These params affect clip preferences
+  // These params affect clip preferences (getClipPreferences reads the input and
+  // fallback spaces; getOutputColourspace, called from the clip preferences, the output one)
   OfxPropertySetHandle effectProps;
   gEffectHost->getPropertySet(effect, &effectProps);
-  gPropHost->propSetString(effectProps, kOfxImageEffectPropClipPreferencesSlaveParam, 0, "input_colourspace");
-  gPropHost->propSetString(effectProps, kOfxImageEffectPropClipPreferencesSlaveParam, 1, "output_colourspace");
+  int nSlaves = 0;
+  if (haveInput)
+    gPropHost->propSetString(effectProps, kOfxImageEffectPropClipPreferencesSlaveParam, nSlaves++, "input_colourspace");
+  if (haveFallback)
+    gPropHost->propSetString(effectProps, kOfxImageEffectPropClipPreferencesSlaveParam, nSlaves++, "fallback_colourspace");
+  if (haveOutput)
+    gPropHost->propSetString(effectProps, kOfxImageEffectPropClipPreferencesSlaveParam, nSlaves++, "output_colourspace");
 
   return kOfxStatOK;
 }
@@ -919,6 +939,9 @@ describe(OfxImageEffectHandle  effect)
 
   // record a few host features
   gPropHost->propGetInt(gHost->host, kOfxImageEffectPropSupportsMultipleClipDepths, 0, &gHostSupportsMultipleBitDepths);
+  gHostSupportsStrChoice = 0;
+  if (gPropHost->propGetInt(gHost->host, kOfxParamHostPropSupportsStrChoice, 0, &gHostSupportsStrChoice) != kOfxStatOK)
+    gHostSupportsStrChoice = 0; // an OFX 1.4 host: no such property
   const char *tmpStr = NULL;
   stat = gPropHost->propGetString(gHost->host, kOfxImageEffectPropColourManagementStyle, 0, &tmpStr);
   if (stat == kOfxStatOK && tmpStr) {
@@ -1124,7 +1147,7 @@ static OfxPlugin colourspacePlugin[] =
 OfxPlugin *
 OfxGetPlugin(int nth)
 {
-  if(nth < 3)
+  if(nth >= 0 && nth < 3)
     return &colourspacePlugin[nth];
   return 0;
 }

@@ -342,6 +342,7 @@ public :
       if(gEffectHost->abort(instance)) break;
 
       PIX *dstPix = pixelAddress(dst, dstRect, procWindow.x1, y, dstBytesPerLine);
+      if(!dstPix) continue; // the render window is outside the output image (shouldn't happen)
 
       for(int x = procWindow.x1; x < procWindow.x2; x++) {
         
@@ -418,8 +419,8 @@ static OfxStatus render( OfxImageEffectHandle  instance,
 
     float rScale = 1.f, gScale = 1.f, bScale = 1.f, aScale = 1.f;
 
-    int rChoice;
-    int gChoice;
+    int rChoice = 0;
+    int gChoice = 0;
     gParamHost->paramGetValueAtTime(myData->redChoiceParam, time, &rChoice);
     gParamHost->paramGetValueAtTime(myData->greenChoiceParam, time, &gChoice);
     std::string blueChoice = "blue_1.0";
@@ -560,6 +561,10 @@ describeInContext( OfxImageEffectHandle  effect,  OfxPropertySetHandle inArgs)
       gPropHost->propSetInt(props, kOfxParamPropChoiceOrder, 2, 1); // middle
   } else {
       gHostSupportsChoiceOrder = false;
+  }
+  if (!gHostSupportsChoiceOrder) {
+    std::cerr << "ChoiceParams example: the host does not support kOfxParamPropChoiceOrder; "
+                 "green_choice is shown in index order (none, lots, some)" << std::endl;
   }
 
   // Third choice param: using StrChoice, string-valued choice param

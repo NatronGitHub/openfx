@@ -246,6 +246,9 @@ interactDrawV1(OfxImageEffectHandle  /*pluginInstance*/,
   const double dx = kXHairSize * pixelScale[0];
   const double dy = kXHairSize * pixelScale[1];
 
+  // save the GL state that we change (the current colour), and restore it at the end
+  glPushAttrib(GL_CURRENT_BIT | GL_LINE_BIT | GL_POLYGON_BIT | GL_ENABLE_BIT);
+
   // if the we have selected the Xhair, draw it highlit
   if(data->selected)
     glColor3f(1, 1, 1);
@@ -263,6 +266,8 @@ interactDrawV1(OfxImageEffectHandle  /*pluginInstance*/,
   // the label, above the V2 one so that both can be seen if a host (wrongly) calls both
   glColor4f(kV1Colour.r, kV1Colour.g, kV1Colour.b, kV1Colour.a);
   glDrawBitmapText("V1 OpenGL", x + 14 * pixelScale[0], y + 24 * pixelScale[1], pixelScale, 2);
+
+  glPopAttrib();
 
   return kOfxStatOK;
 }
@@ -818,7 +823,7 @@ describe(OfxImageEffectHandle effect)
   // define the contexts we can be used in
   gPropHost->propSetString(effectProps, kOfxImageEffectPropSupportedContexts, 0, kOfxImageEffectContextFilter);
 
-  if (supportsOverlays) {
+  if (supportsOverlays && gInteractHost) { // overlayMain needs the interact suite
     // set the properties that are the overlay's main entry points for the plugin: V1
     // (OpenGL) for all hosts, and V2 (DrawSuite) if the host has the DrawSuite. See the
     // comment at the top of this file for the spec text about how they coexist.
