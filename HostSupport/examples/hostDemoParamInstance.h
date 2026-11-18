@@ -102,10 +102,10 @@ namespace MyHost {
             InterpolationEnum interpolation, const double* defaultValue);
     void getCurrent(double* v) const;
     void get(OfxTime time, double* v) const;
-    void set(const double* v);
-    void set(OfxTime time, const double* v);
+    OfxStatus set(const double* v); ///< kOfxStatErrValue if a value is not finite
+    OfxStatus set(OfxTime time, const double* v); ///< kOfxStatErrValue if the time or a value is not finite
     void derive(OfxTime time, double* v) const;
-    void integrate(OfxTime time1, OfxTime time2, double* v) const;
+    OfxStatus integrate(OfxTime time1, OfxTime time2, double* v) const; ///< kOfxStatErrValue if a bound is not finite
     OfxStatus getNumKeys(unsigned int& nKeys) const;
     OfxStatus getKeyTime(int nth, OfxTime& time) const;
     OfxStatus getKeyIndex(OfxTime time, int direction, int& index) const;

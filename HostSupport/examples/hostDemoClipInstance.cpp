@@ -590,9 +590,11 @@ namespace MyHost {
       if (_depth == kOfxBitDepthFloat) {
         // a quiet NaN, written as its bit pattern: no floating-point value or operation, which
         // -ffast-math (-ffinite-math-only) would assume not to be NaN
+        // (copied with memcpy, so that the float buffer is not accessed through another type)
         const unsigned int quietNaNBits = 0x7fc00000U;
-        std::fill(reinterpret_cast<unsigned int*>(_data), reinterpret_cast<unsigned int*>(_data + size),
-                  quietNaNBits);
+        for (size_t i = 0; i + sizeof(float) <= size; i += sizeof(float)) {
+          std::memcpy(_data + i, &quietNaNBits, sizeof(float));
+        }
       } else {
         std::fill(_data, _data + size, (unsigned char)0xCD);
       }
