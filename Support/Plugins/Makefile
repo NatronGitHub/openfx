@@ -1,4 +1,4 @@
-SUBDIRS = Basic Field Generator Invert MultiBundle MultiplyGPU Retimer Tester Transition
+SUBDIRS = Basic Field Generator GPUGain Invert MultiBundle MultiplyGPU Retimer Tester Transition
 
 all: subdirs
 

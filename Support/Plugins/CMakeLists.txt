@@ -5,6 +5,7 @@ set(PLUGINS
 	Basic
 	Field
 	Generator
+	GPUGain
 	Invert
 	MultiBundle
 	Retimer
@@ -28,6 +29,20 @@ foreach(PLUGIN IN LISTS PLUGINS)
 			list(APPEND PLUGIN_SOURCES ${CUDA_SOURCES})
 		endif()
 	endif()
+	# GPUGain (ported from upstream OpenFX): CPU render, plus Metal render on macOS (MetalKernel.mm,
+	# compiled as Objective-C++ by the C++ compiler), CUDA and OpenCL render with the same options
+	# as MultiplyGPU. Only the paths built in are declared to the host.
+	if(PLUGIN STREQUAL "GPUGain")
+		if(NOT OFX_SUPPORTS_OPENCLRENDER)
+			list(FILTER PLUGIN_SOURCES EXCLUDE REGEX "OpenCLKernel")
+		endif()
+		if(APPLE)
+			list(APPEND PLUGIN_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${PLUGIN}/MetalKernel.mm")
+		endif()
+		if(OFX_SUPPORTS_CUDARENDER)
+			list(APPEND PLUGIN_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${PLUGIN}/CudaKernel.cu")
+		endif()
+	endif()
 
 	set(TGT example-${PLUGIN}-support)
 	add_ofx_plugin(${TGT} ${PLUGIN})
@@ -36,6 +51,23 @@ foreach(PLUGIN IN LISTS PLUGINS)
 	target_include_directories(${TGT} PRIVATE ${OFX_SUPPORT_PLUGINS_INCLUDE_DIR})
 
 	if(PLUGIN STREQUAL "MultiplyGPU")
+		if(OFX_SUPPORTS_OPENCLRENDER)
+			target_compile_definitions(${TGT} PRIVATE HAVE_OPENCL)
+			if(APPLE)
+				target_link_libraries(${TGT} PRIVATE "-framework OpenCL")
+			else()
+				target_link_libraries(${TGT} PRIVATE OpenCL::Headers OpenCL::OpenCL)
+			endif()
+		endif()
+		if(OFX_SUPPORTS_CUDARENDER)
+			target_compile_definitions(${TGT} PRIVATE HAVE_CUDA)
+		endif()
+	endif()
+	if(PLUGIN STREQUAL "GPUGain")
+		if(APPLE)
+			target_compile_definitions(${TGT} PRIVATE HAVE_METAL)
+			target_link_libraries(${TGT} PRIVATE "-framework Metal" "-framework Foundation" "-framework QuartzCore")
+		endif()
 		if(OFX_SUPPORTS_OPENCLRENDER)
 			target_compile_definitions(${TGT} PRIVATE HAVE_OPENCL)
 			if(APPLE)
