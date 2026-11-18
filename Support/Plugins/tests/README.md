@@ -15,6 +15,8 @@ its docstring:
 | test_transition.py | two inputs and a transition value |
 | test_field.py | unfielded rendering; the plug-in's stdout |
 | test_multiplygpu.py | the CPU path of a GPU-capable plug-in, with rounding at byte depth |
+| test_gpugain.py | the CPU path of a plug-in with Metal, CUDA and OpenCL render, float only; an identity |
+| test_choiceparams.py | Choice values are indices whatever the option order; a StrChoice value is its enum |
 | test_describe.py | contexts, clips, parameters and flags, from `describe()` |
 
 The Tester sample only has describe checks (its render is an invert, and its push buttons
