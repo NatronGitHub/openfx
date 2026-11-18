@@ -87,7 +87,7 @@ namespace OFX {
      called via kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite. If this
      is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL."):
      - overlay registered as V2 (ImageEffectDescriptor::setOverlayInteractDescriptorV2() returned
-       true): the host's DrawSuite (usesDrawSuite()). If the host passed no
+       true; not if the plug-in set kOfxImageEffectPluginPropOverlayInteractV2 itself): the host's DrawSuite (usesDrawSuite()). If the host passed no
        kOfxInteractPropDrawContext, nothing is drawn and the functions return false: OpenGL
        must not be used, the host may not even have an OpenGL context.
      - overlay registered as V1 (setOverlayInteractDescriptor(), or
@@ -124,6 +124,8 @@ namespace OFX {
      smooth (GL_LINE_SMOOTH) line.
    - setLineStipple: GL_LINE_STIPPLE, with the patterns (in screen pixels): dot 2 on 2 off,
      dash 8 on 8 off, alt dash 8 off 8 on, dot dash 2 on 3 off 8 on 3 off.
+   - draw: Lines needs an even point count (as HostSupport's DrawSuite), Rectangle and Ellipse
+     exactly 2 points, Polygon at least 3, the strips and loops at least 2.
    - Ellipse: a line loop, tessellated so that it is within 1/4 pixel of the ellipse.
    - getColour: fixed colours (see the table in ofxsDrawContextOpenGL.cpp), close to what the
      Natron and SupportExt OpenGL overlays use.
@@ -133,8 +135,12 @@ namespace OFX {
    The OpenGL backend is not compiled if OFXS_DRAWCONTEXT_NO_OPENGL is defined when compiling
    ofxsDrawContextOpenGL.cpp (for plug-in binaries built without OpenGL): getDrawContext() on a
    V1 overlay then draws nothing (canDraw() is false). Plug-ins that call getDrawContext() must
-   compile and link ofxsDrawContextOpenGL.cpp, and link OpenGL (as every OpenGL overlay does);
-   plug-ins that don't call it don't need either.
+   compile and link ofxsDrawContextOpenGL.cpp, and link OpenGL (as every OpenGL overlay does).
+   From libOfxSupport.a (CMake's openfx::Support), plug-ins that don't call it link neither;
+   Support/Plugins/Makefile.master's SUPPORTOBJECTS are plain object files, so every plug-in built
+   with it links ofxsDrawContextOpenGL.o and needs the OpenGL headers (it already links OpenGL).
+   The legacy project files (Support/Support.xcodeproj, the .vcproj and .dsp files) are not
+   maintained and don't list ofxsDrawContextOpenGL.cpp.
    */
   class DrawContext {
   public:
@@ -245,7 +251,7 @@ namespace OFX {
   private:
     friend struct Private::DrawArgsAccess;
     DrawContext     _drawContextStorage; // drawContext points here when valid
-    DrawContext     _openGLDrawContext;  // getDrawContext() for V1 overlays (backend set by it)
+    mutable DrawContext _openGLDrawContext; // getDrawContext() for V1 overlays (it sets the backend)
     int             _overlayRegistration; // Private::eOverlayRegistration*, set by the dispatcher
   };
 

@@ -167,12 +167,21 @@ namespace OFX {
       eOverlayRegistrationV2           // kOfxImageEffectPluginPropOverlayInteractV2
     };
 
+    /** @brief The registry of the overlay registrations (ofxsImageEffect.cpp).
+        Record that the overlay with that main entry is registered as
+        kOfxImageEffectPluginPropOverlayInteractV1 (ImageEffectDescriptor::setOverlayInteractDescriptor) */
+    void setOverlayInteractV1(OfxPluginEntryPoint *mainEntry);
+
     /** @brief Record that the overlay with that main entry is registered as
-        kOfxImageEffectPluginPropOverlayInteractV2 (ImageEffectDescriptor::setOverlayInteractDescriptorV2) */
+        kOfxImageEffectPluginPropOverlayInteractV2 (ImageEffectDescriptor::setOverlayInteractDescriptorV2).
+        Warns (and asserts in debug builds) if it is also registered as V1. */
     void setOverlayInteractV2(OfxPluginEntryPoint *mainEntry);
 
     /** @brief true if the overlay with that main entry was registered as V2 */
     bool isOverlayInteractV2(OfxPluginEntryPoint *mainEntry);
+
+    /** @brief Forget all the registrations (at the last kOfxActionUnload) */
+    void clearOverlayInteractRegistrations();
 
     /** @brief Access to the private members of DrawArgs and DrawContext */
     struct DrawArgsAccess {
@@ -181,7 +190,7 @@ namespace OFX {
       static const DrawContext &drawSuiteContext(const DrawArgs &args) { return args._drawContextStorage; }
       // the context that getDrawContext() returns for V1 overlays: getDrawContext() sets its
       // backend (the only change made through a const DrawArgs)
-      static DrawContext &openGLContext(const DrawArgs &args) { return const_cast<DrawArgs &>(args)._openGLDrawContext; }
+      static DrawContext &openGLContext(const DrawArgs &args) { return args._openGLDrawContext; }
       static void setOpenGLBackend(DrawContext &ctx, const DrawContextBackend *backend) { ctx._openGL = backend; }
       static void initOpenGLContext(DrawContext &ctx, const OfxPointD &pixelScale, double screenPixelRatio)
       {

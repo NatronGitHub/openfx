@@ -39,7 +39,6 @@ England
 
 #include "ofxsSupportPrivate.h"
 #include <algorithm> // for find
-#include <vector>
 
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
 */
@@ -645,27 +644,6 @@ namespace OFX {
 
   namespace Private {
 
-    // The main entries of the overlays registered as kOfxImageEffectPluginPropOverlayInteractV2.
-    // Written by describe (ImageEffectDescriptor::setOverlayInteractDescriptorV2), read by the
-    // interact actions, which the host only calls after describing the plug-in.
-    static std::vector<OfxPluginEntryPoint *> &overlayInteractV2Entries()
-    {
-      static std::vector<OfxPluginEntryPoint *> entries;
-      return entries;
-    }
-
-    void setOverlayInteractV2(OfxPluginEntryPoint *mainEntry)
-    {
-      if (mainEntry && !isOverlayInteractV2(mainEntry)) {
-        overlayInteractV2Entries().push_back(mainEntry);
-      }
-    }
-
-    bool isOverlayInteractV2(OfxPluginEntryPoint *mainEntry)
-    {
-      const std::vector<OfxPluginEntryPoint *> &entries = overlayInteractV2Entries();
-      return mainEntry && std::find(entries.begin(), entries.end(), mainEntry) != entries.end();
-    }
     /** @brief fetches our pointer out of the props on the handle */
     static
     Interact *retrieveInteractPointer(OfxInteractHandle handle)
