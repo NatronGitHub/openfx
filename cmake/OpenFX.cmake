@@ -142,6 +142,9 @@ set(OFX_OPTFLAG "" CACHE STRING "Extra optimization flags of the plug-ins' relea
 # Extra install rpath directories of every plug-in (e.g. dependency prefixes inside the source
 # tree, which INSTALL_RPATH_USE_LINK_PATH skips), after the bundle's own Libraries directory
 set(OFX_PLUGIN_RPATH "" CACHE STRING "Extra install rpath directories of the plug-ins (;-separated)")
+# Linux and FreeBSD: link the plug-ins with -z defs (no undefined symbols). OFF for sanitizer builds
+# with clang, whose runtime the host provides (or use -shared-libsan); gcc's sanitizers link with it
+option(OFX_PLUGIN_NO_UNDEFINED "Linux/FreeBSD: link the plug-ins with -z defs (no undefined symbols)" ON)
 
 # Add OFX_OPTFLAG to the compile options of a target's release configurations (add_ofx_plugin
 # and openfx::Support do it; also for a repository's own static libraries linked into plug-ins):
@@ -311,6 +314,12 @@ function(add_ofx_plugin TARGET)
     configure_file("${_exports}.new" "${_exports}" COPYONLY)
     target_link_options(${TARGET} PRIVATE "LINKER:--version-script=${_exports}")
     set_property(TARGET ${TARGET} APPEND PROPERTY LINK_DEPENDS "${_exports}")
+    # no undefined symbols: a plug-in takes no symbol from the host, so an unresolved one (e.g. a
+    # missing library, or a symbol that the build machine's runtime lacks) fails the link instead
+    # of the plug-in's load. Turn it off for sanitizer builds, whose runtime the host provides.
+    if(OFX_PLUGIN_NO_UNDEFINED)
+      target_link_options(${TARGET} PRIVATE "LINKER:-z,defs")
+    endif()
   endif()
 
   # Install rpath: the libraries that the installers put in the bundle and the explicit extra

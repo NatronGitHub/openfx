@@ -57,6 +57,10 @@ endif
 ifneq ($(MINGW_OS),)
   PLUGINPATH=C:\\Program Files\\Common Files\\OFX\\Plugins
 endif
+# Linux and FreeBSD: no undefined symbols in the plug-ins (a plug-in takes no symbol from the host);
+# NO_UNDEFINED_FLAG= turns it off, e.g. for clang sanitizer builds. Linux also links -pthread and -ldl:
+# before glibc 2.34 (Rocky 8), pthread_create and dlopen are not in libc (e.g. tinythread, glad)
+NO_UNDEFINED_FLAG ?= -Wl,-z,defs
 ifeq ($(OS),Linux)
   PLUGINPATH=/usr/OFX/Plugins
 endif
@@ -144,7 +148,7 @@ uninstall:
   endif
   ifeq ($(OS),Linux)
     # use $ORIGIN to link to bundled libraries first, see http://itee.uq.edu.au/~daniel/using_origin/
-    LINKFLAGS = -shared -fvisibility=hidden -Xlinker --version-script=$(PATHTOROOT)/include/linuxSymbols -lGL -Wl,-rpath,'$$ORIGIN'/../../Libraries
+    LINKFLAGS = -shared -fvisibility=hidden -Xlinker --version-script=$(PATHTOROOT)/include/linuxSymbols $(NO_UNDEFINED_FLAG) -lGL -pthread -ldl -Wl,-rpath,'$$ORIGIN'/../../Libraries
     # bundle folder: Linux-x86, Linux-x86-64, or Linux-$(uname -m) for other architectures
     # (OFX 1.5 packaging: "hosts should look in the subdir named by Linux-${uname -m}"). The names must
     # match HostSupport (ofxhPluginCache.cpp) and cmake/OpenFX.cmake.
@@ -167,7 +171,7 @@ uninstall:
     LINKFLAGS := $(LINKFLAGS) $(BITSFLAG)
   endif
   ifeq ($(OS),FreeBSD)
-    LINKFLAGS = -L/usr/local/lib -shared -fvisibility=hidden -Xlinker --version-script=$(PATHTOROOT)/include/linuxSymbols -lGL -Wl,-rpath,'$$ORIGIN'/../../Libraries
+    LINKFLAGS = -L/usr/local/lib -shared -fvisibility=hidden -Xlinker --version-script=$(PATHTOROOT)/include/linuxSymbols $(NO_UNDEFINED_FLAG) -lGL -pthread -Wl,-rpath,'$$ORIGIN'/../../Libraries
     # bundle folder: FreeBSD-x86, FreeBSD-x86-64, or FreeBSD-$(uname -p) for other architectures.
     # FreeBSD uses MACHINE_ARCH (uname -p: aarch64, armv7, riscv64, powerpc64), not uname -m (the
     # platform: arm64, arm, riscv, powerpc), matching HostSupport (ofxhPluginCache.cpp) and cmake/OpenFX.cmake.

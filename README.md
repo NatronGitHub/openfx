@@ -80,6 +80,7 @@ Main options:
 - `OFX_BUILD_HOSTSUPPORT`: build HostSupport, on by default at top level;
 - `BUILD_EXAMPLE_PLUGINS` and `BUILD_EXAMPLE_HOSTS`: the example plug-ins and hosts;
 - `OFX_CXX_STANDARD`: the C++ standard of the plug-ins and of openfx::Support (default: `CMAKE_CXX_STANDARD`, else 17);
+- `OFX_PLUGIN_NO_UNDEFINED` (ON): link the plug-ins with `-z defs` on Linux and FreeBSD, so an undefined symbol fails the link; turn it off for clang sanitizer builds;
 - `OFX_OPTFLAG`: extra optimization flags of the release configurations, after CMake's (empty: CMake's defaults; ignored with MSVC);
 - `OFX_DEPLOY_BUNDLES` (for plug-in projects, macOS only, by design): make the installed bundles self-contained with `ofx_deploy_bundle()`; on Linux and Windows, plug-ins use system libraries.
 
