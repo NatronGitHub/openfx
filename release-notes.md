@@ -21,7 +21,35 @@ The OFX 1.5 port, all additive and source-compatible with existing plug-ins and 
 - #74: DrawSuite and OverlayInteractV2
 - #75: colour management (`ofxColour.h`)
 - #84: `@propdef`/`@propset`/`@actiondef` metadata in the headers, `scripts/check-props.py`
-- documentation port (#83): OpenFX 1.5.1 reference, generated property reference, fork extensions
+- #89: documentation port: OpenFX 1.5.1 reference, generated property reference, fork extensions
+
+Since the 1.5 port (post-1.5.1 API additions, such as the keyboard modifiers of
+#134/#140 and the removal of `ImageEffectDescriptor::getSelectionRectangle()` in #141,
+are in `release-notes-next.md`):
+
+- #85: upstream's header-only C++17 `openfx-cpp` layer, with its generator (`scripts/gen-props.py`) and examples
+- #86: upstream's CMake/conan build, adapted to the fork (the Makefiles are unchanged); #125, #127, #129: `cmake/OpenFX.cmake` helpers for the plug-in repositories (`add_ofx_plugin` options, `ofx_plugin_resources`, `ofx_target_openmp`, `ofx_deploy_bundle`); #139: `OFX_SUPPORTS_PARAMETRIC` options, so hosts can use the `openfx::HostSupport` target with `add_subdirectory`
+- #121: `@propdef` for every property, including the extension properties; `check-props.py` classifies every string `#define` of `include/`
+- #63: proposed interact-cursor extension (`kOfxInteractPropCursor` and related properties in `ofxInteract.h`, under `OFX_EXTENSIONS_NATRON`)
+- #87: Support feature macro `OFXS_SUPPORT_HAS_DRAWCONTEXT`
+- #92: `kOfxImageEffectPropNoSpatialAwareness` declared in every build, passed to Render and BeginSequenceRender (`ImageEffect::Instance::isNoSpatialAwarenessRender()`, `RenderArguments::isNoSpatialAwareness`)
+- #101: the OFX 1.5 GPU render properties (OpenCL, CUDA, Metal) compiled without `OFX_EXTENSIONS_RESOLVE` in HostSupport and Support; #95: the MultiplyGPU sample builds again, and by default
+- #93: `propsetDump` and `scripts/audit-propsets.py` audit HostSupport's property sets against the metadata; fixes found (e.g. `kOfxImageEffectPropOpenGLRenderSupported` always declared, `kOfxImageEffectHostPropNativeOrigin` dimension 1)
+- #90, #103, #105, #106, #112, #113: bundle architecture folders (see below); one naming rule for HostSupport, the Makefiles and CMake
+- #96, #99, #111, #117–#123, #126, #128, #132: `hostDemo` as a plug-in test host (renders any filter/general plug-in, parameters, animation keys, PFM/PPM I/O, JSON report), the `ofxhost` Python wrapper and graph executor
+- #124: ports of upstream fixes (upstream #278, #280, #281, #291), listed under Fixes in `release-notes-next.md`
+- Portability: #98, #108 (MSYS2/MinGW Makefiles), #110 (`_WIN32` tests, so strict `-std` MinGW plug-ins export their entry points), #114 (`_MSVC_LANG` in the C++11 tests: MSVC `/std:c++17` failed on `std::auto_ptr`), #116 (`NOMINMAX` before `windows.h`)
+- Support fixes: #133 (messages passed as a `"%s"` argument of the message suite, so a `%` in a message is no longer interpreted by the host), #137 (data race at plug-in unload), #142 (`OFX::Log` thread-safe, per-thread indent), #144 (per-thread property logging switch, `OFXS_THREAD_LOCAL`)
+- #130: `ofxNatron.h` extension 7: flags of the selection-rectangle state parameter (documentation only)
+
+Behaviour changes in the fork since the 1.5 port:
+
+- **Read-only properties are enforced** (#91): the plug-in-facing property suite (`propSet*`, `propSetN*`, `propReset`) now returns `kOfxStatErrValue` when a plug-in writes a property that is read-only for plug-ins; Support turns that into an exception unless the call is non-throwing. Host-side C++ setters are not restricted. Hosts can relax this with `OFX::Host::Property::setPluginReadOnlyPolicy(ePluginReadOnlyWarn)` (accept and log once per property) or `ePluginReadOnlyIgnore` (old behaviour). Clip instance properties copied from the descriptor are now read-only, as documented; some Natron descriptor properties and the IsIdentity outArgs `kFnOfxImageEffectPropView` and `kOfxImageEffectPropIdentityPlane` became writable.
+- **Clip depths in clip preferences** (#102): the `OfxImageClipPropDepth_<clip>` outArgs are writable if and only if both the host and the plug-in support multiple clip depths, whatever the context. Support's `ClipPreferencesSetter::setClipBitDepth` no longer fails the action when the host refuses the write: it logs a warning and leaves the depth to the host.
+- **Clip instance labels (Natron extension)** (#104, #106): with `OFX_EXTENSIONS_NATRON`, the clip instance `kOfxPropLabel`, `kOfxPropShortLabel`, `kOfxPropLongLabel`, `kOfxParamPropSecret` and `kOfxParamPropHint` stay writable by plug-ins; other clip instance properties are read-only.
+- **Plug-in binary folders** (#90, #103, #105, #106, #112): HostSupport searches the OFX 1.5 folders (`Win-arm64ec` for Arm64EC and emulated x64 hosts, `Linux-$(uname -m)` on non-x86 Linux, with a fallback to the legacy `Linux-x86-64`/`Linux-x86`), and uses the first folder whose binary matches the host's architecture. The Makefiles and CMake install non-x86 builds to the same names.
+- **Keyframe defaults** (#128): HostSupport's default keyframe functions (for hosts that don't animate a parameter) return the statuses `ofxParam.h` lists (e.g. `kOfxStatOK` with 0 keys) instead of `kOfxStatErrMissingHostFeature`.
+- **Descriptor setters** (#92, #101): `setNoSpatialAwareness()` and the GPU `setSupports*Render()` / `setSupportsCudaStream()` no longer throw on hosts that don't know the property.
 
 Fixes in HostSupport and Support since the last upstream merge are listed in the
 pull requests of NatronGitHub/openfx (#23–#58), e.g. expat 2.10.0, property
