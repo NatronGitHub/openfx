@@ -1,6 +1,6 @@
 # CMake for the plug-in repositories (Natron#1181)
 
-Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-ups #127, #129), PR B is #139. The Windows and Linux parts of `ofx_deploy_bundle` are not implemented yet. Agreed with the openfx-misc, openfx-io, openfx-arena, openfx-gmic, openfx-supportext and Natron sessions on 2026-11-16. The openfx repository is the reference for the CMake build of plug-ins. Each repository keeps its Makefiles until Natron's `tools/jenkins/build-plugins.sh` switches to CMake.
+Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-ups #127, #129), PR B is #139. `ofx_deploy_bundle` is macOS only, by design (decided 2026-11-18): on Linux and Windows, plug-ins use system libraries, or header-only ones such as pocketfft, and installers such as Natron's deploy anything else. Agreed with the openfx-misc, openfx-io, openfx-arena, openfx-gmic, openfx-supportext and Natron sessions on 2026-11-16. The openfx repository is the reference for the CMake build of plug-ins. Each repository keeps its Makefiles until Natron's `tools/jenkins/build-plugins.sh` switches to CMake.
 
 ## Order
 
@@ -69,6 +69,8 @@ Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-u
   - call `ofx_deploy_bundle` after the last `ofx_plugin_resources` of the target (it's an error otherwise): files installed into the bundle after it would break the signature;
   - the install path may contain spaces, and `osxDeploy.sh` fails if a copy or an `install_name_tool` call fails;
   - the bundle gets an ad hoc signature (`Contents/_CodeSignature`, which the Makefile bundles don't have): an installer that later changes files in the bundle must sign it again (`codesign -f -s -`). Without it, `codesign --verify --strict` fails on the deployed bundle.
+- **Linux and Windows:** no deployment, by design. A plug-in must not need a non-system library there; if it does, the fix is in the plug-in (drop the dependency, or link it statically).
+- **Install components:** each plug-in's install rules (binary, Info.plist, resources, deployment) are in a component named after its target, so `cmake --install <build> --component <target>` installs one bundle.
 - **macOS, not implemented yet:** checking that every `@rpath/X` is in `Contents/Libraries`, and resolving the `@rpath` dependencies of copied dylibs against their original LC_RPATHs (MacPorts libraries use absolute install names, so this matters little today).
 - **Windows** (not implemented yet; Natron's Windows installer does this itself, so Natron keeps `OFX_DEPLOY_BUNDLES` OFF there):
   - copying the DLLs next to the `.ofx` is not enough. Hosts call `LoadLibraryW(fullpath)` (`ofxhBinary.cpp`, and Natron), which doesn't search the plug-in's directory;

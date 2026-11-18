@@ -81,7 +81,7 @@ Main options:
 - `BUILD_EXAMPLE_PLUGINS` and `BUILD_EXAMPLE_HOSTS`: the example plug-ins and hosts;
 - `OFX_CXX_STANDARD`: the C++ standard of the plug-ins and of openfx::Support (default: `CMAKE_CXX_STANDARD`, else 17);
 - `OFX_OPTFLAG`: extra optimization flags of the release configurations, after CMake's (empty: CMake's defaults; ignored with MSVC);
-- `OFX_DEPLOY_BUNDLES` (for plug-in projects, macOS only for now): make the installed bundles self-contained with `ofx_deploy_bundle()`.
+- `OFX_DEPLOY_BUNDLES` (for plug-in projects, macOS only, by design): make the installed bundles self-contained with `ofx_deploy_bundle()`; on Linux and Windows, plug-ins use system libraries.
 
 Plug-in projects use `add_ofx_plugin()` and the other helpers of `cmake/OpenFX.cmake`, with openfx as a subdirectory or as an installed package: see [Documentation/proposals/cmake-plugins.md](Documentation/proposals/cmake-plugins.md).
 A conan recipe (`conanfile.py`, with `test_package/`) is also provided.

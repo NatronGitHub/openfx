@@ -190,6 +190,10 @@ endfunction()
 # Builds <BUNDLE_NAME>.ofx (default: <target>) into
 # ${OFX_PLUGIN_BUILD_DIR}/<BUNDLE_NAME>.ofx.bundle/Contents/<ARCHDIR>/, with the Info.plist in
 # Contents/, and installs the bundle into PLUGIN_INSTALLDIR.
+# Each plug-in's install rules (binary, Info.plist, resources, deployment) are in an install
+# component named after the target: `cmake --install <build> --component <target>` installs that
+# bundle only (a plain `cmake --install` installs them all). A project's own install() of a file
+# into a bundle (e.g. a DLL next to the plug-in) must pass `COMPONENT <target>` too.
 # - INFO_PLIST: the plug-in's own Info.plist, run through configure_file(@ONLY) (a file without
 #   @VAR@ is copied unchanged). Default: the generic template, with IDENTIFIER (default
 #   org.openeffects.plugins.<BUNDLE_NAME>) and VERSION (default 1.0.0).
@@ -352,14 +356,14 @@ function(add_ofx_plugin TARGET)
     # _ofx_install_sign); if that happens within the second of the link, CMake later finds it
     # "Up-to-date", doesn't copy it, but still adds the install rpaths again (install_name_tool:
     # "would duplicate path")
-    install(CODE "file(REMOVE \"\$ENV{DESTDIR}${_bin}\")")
+    install(CODE "file(REMOVE \"\$ENV{DESTDIR}${_bin}\")" COMPONENT ${TARGET})
   endif()
   install(
     TARGETS ${TARGET}
-    LIBRARY DESTINATION "${_dest}/${ARCHDIR}" ${_perms}
-    RUNTIME DESTINATION "${_dest}/${ARCHDIR}" ${_perms}
-    ARCHIVE DESTINATION "${_dest}/${ARCHDIR}" EXCLUDE_FROM_ALL)
-  install(FILES "${_info}" DESTINATION "${_dest}" RENAME Info.plist)
+    LIBRARY DESTINATION "${_dest}/${ARCHDIR}" ${_perms} COMPONENT ${TARGET}
+    RUNTIME DESTINATION "${_dest}/${ARCHDIR}" ${_perms} COMPONENT ${TARGET}
+    ARCHIVE DESTINATION "${_dest}/${ARCHDIR}" COMPONENT ${TARGET} EXCLUDE_FROM_ALL)
+  install(FILES "${_info}" DESTINATION "${_dest}" RENAME Info.plist COMPONENT ${TARGET})
   if(APPLE)
     set_target_properties(${TARGET} PROPERTIES OFX_INSTALLED_BINARY "${_bin}")
     # the LC_RPATHs into MacPorts, /usr/local and Homebrew are deleted, as in Makefile.master (its
@@ -389,7 +393,7 @@ function(add_ofx_plugin TARGET)
         if(NOT _used)
           execute_process(COMMAND install_name_tool -delete_rpath \"\${_p}\" \"\$ENV{DESTDIR}${_bin}\" OUTPUT_QUIET ERROR_QUIET)
         endif()
-      endforeach()")
+      endforeach()" COMPONENT ${TARGET})
     _ofx_install_sign(${TARGET})
   endif()
 endfunction()
@@ -405,7 +409,7 @@ function(_ofx_install_sign TARGET)
       execute_process(COMMAND codesign -f -s - \"\$ENV{DESTDIR}${_bin}\" RESULT_VARIABLE _r OUTPUT_QUIET ERROR_VARIABLE _err)
       if(_r)
         message(FATAL_ERROR \"codesign failed on \$ENV{DESTDIR}${_bin}: \${_err}\")
-      endif()")
+      endif()" COMPONENT ${TARGET})
   endif()
 endfunction()
 
@@ -455,12 +459,12 @@ function(ofx_plugin_resources TARGET)
   set(_cmds COMMAND "${CMAKE_COMMAND}" -E make_directory "${_bundle}/Contents/${_sub}")
   if(_files)
     list(APPEND _cmds COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${_files} "${_bundle}/Contents/${_sub}")
-    install(FILES ${_files} DESTINATION "${_dest}")
+    install(FILES ${_files} DESTINATION "${_dest}" COMPONENT ${TARGET})
   endif()
   foreach(_d IN LISTS _dirs)
     get_filename_component(_dname "${_d}" NAME)
     list(APPEND _cmds COMMAND "${CMAKE_COMMAND}" -E copy_directory "${_d}" "${_bundle}/Contents/${_sub}/${_dname}")
-    install(DIRECTORY "${_d}" DESTINATION "${_dest}")
+    install(DIRECTORY "${_d}" DESTINATION "${_dest}" COMPONENT ${TARGET})
   endforeach()
   _ofx_install_sign(${TARGET})
   add_custom_target(${_rt} ALL ${_cmds} VERBATIM)
@@ -627,8 +631,8 @@ endfunction()
 # macOS (LC_BUILD_VERSION minos, or LC_VERSION_MIN_MACOSX; at least 11.0 for arm64) gives a
 # warning, or an error with OFX_DEPLOY_STRICT_MINOS.
 # Call it after the last ofx_plugin_resources() of the target: files installed into the bundle
-# after it would break the bundle's signature. Windows (bundling the DLLs, with an embedded
-# manifest) and Linux are not implemented yet.
+# after it would break the bundle's signature. macOS only, by design: on Linux and Windows, plug-ins
+# use system libraries (or header-only ones), and installers (e.g. Natron's) deploy anything else.
 function(ofx_deploy_bundle TARGET)
   get_target_property(_name ${TARGET} OFX_BUNDLE_NAME)
   if(NOT _name)
@@ -728,6 +732,6 @@ function(ofx_deploy_bundle TARGET)
         message(FATAL_ERROR \"codesign --verify --strict failed on \${_b}\")
       endif()
      endif()
-    ")
+    " COMPONENT ${TARGET})
   endif()
 endfunction()
