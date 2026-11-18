@@ -112,6 +112,9 @@ namespace OFX {
         /** @brief reset the render window */
         void setRenderWindow(const OfxRectI& rect, const OfxPointD& rs) {_renderWindow = rect; _renderScale = rs; }
 
+        /** @brief reset the render window, with a render scale of 1 (upstream OpenFX's ofxsProcessing.h has no render scale) */
+        void setRenderWindow(const OfxRectI& rect) { const OfxPointD rs = {1., 1.}; setRenderWindow(rect, rs); }
+
         /** @brief overridden from OFX::MultiThread::Processor. This function is called once on each SMP thread by the base class */
         void multiThreadFunction(unsigned int threadId, unsigned int nThreads)
         {
@@ -134,8 +137,15 @@ namespace OFX {
             OFX::throwSuiteStatusException(kOfxStatErrUnsupported);
         };
 
-        /** @brief this is called by process to actually process images using CUDA when isEnabledCudaRender is true, override in derived classes */
+        /** @brief this is called by process to actually process images using CUDA when isEnabledCudaRender is true, override in derived classes.
+            The default calls processImagesCuda(), so that processors written for upstream OpenFX's ofxsProcessing.h also work. */
         virtual void processImagesCUDA(void)
+        {
+            processImagesCuda();
+        };
+
+        /** @brief upstream OpenFX's name for processImagesCUDA(), called by the default processImagesCUDA(): override either one */
+        virtual void processImagesCuda(void)
         {
             OFX::Log::print("processImagesCUDA not implemented");
             OFX::throwSuiteStatusException(kOfxStatErrUnsupported);

@@ -548,6 +548,17 @@ namespace OFX {
       OFX::Exception::PropertyValueIllegalToHost,
       OFX::Exception::Suite);
 
+    /// get all the values of a string property, as a list (upstream OpenFX's API: same as propGetStringN)
+    std::list<std::string> propGetNString(const char* property, bool throwOnFailure = true) const OFX_THROW4(std::bad_alloc,
+      OFX::Exception::PropertyUnknownToHost,
+      OFX::Exception::PropertyValueIllegalToHost,
+      OFX::Exception::Suite)
+    {
+      std::vector<std::string> values;
+      propGetStringN(property, &values, throwOnFailure);
+      return std::list<std::string>(values.begin(), values.end());
+    }
+
     void propGetDoubleN(const char* property, std::vector<double>* values, bool throwOnFailure = true) const OFX_THROW4(std::bad_alloc,
       OFX::Exception::PropertyUnknownToHost,
       OFX::Exception::PropertyValueIllegalToHost,
