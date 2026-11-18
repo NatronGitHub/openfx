@@ -14,10 +14,10 @@ UNIX
   - the Makefile takes the expat flags from pkg-config, or assumes expat is installed in a
     standard system location; otherwise, do the following
 
-     make EXPAT_INCLUDE=DIRECTORY_WITH_EXPAT_H
+     make EXPAT_INCLUDE=/ABSOLUTE/DIRECTORY_WITH_EXPAT_H
 
-WINDOWS
-  - use the vc8 projects
+WINDOWS (and any platform)
+  - use CMake from the top-level directory (see ../README.md)
 
 
 How to build the examples
@@ -29,9 +29,11 @@ UNIX
   - the Makefile takes the expat flags from pkg-config, or assumes expat is installed in a
     standard system location; otherwise, do the following
 
-     make EXPAT_INCLUDE=DIRECTORY_WITH_EXPAT_H EXPAT_LIBS="-LSOMEWHERE -lexpat"
+     make EXPAT_INCLUDE=/ABSOLUTE/DIRECTORY_WITH_EXPAT_H EXPAT_LIBS="-L/SOMEWHERE -lexpat"
 
-WINDOWS
-  - use the vc8 projects
+    (pass both, so that the headers and the library come from the same expat)
+
+WINDOWS (and any platform)
+  - use CMake from the top-level directory (see ../README.md)
 
 

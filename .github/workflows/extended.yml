@@ -74,6 +74,7 @@ jobs:
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
         # expat for HostSupport, from the runner's vcpkg; CMake (>= 3.21) reads CMAKE_TOOLCHAIN_FILE from the environment
+        shell: pwsh
         run: |
           vcpkg install expat:x64-windows
           echo "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
