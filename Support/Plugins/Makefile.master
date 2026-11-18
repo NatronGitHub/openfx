@@ -232,8 +232,10 @@ uninstall:
     endif
     CPPFLAGS += -DGL_SILENCE_DEPRECATION
     # the minimum macOS version: MACOSX_DEPLOYMENT_TARGET if set (environment or make variable, as
-    # CMake's CMAKE_OSX_DEPLOYMENT_TARGET), else the SDK's version (the plug-ins then need that macOS)
-    MACOSX_MIN := $(if $(strip $(MACOSX_DEPLOYMENT_TARGET)),$(strip $(MACOSX_DEPLOYMENT_TARGET)),$(MACOSX))
+    # CMake's CMAKE_OSX_DEPLOYMENT_TARGET), else 14.0 (VFX Reference Platform CY2027); the legacy
+    # Universal build on Mac OS X 10.x (i386/ppc/x86_64) keeps that system's version
+    MACOSX_DEFAULT_MIN := $(if $(filter 10,$(MACOSXMAJOR)),$(MACOSX),14.0)
+    MACOSX_MIN := $(if $(strip $(MACOSX_DEPLOYMENT_TARGET)),$(strip $(MACOSX_DEPLOYMENT_TARGET)),$(MACOSX_DEFAULT_MIN))
     BITSFLAG = -isysroot $(SDKROOT) $(ARCHFLAGS) -mmacosx-version-min=$(MACOSX_MIN) -fPIC
     LINKFLAGS = $(BITSFLAG) -bundle -fvisibility=hidden -exported_symbols_list $(PATHTOROOT)/include/osxSymbols -framework OpenGL -Wl,-rpath,@loader_path/../Frameworks -Wl,-rpath,@loader_path/../Libraries
     ARCH = MacOS

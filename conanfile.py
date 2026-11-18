@@ -92,6 +92,9 @@ class openfx(ConanFile):
 		if self.settings.os == "Macos":
 			# build for the conan arch only (the CMake default is universal)
 			tc.cache_variables["CMAKE_OSX_ARCHITECTURES"] = {"armv8": "arm64"}.get(str(self.settings.arch), str(self.settings.arch))
+			# the profile's os.version if set (CMakeToolchain), else macOS 14.0 (VFX Reference Platform CY2027)
+			if not self.settings.get_safe("os.version"):
+				tc.cache_variables["CMAKE_OSX_DEPLOYMENT_TARGET"] = "14.0"
 		# example plug-ins go into the package instead of the system OFX folder
 		tc.cache_variables["PLUGIN_INSTALLDIR"] = os.path.join(self.package_folder, "bin", "Plugins").replace("\\", "/") if self.package_folder else ""
 		tc.generate()

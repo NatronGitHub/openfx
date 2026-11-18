@@ -8,9 +8,10 @@ src="$(cd "$(dirname "$0")/../.." && pwd)"
 os=$(uname -s)
 deploy=OFF; osxtarget=""
 # macOS: deploy, with a deployment target older than MacPorts' libomp (built for the runner's
-# macOS): libomp must get the minos warning, the plug-in itself must not. (11.0, the arm64 floor:
-# libc++ doesn't support older targets)
-[ "$os" = Darwin ] && deploy=ON osxtarget=-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+# macOS): libomp must get the minos warning, the plug-in itself must not. (14.0, the plug-ins'
+# target: VFX Reference Platform CY2027. The runner must be newer than macOS 14, so that MacPorts'
+# libomp, built for the runner's macOS, is newer than the target)
+[ "$os" = Darwin ] && deploy=ON osxtarget=-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
 # OpenMP must be found: MacPorts libomp on macOS, gcc's libgomp on Linux and MSYS2 (the
 # mingw-w64-ucrt-x86_64-libgomp package)
 openmp=ON
@@ -20,7 +21,7 @@ sdkopt=()
 if [ "$os" = Darwin ]; then
   mkdir -p "$work/sdk/lib"
   echo 'int ofx_test_sdk_dep(void) { return 1; }' > "$work/sdk/dep.c"
-  cc -dynamiclib -mmacosx-version-min=11.0 -arch "$(uname -m)" -install_name @rpath/libsdkdep.dylib -o "$work/sdk/lib/libsdkdep.dylib" "$work/sdk/dep.c"
+  cc -dynamiclib -mmacosx-version-min=14.0 -arch "$(uname -m)" -install_name @rpath/libsdkdep.dylib -o "$work/sdk/lib/libsdkdep.dylib" "$work/sdk/dep.c"
   sdkopt=(-DOFX_TEST_SDK_LIBRARY="$work/sdk/lib/libsdkdep.dylib")
 fi
 run() { # mode: package | subdirectory
