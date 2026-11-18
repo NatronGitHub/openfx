@@ -25,6 +25,26 @@ Integer (Boolean) Properties
 - **Dimension**: 1
 - **Doc**: For detailed doc, see :c:macro:`kNatronOfxBooleanParamPropIsToggableButton`.
 
+.. _prop_NatronOfxHostIsNatron:
+
+**NatronOfxHostIsNatron**
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kNatronOfxHostIsNatron`
+- **Type**: bool
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kNatronOfxHostIsNatron`.
+
+.. _prop_NatronOfxImageEffectPluginUsesMultipleThread:
+
+**NatronOfxImageEffectPluginUsesMultipleThread**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kNatronOfxImageEffectPluginUsesMultipleThread`
+- **Type**: bool
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kNatronOfxImageEffectPluginUsesMultipleThread`.
+
 .. _prop_NatronOfxImageEffectPropDeprecated:
 
 **NatronOfxImageEffectPropDeprecated**
@@ -84,6 +104,26 @@ Integer (Boolean) Properties
 - **Type**: bool
 - **Dimension**: Variable (0 or more)
 - **Doc**: For detailed doc, see :c:macro:`kNatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier`.
+
+.. _prop_NatronOfxInteractColourPicking:
+
+**NatronOfxInteractColourPicking**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kNatronOfxInteractColourPicking`
+- **Type**: bool
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kNatronOfxInteractColourPicking`.
+
+.. _prop_NatronOfxInteractHostPropSupportsKeyModifiers:
+
+**NatronOfxInteractHostPropSupportsKeyModifiers**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kNatronOfxInteractHostPropSupportsKeyModifiers`
+- **Type**: bool
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kNatronOfxInteractHostPropSupportsKeyModifiers`.
 
 .. _prop_NatronOfxPageParamPropInViewerContextIsToolbar:
 
@@ -749,6 +789,16 @@ Integer (Boolean) Properties
 Double Properties
 -----------------
 
+.. _prop_NatronOfxImageEffectSelectionRectangle:
+
+**NatronOfxImageEffectSelectionRectangle**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kNatronOfxImageEffectSelectionRectangle`
+- **Type**: double
+- **Dimension**: 4
+- **Doc**: For detailed doc, see :c:macro:`kNatronOfxImageEffectSelectionRectangle`.
+
 .. _prop_NatronOfxPropPickerColour:
 
 **NatronOfxPropPickerColour**
@@ -1059,6 +1109,26 @@ Double Properties
 - **Used in Property Sets**: :ref:`ParamsParametric <propset_ParamsParametric>` (plugin)
 - **Doc**: For detailed doc, see :c:macro:`kOfxParamPropParametricUIColour`.
 
+.. _prop_OfxParametricParamCustomInterpInterpolationTime:
+
+**OfxParametricParamCustomInterpInterpolationTime**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxParametricParamCustomInterpInterpolationTime`
+- **Type**: double
+- **Dimension**: 2
+- **Doc**: For detailed doc, see :c:macro:`kOfxParametricParamCustomInterpInterpolationTime`.
+
+.. _prop_OfxParametricParamCustomInterpInterpolationValue:
+
+**OfxParametricParamCustomInterpInterpolationValue**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxParametricParamCustomInterpInterpolationValue`
+- **Type**: double
+- **Dimension**: 2
+- **Doc**: For detailed doc, see :c:macro:`kOfxParametricParamCustomInterpInterpolationValue`.
+
 .. _prop_OfxPropMatrix3x3:
 
 **OfxPropMatrix3x3**
@@ -1118,6 +1188,56 @@ Enumeration Properties
   - ``OfxImageComponentRGB``
   - ``OfxImageComponentAlpha``
 - **Doc**: For detailed doc, see :c:macro:`kNatronOfxImageEffectPropChannelSelector`.
+
+.. _prop_NatronOfxImageEffectPropDefaultCursors:
+
+**NatronOfxImageEffectPropDefaultCursors**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kNatronOfxImageEffectPropDefaultCursors`
+- **Type**: enum
+- **Dimension**: Variable (0 or more)
+- **Valid Values**:
+  - ``NatronOfxDefaultCursor``
+  - ``kNatronOfxBlankCursor``
+  - ``NatronOfxArrowCursor``
+  - ``NatronOfxUpArrowCursor``
+  - ``NatronOfxCrossCursor``
+  - ``NatronOfxIBeamCursor``
+  - ``NatronOfxWaitCursor``
+  - ``NatronOfxBusyCursor``
+  - ``NatronOfxForbiddenCursor``
+  - ``NatronOfxPointingHandCursor``
+  - ``NatronOfxWhatsThisCursor``
+  - ``NatronOfxSizeVerCursor``
+  - ``NatronOfxSizeHorCursor``
+  - ``NatronOfxSizeBDiagCursor``
+  - ``NatronOfxSizeFDiagCursor``
+  - ``NatronOfxSizeAllCursor``
+  - ``NatronOfxSplitVCursor``
+  - ``NatronOfxSplitHCursor``
+  - ``NatronOfxOpenHandCursor``
+  - ``NatronOfxClosedHandCursor``
+- **Doc**: For detailed doc, see :c:macro:`kNatronOfxImageEffectPropDefaultCursors`.
+
+.. _prop_OfxHostPropSupportedParametricInterpolations:
+
+**OfxHostPropSupportedParametricInterpolations**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxHostPropSupportedParametricInterpolations`
+- **Type**: enum
+- **Dimension**: Variable (0 or more)
+- **Valid Values**:
+  - ``OfxHostParametricInterpolationDefault``
+  - ``OfxHostParametricInterpolationConstant``
+  - ``OfxHostParametricInterpolationLinear``
+  - ``OfxHostParametricInterpolationHorizontal``
+  - ``OfxHostParametricInterpolationSmooth``
+  - ``OfxHostParametricInterpolationCubic``
+  - ``OfxHostParametricInterpolationCatmullRom``
+  - ``OfxHostParametricInterpolationCustom``
+- **Doc**: For detailed doc, see :c:macro:`kOfxHostPropSupportedParametricInterpolations`.
 
 .. _prop_OfxImageClipPropFieldExtraction:
 
@@ -1471,6 +1591,21 @@ Enumeration Properties
   - ``OfxImageAlphaUnPremultiplied``
 - **Doc**: For detailed doc, see :c:macro:`kOfxImageEffectPropPreMultiplication`.
 
+.. _prop_OfxImageEffectPropRenderQuality:
+
+**OfxImageEffectPropRenderQuality**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxImageEffectPropRenderQuality`
+- **Type**: enum
+- **Dimension**: 1
+- **Valid Values**:
+  - ``OfxImageEffectPropRenderQualityDraft``
+  - ``OfxImageEffectPropRenderQualityPreview``
+  - ``OfxImageEffectPropRenderQualityGood``
+  - ``OfxImageEffectPropRenderQualityBest``
+- **Doc**: For detailed doc, see :c:macro:`kOfxImageEffectPropRenderQuality`.
+
 .. _prop_OfxImageEffectPropSupportedComponents:
 
 **OfxImageEffectPropSupportedComponents**
@@ -1536,6 +1671,25 @@ Enumeration Properties
 - **Introduced in**: version 1.5.1
 - **Doc**: For detailed doc, see :c:macro:`kOfxImageEffectPropThumbnailRender`.
 
+.. _prop_OfxImageEffectPropVegasContext:
+
+**OfxImageEffectPropVegasContext**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxImageEffectPropVegasContext`
+- **Type**: enum
+- **Dimension**: 1
+- **Valid Values**:
+  - ``OfxImageEffectPropVegasContextUnknown``
+  - ``OfxImageEffectPropVegasContextMedia``
+  - ``OfxImageEffectPropVegasContextTrack``
+  - ``OfxImageEffectPropVegasContextEvent``
+  - ``OfxImageEffectPropVegasContextEventFadeIn``
+  - ``OfxImageEffectPropVegasContextEventFadeOut``
+  - ``OfxImageEffectPropVegasContextProject``
+  - ``OfxImageEffectPropVegasContextGenerator``
+- **Doc**: For detailed doc, see :c:macro:`kOfxImageEffectPropVegasContext`.
+
 .. _prop_OfxImagePropField:
 
 **OfxImagePropField**
@@ -1551,6 +1705,76 @@ Enumeration Properties
   - ``OfxFieldLower``
   - ``OfxFieldUpper``
 - **Doc**: For detailed doc, see :c:macro:`kOfxImagePropField`.
+
+.. _prop_OfxInteractHostPropSupportedCursors:
+
+**OfxInteractHostPropSupportedCursors**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxInteractHostPropSupportedCursors`
+- **Type**: enum
+- **Dimension**: Variable (0 or more)
+- **Valid Values**:
+  - ``default``
+  - ``none``
+  - ``OfxInteractCursorCustom``
+  - ``pointer``
+  - ``crosshair``
+  - ``text``
+  - ``wait``
+  - ``progress``
+  - ``not-allowed``
+  - ``help``
+  - ``cell``
+  - ``copy``
+  - ``move``
+  - ``grab``
+  - ``grabbing``
+  - ``all-scroll``
+  - ``col-resize``
+  - ``row-resize``
+  - ``ew-resize``
+  - ``ns-resize``
+  - ``nesw-resize``
+  - ``nwse-resize``
+  - ``zoom-in``
+  - ``zoom-out``
+- **Doc**: For detailed doc, see :c:macro:`kOfxInteractHostPropSupportedCursors`.
+
+.. _prop_OfxInteractPropCursor:
+
+**OfxInteractPropCursor**
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxInteractPropCursor`
+- **Type**: enum
+- **Dimension**: 1
+- **Valid Values**:
+  - ``default``
+  - ``none``
+  - ``OfxInteractCursorCustom``
+  - ``pointer``
+  - ``crosshair``
+  - ``text``
+  - ``wait``
+  - ``progress``
+  - ``not-allowed``
+  - ``help``
+  - ``cell``
+  - ``copy``
+  - ``move``
+  - ``grab``
+  - ``grabbing``
+  - ``all-scroll``
+  - ``col-resize``
+  - ``row-resize``
+  - ``ew-resize``
+  - ``ns-resize``
+  - ``nesw-resize``
+  - ``nwse-resize``
+  - ``zoom-in``
+  - ``zoom-out``
+- **Doc**: For detailed doc, see :c:macro:`kOfxInteractPropCursor`.
 
 .. _prop_OfxOpenGLPropPixelDepth:
 
@@ -1568,6 +1792,36 @@ Enumeration Properties
   - ``OfxBitDepthHalf``
   - ``OfxBitDepthFloat``
 - **Doc**: For detailed doc, see :c:macro:`kOfxOpenGLPropPixelDepth`.
+
+.. _prop_OfxParamColorDefaultColorspace:
+
+**OfxParamColorDefaultColorspace**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxParamColorDefaultColorspace`
+- **Type**: enum
+- **Dimension**: 1
+- **Valid Values**:
+  - ``OfxParamColorColorspaceRGB``
+  - ``OfxParamColorColorspaceHSL``
+  - ``OfxParamColorColorspaceHSV``
+  - ``OfxParamColorColorspaceLab``
+- **Doc**: For detailed doc, see :c:macro:`kOfxParamColorDefaultColorspace`.
+
+.. _prop_OfxParamInterpType:
+
+**OfxParamInterpType**
+^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxParamInterpType`
+- **Type**: enum
+- **Dimension**: 1
+- **Used in Property Sets**: :ref:`ParamsByte <propset_ParamsByte>` (plugin), :ref:`ParamsDouble1D <propset_ParamsDouble1D>` (plugin)
+- **Valid Values**:
+  - ``OfxParamInterpTypeConstantStep``
+  - ``OfxParamInterpTypeLinear``
+  - ``OfxParamInterpTypeSmooth``
+- **Doc**: For detailed doc, see :c:macro:`kOfxParamInterpType`.
 
 .. _prop_OfxParamPropCacheInvalidation:
 
@@ -1655,6 +1909,20 @@ Enumeration Properties
   - ``OfxParamStringIsRichTextFormat``
 - **Doc**: For detailed doc, see :c:macro:`kOfxParamPropStringMode`.
 
+.. _prop_OfxProbPluginVegasPresetThumbnail:
+
+**OfxProbPluginVegasPresetThumbnail**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxProbPluginVegasPresetThumbnail`
+- **Type**: enum
+- **Dimension**: 1
+- **Valid Values**:
+  - ``OfxProbPluginVegasPresetThumbnailDefault``
+  - ``OfxProbPluginVegasPresetThumbnailSolidImage``
+  - ``OfxProbPluginVegasPresetThumbnailImageWithAlpha``
+- **Doc**: For detailed doc, see :c:macro:`kOfxProbPluginVegasPresetThumbnail`.
+
 .. _prop_OfxPropChangeReason:
 
 **OfxPropChangeReason**
@@ -1668,6 +1936,26 @@ Enumeration Properties
   - ``OfxChangePluginEdited``
   - ``OfxChangeTime``
 - **Doc**: For detailed doc, see :c:macro:`kOfxPropChangeReason`.
+
+.. _prop_OfxPropVegasUpliftKeyframeInterpolation:
+
+**OfxPropVegasUpliftKeyframeInterpolation**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxPropVegasUpliftKeyframeInterpolation`
+- **Type**: enum
+- **Dimension**: Variable (0 or more)
+- **Valid Values**:
+  - ``OfxVegasKeyframeInterpolationUnknown``
+  - ``OfxVegasKeyframeInterpolationLinear``
+  - ``OfxVegasKeyframeInterpolationFast``
+  - ``OfxVegasKeyframeInterpolationSlow``
+  - ``OfxVegasKeyframeInterpolationSmooth``
+  - ``OfxVegasKeyframeInterpolationSharp``
+  - ``OfxVegasKeyframeInterpolationHold``
+  - ``OfxVegasKeyframeInterpolationManual``
+  - ``OfxVegasKeyframeInterpolationSplit``
+- **Doc**: For detailed doc, see :c:macro:`kOfxPropVegasUpliftKeyframeInterpolation`.
 
 
 Integer Properties
@@ -1692,6 +1980,16 @@ Integer Properties
 - **Type**: int
 - **Dimension**: Variable (0 or more)
 - **Doc**: For detailed doc, see :c:macro:`kNatronOfxImageEffectPropInViewerContextShortcutSymbol`.
+
+.. _prop_NatronOfxInteractPropKeyModifiers:
+
+**NatronOfxInteractPropKeyModifiers**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kNatronOfxInteractPropKeyModifiers`
+- **Type**: int
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kNatronOfxInteractPropKeyModifiers`.
 
 .. _prop_NatronOfxParamHostPropSupportsDynamicChoices:
 
@@ -2047,6 +2345,26 @@ Integer Properties
 - **Dimension**: 1
 - **Doc**: For detailed doc, see :c:macro:`kNatronOfxParamPropParametricIsPeriodic`.
 
+.. _prop_OfxParametricParamCustomInterpControlPointIndex:
+
+**OfxParametricParamCustomInterpControlPointIndex**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxParametricParamCustomInterpControlPointIndex`
+- **Type**: int
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kOfxParametricParamCustomInterpControlPointIndex`.
+
+.. _prop_OfxParametricParamCustomInterpCurveIndex:
+
+**OfxParametricParamCustomInterpCurveIndex**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxParametricParamCustomInterpCurveIndex`
+- **Type**: int
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kOfxParametricParamCustomInterpCurveIndex`.
+
 .. _prop_OfxPropAPIVersion:
 
 **OfxPropAPIVersion**
@@ -2240,6 +2558,16 @@ Pointer Properties
 - **Dimension**: 1
 - **Doc**: For detailed doc, see :c:macro:`kOfxInteractPropDrawContext`.
 
+.. _prop_OfxParamParametricInterpolationCustomInterpCallbackV1:
+
+**OfxParamParametricInterpolationCustomInterpCallbackV1**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxParamParametricInterpolationCustomInterpCallbackV1`
+- **Type**: pointer
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kOfxParamParametricInterpolationCustomInterpCallbackV1`.
+
 .. _prop_OfxParamPropCustomCallbackV1:
 
 **OfxParamPropCustomCallbackV1**
@@ -2371,15 +2699,15 @@ Pointer Properties
 String Properties
 -----------------
 
-.. _prop_NatronOfxImageEffectPropDefaultCursors:
+.. _prop_NatronOfxExtraCreatedPlanes:
 
-**NatronOfxImageEffectPropDefaultCursors**
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+**NatronOfxExtraCreatedPlanes**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-- **C #define**: :c:macro:`kNatronOfxImageEffectPropDefaultCursors`
+- **C #define**: :c:macro:`kNatronOfxExtraCreatedPlanes`
 - **Type**: string
 - **Dimension**: Variable (0 or more)
-- **Doc**: For detailed doc, see :c:macro:`kNatronOfxImageEffectPropDefaultCursors`.
+- **Doc**: For detailed doc, see :c:macro:`kNatronOfxExtraCreatedPlanes`.
 
 .. _prop_NatronOfxImageEffectPropGroupId:
 
@@ -2450,16 +2778,6 @@ String Properties
 - **Type**: string
 - **Dimension**: Variable (0 or more)
 - **Doc**: For detailed doc, see :c:macro:`kNatronOfxPropNativeOverlays`.
-
-.. _prop_OfxHostPropSupportedParametricInterpolations:
-
-**OfxHostPropSupportedParametricInterpolations**
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-- **C #define**: :c:macro:`kOfxHostPropSupportedParametricInterpolations`
-- **Type**: string
-- **Dimension**: Variable (0 or more)
-- **Doc**: For detailed doc, see :c:macro:`kOfxHostPropSupportedParametricInterpolations`.
 
 .. _prop_OfxImageClipPropColourspace:
 
@@ -2589,16 +2907,6 @@ String Properties
 - **Introduced in**: version 1.5
 - **Doc**: For detailed doc, see :c:macro:`kOfxImageEffectPropOCIOView`.
 
-.. _prop_OfxImageEffectPropRenderQuality:
-
-**OfxImageEffectPropRenderQuality**
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-- **C #define**: :c:macro:`kOfxImageEffectPropRenderQuality`
-- **Type**: string
-- **Dimension**: 1
-- **Doc**: For detailed doc, see :c:macro:`kOfxImageEffectPropRenderQuality`.
-
 .. _prop_OfxImageEffectPropResolvePage:
 
 **OfxImageEffectPropResolvePage**
@@ -2608,16 +2916,6 @@ String Properties
 - **Type**: string
 - **Dimension**: 1
 - **Doc**: For detailed doc, see :c:macro:`kOfxImageEffectPropResolvePage`.
-
-.. _prop_OfxImageEffectPropVegasContext:
-
-**OfxImageEffectPropVegasContext**
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-- **C #define**: :c:macro:`kOfxImageEffectPropVegasContext`
-- **Type**: string
-- **Dimension**: 1
-- **Doc**: For detailed doc, see :c:macro:`kOfxImageEffectPropVegasContext`.
 
 .. _prop_OfxImageEffectPropVegasUpliftGUID:
 
@@ -2639,26 +2937,6 @@ String Properties
 - **Dimension**: 1
 - **Used in Property Sets**: :ref:`Image <propset_Image>` (host), :ref:`OpenGLTexture <propset_OpenGLTexture>` (host)
 - **Doc**: For detailed doc, see :c:macro:`kOfxImagePropUniqueIdentifier`.
-
-.. _prop_OfxInteractHostPropSupportedCursors:
-
-**OfxInteractHostPropSupportedCursors**
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-- **C #define**: :c:macro:`kOfxInteractHostPropSupportedCursors`
-- **Type**: string
-- **Dimension**: Variable (0 or more)
-- **Doc**: For detailed doc, see :c:macro:`kOfxInteractHostPropSupportedCursors`.
-
-.. _prop_OfxInteractPropCursor:
-
-**OfxInteractPropCursor**
-^^^^^^^^^^^^^^^^^^^^^^^^^
-
-- **C #define**: :c:macro:`kOfxInteractPropCursor`
-- **Type**: string
-- **Dimension**: 1
-- **Doc**: For detailed doc, see :c:macro:`kOfxInteractPropCursor`.
 
 .. _prop_OfxInteractPropCursorImage:
 
@@ -2897,16 +3175,6 @@ String Properties
 - **Type**: string
 - **Dimension**: 1
 - **Doc**: For detailed doc, see :c:macro:`kOfxPropVegasHostAppDataDirectory`.
-
-.. _prop_OfxPropVegasUpliftKeyframeInterpolation:
-
-**OfxPropVegasUpliftKeyframeInterpolation**
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-- **C #define**: :c:macro:`kOfxPropVegasUpliftKeyframeInterpolation`
-- **Type**: string
-- **Dimension**: Variable (0 or more)
-- **Doc**: For detailed doc, see :c:macro:`kOfxPropVegasUpliftKeyframeInterpolation`.
 
 .. _prop_OfxPropVersionLabel:
 
