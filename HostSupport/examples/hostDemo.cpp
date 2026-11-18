@@ -124,7 +124,7 @@ static long countNaNPixels(const MyHost::MyImage& im)
     for (int x = b.x1; x < b.x2; ++x) {
       const float* pix = reinterpret_cast<const float*>(im.getPixelData(x, y));
       for (int c = 0; c < nComps; ++c) {
-        if (pix[c] != pix[c]) {
+        if (OFX::IsNaN(pix[c])) { // a bit test, which -ffast-math doesn't remove
           ++n;
           break;
         }
@@ -254,7 +254,8 @@ struct ImageStats {
   OfxRectI bounds;
   int nComps;
   int bytesPerComponent;
-  double min[4], max[4], mean[4]; ///< NaN if there is no value
+  double min[4], max[4], mean[4]; ///< only meaningful if count > 0
+  long count[4]; ///< the number of non-NaN values of each component
   long nanPixels;
   unsigned long crc32;
 };
@@ -278,11 +279,11 @@ static ImageStats computeStats(const MyHost::MyImage& im)
   const int bpc = im.getBytesPerComponent();
   st.nComps = nComps;
   st.bytesPerComponent = bpc;
-  const double nan = std::numeric_limits<double>::quiet_NaN();
   double sum[4] = { 0., 0., 0., 0. };
-  long count[4] = { 0, 0, 0, 0 };
+  long* count = st.count;
   for (int c = 0; c < 4; ++c) {
-    st.min[c] = st.max[c] = st.mean[c] = nan;
+    st.min[c] = st.max[c] = st.mean[c] = 0.;
+    count[c] = 0;
   }
   long nanPixels = 0;
   unsigned long crc = 0;
@@ -304,7 +305,7 @@ static ImageStats computeStats(const MyHost::MyImage& im)
       bool isNaN = false;
       for (int c = 0; c < nComps; ++c) {
         const double v = im.getComponent(x, y, c);
-        if (v != v) {
+        if (OFX::IsNaN(v)) { // a bit test, which -ffast-math doesn't remove (NaN marks unwritten pixels)
           isNaN = true;
           continue;
         }
@@ -413,7 +414,11 @@ static Json statsJson(const ImageStats& st, const std::vector<std::string>& file
   for (int k = 0; k < 3; ++k) {
     Json& a = j[names[k]] = Json::array();
     for (int c = 0; c < st.nComps; ++c) {
-      a.push((k == 0) ? st.min[c] : (k == 1) ? st.max[c] : st.mean[c]); // NaN (no value) is null
+      if (st.count[c] == 0) {
+        a.push(Json()); // no value: null
+      } else {
+        a.push((k == 0) ? st.min[c] : (k == 1) ? st.max[c] : st.mean[c]);
+      }
     }
   }
   j["nan"] = st.nanPixels;
@@ -708,7 +713,7 @@ static void fillMessagesJson(const MyHost::MyEffectInstance& instance, Json& rep
     j["started"] = true;
     j["ended"] = p[i].ended;
     j["updates"] = p[i].updates;
-    j["lastValue"] = p[i].lastValue; // null if there was no update
+    j["lastValue"] = (p[i].updates > 0) ? Json(p[i].lastValue) : Json(); // null if there was no update
   }
 }
 

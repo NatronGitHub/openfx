@@ -50,7 +50,7 @@ namespace MyHost {
     std::string message;
     std::string id;
     int         updates;    ///< the number of progressUpdate calls
-    double      lastValue;  ///< the last progressUpdate value (NaN if none)
+    double      lastValue;  ///< the last progressUpdate value (only meaningful if updates > 0)
     bool        ended;      ///< progressEnd was called
   };
 

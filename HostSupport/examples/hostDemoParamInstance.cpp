@@ -49,6 +49,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ofxhPluginCache.h"
 #include "ofxhHost.h"
 #include "ofxhImageEffectAPI.h"
+#include "ofxhUtilities.h" // IsNaN, IsInfinite
 
 // my host
 #include "hostDemoHostDescriptor.h"
@@ -237,26 +238,48 @@ namespace MyHost {
     }
   }
 
-  void MyCurve::set(const double* v)
+  // is v finite? (bit tests, which -ffast-math doesn't remove)
+  static bool isFinite(double v)
   {
-    if (_keys.empty()) {
-      _value.assign(v, v + _dimension);
-    } else {
-      set(currentTime(), v); // a parameter with keys: the key at the current time
-    }
+    return !OFX::IsNaN(v) && !OFX::IsInfinite(v);
   }
 
-  void MyCurve::set(OfxTime time, const double* v)
+  // non-finite values are refused (kOfxStatErrValue): an infinite key time or value would give
+  // inf/inf, inf-inf or 0*inf (NaN) in the interpolation, the derivative and the integral
+  OfxStatus MyCurve::set(const double* v)
   {
+    for (int k = 0; k < _dimension; ++k) {
+      if (!isFinite(v[k])) {
+        return kOfxStatErrValue;
+      }
+    }
+    if (_keys.empty()) {
+      _value.assign(v, v + _dimension);
+      return kOfxStatOK;
+    }
+    return set(currentTime(), v); // a parameter with keys: the key at the current time
+  }
+
+  OfxStatus MyCurve::set(OfxTime time, const double* v)
+  {
+    if (!isFinite(time)) {
+      return kOfxStatErrValue;
+    }
+    for (int k = 0; k < _dimension; ++k) {
+      if (!isFinite(v[k])) {
+        return kOfxStatErrValue;
+      }
+    }
     if (!_animates) {
       _value.assign(v, v + _dimension);
-      return;
+      return kOfxStatOK;
     }
     Keys::const_iterator it = findKey(time);
     if (it != _keys.end()) {
       time = it->first; // the same key
     }
     _keys[time].assign(v, v + _dimension);
+    return kOfxStatOK;
   }
 
   void MyCurve::derive(OfxTime time, double* v) const
@@ -277,9 +300,13 @@ namespace MyHost {
   }
 
   // the integral of the (piecewise linear or piecewise constant) curve from time1 to time2
-  void MyCurve::integrate(OfxTime time1, OfxTime time2, double* v) const
+  // (non-finite bounds are refused: an infinite interval gives inf-inf or 0*inf)
+  OfxStatus MyCurve::integrate(OfxTime time1, OfxTime time2, double* v) const
   {
     std::fill(v, v + _dimension, 0.);
+    if (!isFinite(time1) || !isFinite(time2)) {
+      return kOfxStatErrValue;
+    }
     const double sign = time2 < time1 ? -1. : 1.;
     if (time2 < time1) {
       std::swap(time1, time2);
@@ -307,6 +334,7 @@ namespace MyHost {
     for (int k = 0; k < _dimension; ++k) {
       v[k] *= sign;
     }
+    return kOfxStatOK;
   }
 
   OfxStatus MyCurve::getNumKeys(unsigned int& nKeys) const
@@ -451,15 +479,13 @@ namespace MyHost {
   OfxStatus MyIntegerInstance::set(int v)
   {
     const double d = (double)v;
-    _curve.set(&d);
-    return kOfxStatOK;
+    return _curve.set(&d);
   }
 
   OfxStatus MyIntegerInstance::set(OfxTime time, int v)
   {
     const double d = (double)v;
-    _curve.set(time, &d);
-    return kOfxStatOK;
+    return _curve.set(time, &d);
   }
 
   //
@@ -492,15 +518,13 @@ namespace MyHost {
   OfxStatus MyDoubleInstance::set(double v)
   {
     const double d = v;
-    _curve.set(&d);
-    return kOfxStatOK;
+    return _curve.set(&d);
   }
 
   OfxStatus MyDoubleInstance::set(OfxTime time, double v)
   {
     const double d = v;
-    _curve.set(time, &d);
-    return kOfxStatOK;
+    return _curve.set(time, &d);
   }
 
   OfxStatus MyDoubleInstance::derive(OfxTime time, double& d)
@@ -511,8 +535,7 @@ namespace MyHost {
 
   OfxStatus MyDoubleInstance::integrate(OfxTime time1, OfxTime time2, double& d)
   {
-    _curve.integrate(time1, time2, &d);
-    return kOfxStatOK;
+    return _curve.integrate(time1, time2, &d);
   }
 
   //
@@ -545,15 +568,13 @@ namespace MyHost {
   OfxStatus MyBooleanInstance::set(bool v)
   {
     const double d = v ? 1. : 0.;
-    _curve.set(&d);
-    return kOfxStatOK;
+    return _curve.set(&d);
   }
 
   OfxStatus MyBooleanInstance::set(OfxTime time, bool v)
   {
     const double d = v ? 1. : 0.;
-    _curve.set(time, &d);
-    return kOfxStatOK;
+    return _curve.set(time, &d);
   }
 
   //
@@ -623,8 +644,7 @@ namespace MyHost {
       return kOfxStatErrValue;
     }
     const double d = (double)v;
-    _curve.set(&d);
-    return kOfxStatOK;
+    return _curve.set(&d);
   }
 
   OfxStatus MyChoiceInstance::set(OfxTime time, int v)
@@ -633,8 +653,7 @@ namespace MyHost {
       return kOfxStatErrValue;
     }
     const double d = (double)v;
-    _curve.set(time, &d);
-    return kOfxStatOK;
+    return _curve.set(time, &d);
   }
 
   //
@@ -673,15 +692,13 @@ namespace MyHost {
   OfxStatus MyRGBAInstance::set(double r,double g,double b,double a)
   {
     const double d[4] = { (double)r, (double)g, (double)b, (double)a };
-    _curve.set(d);
-    return kOfxStatOK;
+    return _curve.set(d);
   }
 
   OfxStatus MyRGBAInstance::set(OfxTime time, double r,double g,double b,double a)
   {
     const double d[4] = { (double)r, (double)g, (double)b, (double)a };
-    _curve.set(time, d);
-    return kOfxStatOK;
+    return _curve.set(time, d);
   }
 
   // ("Only double and colour params can have their derivatives found", "can be integrated")
@@ -699,7 +716,10 @@ namespace MyHost {
   OfxStatus MyRGBAInstance::integrate(OfxTime time1, OfxTime time2, double& r, double& g, double& b, double& a)
   {
     double d[4];
-    _curve.integrate(time1, time2, d);
+    const OfxStatus st = _curve.integrate(time1, time2, d);
+    if (st != kOfxStatOK) {
+      return st;
+    }
     r = d[0];
     g = d[1];
     b = d[2];
@@ -741,15 +761,13 @@ namespace MyHost {
   OfxStatus MyRGBInstance::set(double r,double g,double b)
   {
     const double d[3] = { (double)r, (double)g, (double)b };
-    _curve.set(d);
-    return kOfxStatOK;
+    return _curve.set(d);
   }
 
   OfxStatus MyRGBInstance::set(OfxTime time, double r,double g,double b)
   {
     const double d[3] = { (double)r, (double)g, (double)b };
-    _curve.set(time, d);
-    return kOfxStatOK;
+    return _curve.set(time, d);
   }
 
   // ("Only double and colour params can have their derivatives found", "can be integrated")
@@ -766,7 +784,10 @@ namespace MyHost {
   OfxStatus MyRGBInstance::integrate(OfxTime time1, OfxTime time2, double& r, double& g, double& b)
   {
     double d[3];
-    _curve.integrate(time1, time2, d);
+    const OfxStatus st = _curve.integrate(time1, time2, d);
+    if (st != kOfxStatOK) {
+      return st;
+    }
     r = d[0];
     g = d[1];
     b = d[2];
@@ -805,15 +826,13 @@ namespace MyHost {
   OfxStatus MyDouble2DInstance::set(double x,double y)
   {
     const double d[2] = { (double)x, (double)y };
-    _curve.set(d);
-    return kOfxStatOK;
+    return _curve.set(d);
   }
 
   OfxStatus MyDouble2DInstance::set(OfxTime time, double x,double y)
   {
     const double d[2] = { (double)x, (double)y };
-    _curve.set(time, d);
-    return kOfxStatOK;
+    return _curve.set(time, d);
   }
 
   // ("Only double and colour params can have their derivatives found", "can be integrated")
@@ -829,7 +848,10 @@ namespace MyHost {
   OfxStatus MyDouble2DInstance::integrate(OfxTime time1, OfxTime time2, double& x, double& y)
   {
     double d[2];
-    _curve.integrate(time1, time2, d);
+    const OfxStatus st = _curve.integrate(time1, time2, d);
+    if (st != kOfxStatOK) {
+      return st;
+    }
     x = d[0];
     y = d[1];
     return kOfxStatOK;
@@ -867,15 +889,13 @@ namespace MyHost {
   OfxStatus MyInteger2DInstance::set(int x,int y)
   {
     const double d[2] = { (double)x, (double)y };
-    _curve.set(d);
-    return kOfxStatOK;
+    return _curve.set(d);
   }
 
   OfxStatus MyInteger2DInstance::set(OfxTime time, int x,int y)
   {
     const double d[2] = { (double)x, (double)y };
-    _curve.set(time, d);
-    return kOfxStatOK;
+    return _curve.set(time, d);
   }
 
   //
@@ -912,15 +932,13 @@ namespace MyHost {
   OfxStatus MyDouble3DInstance::set(double x,double y,double z)
   {
     const double d[3] = { (double)x, (double)y, (double)z };
-    _curve.set(d);
-    return kOfxStatOK;
+    return _curve.set(d);
   }
 
   OfxStatus MyDouble3DInstance::set(OfxTime time, double x,double y,double z)
   {
     const double d[3] = { (double)x, (double)y, (double)z };
-    _curve.set(time, d);
-    return kOfxStatOK;
+    return _curve.set(time, d);
   }
 
   // ("Only double and colour params can have their derivatives found", "can be integrated")
@@ -937,7 +955,10 @@ namespace MyHost {
   OfxStatus MyDouble3DInstance::integrate(OfxTime time1, OfxTime time2, double& x, double& y, double& z)
   {
     double d[3];
-    _curve.integrate(time1, time2, d);
+    const OfxStatus st = _curve.integrate(time1, time2, d);
+    if (st != kOfxStatOK) {
+      return st;
+    }
     x = d[0];
     y = d[1];
     z = d[2];
@@ -978,15 +999,13 @@ namespace MyHost {
   OfxStatus MyInteger3DInstance::set(int x,int y,int z)
   {
     const double d[3] = { (double)x, (double)y, (double)z };
-    _curve.set(d);
-    return kOfxStatOK;
+    return _curve.set(d);
   }
 
   OfxStatus MyInteger3DInstance::set(OfxTime time, int x,int y,int z)
   {
     const double d[3] = { (double)x, (double)y, (double)z };
-    _curve.set(time, d);
-    return kOfxStatOK;
+    return _curve.set(time, d);
   }
 
   //

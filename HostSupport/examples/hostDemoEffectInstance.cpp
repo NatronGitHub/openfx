@@ -310,7 +310,7 @@ namespace MyHost {
     p.message = message;
     p.id = messageid;
     p.updates = 0;
-    p.lastValue = std::numeric_limits<double>::quiet_NaN();
+    p.lastValue = 0.;
     p.ended = false;
     _progress.push_back(p);
   }
