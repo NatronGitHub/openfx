@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #ifdef _WIN32
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 
@@ -260,11 +262,10 @@ ChoiceParamsPlugin::setupAndProcess(ImageScalerBase &processor, const OFX::Rende
 {
   // get a dst image
   std::unique_ptr<OFX::Image> dst(dstClip_->fetchImage(args.time));
-  OFX::BitDepthEnum dstBitDepth       = dst->getPixelDepth();
-  OFX::PixelComponentEnum dstComponents  = dst->getPixelComponents();
-
   if(!dst.get())
     OFX::throwSuiteStatusException(kOfxStatFailed);
+  OFX::BitDepthEnum dstBitDepth       = dst->getPixelDepth();
+  OFX::PixelComponentEnum dstComponents  = dst->getPixelComponents();
 
   // fetch main input image (none if disconnected: the output is then black)
   std::unique_ptr<OFX::Image> src(srcClip_->isConnected() ? srcClip_->fetchImage(args.time) : NULL);
