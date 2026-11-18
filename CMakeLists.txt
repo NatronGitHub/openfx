@@ -55,6 +55,9 @@ option(OFX_EXTENSIONS_NUKE "Nuke extensions (nuke/)" ON)
 option(OFX_EXTENSIONS_VEGAS "Sony Vegas extensions (ofxSonyVegas.h)" ON)
 option(OFX_EXTENSIONS_TUTTLE "TuttleOFX extensions (tuttle/)" ON)
 option(OFX_EXTENSIONS_RESOLVE "DaVinci Resolve extensions" OFF)
+if(OFX_EXTENSIONS_NATRON AND NOT OFX_EXTENSIONS_NUKE)
+  message(FATAL_ERROR "OFX_EXTENSIONS_NATRON needs OFX_EXTENSIONS_NUKE (the Natron extensions use the Nuke ones)")
+endif()
 # Host-side features: they add pure virtual functions to OFX::Host::ImageEffect::Host,
 # so only enable them for a host that implements them (Natron enables both).
 option(OFX_SUPPORTS_MULTITHREAD "HostSupport: the host implements OfxMultiThreadSuiteV1" OFF)

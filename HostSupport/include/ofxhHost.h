@@ -30,6 +30,10 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#if defined(OFX_EXTENSIONS_NATRON) && !defined(OFX_EXTENSIONS_NUKE)
+#error "OFX_EXTENSIONS_NATRON needs OFX_EXTENSIONS_NUKE: the Natron extensions use the Nuke ones (views, planes, transforms)"
+#endif
+
 #include <map>
 #include <string>
 #include <cstdarg>

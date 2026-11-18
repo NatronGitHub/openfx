@@ -87,6 +87,9 @@ of the direct OFX objects and any library side only functions.
 #pragma warning( disable : 4290 )
 #endif
 
+#if defined(OFX_EXTENSIONS_NATRON) && !defined(OFX_EXTENSIONS_NUKE)
+#error "OFX_EXTENSIONS_NATRON needs OFX_EXTENSIONS_NUKE: the Natron extensions use the Nuke ones (views, planes, transforms)"
+#endif
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
 #include "ofxInteract.h"
