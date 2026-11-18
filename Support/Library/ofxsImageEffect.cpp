@@ -304,6 +304,52 @@ namespace OFX {
     // @brief the set of descriptors, one per context used by kOfxActionDescribeInContext,
     //'eContextNone' is the one used by the kOfxActionDescribe
     EffectDescriptorMap gEffectDescriptors;
+
+    // Create the entries of a plug-in in gEffectDescriptors, one per context, with NULL
+    // descriptors. Called from init(), before any action: afterwards, describe and unload only
+    // assign the descriptors, so the structure of the maps doesn't change while other plug-ins
+    // of the binary look them up on render threads (getEffectDescriptor, e.g. for the regions
+    // of interest).
+    void reserveEffectDescriptors(const std::string& id, unsigned int majorVersion, unsigned int minorVersion)
+    {
+      VersionIDKey key;
+      key.id = id;
+      key.majorVersion = majorVersion;
+      key.minorVersion = minorVersion;
+      EffectContextMap& contexts = gEffectDescriptors[key];
+      static const ContextEnum all[] = {
+        eContextNone, eContextGenerator, eContextFilter, eContextTransition, eContextPaint,
+        eContextGeneral, eContextRetimer,
+#ifdef OFX_EXTENSIONS_TUTTLE
+        eContextReader, eContextWriter,
+#endif
+#ifdef OFX_EXTENSIONS_NATRON
+        eContextTracker,
+#endif
+      };
+      for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); ++i) {
+        if (contexts.find(all[i]) == contexts.end()) {
+          contexts[all[i]] = NULL;
+        }
+      }
+    }
+
+    // Set the descriptor of a plug-in in a context, deleting the previous one. The entry
+    // exists (reserveEffectDescriptors): find() and an assignment, not operator[], which may
+    // insert, so the structure of the maps doesn't change under the render-thread lookups.
+    void setEffectDescriptor(const VersionIDKey& key, ContextEnum context, ImageEffectDescriptor* desc)
+    {
+      EffectDescriptorMap::iterator it = gEffectDescriptors.find(key);
+      EffectContextMap::iterator it2;
+      if (it == gEffectDescriptors.end() || (it2 = it->second.find(context)) == it->second.end()) {
+        OFX::Log::error(true, "No reserved descriptor entry for plugin '%s' %u.%u in context %d.",
+                        key.id.c_str(), key.majorVersion, key.minorVersion, (int)context);
+        delete desc;
+        throw OFX::Exception::Suite(kOfxStatFailed);
+      }
+      delete it2->second;
+      it2->second = desc;
+    }
   }
 
   /** @brief map a std::string to a context */
@@ -4472,17 +4518,22 @@ namespace OFX {
         key.majorVersion = majorVersion;
         key.minorVersion = minorVersion;
         EffectDescriptorMap::iterator it = gEffectDescriptors.find(key);
-        // There is an entry in gEffectDescriptors only if describeInContext() was called
         if ( it != gEffectDescriptors.end() ) {
+          // the descriptors are deleted, but the entries are kept (with NULL descriptors), as
+          // for plugInfoMap below: other plug-ins of this binary may be rendering
           EffectContextMap& toBeDeleted = it->second;
           for(EffectContextMap::iterator it2 = toBeDeleted.begin(); it2 != toBeDeleted.end(); ++it2) {
-            OFX::ImageEffectDescriptor* desc = it2->second;
-            delete desc;
+            delete it2->second;
+            it2->second = NULL;
           }
-          gEffectDescriptors.erase(it);
         }
       }
-      { 
+      {
+        // The entry is kept, with a NULL _plug, instead of being erased: the other plug-ins of
+        // this binary may run actions on other threads (e.g. renders) while this one is
+        // unloaded, and their mainEntryStr looks up plugInfoMap. Erasing would change the
+        // map's structure under that lookup (a data race). The structure of plugInfoMap and of
+        // gEffectDescriptors only changes in init(), before any action.
         OFX::OfxPlugInfoMap::iterator it = OFX::plugInfoMap.find(id);
         assert( it != OFX::plugInfoMap.end() );
         if (it != OFX::plugInfoMap.end() ) {
@@ -4492,7 +4543,7 @@ namespace OFX {
             (*it2) = 0;
           }
           delete plug;
-          OFX::plugInfoMap.erase(it);
+          it->second._plug = NULL; // (unloaded: OfxGetPlugin makes a new one)
         }
       }
     }
@@ -5488,7 +5539,7 @@ namespace OFX {
       try {
 
         OfxPlugInfoMap::iterator it = plugInfoMap.find(plugname);
-        if(it==plugInfoMap.end()) {
+        if(it==plugInfoMap.end() || it->second._plug == NULL) {
           // e.g. an action was sent after kOfxActionUnload. Don't use a bare "throw;" here:
           // there is no active exception, so it would call std::terminate().
           OFX::Log::error(true, "Action '%s' sent to unknown or unloaded plugin '%s'.", actionRaw, plugname);
@@ -5536,8 +5587,9 @@ namespace OFX {
         else if(action == kOfxActionDescribe) {
           checkMainHandles(actionRaw, handleRaw, inArgsRaw, outArgsRaw, false, true, true);
 
-          // make the plugin descriptor
-          ImageEffectDescriptor *desc = new ImageEffectDescriptor(handle);
+          // make the plugin descriptor (owned here until it is stored, so that it doesn't leak if
+          // the validation or the plug-in's describe throws)
+          OFX::auto_ptr<ImageEffectDescriptor> desc(new ImageEffectDescriptor(handle));
 
           // validate the host
           OFX::Validation::validatePluginDescriptorProperties(fetchEffectProps(handle));
@@ -5551,15 +5603,7 @@ namespace OFX {
           key.id = it->first;
           key.majorVersion = it->second._plug->pluginVersionMajor;
           key.minorVersion = it->second._plug->pluginVersionMinor;
-          EffectDescriptorMap::iterator it = gEffectDescriptors.find(key);
-          if (it != gEffectDescriptors.end()) {
-            EffectContextMap& contextMap = it->second;
-            EffectContextMap::iterator it2 = contextMap.find(eContextNone);
-            if (it2 != contextMap.end()) {
-              delete it2->second;
-            }
-          }
-          gEffectDescriptors[key][eContextNone] = desc;
+          setEffectDescriptor(key, eContextNone, desc.release());
 
           // got here, must be good
           stat = kOfxStatOK;
@@ -5567,8 +5611,9 @@ namespace OFX {
         else if(action == kOfxImageEffectActionDescribeInContext) {
           checkMainHandles(actionRaw, handleRaw, inArgsRaw, outArgsRaw, false, false, true);
 
-          // make the plugin descriptor and pass it to the plugin to do something with it
-          ImageEffectDescriptor *desc = new ImageEffectDescriptor(handle);
+          // make the plugin descriptor and pass it to the plugin to do something with it (owned here
+          // until it is stored, so that it doesn't leak if anything below throws)
+          OFX::auto_ptr<ImageEffectDescriptor> desc(new ImageEffectDescriptor(handle));
 
           // figure the context and map it to an enum
           std::string contextStr = inArgs.propGetString(kOfxImageEffectPropContext);
@@ -5585,15 +5630,7 @@ namespace OFX {
           key.id = it->first;
           key.majorVersion = it->second._plug->pluginVersionMajor;
           key.minorVersion = it->second._plug->pluginVersionMinor;
-          EffectDescriptorMap::iterator it = gEffectDescriptors.find(key);
-          if (it != gEffectDescriptors.end()) {
-            EffectContextMap& contextMap = it->second;
-            EffectContextMap::iterator it2 = contextMap.find(context);
-            if (it2 != contextMap.end()) {
-              delete it2->second;
-            }
-          }
-          gEffectDescriptors[key][context] = desc;
+          setEffectDescriptor(key, context, desc.release());
 
           // got here, must be good
           stat = kOfxStatOK;
@@ -6090,6 +6127,7 @@ void init()
     OFX::OfxPlugInfo info = generatePlugInfo(*it, newID);
     OFX::plugInfoMap[newID] = info;
     OFX::ofxPlugs[counter] = info._plug;
+    OFX::Private::reserveEffectDescriptors(newID, (*it)->getMajorVersion(), (*it)->getMinorVersion());
   }
   gHasInit = true;
 }
@@ -6109,7 +6147,8 @@ We call the plugin side defined OFX::Plugin::getPluginIDs function to find out w
 OfxPlugin* OfxGetPlugin(int nth)
 {
   init();
-  // ofxPlugs has one entry per plugin returned by OfxGetNumberOfPlugins (plugInfoMap shrinks on unload)
+  // ofxPlugs has one entry per plugin returned by OfxGetNumberOfPlugins (an unloaded plugin's
+  // entry is 0, and its plugInfoMap entry has a NULL _plug)
   int numPlugs = (int)OFX::ofxPlugs.size();
   if (nth < 0 || nth >= numPlugs) {
     OFX::Log::error(true, "Host attempted to get plugin %d, when there is only %d plugin(s).", nth, numPlugs);
@@ -6119,7 +6158,14 @@ OfxPlugin* OfxGetPlugin(int nth)
   {
     std::string newID;
     OFX::OfxPlugInfo info = generatePlugInfo(OFX::PluginFactories::plugIDs()[nth], newID);
-    OFX::plugInfoMap[newID] = info;
+    // (the entry exists since init(): find() and an assignment, not operator[], which may insert)
+    OFX::OfxPlugInfoMap::iterator it = OFX::plugInfoMap.find(newID);
+    if (it == OFX::plugInfoMap.end()) {
+      OFX::Log::error(true, "Plugin %d ('%s') has no entry.", nth, newID.c_str());
+      delete info._plug;
+      return NULL;
+    }
+    it->second = info;
     OFX::ofxPlugs[nth] = info._plug;
   }
   return OFX::ofxPlugs[nth];
