@@ -15,6 +15,11 @@ cmake -S . -B "$build" -DCMAKE_BUILD_TYPE=Release \
   -DPLUGIN_INSTALLDIR="$build/install/OFX/Plugins" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
 cmake --build "$build" --parallel
 cmake --install "$build" --prefix "$build/install"
+# one plug-in's install component installs that bundle only (cmake/OpenFX.cmake)
+rm -rf "$build/component"
+DESTDIR="$build/component" cmake --install "$build" --component example-Basic > /dev/null
+bundles=$(find "$build/component" -name '*.ofx.bundle' -type d | sed 's|.*/||' | sort | tr '\n' ' ')
+test "$bundles" = "example-Basic.ofx.bundle " || { echo "install --component example-Basic installed: $bundles"; exit 1; }
 
 bin=$(dirname "$(find "$build" -name hostDemo -type f -perm -u+x | head -1)")
 mkdir -p "$build/checks"

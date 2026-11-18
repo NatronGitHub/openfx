@@ -630,8 +630,8 @@ endfunction()
 # macOS (LC_BUILD_VERSION minos, or LC_VERSION_MIN_MACOSX; at least 11.0 for arm64) gives a
 # warning, or an error with OFX_DEPLOY_STRICT_MINOS.
 # Call it after the last ofx_plugin_resources() of the target: files installed into the bundle
-# after it would break the bundle's signature. Windows (bundling the DLLs, with an embedded
-# manifest) and Linux are not implemented yet.
+# after it would break the bundle's signature. macOS only, by design: on Linux and Windows, plug-ins
+# use system libraries (or header-only ones), and installers (e.g. Natron's) deploy anything else.
 function(ofx_deploy_bundle TARGET)
   get_target_property(_name ${TARGET} OFX_BUNDLE_NAME)
   if(NOT _name)
