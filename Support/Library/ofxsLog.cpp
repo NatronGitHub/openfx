@@ -58,6 +58,11 @@ The log file is written to using printf style functions, rather than via c++ ios
 
 #include "ofxsLog.h"
 
+#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
+#  define OFXS_LOG_CXX11 1
+#  include <mutex>
+#endif
+
 namespace OFX {
   namespace Log {
 
@@ -70,8 +75,19 @@ namespace OFX {
     /** @brief the global logfile name */
     static std::string gLogFileName(getenv(kLogFileEnvVar) ? getenv(kLogFileEnvVar) : "ofxTestLog.txt");
 
-    /** @brief global indent level, not MP sane */
+    /** @brief indent level. Per thread with C++11, since plug-ins log from render threads too and
+        the indent follows each thread's nesting of actions; a single global before C++11. */
+#ifdef OFXS_LOG_CXX11
+    static thread_local int gIndent = 0;
+    /** @brief serializes opening the log file (on the first log from any thread) and writing each
+        log line, so that lines from different threads don't interleave. Recursive: the writers
+        call open(). */
+    static std::recursive_mutex gLogMutex;
+#  define OFXS_LOG_LOCK() std::lock_guard<std::recursive_mutex> ofxsLogLock(gLogMutex)
+#else
     static int gIndent = 0;
+#  define OFXS_LOG_LOCK() ((void)0)
+#endif
 
     /** @brief Sets the name of the log file. */
     void setFileName(const std::string &value)
@@ -83,6 +99,7 @@ namespace OFX {
     bool open(void)
     {
 #ifdef DEBUG
+      OFXS_LOG_LOCK();
       if(!gLogFP) {
         char buffer[2048];
         char *answer = getcwd(buffer, sizeof(buffer));
@@ -106,13 +123,13 @@ namespace OFX {
       gLogFP = 0;
     }
 
-    /** @brief Indent it, not MP sane at the moment */
+    /** @brief Indent the log of the calling thread */
     void indent(void)
     {
       ++gIndent;
     }
 
-    /** @brief Outdent it, not MP sane at the moment */
+    /** @brief Outdent the log of the calling thread */
     void outdent(void)
     {
       --gIndent;
@@ -131,6 +148,7 @@ namespace OFX {
     /** @brief Prints to the log file. */
     void print(const char *format, ...)
     {
+      OFXS_LOG_LOCK();
       if(open()) {
         doIndent();
         va_list args;
@@ -145,7 +163,11 @@ namespace OFX {
     /** @brief Prints to the log file only if the condition is true and prepends a warning notice. */
     void warning(bool condition, const char *format, ...)
     {
-      if(condition && open()) {
+      if (!condition) {
+        return;
+      }
+      OFXS_LOG_LOCK();
+      if(open()) {
         doIndent();
         fputs("WARNING : ", gLogFP);
 
@@ -162,7 +184,11 @@ namespace OFX {
     /** @brief Prints to the log file only if the condition is true and prepends an error notice. */
     void error(bool condition, const char *format, ...)
     {
-      if(condition && open()) {
+      if (!condition) {
+        return;
+      }
+      OFXS_LOG_LOCK();
+      if(open()) {
         doIndent();
         fputs("ERROR : ", gLogFP);
 
