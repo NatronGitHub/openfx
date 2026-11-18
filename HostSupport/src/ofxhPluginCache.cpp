@@ -361,6 +361,8 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
         _setHostFailed = ((*setHost)(host->getHandle()) == kOfxStatFailed);
         if (_setHostFailed) {
           _plugins.clear();
+          _getNumberOfPlugins = 0; // they would point into the unloaded binary
+          _getPluginFunc = 0;
           if (tookSessionRef) {
             _binary->unref(); // the session reference taken above: the binary is unloaded
           }

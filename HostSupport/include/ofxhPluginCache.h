@@ -461,7 +461,9 @@ namespace OFX {
       /// it must exist before the scan. OfxSetHost is called once per load of a binary, after
       /// Host::loadingBinary(). A binary whose OfxSetHost returns kOfxStatFailed has no plug-ins for this
       /// host, and is cached as such until it changes: a host whose OfxSetHost answers may change (e.g.
-      /// its name or version) should include them in setCacheVersion().
+      /// its name or version) should include them in setCacheVersion(). When a plug-in is loaded later,
+      /// from the cache, OfxSetHost gets the host the plug-in is loaded for (e.g. the image effect host),
+      /// so the scan host should be that same host.
       void setScanHost(OFX::Host::Host* host) { _pluginHost = host; }
       OFX::Host::Host* getScanHost() const;
 
