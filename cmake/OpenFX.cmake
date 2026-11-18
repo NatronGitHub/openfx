@@ -164,8 +164,9 @@ endif()
 set(ARCHDIR "${ARCHDIR}" CACHE INTERNAL "OFX bundle architecture folder (OFX packaging spec)")
 set(PLUGIN_INSTALLDIR "${PLUGIN_INSTALLDIR}" CACHE STRING "Where the OFX bundles are installed (relative: to CMAKE_INSTALL_PREFIX)" FORCE)
 
-# Location of the Info.plist template and osxDeploy.sh. In the OpenFX source tree they are in
-# Examples/ and Support/include/; in an installed package they sit next to this module.
+# Location of the Info.plist template, osxDeploy.sh and linuxCheckBundle.sh. In the OpenFX source
+# tree they are in Examples/ and Support/include/; in an installed package they sit next to this
+# module.
 set(_OFX_CMAKE_MODULE_DIR "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "")
 
 function(_ofx_find_file VAR NAME)
@@ -179,6 +180,17 @@ function(_ofx_find_file VAR NAME)
   endforeach()
   message(FATAL_ERROR "OpenFX.cmake: could not find ${NAME}")
 endfunction()
+
+# OFX_LINUX_CHECK_BUNDLE: the path of linuxCheckBundle.sh (Support/include/ in the source tree,
+# next to this module in an installed package). It checks installed Linux bundles against the
+# baseline system (EL9 by default), in a plug-in repository's CI or in an installer, e.g.
+#   "${OFX_LINUX_CHECK_BUNDLE}" [--no-needed] <prefix>/OFX/Plugins
+# The script's header describes the rules, the limits and their OFX_ABI_* overrides.
+_ofx_find_file(_ofx_check_bundle linuxCheckBundle.sh)
+get_filename_component(_ofx_check_bundle "${_ofx_check_bundle}" ABSOLUTE)
+set(OFX_LINUX_CHECK_BUNDLE "${_ofx_check_bundle}" CACHE FILEPATH
+    "linuxCheckBundle.sh, which checks installed Linux OFX bundles against the baseline system" FORCE)
+unset(_ofx_check_bundle)
 
 # Add an OFX plug-in bundle.
 #

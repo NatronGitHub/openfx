@@ -15,11 +15,13 @@ cmake -S . -B "$build" -DCMAKE_BUILD_TYPE=Release \
   -DPLUGIN_INSTALLDIR="$build/install/OFX/Plugins" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
 cmake --build "$build" --parallel
 cmake --install "$build" --prefix "$build/install"
-# Linux: the installed bundles bundle no system library, and need no library outside the bundle;
-# the symbol-version limits are the build machine's (the release baseline, EL9, is checked where the
-# releases are built)
+# Linux: linuxCheckBundle.sh on the installed examples. They need only system libraries, so the
+# full check (no system library bundled, no other library needed) applies; the symbol-version
+# limits are disabled (99): the Ubuntu builder is newer than the release baseline, EL9, which is
+# checked where the releases are built. Finding no bundle fails.
 if [ "$(uname -s)" = Linux ]; then
   OFX_ABI_GLIBC=99 OFX_ABI_GLIBCXX=99 OFX_ABI_CXXABI=99 OFX_ABI_GCC=99 OFX_ABI_GOMP=99 \
+    OFX_ABI_LIBATOMIC=99 OFX_ABI_ZLIB=99 \
     "$root/Support/include/linuxCheckBundle.sh" "$build/install/OFX/Plugins"
 fi
 # one plug-in's install component installs that bundle only (cmake/OpenFX.cmake)
