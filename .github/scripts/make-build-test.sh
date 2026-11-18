@@ -5,10 +5,6 @@
 set -eo pipefail
 cd "$(dirname "$0")/../.."
 
-# git checkout gives the files arbitrary mtimes, which may make the bundled
-# expat's Makefile try to re-run aclocal/automake
-( cd HostSupport/expat-*/ && touch aclocal.m4 && sleep 1 && touch configure Makefile.in */Makefile.in expat_config.h.in )
-
 make -C Support/Library
 make -C HostSupport
 make -C HostSupport/examples
