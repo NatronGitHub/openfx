@@ -370,7 +370,8 @@ namespace OFX {
     FactoryMainEntryHelper(const std::string& id, unsigned int maj, unsigned int min): _id(id), _maj(maj), _min(min)
     {
       assert(uid().empty()); // constructor should only be called once
-      uid() = id + toString(maj) + toString(min);
+      // "<id>@<major>.<minor>": with separators, so that ("foo", 1, 23) and ("foo", 12, 3) differ
+      uid() = id + "@" + toString(maj) + "." + toString(min);
     }
     const std::string& getHelperUID() const { return uid(); }
     static OfxStatus mainEntry(const char *action, const void* handle, OfxPropertySetHandle in, OfxPropertySetHandle out)

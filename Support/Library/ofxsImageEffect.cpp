@@ -6119,6 +6119,10 @@ void init()
   {
     std::string newID;
     OFX::OfxPlugInfo info = generatePlugInfo(*it, newID);
+    if (OFX::plugInfoMap.find(newID) != OFX::plugInfoMap.end()) {
+      // two factories with the same identifier and version: the host can only load one of them
+      OFX::Log::error(true, "Plug-in '%s' is declared twice in this binary.", newID.c_str());
+    }
     OFX::plugInfoMap[newID] = info;
     OFX::ofxPlugs[counter] = info._plug;
     OFX::Private::reserveEffectDescriptors(newID, (*it)->getMajorVersion(), (*it)->getMinorVersion());
