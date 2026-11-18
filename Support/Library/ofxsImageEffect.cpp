@@ -2350,11 +2350,9 @@ namespace OFX {
     }
 #  endif
     if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane) {
-      // a host without the plane suite (e.g. OFX 1.4) has one view and the colour plane only
-      if (std::string(plane) == kFnOfxImagePlaneColour) {
-        return fetchImage(t);
-      }
-      throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite"V2");
+      // a host without the plane suite V2 (e.g. OFX 1.4) has a single view: use the V1 suite,
+      // which itself falls back to fetchImage() for the colour plane
+      return fetchImagePlane(t, plane);
     }
     OfxPropertySetHandle imageHandle;
     OfxStatus stat = OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane(_clipHandle, t, view, plane, NULL, &imageHandle);
@@ -2400,11 +2398,9 @@ namespace OFX {
     }
 #  endif
     if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane) {
-      // a host without the plane suite (e.g. OFX 1.4) has one view and the colour plane only
-      if (std::string(plane) == kFnOfxImagePlaneColour) {
-        return fetchImage(t, bounds);
-      }
-      throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite"V2");
+      // a host without the plane suite V2 (e.g. OFX 1.4) has a single view: use the V1 suite,
+      // which itself falls back to fetchImage() for the colour plane
+      return fetchImagePlane(t, plane, bounds);
     }
     OfxPropertySetHandle imageHandle;
 
