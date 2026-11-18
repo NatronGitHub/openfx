@@ -1998,25 +1998,7 @@ namespace OFX {
     Clip::getFormat(OfxRectI &format) const
   {
     format.x1 = format.y1 = format.x2 = format.y2 = 0; // default value
-    if (_clipProps.propGetDimension(kOfxImageClipPropFormat, false) == 4) {
-      _clipProps.propGetIntN(kOfxImageClipPropFormat, &format.x1, 4, false);
-      return;
-    }
-    // a host without the extension (e.g. OFX 1.4): the project format, in pixels
-    if (_effect) {
-      OfxPointD size = _effect->getProjectSize();
-      OfxPointD offset = _effect->getProjectOffset();
-      double par = _effect->getProjectPixelAspectRatio();
-      if (!(par > 0.)) {
-        par = 1.;
-      }
-      if (size.x > 0. && size.y > 0.) {
-        format.x1 = (int)std::floor(offset.x / par + 0.5);
-        format.y1 = (int)std::floor(offset.y + 0.5);
-        format.x2 = (int)std::floor((offset.x + size.x) / par + 0.5);
-        format.y2 = (int)std::floor(offset.y + size.y + 0.5);
-      }
-    }
+    _clipProps.propGetIntN(kOfxImageClipPropFormat, &format.x1, 4, false);
   }
 #endif
 
@@ -3114,21 +3096,6 @@ namespace OFX {
 
   OFX::Message::MessageReplyEnum ImageEffect::setPersistentMessage(OFX::Message::MessageTypeEnum type, const std::string& id, const std::string& msg, bool throwIfMissing)
   {   
-    if (!OFX::Private::gMessageSuiteV2) {
-      // a host without OfxMessageSuiteV2 (OFX 1.0/1.1): show the message with the V1 suite,
-      // once until it changes or is cleared, not on every action. Not done for a host whose V2
-      // suite lacks setPersistentMessage (e.g. Resolve), where a modal message from a render
-      // thread may not be safe.
-      const std::string key = id + '\n' + msg;
-      if (key == _persistentMessageV1) {
-        return OFX::Message::eMessageReplyOK;
-      }
-      OFX::Message::MessageReplyEnum reply = sendMessage(type, id, msg, false);
-      if (reply != OFX::Message::eMessageReplyFailed) {
-        _persistentMessageV1 = key;
-        return reply;
-      }
-    }
     if (!OFX::Private::gMessageSuiteV2 || !OFX::Private::gMessageSuiteV2->setPersistentMessage) {
       if (throwIfMissing) {
         OFX::Log::error(true, "OfxMessageSuiteV2::setPersistentMessage() not available, could not set message \"%s\"/\"%s\"", id.c_str(), msg.c_str());
@@ -3147,11 +3114,6 @@ namespace OFX {
   {
     // If there is no setPersistentMessage, clearPersistentMessage has no reason to exist.
     // (fixes crash on Resolve)
-    if (!OFX::Private::gMessageSuiteV2) {
-      // OFX 1.0/1.1: setPersistentMessage used the V1 suite (see above)
-      _persistentMessageV1.clear();
-      return OFX::Message::eMessageReplyOK;
-    }
     if (!OFX::Private::gMessageSuiteV2 || !OFX::Private::gMessageSuiteV2->setPersistentMessage || !OFX::Private::gMessageSuiteV2->clearPersistentMessage) {
       if (throwIfMissing) {
         OFX::Log::error(true, "OfxMessageSuiteV2::clearPersistentMessage() not available");
