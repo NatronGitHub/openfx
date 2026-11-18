@@ -86,3 +86,10 @@ if(OFX_TEST_SDK_LIBRARY)
   set_target_properties(TestSdkDep PROPERTIES IMPORTED_LOCATION "${OFX_TEST_SDK_LIBRARY}")
   target_link_libraries(TestOmpNoDeploy PRIVATE TestSdkDep)
 endif()
+
+# OFX_LINUX_CHECK_BUNDLE is set (the installed or the source-tree linuxCheckBundle.sh), for
+# cmake-plugin-project.sh to run on the installed bundles
+if(NOT EXISTS "${OFX_LINUX_CHECK_BUNDLE}")
+  message(FATAL_ERROR "OFX_LINUX_CHECK_BUNDLE: '${OFX_LINUX_CHECK_BUNDLE}' doesn't exist")
+endif()
+file(WRITE "${CMAKE_BINARY_DIR}/ofx_linux_check_bundle.txt" "${OFX_LINUX_CHECK_BUNDLE}")

@@ -53,6 +53,17 @@ run() { # mode: package | subdirectory
   # (nor the example hosts, nor expat)
   if [ "$mode" = subdirectory ] && [ "$(ls "$w/install")" != OFX ]; then fail "add_subdirectory(openfx) installed openfx itself: $(ls "$w/install")"; fi
   check "$w/build/Plugins" "$w/install/OFX/Plugins"
+  # Linux: OFX_LINUX_CHECK_BUNDLE (the installed script with find_package, the source tree's with
+  # add_subdirectory) passes on the installed bundles, with the build machine's limits
+  if [ "$os" = Linux ]; then
+    lcb=$(cat "$w/build/ofx_linux_check_bundle.txt")
+    case $mode in
+      package) [ "$lcb" = "$prefix/lib/cmake/openfx/linuxCheckBundle.sh" ] || fail "OFX_LINUX_CHECK_BUNDLE: $lcb" ;;
+      subdirectory) [ "$lcb" = "$src/Support/include/linuxCheckBundle.sh" ] || fail "OFX_LINUX_CHECK_BUNDLE: $lcb" ;;
+    esac
+    OFX_ABI_GLIBC=99 OFX_ABI_GLIBCXX=99 OFX_ABI_CXXABI=99 OFX_ABI_GCC=99 OFX_ABI_GOMP=99 OFX_ABI_LIBATOMIC=99 OFX_ABI_ZLIB=99 \
+      "$lcb" "$w/install/OFX/Plugins" || fail "linuxCheckBundle.sh"
+  fi
 }
 fail() { echo "plugin-project: FAILED: $*"; exit 1; }
 check() {

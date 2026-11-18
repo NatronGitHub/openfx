@@ -202,7 +202,7 @@ install(DIRECTORY Support/include/ DESTINATION include/Support FILES_MATCHING PA
 install(DIRECTORY Support/Plugins/include/ DESTINATION include/Support/Plugins
         FILES_MATCHING PATTERN "*.h" PATTERN "*.H")
 install(FILES cmake/OpenFX.cmake cmake/OpenFXExpat.cmake Examples/Info.plist.in DESTINATION lib/cmake/openfx)
-install(PROGRAMS Support/include/osxDeploy.sh DESTINATION lib/cmake/openfx)
+install(PROGRAMS Support/include/osxDeploy.sh Support/include/linuxCheckBundle.sh DESTINATION lib/cmake/openfx)
 set(_ofx_export_targets OfxApi OfxSupport)
 if(OFX_BUILD_HOSTSUPPORT)
   list(APPEND _ofx_export_targets OfxHost)
