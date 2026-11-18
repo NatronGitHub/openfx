@@ -58,11 +58,12 @@ ifneq ($(MINGW_OS),)
   PLUGINPATH="C:\\Program Files\\Common Files\\OFX\\Plugins"
 endif
 # Linux and FreeBSD: no undefined symbols in the plug-ins (a plug-in takes no symbol from the host);
-# NO_UNDEFINED_FLAG= turns it off, e.g. for clang sanitizer builds. SYSLIBS (-lGL, and -pthread -ldl on
-# Linux: before glibc 2.34, pthread_create and dlopen are not in libc, e.g. tinythread, glad) come
-# last on the link line, after LDFLAGS_ADD and LDFLAGS_EXTRA, so that with --as-needed they also
-# satisfy the static libraries that consumers link
+# NO_UNDEFINED_FLAG= turns it off, e.g. for clang sanitizer builds. SYSLIBS (the system libraries:
+# -lGL -pthread, plus -ldl on Linux, where dlopen is not in libc before glibc 2.34, e.g. for glad;
+# -lopengl32 on MinGW) come last on the link line, after LDFLAGS_ADD and LDFLAGS_EXTRA, so that
+# with --as-needed they also satisfy the static libraries that consumers link
 NO_UNDEFINED_FLAG ?= -Wl,-z,defs
+SYSLIBS =
 ifeq ($(OS),Linux)
   PLUGINPATH="/usr/OFX/Plugins"
 endif
@@ -99,7 +100,8 @@ uninstall:
 	rm -rf "$(PLUGINPATH)/$(PLUGINNAME).ofx.bundle"
 
   ifneq ($(MINGW_OS),)
-    LINKFLAGS = -shared -fvisibility=hidden -Xlinker --version-script=$(PATHTOROOT)/include/linuxSymbols -lopengl32
+    LINKFLAGS = -shared -fvisibility=hidden -Xlinker --version-script=$(PATHTOROOT)/include/linuxSymbols
+    SYSLIBS = -lopengl32
     ARCH = Win32
     BITSFLAG = -m32
     ifeq ($(BITS), 64)
