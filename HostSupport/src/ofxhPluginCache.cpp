@@ -54,6 +54,7 @@
 #include "ofxhPluginAPICache.h"
 #include "ofxhPluginCache.h"
 #include "ofxhHost.h"
+#include "ofxhImageEffect.h" // gImageEffectHost, the default host for OfxSetHost
 #include "ofxhXml.h"
 #include "ofxhUtilities.h"
 
@@ -327,6 +328,7 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
   if (isInvalid()) {
     return;
   }
+  bool tookSessionRef = false; // the reference taken below, released if OfxSetHost refuses
 
   if (_binary) {
     _fileModificationTime = _binary->getTime();
@@ -337,6 +339,7 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
     // This avoid lots of useless calls to dlopen()/dlclose().
     if (!_binary->isLoaded()) {
       _binary->ref();
+      tookSessionRef = true;
     }
   }
 
@@ -344,6 +347,31 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
   if (_binary) {
     _getNumberOfPlugins = (OfxGetNumberOfPluginsFunc) _binary->findSymbol("OfxGetNumberOfPlugins");
     _getPluginFunc = (OfxGetPluginFunc) _binary->findSymbol("OfxGetPlugin");
+    // OFX 1.5 (ofxCore.h): "The order of calls is then: 1) OfxSetHost, 2) OfxGetNumberOfPlugins,
+    // 3) OfxGetPlugin", and the symbol may be absent. "Plug-in can return kOfxStatFailed to
+    // indicate it has nothing to do here, it's not for this Host and it should be skipped
+    // silently": the binary is then valid, with no plug-ins (cached as such, and scanned again if
+    // it changes), and unloaded.
+    OfxSetHostFunc setHost = (OfxSetHostFunc) _binary->findSymbol("OfxSetHost");
+    OFX::Host::Host* host = cache ? cache->getScanHost() : NULL;
+    _setHostFailed = false;
+    if (setHost && _getNumberOfPlugins && _getPluginFunc) {
+      if (host) {
+        host->loadingBinary(_filePath);
+        _setHostFailed = ((*setHost)(host->getHandle()) == kOfxStatFailed);
+        if (_setHostFailed) {
+          _plugins.clear();
+          _getNumberOfPlugins = 0; // they would point into the unloaded binary
+          _getPluginFunc = 0;
+          if (tookSessionRef) {
+            _binary->unref(); // the session reference taken above: the binary is unloaded
+          }
+          return;
+        }
+      } else {
+        std::cerr << "OFX: " << _filePath << ": no host to pass to OfxSetHost (call PluginCache::setScanHost() before the scan)" << std::endl;
+      }
+    }
   }
   
   
@@ -401,6 +429,9 @@ PluginBinary::~PluginBinary() {
 PluginHandle::PluginHandle(Plugin *p, OFX::Host::Host *host)
 {
   _b = p->getBinary();
+  // a fresh load of the binary (only known from the cache, or unloaded since the scan): OfxSetHost
+  // must be called again, once, before OfxGetPlugin (OFX 1.5)
+  const bool freshLoad = _b->_binary && !_b->_binary->isLoaded();
   if (_b->_binary) {
     _b->_binary->ref();
   }
@@ -411,6 +442,20 @@ PluginHandle::PluginHandle(Plugin *p, OFX::Host::Host *host)
   }
   if (!getPlug && _b->_binary) {
     getPlug = (OfxPlugin*(*)(int)) _b->_binary->findSymbol("OfxGetPlugin");
+  }
+  // OFX 1.5: OfxSetHost is called once per load of the binary, before OfxGetPlugin; a failure means
+  // that its plug-ins are not for this host (the handle then has no OfxPlugin)
+  if (freshLoad && getPlug) {
+    OfxSetHostFunc setHostFunc = (OfxSetHostFunc) _b->_binary->findSymbol("OfxSetHost");
+    if (setHostFunc) {
+      host->loadingBinary(_b->getFilePath());
+      _b->_setHostFailed = ((*setHostFunc)(host->getHandle()) == kOfxStatFailed);
+    } else {
+      _b->_setHostFailed = false;
+    }
+  }
+  if (_b->_setHostFailed) {
+    getPlug = 0;
   }
   if (getPlug) {
     _op = getPlug(p->getIndex());
@@ -490,6 +535,7 @@ PluginCache::~PluginCache()
 
 PluginCache::PluginCache()
 : _hostSpec(NULL)
+, _pluginHost(NULL)
 #ifdef OFX_USE_STATIC_PLUGINS
 , _staticBinary(NULL)
 #endif
@@ -1135,6 +1181,11 @@ void PluginCache::writePluginCache(std::ostream &os) const {
   os << "</cache>\n";
 }
 
+
+OFX::Host::Host* PluginCache::getScanHost() const
+{
+  return _pluginHost ? _pluginHost : ImageEffect::gImageEffectHost;
+}
 
 APICache::PluginAPICacheI *PluginCache::findApiHandler(const std::string &api, int version) {
   std::list<PluginCacheSupportedApi>::iterator i = _apiHandlers.begin();

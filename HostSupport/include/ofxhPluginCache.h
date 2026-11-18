@@ -55,6 +55,7 @@ namespace OFX {
 
     typedef int(*OfxGetNumberOfPluginsFunc)(void);
     typedef OfxPlugin*(*OfxGetPluginFunc)(int);
+    typedef OfxStatus(*OfxSetHostFunc)(const OfxHost*); ///< optional OFX 1.5 entry point, see ofxCore.h
     
     class Host;
 
@@ -243,6 +244,7 @@ namespace OFX {
       off_t _fileSize;                ///< file size last time we check, used for caching
       bool _binaryChanged;            ///< whether the timestamp/filesize in this cache is different from that in the actual binary
       bool _binaryInvalid;            ///< whether we could open and stat the binary or not
+      bool _setHostFailed;            ///< OfxSetHost returned kOfxStatFailed at the last load of the binary
 
     public :
 
@@ -258,6 +260,7 @@ namespace OFX {
         , _fileSize(size)
         , _binaryChanged(false)
         , _binaryInvalid(false)
+        , _setHostFailed(false)
       {
         if (isInvalid()) {
           _binaryInvalid = true;
@@ -279,6 +282,7 @@ namespace OFX {
         , _bundlePath(bundlePath)
         , _binaryChanged(false)
         , _binaryInvalid(false)
+        , _setHostFailed(false)
       {
         if (_binary->isInvalid()) {
           _binaryInvalid = true;
@@ -304,6 +308,7 @@ namespace OFX {
       , _fileSize()
       , _binaryChanged(true)
       , _binaryInvalid(false)
+      , _setHostFailed(false)
       {
         _binaryInvalid = !Binary::getFileModTimeAndSize(hostAppBinFilePath, _fileModificationTime, _fileSize);
         if (cachedHostAppBinFilePath && cachedFileModificationTime && cachedFileSize) {
@@ -413,6 +418,7 @@ namespace OFX {
     class PluginCache {
     protected :
       OFX::Host::Property::PropSpec* _hostSpec;
+      OFX::Host::Host* _pluginHost; ///< the host passed to OfxSetHost when scanning a binary, see setScanHost()
 
       std::list<std::string>    _pluginPath;  ///< list of directories to look in
       std::set<std::string>     _nonrecursePath; ///< list of directories to look in (non-recursively)
@@ -449,6 +455,17 @@ namespace OFX {
 
       /// dtor
       ~PluginCache();
+
+      /// The host passed to a binary's OfxSetHost (OFX 1.5, optional entry point) when the binary is
+      /// scanned for plug-ins. If not set, the image effect host (ImageEffect::gImageEffectHost) is used;
+      /// it must exist before the scan. OfxSetHost is called once per load of a binary, after
+      /// Host::loadingBinary(). A binary whose OfxSetHost returns kOfxStatFailed has no plug-ins for this
+      /// host, and is cached as such until it changes: a host whose OfxSetHost answers may change (e.g.
+      /// its name or version) should include them in setCacheVersion(). When a plug-in is loaded later,
+      /// from the cache, OfxSetHost gets the host the plug-in is loaded for (e.g. the image effect host),
+      /// so the scan host should be that same host.
+      void setScanHost(OFX::Host::Host* host) { _pluginHost = host; }
+      OFX::Host::Host* getScanHost() const;
 
       /// call this before the first call to getPluginCache() in order to ignore the standard OFX plugin path
       static void useStdOFXPluginsLocation(bool val) { _useStdOFXPluginsLocation = val; }

@@ -421,6 +421,10 @@ namespace OFX {
         }
 
         PluginHandle plug(p, _host);
+        if (!plug.getOfxPlugin()) {
+          // OfxSetHost refused this host, or the binary no longer has this plug-in
+          return;
+        }
 #       ifdef OFX_DEBUG_ACTIONS
         OfxPlugin *ofxp = plug.getOfxPlugin();
         const char* id = ofxp->pluginIdentifier;
