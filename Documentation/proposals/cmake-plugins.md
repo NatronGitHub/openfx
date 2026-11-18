@@ -57,6 +57,7 @@ Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-u
 - Call it after `find_package()`. Entries with generator expressions are kept, and each dropped directory is reported once.
 
 `ofx_deploy_bundle(<target>)`
+- **macOS deployment target:** every plug-in bundle targets macOS 14.0 (VFX Reference Platform CY2027). CMake reads `CMAKE_OSX_DEPLOYMENT_TARGET` at the first `project()`, so the plug-in project sets it before that: `set(CMAKE_OSX_DEPLOYMENT_TARGET 14.0 CACHE STRING "Minimum macOS version")`, or `-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0`, or the `MACOSX_DEPLOYMENT_TARGET` environment variable. `cmake/OpenFX.cmake` warns if it isn't set. The Makefiles default to 14.0.
 - An install-time step, enabled by `OFX_DEPLOY_BUNDLES`, that makes the bundle self-contained.
 - **macOS** (implemented):
   - `osxDeploy.sh`: non-system dylibs go to `Contents/Libraries`, with `@rpath` ids;

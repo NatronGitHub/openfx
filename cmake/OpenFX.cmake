@@ -37,6 +37,16 @@ endif()
 # (Support/Plugins/Makefile.master).
 if(APPLE)
   set(ARCHDIR "MacOS") # universal or arch-specific: no arm64 folder
+  # The plug-ins must run on macOS 14.0 (VFX Reference Platform CY2027). CMake reads the deployment
+  # target at the first project(), so a plug-in project sets it before that: in its CMakeLists.txt,
+  # set(CMAKE_OSX_DEPLOYMENT_TARGET 14.0 CACHE STRING "Minimum macOS version"), or on the command
+  # line, -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 (or the MACOSX_DEPLOYMENT_TARGET environment variable).
+  get_property(_ofx_osx_warned GLOBAL PROPERTY _OFX_OSX_TARGET_WARNED)
+  if(NOT CMAKE_OSX_DEPLOYMENT_TARGET AND NOT _ofx_osx_warned)
+    set_property(GLOBAL PROPERTY _OFX_OSX_TARGET_WARNED ON)
+    message(WARNING "CMAKE_OSX_DEPLOYMENT_TARGET is not set: the plug-ins will need this machine's macOS "
+      "version. Set it to 14.0 (VFX Reference Platform CY2027) before project().")
+  endif()
 elseif(WIN32)
   # MSVC: the target architecture (ARM64EC, ARM64, x64, X86); other compilers: pointer size
   string(TOUPPER "${CMAKE_CXX_COMPILER_ARCHITECTURE_ID};${CMAKE_GENERATOR_PLATFORM}" _OFX_WINARCH)
