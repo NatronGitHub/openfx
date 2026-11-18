@@ -34,9 +34,10 @@ Natron-specific extensions, among them:
   host selection rectangle, right-click menus, undo/redo
   (``kNatronOfxImageEffectPropInViewerContextParamsOrder`` and related
   properties);
-- keyboard modifiers in the interact actions and the selection-rectangle
-  notifications (``kNatronOfxInteractPropKeyModifiers``,
-  ``kNatronOfxHostPropInteractKeyModifiers``); with the Support library, call
+- keyboard modifiers in the interact actions, of overlays and parameter
+  interacts (``kNatronOfxInteractPropKeyModifiers``,
+  ``kNatronOfxInteractHostPropSupportsKeyModifiers``), a mirror of the proposed
+  OFX 1.6 ``kOfxInteractPropKeyModifiers``; with the Support library, call
   ``OFX::ImageEffect::getKeyModifiers()``, which tracks the modifier keys on
   hosts without the extension;
 - dynamic choice parameters (``kNatronOfxParamHostPropSupportsDynamicChoices``,

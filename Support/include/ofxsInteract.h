@@ -123,12 +123,13 @@ namespace OFX {
     double          screenPixelRatio;
 
     /** @brief The keyboard modifiers, a bitmask of kNatronOfxKeyModifier* (ofxNatron.h, extension 13):
-        the value of ImageEffect::getKeyModifiers() for the effect of the interact when the action
-        was called, i.e. the host's kNatronOfxInteractPropKeyModifiers if it passed it, else the
-        state tracked from the modifier key events. Only valid in the args built by the Support
-        dispatch for an interact action (the constructor sets it to 0) */
+        the host's kNatronOfxInteractPropKeyModifiers (or kOfxInteractPropKeyModifiers) if it passed
+        it in the inArgs of this action, else the value of ImageEffect::getKeyModifiers() for the
+        effect of the interact (the state tracked from the modifier key events of its overlays).
+        Only valid in the args built by the Support dispatch for an interact action (the
+        constructor sets it to 0) */
     int             keyModifiers;
-    /** @brief If true, the host passed kNatronOfxInteractPropKeyModifiers in the inArgs of this action
+    /** @brief If true, the host passed the keyboard modifiers in the inArgs of this action
         (otherwise keyModifiers is the tracked state) */
     bool            hasKeyModifiers;
 #endif

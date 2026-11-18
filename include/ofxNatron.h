@@ -581,7 +581,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
     11) A plug-in might want to be able to access the host undo/redo actions of the Edit menu when doing special actions from within the overlay interact actions not involving parameters.
     12) Deprecate kOfxParamPropUseHostOverlayHandle, instead add a property on the image effect descriptor indicating group of parameters which altogether control
  more complex overlays. A host can then provide default overlay interact handling.
-    13) Pass the state of the keyboard modifiers (Shift, Control, Alt, Meta) to the overlay interact actions and to the selection rectangle notifications of 7).
+    13) Pass the state of the keyboard modifiers (Shift, Control, Alt, Meta) to the interact actions, of image effect overlays and of parameter interacts.
 
 1) In the host viewport, parameters can be arranged by widget rows controlled by the kNatronOfxImageEffectPropInViewerContextParamsOrder property.
  This index indicates the order of the parameter in the rows.
@@ -635,7 +635,10 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
      - kOfxParamPropAnimates = 0 and kOfxParamPropCanUndo = 0 are recommended too (a state that follows the pen should get no keyframes and no undo entries)
     The plug-in should declare the default 0 and never set the parameter itself. A host may enforce these settings, with a warning.
     The host calls the kOfxActionInstanceChanged action for this parameter on every update of the rectangle and on every clear, even if the value of the parameter doesn't change (e.g. 1 during each pen motion).
-    A host may send the updates (1 and 2) only to the effect whose overlay is displayed, and only if the pen moved since the pen down; it may send clears (0) to every effect that has the parameter, at any time, e.g. when the user clicks on an empty area of the viewer: a plug-in must accept a clear without a preceding update. The host starts a selection rectangle only on a pen down that no overlay interact caught, so the overlay should not return kOfxStatOK from kOfxInteractActionPenDown where the user may start a selection. Natron sends a clear on that pen down, unless Ctrl (Cmd on macOS) alone is held: a host may start a new rectangle without a clear, to extend the selection, so a 1 after a 2 starts a new rectangle. The instanceChanged action itself gives no modifiers: a host that supports 13) sets kNatronOfxInteractPropKeyModifiers on the effect instance before it calls the kOfxActionInstanceChanged action for this parameter, for every update (1 and 2) and for every clear (0); for a clear sent on the pen down that starts a rectangle, it holds the modifiers of that pen down. This lets a plug-in that keeps its selection on a clear when a modifier is held (e.g. "Shift+drag adds to the selection") tell it from "drag replaces the selection". On other hosts, the plug-in must track the modifiers through its overlay's kOfxInteractActionKeyDown and kOfxInteractActionKeyUp; the Support library's OFX::ImageEffect::getKeyModifiers() does both (e.g. Natron's RotoPaint keeps the selection with Shift, which Natron doesn't treat specially; by default, Ctrl+click over an image is Natron's colour picker, so the "Ctrl alone, no clear" case only happens where the picker doesn't take the click, e.g. outside the image).
+    A host may send the updates (1 and 2) only to the effect whose overlay is displayed, and only if the pen moved since the pen down; it may send clears (0) to every effect that has the parameter, at any time, e.g. when the user clicks on an empty area of the viewer: a plug-in must accept a clear without a preceding update. The host starts a selection rectangle only on a pen down that no overlay interact caught, so the overlay should not return kOfxStatOK from kOfxInteractActionPenDown where the user may start a selection. Natron sends a clear on that pen down, unless Ctrl (Cmd on macOS) alone is held: a host may start a new rectangle without a clear, to extend the selection, so a 1 after a 2 starts a new rectangle.
+    Keyboard modifiers: the instanceChanged action gives none. A plug-in that keeps its selection on a clear when a modifier is held (e.g. "Shift+drag adds to the selection", as opposed to "drag replaces the selection") uses the modifiers of the last action of its overlay interact, with kNatronOfxInteractPropKeyModifiers on hosts that support 13), or the modifier keys it tracked from its overlay's key actions on other hosts. The Support library's OFX::ImageEffect::getKeyModifiers() returns that state, also during kOfxActionInstanceChanged (e.g. Natron's RotoPaint keeps the selection with Shift, which Natron doesn't treat specially; by default, Ctrl+click over an image is Natron's colour picker, so the "Ctrl alone, no clear" case only happens where the picker doesn't take the click, e.g. outside the image).
+    A host that supports 13) sends the action that causes a clear to the displayed overlay interacts before it calls kOfxActionInstanceChanged: the kOfxInteractActionPenDown of the pen down that starts the rectangle (which no overlay caught), or the kOfxInteractActionKeyDown of a key that clears the selection (e.g. Escape). The updates (1 and 2) carry the state of the last overlay action, since a host may send no overlay action while the user drags the rectangle.
+    A clear that no overlay action preceded sees the last state known to that effect, which may be stale: e.g. a clear sent to an effect whose overlay is not displayed, or while the host's overlays are hidden. A plug-in that keeps its selection on a clear when a modifier is held may then keep a selection that is not shown.
     Compatibility: Natron versions without Natron#1196 (2.6.0-alpha1 and earlier) only look for a parameter named "NatronOfxImageEffectSelectionRectangle" (the name of the property), and don't force the notification (a drag that keeps the value at 1 notifies once); later versions still accept that name.
 
  8) DEPRECATED, see kNatronOfxParamCursorName. The host application cursor can be controled by the plug-in via a secret String parameter with the name kNatronOfxParamCursorName. If this parameter is found, the host should display a cursor depending on the value of this parameter.  The value of the parameter should be the name of the cursor. Several default cursor can be made available by the host as advertised by the kNatronOfxImageEffectPropDefaultCursors property. The plug-in may also embed custom cursors as PNG files located in the Resources directory of the plug-in bundle. To specify one the image in the plug-in bundle as an icon, you may set the value of this parameter to the filename of the image without any leading path. This is up to the host to figure out the path to the plug-in bundle Resources directory.
@@ -662,15 +665,17 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  kOfxParamPropUseHostOverlayHandle is no longer needed with this new property.
  See property description for more infos.
 
-  13) The OFX interact actions give no keyboard modifier state, so overlays that need it (e.g. Shift+click to add to a selection) had to count the kOfxKey_Shift_L/R, kOfxKey_Control_L/R... key events. Key events only reach an overlay while it has the keyboard focus, so that count can be wrong.
- A host that supports this extension sets the host property kNatronOfxHostPropInteractKeyModifiers to 1, and sets the int property kNatronOfxInteractPropKeyModifiers, a bitmask of kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta:
-     - in the inArgs of all the actions of the image effect overlay interacts (kOfxImageEffectPluginPropOverlayInteractV1/V2; not the parameter interacts of kOfxParamPropInteractV1): kOfxInteractActionDraw, kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp, kOfxInteractActionKeyRepeat, kOfxInteractActionGainFocus and kOfxInteractActionLoseFocus;
-     - on the image effect instance, before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState of 7). There, its value is only valid during that kOfxActionInstanceChanged action.
- Parameter interacts don't get the property (in the Support library, their InteractArgs::keyModifiers is the effect instance's overlay state).
- Each bit has exactly the meaning of the host's key symbols: kNatronOfxKeyModifierControl is set while a key that the host reports as kOfxKey_Control_L or kOfxKey_Control_R is down, and likewise for Shift (kOfxKey_Shift_L/R), Alt (kOfxKey_Alt_L/R) and Meta (kOfxKey_Meta_L/R). So the bits mean the same keys as the key symbols a plug-in would track (though tracking misses the keys pressed or released while the interact doesn't have the focus). On macOS, a host built with Qt reports Cmd as kOfxKey_Control_L/R and the physical Control key as kOfxKey_Meta_L/R (unless Qt::AA_MacDontSwapCtrlAndMeta is set), so kNatronOfxKeyModifierControl is set while Cmd is down.
- In kOfxInteractActionKeyDown, kOfxInteractActionKeyUp and kOfxInteractActionKeyRepeat of a modifier key, the property holds the state after the event: on the key down of Shift, kNatronOfxKeyModifierShift is set; on its key up, it is cleared.
- The state is per effect instance: the host passes it to the interacts of each instance, and sets it on that instance before the selection rectangle notification.
- A plug-in should not rely on the host supporting this extension: without it, it can track the modifier key events of the overlay interacts of each effect instance, and reset that state on kOfxInteractActionLoseFocus. The Support library does both: OFX::ImageEffect::getKeyModifiers() returns the last state given by the host to that instance, or the tracked state on hosts without this extension.
+  13) The OFX interact actions give no keyboard modifier state, so overlays that need it (e.g. Shift+click to add to a selection, Shift+drag to constrain a move) had to track the key actions of kOfxKey_Shift_L/R, kOfxKey_Control_L/R... That misses the modifiers that were pressed or released while the interact did not have the input focus, since the host only sends key actions to the interact that has the focus.
+ This extension is the proposed OFX 1.6 kOfxInteractPropKeyModifiers, with the same semantics: kNatronOfxInteractPropKeyModifiers, kNatronOfxInteractHostPropSupportsKeyModifiers and kNatronOfxKeyModifier* mirror kOfxInteractPropKeyModifiers, kOfxInteractHostPropSupportsKeyModifiers and kOfxKeyModifier*, with the same values (the property names start with "NatronOfx" instead of "Ofx").
+ The host sets the read-only int property kNatronOfxInteractPropKeyModifiers, a bitwise OR of kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta, in the inArgs of kOfxInteractActionDraw, kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp, kOfxInteractActionKeyRepeat, kOfxInteractActionGainFocus and kOfxInteractActionLoseFocus, for image effect overlay interacts (kOfxImageEffectPluginPropOverlayInteractV1/V2) and for parameter interacts (kOfxParamPropInteractV1). The other bits are reserved: hosts must set them to 0, and plug-ins must ignore them. It is only set in interact actions: no other action (e.g. kOfxActionInstanceChanged, see 7)) gives the modifiers.
+ Meaning of the bits: each bit stands for a logical modifier key, and has the meaning of the host's key symbols (ofxKeySyms.h). It is set while a key that the host would report in kOfxPropKeySym with one of the key symbols of that modifier is down (whether or not the host sends key actions for modifier keys): Shift (kOfxKey_Shift_L/R), Control (kOfxKey_Control_L/R), Alt (Option on macOS; kOfxKey_Alt_L/R) and Meta (kOfxKey_Meta_L/R). So a bit means the same keys as the key symbols a plug-in would otherwise track. Which physical key a host reports with which key symbol is up to the host, but a host must set the bits consistently with the key symbols it reports. For example, on macOS, hosts built with Qt, by default (unless Qt::AA_MacDontSwapCtrlAndMeta is set), report the Command key as kOfxKey_Control_L/R and the Control key as kOfxKey_Meta_L/R, so for them kNatronOfxKeyModifierControl is set while Command is down. No other key sets a bit: not the lock keys (kOfxKey_Caps_Lock, kOfxKey_Shift_Lock, kOfxKey_Num_Lock), nor the keys reported as kOfxKey_Super_L/R or kOfxKey_Hyper_L/R, nor any other key (e.g. kOfxKey_Mode_switch or kOfxKey_ISO_Level3_Shift).
+ Value in each action:
+     - in the pen actions, the state at the time of the pen event;
+     - in kOfxInteractActionKeyDown, kOfxInteractActionKeyUp and kOfxInteractActionKeyRepeat, the state after the event: on the key down of kOfxKey_Shift_L, kNatronOfxKeyModifierShift is set, and on its key up it is cleared (unless kOfxKey_Shift_R is still down);
+     - in kOfxInteractActionDraw, kOfxInteractActionGainFocus and kOfxInteractActionLoseFocus, which have no input event, the current state as known by the host (e.g. queried from the windowing system).
+ Hosts are not required to redraw interacts when only the state of the modifiers changes. A plug-in whose drawing depends on the modifiers (e.g. a hint shown while Shift is held) should request a redraw (OfxInteractSuiteV1::interactRedraw) from its key actions for the modifier keys.
+ Negotiation and compatibility: a host that supports this extension sets the property in all the actions and interacts listed above, and sets kNatronOfxInteractHostPropSupportsKeyModifiers to 1 on the host descriptor. A host that doesn't support it doesn't set the property, so it is missing from the inArgs and propGetInt returns kOfxStatErrUnknown. A plug-in must check that status in each action and, if the property is missing, fall back to tracking the modifier key symbols from the key actions it gets, and reset the tracked state on kOfxInteractActionLoseFocus. Plug-ins that ignore this property are not affected by it: hosts still send the key actions of the modifier keys.
+ The Support library does both: InteractArgs::keyModifiers is the host's value in the inArgs of the action when it passes it, and the tracked state otherwise; OFX::ImageEffect::getKeyModifiers() and OFX::Interact::getKeyModifiers() are the state of the last action of the instance's overlay interacts (the host's value or the tracked state), also in parameter interacts and in kOfxActionInstanceChanged. When built with an ofxInteract.h that defines kOfxInteractPropKeyModifiers, the Support library and HostSupport also use the kOfx names.
  
  */
 
@@ -1239,30 +1244,34 @@ says:
  */
 #define kNatronOfxPropPickerColour "NatronOfxPropPickerColour"
 
-/** @brief Int property telling whether the host passes the keyboard modifiers to the overlay interact actions and to the selection rectangle notifications. See 13) of the in-viewer interface extension.
+/** @brief Indicates whether the host passes the state of the keyboard modifiers to the interact actions. Mirrors the proposed OFX 1.6 kOfxInteractHostPropSupportsKeyModifiers, see 13) of the in-viewer interface extension.
 
- - Type - int x 1
+ - Type - int X 1
  - Property Set - host descriptor (read only)
  - Default - 0
- - Valid Values - 0 or 1
- If 1, the host sets kNatronOfxInteractPropKeyModifiers in the inArgs of all the actions of the image effect overlay interacts (not of the parameter interacts), and on the image effect instance before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState.
+ - Valid Values - This must be one of
+     - 0 the host does not set kNatronOfxInteractPropKeyModifiers
+     - 1 the host sets kNatronOfxInteractPropKeyModifiers in the inArgs of all the interact actions listed there, for all the interacts it creates: image effect overlays and, if it supports them, parameter interacts
+
+ Hosts that predate it don't set it: a plug-in must treat a missing property as 0.
+ A host that sets kNatronOfxInteractPropKeyModifiers in the interact actions must set this property to 1.
+ The two properties have different roles. In an interact action, a plug-in detects the modifiers by the presence of kNatronOfxInteractPropKeyModifiers in the inArgs of that action, not by this property. This property is for the describe and create instance actions, before any interact exists: for example, to choose between a modifier-based and a button-based way of switching a tool, or to word the hints of a parameter ("Shift+drag to constrain") only when the host passes the modifiers.
 
     @propdef
     type: bool
     dimension: 1
     extension: natron
  */
-#define kNatronOfxHostPropInteractKeyModifiers "NatronOfxHostPropInteractKeyModifiers"
+#define kNatronOfxInteractHostPropSupportsKeyModifiers "NatronOfxInteractHostPropSupportsKeyModifiers"
 
-/** @brief Int property holding the state of the keyboard modifiers, as a bitmask of kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta. See 13) of the in-viewer interface extension.
+/** @brief The state of the keyboard modifiers (Shift, Control, Alt, Meta) during an interact action. Mirrors the proposed OFX 1.6 kOfxInteractPropKeyModifiers, see 13) of the in-viewer interface extension for the full semantics.
 
- - Type - int x 1
- - Property Set - inArgs of the overlay interact actions kOfxInteractActionDraw, kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp, kOfxInteractActionKeyRepeat, kOfxInteractActionGainFocus and kOfxInteractActionLoseFocus of the image effect overlay interacts (read only); image effect instance (read only), set by the host before each kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState, and only valid during that action
- - Default - 0
- - Valid Values - a bitwise OR of kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta
+ - Type - int X 1
+ - Property Set - inArgs of kOfxInteractActionDraw, kOfxInteractActionPenMotion, kOfxInteractActionPenDown, kOfxInteractActionPenUp, kOfxInteractActionKeyDown, kOfxInteractActionKeyUp, kOfxInteractActionKeyRepeat, kOfxInteractActionGainFocus and kOfxInteractActionLoseFocus, of image effect overlay interacts and of parameter interacts (read only)
+ - Valid Values - a bitwise OR of kNatronOfxKeyModifierShift, kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta, or 0 if no modifier is down. The other bits are reserved: hosts must set them to 0, and plug-ins must ignore them.
 
- A bit is set while a key that the host reports with the corresponding key symbols of ofxKeySyms.h is down (e.g. kNatronOfxKeyModifierControl while kOfxKey_Control_L or kOfxKey_Control_R is down, which is Cmd on macOS hosts built with Qt). In the key actions of a modifier key, the value is the state after the event.
- The host only sets this property if kNatronOfxHostPropInteractKeyModifiers is 1 on the host descriptor: a plug-in should check that the property exists, and otherwise track the modifier key events. On the image effect instance, the value is only valid during the kOfxActionInstanceChanged action for kNatronOfxParamSelectionRectangleState. Parameter interacts (kOfxParamPropInteractV1) don't get this property.
+ A bit is set while a key that the host would report with one of the key symbols of that modifier (ofxKeySyms.h) is down; no other key sets a bit. In the key actions, the value is the state after the event; in the draw and focus actions, the current state as known by the host.
+ A host that doesn't support 13) doesn't set it: a plug-in must check the status of propGetInt (kOfxStatErrUnknown if missing) and then track the modifier key symbols from the key actions, reset on kOfxInteractActionLoseFocus.
 
     @propdef
     type: int
@@ -1271,14 +1280,14 @@ says:
  */
 #define kNatronOfxInteractPropKeyModifiers "NatronOfxInteractPropKeyModifiers"
 
-/** @brief Bits of kNatronOfxInteractPropKeyModifiers: set while kOfxKey_Shift_L or kOfxKey_Shift_R is down */
-#define kNatronOfxKeyModifierShift 1
-/** @brief Bits of kNatronOfxInteractPropKeyModifiers: set while kOfxKey_Control_L or kOfxKey_Control_R is down (Cmd on macOS hosts built with Qt) */
-#define kNatronOfxKeyModifierControl 2
-/** @brief Bits of kNatronOfxInteractPropKeyModifiers: set while kOfxKey_Alt_L or kOfxKey_Alt_R is down */
-#define kNatronOfxKeyModifierAlt 4
-/** @brief Bits of kNatronOfxInteractPropKeyModifiers: set while kOfxKey_Meta_L or kOfxKey_Meta_R is down (the Control key on macOS hosts built with Qt) */
-#define kNatronOfxKeyModifierMeta 8
+/** @brief Bit of kNatronOfxInteractPropKeyModifiers, set while a Shift key (reported as kOfxKey_Shift_L or kOfxKey_Shift_R) is down. Mirrors kOfxKeyModifierShift. */
+#define kNatronOfxKeyModifierShift 0x1
+/** @brief Bit of kNatronOfxInteractPropKeyModifiers, set while a Control key (reported as kOfxKey_Control_L or kOfxKey_Control_R) is down. Hosts built with Qt report the Command key on macOS as kOfxKey_Control_L/R by default. Mirrors kOfxKeyModifierControl. */
+#define kNatronOfxKeyModifierControl 0x2
+/** @brief Bit of kNatronOfxInteractPropKeyModifiers, set while an Alt key (Option on macOS; reported as kOfxKey_Alt_L or kOfxKey_Alt_R) is down. Mirrors kOfxKeyModifierAlt. */
+#define kNatronOfxKeyModifierAlt 0x4
+/** @brief Bit of kNatronOfxInteractPropKeyModifiers, set while a Meta key (reported as kOfxKey_Meta_L or kOfxKey_Meta_R) is down. Hosts built with Qt report the Control key on macOS as kOfxKey_Meta_L/R by default. Mirrors kOfxKeyModifierMeta. */
+#define kNatronOfxKeyModifierMeta 0x8
 
 /** @brief Property to indicate the whether the curves in the parametric parametric
  are considered to be periodic or not. If periodic the first and last control point

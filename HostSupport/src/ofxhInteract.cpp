@@ -397,8 +397,24 @@ namespace OFX {
           props.setDoublePropertyN(kNatronOfxPropPickerColour, noColor, 4);
         }
         props.setDoubleProperty(kOfxInteractPropScreenPixelRatio, getScreenPixelRatio());
+        // extension 13 of ofxNatron.h: plug-ins detect the keyboard modifiers by the presence of the
+        // property, so it is only declared if the host application passes them, for this interact
+        // (overlay or parameter interact). This can't be decided in the constructor, where
+        // supportsKeyModifiers() isn't the derived class's yet.
+        if ( !props.fetchProperty(kNatronOfxInteractPropKeyModifiers) &&
+             supportsKeyModifiers() && ImageEffect::hostSupportsKeyModifiers() ) {
+          props.addProperty(new Property::Int(kNatronOfxInteractPropKeyModifiers, 1, true, 0)); // read only for the plug-in
+#  ifdef kOfxInteractPropKeyModifiers
+          props.addProperty(new Property::Int(kOfxInteractPropKeyModifiers, 1, true, 0)); // OFX 1.6
+#  endif
+        }
         if (props.fetchProperty(kNatronOfxInteractPropKeyModifiers)) {
-          props.setIntProperty(kNatronOfxInteractPropKeyModifiers, getKeyModifiers());
+          const int modifiers = getKeyModifiers() & (kNatronOfxKeyModifierShift | kNatronOfxKeyModifierControl |
+                                                     kNatronOfxKeyModifierAlt | kNatronOfxKeyModifierMeta);
+          props.setIntProperty(kNatronOfxInteractPropKeyModifiers, modifiers);
+#  ifdef kOfxInteractPropKeyModifiers
+          props.setIntProperty(kOfxInteractPropKeyModifiers, modifiers);
+#  endif
         }
 #endif
       }

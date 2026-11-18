@@ -2734,14 +2734,14 @@ namespace OFX {
 
   bool ImageEffect::updateKeyModifiers(const std::string &action, const PropertySet &props)
   {
-    if ( props.propExists(kNatronOfxInteractPropKeyModifiers, false) ) {
+    int modifiers = 0;
+    if ( Private::fetchKeyModifiers(props, &modifiers) ) {
       // the state given by the host. Keep the keys that are down consistent with it, so that
       // tracking (if a later action doesn't carry the property) starts from it. The side of a
       // modifier that the host reports is unknown, so it is recorded as the left key: on a host
       // that passes the property in some actions but not in others, a later key up of the right
       // key without the property doesn't clear that modifier (the next action with the property,
       // or a kOfxInteractActionLoseFocus, does). That is acceptable for such mixed hosts.
-      const int modifiers = props.propGetInt(kNatronOfxInteractPropKeyModifiers, 0, false);
       for (int i = 0; i < gNModifierKeys; ++i) {
         const int sides = 3 << (2 * i);
         if ( !(modifiers & gModifierKeys[i].modifier) ) {
@@ -2780,6 +2780,29 @@ namespace OFX {
     bool updateKeyModifiers(ImageEffect &effect, const std::string &action, const PropertySet &props)
     {
       return effect.updateKeyModifiers(action, props);
+    }
+
+    bool fetchKeyModifiers(const PropertySet &props, int *modifiers)
+    {
+      // propGetInt directly: PropertySet logs an error for a missing property, which is normal here
+      if ( !props.propSetHandle() || !gPropSuite ) {
+        return false;
+      }
+      int value = 0;
+      bool found = false;
+#ifdef kOfxInteractPropKeyModifiers
+      // OFX 1.6: same bits as the Natron extension
+      found = gPropSuite->propGetInt(props.propSetHandle(), kOfxInteractPropKeyModifiers, 0, &value) == kOfxStatOK;
+#endif
+      if (!found) {
+        found = gPropSuite->propGetInt(props.propSetHandle(), kNatronOfxInteractPropKeyModifiers, 0, &value) == kOfxStatOK;
+      }
+      if (!found) {
+        return false;
+      }
+      *modifiers = value & (kNatronOfxKeyModifierShift | kNatronOfxKeyModifierControl |
+                            kNatronOfxKeyModifierAlt | kNatronOfxKeyModifierMeta);
+      return true;
     }
   }
 #endif
@@ -4345,7 +4368,11 @@ namespace OFX {
         gHostDescription.supportsCascadingChoices   = hostProps.propGetInt(kNatronOfxParamPropChoiceCascading, false) != 0;
         gHostDescription.supportsChannelSelector    = hostProps.propGetString(kNatronOfxImageEffectPropChannelSelector, false) == kOfxImageComponentRGBA;
         gHostDescription.canDistort                 = hostProps.propGetInt(kOfxImageEffectPropCanDistort, false) != 0;
-        gHostDescription.supportsInteractKeyModifiers = hostProps.propGetInt(kNatronOfxHostPropInteractKeyModifiers, false) != 0;
+        gHostDescription.supportsInteractKeyModifiers = hostProps.propGetInt(kNatronOfxInteractHostPropSupportsKeyModifiers, false) != 0;
+#  ifdef kOfxInteractHostPropSupportsKeyModifiers
+        gHostDescription.supportsInteractKeyModifiers = gHostDescription.supportsInteractKeyModifiers ||
+                                                        hostProps.propGetInt(kOfxInteractHostPropSupportsKeyModifiers, false) != 0;
+#  endif
 
         int nOverlayHandles = hostProps.propGetDimension(kNatronOfxPropNativeOverlays, false);
         for (int i = 0; i < nOverlayHandles; ++i) {
@@ -5265,13 +5292,6 @@ namespace OFX {
       std::string changedName = inArgs.propGetString(kOfxPropName);
 
       if(changedType == kOfxTypeParameter) {
-#ifdef OFX_EXTENSIONS_NATRON
-        // extension 13 of ofxNatron.h: the host sets the modifiers on the instance before the
-        // selection rectangle notifications (its value at other times is unspecified)
-        if (changedName == kNatronOfxParamSelectionRectangleState) {
-          updateKeyModifiers(*effectInstance, kOfxActionInstanceChanged, effectInstance->getPropertySet());
-        }
-#endif
         // and call the plugin client code
         effectInstance->changedParam(args, changedName);
       }

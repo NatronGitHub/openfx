@@ -191,16 +191,33 @@ namespace OFX {
         // hooks to live kOfxInteractPropScreenPixelRatio in the property set
         virtual double getScreenPixelRatio() const = 0;
 
-        /// the keyboard modifiers (extension 13 of ofxNatron.h): a bitmask of kNatronOfxKeyModifier*,
-        /// with the meaning of the key symbols the host passes to keyDownAction() and keyUpAction()
-        /// (in the key actions of a modifier key, the state after the event). Only used for overlay
-        /// interacts (ImageEffect::OverlayInteract), if the host sets
-        /// kNatronOfxHostPropInteractKeyModifiers to 1; then it is passed in the inArgs of every
-        /// overlay interact action. Parameter interacts don't get the property, so the Support
-        /// library falls back to tracking the modifier keys there. The default returns 0.
-        /// Host contract (not enforced): a host that sets kNatronOfxHostPropInteractKeyModifiers
-        /// to 1 MUST override this in its overlay interacts, otherwise plug-ins see no modifier
-        /// at all (they trust the property and stop tracking the modifier keys).
+        /// Keyboard modifiers (extension 13 of ofxNatron.h, the proposed OFX 1.6 kOfxInteractPropKeyModifiers).
+        ///
+        /// kNatronOfxInteractPropKeyModifiers is declared in the inArgs of the interact actions of
+        /// this instance (overlay or parameter interact) only if the host application sets
+        /// kNatronOfxInteractHostPropSupportsKeyModifiers to 1 on its image effect host descriptor
+        /// AND supportsKeyModifiers() returns true. It is then set from getKeyModifiers() before
+        /// each of these actions (with kOfxInteractPropKeyModifiers too, if ofxInteract.h defines
+        /// it). Otherwise it is not declared, and plug-ins track the modifier keys themselves.
+        /// Requiring the override means that an interact class that doesn't implement
+        /// getKeyModifiers() makes plug-ins fall back to tracking, instead of silently reporting
+        /// "no modifier".
+        ///
+        /// When ofxInteract.h defines the OFX 1.6 names, either host property enables it, and both
+        /// kOfxInteractPropKeyModifiers and kNatronOfxInteractPropKeyModifiers are passed: the host
+        /// application should then set both host properties to 1.
+        ///
+        /// A host application that sets kNatronOfxInteractHostPropSupportsKeyModifiers to 1 should
+        /// override both functions in all its interacts. Not overriding them is safe: the plug-ins
+        /// of that interact then get no property and fall back to tracking the modifier keys.
+        virtual bool supportsKeyModifiers() const { return false; }
+
+        /// The state of the keyboard modifiers, a bitmask of kNatronOfxKeyModifierShift,
+        /// kNatronOfxKeyModifierControl, kNatronOfxKeyModifierAlt and kNatronOfxKeyModifierMeta,
+        /// consistent with the key symbols the host passes to keyDownAction(), keyUpAction() and
+        /// keyRepeatAction() (in the key actions of a modifier key, the state after the event; in
+        /// the draw and focus actions, the current state). Only called if supportsKeyModifiers()
+        /// returns true. The default returns 0.
         virtual int getKeyModifiers() const { return 0; }
 #endif
 
