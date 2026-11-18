@@ -32,6 +32,16 @@
 #   have its own rpath (e.g. $ORIGIN). --no-needed (or OFX_ABI_CHECK_NEEDED=0) skips this rule,
 #   for CI builds against the distribution's libraries; the other checks still apply.
 #
+# DT_RUNPATH and DT_RPATH (DT_RPATH is ignored when DT_RUNPATH exists, as the loader does): every
+# entry must start with $ORIGIN (or ${ORIGIN}), without $LIB or $PLATFORM. An absolute entry (e.g.
+# a build-machine path such as /opt/rh/gcc-toolset-14/... or /__w/..., an SDK prefix added by
+# CMake's INSTALL_RPATH_USE_LINK_PATH, an add_ofx_plugin(RPATH) or OFX_PLUGIN_RPATH entry, or a
+# Makefile's -Wl,-rpath,<libdir>), a relative one or an empty one in a list (both relative to the
+# current directory) is a problem: the loader would search it on the user's machine. Entries listed
+# in OFX_ABI_RPATH_ALLOW (default: none; whitespace-separated exact entries, so an entry with a
+# space can't be listed) are allowed. An empty DT_RUNPATH/DT_RPATH value, which the loader ignores,
+# and an $ORIGIN entry that leads outside the bundle are warnings.
+#
 # Symbol versions: every version that a file needs (readelf -V, .gnu.version_r) must exist on the
 # baseline. The limits can be set in the environment; the defaults are EL9's, measured with
 # readelf -V on rockylinux/rockylinux:9 (glibc 2.34-290.el9_9, GCC 11.5.0-17.el9_9, zlib 1.2.11):
@@ -43,6 +53,8 @@
 #   OFX_ABI_LIBATOMIC  1.2     libatomic
 #   OFX_ABI_ZLIB       1.2.9   zlib
 # Set a limit to 99 to disable it.
+# - A version of one of these libraries without a number (e.g. GLIBC_FOO, or a bare ZLIB) is a
+#   problem, except libstdc++'s CXXABI_FLOAT128.
 # - GLIBC_PRIVATE and the GLIBC_ABI_* markers (e.g. GLIBC_ABI_DT_RELR, from glibc 2.36's
 #   -z pack-relative-relocs, the default on some newer toolchains) are problems; the
 #   GLIBC_ABI_* names listed in OFX_ABI_GLIBC_ABI_ALLOW (default: none) are allowed.
@@ -52,7 +64,7 @@
 #   OFX_ABI_GLIBC_EXTRA="__memcmpeq epoll_pwait2 __rseq_flags __rseq_offset __rseq_size
 #   _dl_find_object posix_spawn_file_actions_addtcsetpgrp_np"
 #
-# Warnings (not problems): a file needs libOpenGL.so.0 (EL9 has it in libglvnd-opengl, which
+# Also warnings (besides the RUNPATH/RPATH ones above): a file needs libOpenGL.so.0 (EL9 has it in libglvnd-opengl, which
 # isn't always installed: link libGL.so.1 instead; CMake's OpenGL::GL is libOpenGL.so.0 unless
 # OpenGL_GL_PREFERENCE is LEGACY), or libcrypt.so.1 (EL9's libxcrypt is libcrypt.so.2;
 # libcrypt.so.1 needs libxcrypt-compat).
@@ -103,6 +115,7 @@ OFX_ABI_GLIBC_EXTRA=${OFX_ABI_GLIBC_EXTRA-}
 OFX_ABI_GLIBC_ABI_ALLOW=${OFX_ABI_GLIBC_ABI_ALLOW-}
 OFX_ABI_SYSTEM_LIBS=${OFX_ABI_SYSTEM_LIBS-}
 OFX_ABI_OPTIONAL_LIBS=${OFX_ABI_OPTIONAL_LIBS-libz.so.1}
+OFX_ABI_RPATH_ALLOW=${OFX_ABI_RPATH_ALLOW-}
 
 # word_in WORD LIST: WORD is one of the whitespace-separated words of LIST
 word_in() {
@@ -196,19 +209,52 @@ check_elf() {
   # DT_NEEDED, resolved through the DT_RUNPATH (or DT_RPATH) directories inside the bundle
   local dir runpath entry d
   dir=$(dirname "$f")
-  runpath=$(echo "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')
-  [ -n "$runpath" ] || runpath=$(echo "$dyn" | sed -n 's/.*(RPATH).*\[\(.*\)\]/\1/p')
+  # the loader ignores DT_RPATH when DT_RUNPATH exists (even if empty)
+  local rpathtag=""
+  if [[ "$dyn" == *"(RUNPATH)"* ]]; then
+    rpathtag=RUNPATH
+    runpath=$(echo "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')
+  elif [[ "$dyn" == *"(RPATH)"* ]]; then
+    rpathtag=RPATH
+    runpath=$(echo "$dyn" | sed -n 's/.*(RPATH).*\[\(.*\)\]/\1/p')
+  else
+    runpath=""
+  fi
   local -a entries=() dirs=()
+  if [ -n "$rpathtag" ]; then
+    # read -a drops a trailing empty entry: check "a:" by hand. An empty value is ignored by the
+    # loader, but an empty entry in a list is the current directory
+    case "$runpath" in
+      "") warn "$f" "has an empty $rpathtag, which the loader ignores (remove it)" ;;
+      :*|*:|*::*) report "$f" "has an empty $rpathtag entry ($runpath), which the loader takes as the current directory" ;;
+    esac
+  fi
   IFS=: read -r -a entries <<< "$runpath"
   for entry in "${entries[@]}"; do
+    case "$entry" in
+      '') ;; # reported above
+      *'$LIB'*|*'${LIB}'*|*'$PLATFORM'*|*'${PLATFORM}'*)
+        report "$f" "has the $rpathtag entry $entry, with \$LIB or \$PLATFORM: a plug-in bundle has a fixed layout (use \$ORIGIN paths)" ;;
+      '$ORIGIN'|'$ORIGIN/'*|'${ORIGIN}'|'${ORIGIN}/'*) ;;
+      *)
+        if ! word_in "$entry" "$OFX_ABI_RPATH_ALLOW"; then
+          report "$f" "has the $rpathtag entry $entry, which doesn't start with \$ORIGIN (a build-machine path?): the loader would search it on the user's machine (see OFX_ABI_RPATH_ALLOW)"
+        fi ;;
+    esac
     d=${entry//\$\{ORIGIN\}/"$dir"} # (quoted: bash 5.2 expands & in a replacement)
     d=${d//\$ORIGIN/"$dir"}
     if [ -n "$d" ] && inside "$d" "$root"; then
       dirs+=("$d")
+    elif [ -n "$d" ] && [ "$d" != "$entry" ]; then
+      if [[ "$root" == *.ofx.bundle ]]; then
+        warn "$f" "its $rpathtag entry $entry leads outside the bundle"
+      else
+        warn "$f" "its $rpathtag entry $entry leads outside the file's directory (not in a bundle)"
+      fi
     fi
   done
   # DT_RELR (e.g. -z pack-relative-relocs) needs glibc 2.36's loader, even without a version need
-  if echo "$dyn" | grep -q '(RELR)'; then
+  if [[ "$dyn" == *"(RELR)"* ]]; then
     report "$f" "uses DT_RELR relocations (-z pack-relative-relocs), which the baseline's loader doesn't support"
   fi
   local lib found
@@ -242,6 +288,8 @@ check_elf() {
           report "$f" "needs $ver (from $file), which the baseline glibc doesn't have (see OFX_ABI_GLIBC_ABI_ALLOW)"
         fi
         continue ;;
+      CXXABI_FLOAT128) # libstdc++'s unnumbered __float128 typeinfo node (float128.ver)
+        continue ;;
       GLIBC_PRIVATE)
         report "$f" "needs GLIBC_PRIVATE (from $file): it only works with the glibc build it was linked with"
         continue ;;
@@ -259,7 +307,9 @@ check_elf() {
     esac
     case "$num" in
       [0-9]*) ;;
-      *) continue ;;
+      *) # e.g. GLIBC_FOO, or a bare ZLIB: no baseline version to compare with
+        report "$f" "needs $ver (from $file), a $tag version without a number, which the baseline can't be checked against"
+        continue ;;
     esac
     version_le "$num" "$max" && continue
     syms=$(undefined_symbols_at "$f" "$ver" | tr '\n' ' ')

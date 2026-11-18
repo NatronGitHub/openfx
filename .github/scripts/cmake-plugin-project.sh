@@ -62,7 +62,16 @@ run() { # mode: package | subdirectory
       package) [ "$lcb" = "$prefix/lib/cmake/openfx/linuxCheckBundle.sh" ] || fail "OFX_LINUX_CHECK_BUNDLE: $lcb" ;;
       subdirectory) [ "$lcb" = "$src/Support/include/linuxCheckBundle.sh" ] || fail "OFX_LINUX_CHECK_BUNDLE: $lcb" ;;
     esac
-    OFX_ABI_GLIBC=99 OFX_ABI_GLIBCXX=99 OFX_ABI_CXXABI=99 OFX_ABI_GCC=99 OFX_ABI_GOMP=99 OFX_ABI_LIBATOMIC=99 OFX_ABI_ZLIB=99 \
+    # the test plug-ins have absolute RPATH entries on purpose (add_ofx_plugin(RPATH)): they must be
+    # reported, and accepted once listed in OFX_ABI_RPATH_ALLOW
+    local limits="OFX_ABI_GLIBC=99 OFX_ABI_GLIBCXX=99 OFX_ABI_CXXABI=99 OFX_ABI_GCC=99 OFX_ABI_GOMP=99 OFX_ABI_LIBATOMIC=99 OFX_ABI_ZLIB=99"
+    local out
+    out=$(env $limits "$lcb" "$w/install/OFX/Plugins") && fail "linuxCheckBundle.sh: absolute RPATH entries not reported"
+    case "$out" in
+      *"PATH entry /opt/ofx-test-rpath,"*"PATH entry /usr/local/ofx-test-keep,"*|*"PATH entry /usr/local/ofx-test-keep,"*"PATH entry /opt/ofx-test-rpath,"*) ;; # RUNPATH or RPATH
+      *) echo "$out"; fail "linuxCheckBundle.sh: unexpected report" ;;
+    esac
+    env $limits OFX_ABI_RPATH_ALLOW="/opt/ofx-test-rpath /usr/local/ofx-test-keep" \
       "$lcb" "$w/install/OFX/Plugins" || fail "linuxCheckBundle.sh"
   fi
 }
