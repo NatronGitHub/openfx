@@ -41,11 +41,20 @@ if(APPLE)
   # target at the first project(), so a plug-in project sets it before that: in its CMakeLists.txt,
   # set(CMAKE_OSX_DEPLOYMENT_TARGET 14.0 CACHE STRING "Minimum macOS version"), or on the command
   # line, -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 (or the MACOSX_DEPLOYMENT_TARGET environment variable).
+  # Warn if it is empty (clang then uses the SDK's version) or newer than 14.0 (CMake sets it to the
+  # build machine's macOS when that is older than the SDK).
   get_property(_ofx_osx_warned GLOBAL PROPERTY _OFX_OSX_TARGET_WARNED)
-  if(NOT CMAKE_OSX_DEPLOYMENT_TARGET AND NOT _ofx_osx_warned)
+  if((NOT CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET VERSION_GREATER 14.0)
+     AND NOT _ofx_osx_warned AND CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set_property(GLOBAL PROPERTY _OFX_OSX_TARGET_WARNED ON)
-    message(WARNING "CMAKE_OSX_DEPLOYMENT_TARGET is not set: the plug-ins will need this machine's macOS "
-      "version. Set it to 14.0 (VFX Reference Platform CY2027) before project().")
+    if(CMAKE_OSX_DEPLOYMENT_TARGET)
+      set(_ofx_osx_now "is ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    else()
+      set(_ofx_osx_now "is not set (the SDK's version is used)")
+    endif()
+    message(WARNING "CMAKE_OSX_DEPLOYMENT_TARGET ${_ofx_osx_now}: the plug-ins won't load on macOS 14.0 "
+      "(VFX Reference Platform CY2027). Set it to 14.0 before project(), or pass "
+      "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0.")
   endif()
 elseif(WIN32)
   # MSVC: the target architecture (ARM64EC, ARM64, x64, X86); other compilers: pointer size

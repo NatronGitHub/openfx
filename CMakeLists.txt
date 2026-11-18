@@ -13,11 +13,13 @@ if(POLICY CMP0177)
   cmake_policy(SET CMP0177 NEW)
 endif()
 
-# macOS: the plug-ins, libraries and hosts need macOS 14.0 (VFX Reference Platform CY2027) unless
-# CMAKE_OSX_DEPLOYMENT_TARGET or the MACOSX_DEPLOYMENT_TARGET environment variable says otherwise.
-# CMake reads it at the first project(), so this only applies when openfx is the top-level project:
-# plug-in projects set their own (see cmake/OpenFX.cmake).
-if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET AND "$ENV{MACOSX_DEPLOYMENT_TARGET}" STREQUAL "")
+# macOS: the CMake-built plug-ins, libraries and hosts need macOS 14.0 (VFX Reference Platform
+# CY2027) unless CMAKE_OSX_DEPLOYMENT_TARGET, the MACOSX_DEPLOYMENT_TARGET environment variable or a
+# toolchain file (e.g. conan's, from os.version) says otherwise. CMake reads it at the first
+# project(), so this only applies when openfx is the top-level project: plug-in projects set their
+# own (see cmake/OpenFX.cmake). Not for cross builds (CMAKE_SYSTEM_NAME, e.g. iOS).
+if(CMAKE_HOST_APPLE AND NOT CMAKE_TOOLCHAIN_FILE AND NOT CMAKE_SYSTEM_NAME
+   AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET AND "$ENV{MACOSX_DEPLOYMENT_TARGET}" STREQUAL "")
   set(CMAKE_OSX_DEPLOYMENT_TARGET 14.0 CACHE STRING "Minimum macOS version")
 endif()
 option(OFX_SUPPORTS_CUDARENDER "Build examples with support for CUDA GPU rendering" OFF)
