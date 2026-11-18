@@ -42,8 +42,8 @@ England
 #include <sstream> // stringstream
 #include <set>
 #include <vector>
-#include <cassert>
-#if __cplusplus >= 201103L || (defined(_MSC_VER) && _MSC_VER >= 1900)
+#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
+#define OFXS_IMAGEEFFECT_CXX11 1
 #include <mutex>
 #endif
 #ifdef DEBUG
@@ -1116,19 +1116,22 @@ namespace OFX {
         OfxPluginEntryPoint *mainEntry;
         bool v1;
         bool v2;
+        bool warned; // the V1 + V2 warning was given
       };
 
+      // heap-allocated and never deleted, so that they are still usable if a host unloads the
+      // plug-ins from its exit-time destructors, after the static objects of this binary
       std::vector<OverlayEntryRecord> &overlayEntries()
       {
-        static std::vector<OverlayEntryRecord> entries;
-        return entries;
+        static std::vector<OverlayEntryRecord> *entries = new std::vector<OverlayEntryRecord>;
+        return *entries;
       }
 
-#if __cplusplus >= 201103L || (defined(_MSC_VER) && _MSC_VER >= 1900)
+#ifdef OFXS_IMAGEEFFECT_CXX11
       std::mutex &overlayEntriesMutex()
       {
-        static std::mutex m;
-        return m;
+        static std::mutex *m = new std::mutex;
+        return *m;
       }
       struct OverlayEntriesLock {
         OverlayEntriesLock() { overlayEntriesMutex().lock(); }
@@ -1155,19 +1158,26 @@ namespace OFX {
           }
         }
         if (!rec) {
-          OverlayEntryRecord r = { mainEntry, false, false };
+          OverlayEntryRecord r = { mainEntry, false, false, false };
           entries.push_back(r);
           rec = &entries.back();
         }
         (v2 ? rec->v2 : rec->v1) = true;
-        if (rec->v1 && rec->v2) {
+        if (rec->v1 && rec->v2 && !rec->warned) {
           // e.g. a descriptor template shared by an overlay registered with
           // setOverlayInteractDescriptor() and one registered with setOverlayInteractDescriptorV2():
-          // both draw with the DrawSuite (V2 wins, so that no V2 overlay draws with OpenGL)
-          OFX::Log::warning(true, "An overlay interact main entry (descriptor class) is registered both as "
-                            "OverlayInteractV1 and as OverlayInteractV2: DrawArgs::getDrawContext() "
-                            "uses the DrawSuite for both. Use a separate descriptor class for each.");
-          assert(false && "an overlay descriptor class is registered both as V1 and as V2");
+          // both draw with the DrawSuite (V2 wins, so that no V2 overlay draws with OpenGL).
+          // A warning, not an assert: this runs in the host's describe action, and a debug
+          // build must not abort the host's plug-in scan.
+          rec->warned = true;
+          static const char msg[] = "An overlay interact main entry (descriptor class) is registered both as "
+                                    "OverlayInteractV1 and as OverlayInteractV2: DrawArgs::getDrawContext() "
+                                    "uses the DrawSuite for both. Use a separate descriptor class for each.";
+          OFX::Log::warning(true, "%s", msg);
+#ifdef DEBUG
+          // (Log only writes when its log file is open)
+          std::cerr << "OFX Support warning: " << msg << std::endl;
+#endif
         }
       }
     } // namespace
@@ -1232,7 +1242,15 @@ namespace OFX {
                                                       0, (void*)desc->getMainEntry());
     }
     if (stat != kOfxStatOK) {
-      OFX::Log::warning(true, "The host refused kOfxImageEffectPluginPropOverlayInteractV2: the overlay is registered as V1");
+      static const char msg[] = "The host refused kOfxImageEffectPluginPropOverlayInteractV2: the overlay is registered as V1";
+      OFX::Log::warning(true, "%s", msg);
+#ifdef DEBUG
+      static bool printed = false; // (Log only writes when its log file is open)
+      if (!printed) {
+        printed = true;
+        std::cerr << "OFX Support warning: " << msg << std::endl;
+      }
+#endif
       setOverlayInteractDescriptor(desc);
       return false;
     }

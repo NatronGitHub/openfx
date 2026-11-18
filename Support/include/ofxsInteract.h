@@ -87,9 +87,10 @@ namespace OFX {
      called via kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite. If this
      is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL."):
      - overlay registered as V2 (ImageEffectDescriptor::setOverlayInteractDescriptorV2() returned
-       true; not if the plug-in set kOfxImageEffectPluginPropOverlayInteractV2 itself): the host's DrawSuite (usesDrawSuite()). If the host passed no
-       kOfxInteractPropDrawContext, nothing is drawn and the functions return false: OpenGL
-       must not be used, the host may not even have an OpenGL context.
+       true; not if the plug-in set kOfxImageEffectPluginPropOverlayInteractV2 itself): the
+       host's DrawSuite (usesDrawSuite()). If the host passed no kOfxInteractPropDrawContext,
+       nothing is drawn and the functions return false: OpenGL must not be used, the host may
+       not even have an OpenGL context.
      - overlay registered as V1 (setOverlayInteractDescriptor(), or
        setOverlayInteractDescriptorV2() on a host without the DrawSuite): OpenGL (usesOpenGL()),
        even if the host also passed a DrawSuite context.

@@ -280,11 +280,11 @@ static void testRegistry()
   CHECK(isOverlayInteractV2(fakeEntry1));
   setOverlayInteractV2(NULL);
   CHECK(!isOverlayInteractV2(NULL));
-#ifdef NDEBUG
-  // registered both as V1 and as V2: a warning (and an assert in debug builds), and V2 wins
+  // registered both as V1 and as V2: a warning, and V2 wins
   setOverlayInteractV2(fakeEntry2);
   CHECK(isOverlayInteractV2(fakeEntry2));
-#endif
+  setOverlayInteractV1(fakeEntry2); // (no second warning)
+  CHECK(isOverlayInteractV2(fakeEntry2));
   // the last kOfxActionUnload forgets them
   clearOverlayInteractRegistrations();
   CHECK(!isOverlayInteractV2(fakeEntry1));

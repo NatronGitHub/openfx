@@ -174,7 +174,8 @@ namespace OFX {
 
     /** @brief Record that the overlay with that main entry is registered as
         kOfxImageEffectPluginPropOverlayInteractV2 (ImageEffectDescriptor::setOverlayInteractDescriptorV2).
-        Warns (and asserts in debug builds) if it is also registered as V1. */
+        If it is also registered as V1, V2 wins (isOverlayInteractV2() is true), and a warning is
+        logged once (and printed to std::cerr in DEBUG builds). */
     void setOverlayInteractV2(OfxPluginEntryPoint *mainEntry);
 
     /** @brief true if the overlay with that main entry was registered as V2 */
