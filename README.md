@@ -80,7 +80,7 @@ Main options:
 - `OFX_BUILD_HOSTSUPPORT`: build HostSupport, on by default at top level;
 - `BUILD_EXAMPLE_PLUGINS` and `BUILD_EXAMPLE_HOSTS`: the example plug-ins and hosts;
 - `OFX_CXX_STANDARD`: the C++ standard of the plug-ins and of openfx::Support (default: `CMAKE_CXX_STANDARD`, else 17);
-- `OFX_PLUGIN_NO_UNDEFINED` (ON): link the plug-ins with `-z defs` on Linux and FreeBSD, so an undefined symbol fails the link; turn it off for clang sanitizer builds;
+- `OFX_PLUGIN_NO_UNDEFINED` (ON): link the plug-ins with `-z defs` on Linux and FreeBSD, so an undefined symbol fails the link; turn it off for clang sanitizer builds, or use clang's `-shared-libsan` (gcc links its shared sanitizer runtime by default, so it works with `-z defs`). The Makefiles do the same, unless `NO_UNDEFINED_FLAG=` is passed;
 - `OFX_OPTFLAG`: extra optimization flags of the release configurations, after CMake's (empty: CMake's defaults; ignored with MSVC);
 - `CMAKE_OSX_DEPLOYMENT_TARGET`: 14.0 by default at top level (VFX Reference Platform CY2027), unless the `MACOSX_DEPLOYMENT_TARGET` environment variable is set; the plug-in Makefiles (`Makefile.master`) use the same default (the HostSupport and hostDemo Makefiles don't set one). A toolchain file (e.g. conan's `os.version`) sets its own. Plug-in projects set it before `project()`, and `cmake/OpenFX.cmake` warns if it is empty or newer than 14.0;
 - `OFX_DEPLOY_BUNDLES` (for plug-in projects, macOS only, by design): make the installed bundles self-contained with `ofx_deploy_bundle()`; on Linux and Windows, plug-ins use system libraries.
