@@ -34,6 +34,28 @@ target_include_directories(OfxSupport PUBLIC
 	$<INSTALL_INTERFACE:include/Support>
 	$<INSTALL_INTERFACE:include/Support/Plugins>)
 
+# The OpenGL backend of DrawArgs::getDrawContext() is the only Support file that calls OpenGL. It
+# only needs the OpenGL headers here: openfx::Support doesn't link OpenGL, the plug-ins that call
+# getDrawContext() do (that object file is not linked into the others, from this static library).
+set(_ofx_drawcontext_gl "${OFX_SUPPORT_LIBRARY_DIR}/ofxsDrawContextOpenGL.cpp")
+set(_ofx_drawcontext_gl_ok OFF)
+if(OFX_SUPPORT_DRAWCONTEXT_OPENGL)
+  if(NOT TARGET OpenGL::GL)
+    find_package(OpenGL QUIET)
+  endif()
+  if(TARGET OpenGL::GL OR OPENGL_FOUND)
+    set(_ofx_drawcontext_gl_ok ON)
+    if(OPENGL_INCLUDE_DIR)
+      set_property(SOURCE "${_ofx_drawcontext_gl}" APPEND PROPERTY INCLUDE_DIRECTORIES "${OPENGL_INCLUDE_DIR}")
+    endif()
+  else()
+    message(STATUS "openfx: no OpenGL headers, OFX::DrawArgs::getDrawContext() has no OpenGL backend")
+  endif()
+endif()
+if(NOT _ofx_drawcontext_gl_ok)
+  set_property(SOURCE "${_ofx_drawcontext_gl}" APPEND PROPERTY COMPILE_DEFINITIONS OFXS_DRAWCONTEXT_NO_OPENGL)
+endif()
+
 # the plug-ins' optimization flags (OFX_OPTFLAG), so that a plug-in and its Support code match
 ofx_target_optflag(OfxSupport)
 

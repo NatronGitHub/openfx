@@ -159,6 +159,66 @@ namespace OFX {
       
     typedef std::map<VersionIDKey, EffectContextMap> EffectDescriptorMap;
     extern EffectDescriptorMap gEffectDescriptors;
+
+    /** @brief How the overlay of a draw action was registered (DrawArgs::_overlayRegistration) */
+    enum OverlayRegistrationEnum {
+      eOverlayRegistrationUnknown = 0, // DrawArgs not made by the interact dispatcher
+      eOverlayRegistrationV1,          // kOfxImageEffectPluginPropOverlayInteractV1, or a param interact
+      eOverlayRegistrationV2           // kOfxImageEffectPluginPropOverlayInteractV2
+    };
+
+    /** @brief Record that the overlay with that main entry is registered as
+        kOfxImageEffectPluginPropOverlayInteractV2 (ImageEffectDescriptor::setOverlayInteractDescriptorV2) */
+    void setOverlayInteractV2(OfxPluginEntryPoint *mainEntry);
+
+    /** @brief true if the overlay with that main entry was registered as V2 */
+    bool isOverlayInteractV2(OfxPluginEntryPoint *mainEntry);
+
+    /** @brief Access to the private members of DrawArgs and DrawContext */
+    struct DrawArgsAccess {
+      static void setOverlayRegistration(DrawArgs &args, OverlayRegistrationEnum r) { args._overlayRegistration = (int)r; }
+      static OverlayRegistrationEnum getOverlayRegistration(const DrawArgs &args) { return (OverlayRegistrationEnum)args._overlayRegistration; }
+      static const DrawContext &drawSuiteContext(const DrawArgs &args) { return args._drawContextStorage; }
+      // the context that getDrawContext() returns for V1 overlays: getDrawContext() sets its
+      // backend (the only change made through a const DrawArgs)
+      static DrawContext &openGLContext(const DrawArgs &args) { return const_cast<DrawArgs &>(args)._openGLDrawContext; }
+      static void setOpenGLBackend(DrawContext &ctx, const DrawContextBackend *backend) { ctx._openGL = backend; }
+      static void initOpenGLContext(DrawContext &ctx, const OfxPointD &pixelScale, double screenPixelRatio)
+      {
+        ctx._pixelScale = pixelScale;
+        ctx._screenPixelRatio = screenPixelRatio;
+      }
+    };
+
+    /** @brief The DrawSuite emulation behind a DrawContext that has no DrawSuite handle (the
+        OpenGL backend, ofxsDrawContextOpenGL.cpp).
+
+        DrawContext calls it through virtual functions only, so that ofxsInteract.cpp has no
+        reference to the OpenGL backend: the plug-ins that never call DrawArgs::getDrawContext()
+        don't link ofxsDrawContextOpenGL.o (from a static library) or OpenGL.
+        The functions return OfxDrawSuiteV1 statuses. */
+    class DrawContextBackend {
+    public:
+      virtual ~DrawContextBackend() {}
+      virtual OfxStatus getColour(const DrawContext &ctx, OfxStandardColour stdColour, OfxRGBAColourF *colour) const = 0;
+      virtual OfxStatus setColour(const DrawContext &ctx, const OfxRGBAColourF *colour) const = 0;
+      virtual OfxStatus setLineWidth(const DrawContext &ctx, float width) const = 0;
+      virtual OfxStatus setLineStipple(const DrawContext &ctx, OfxDrawLineStipplePattern pattern) const = 0;
+      virtual OfxStatus draw(const DrawContext &ctx, OfxDrawPrimitive primitive, const OfxPointD *points, int pointCount) const = 0;
+      virtual OfxStatus drawText(const DrawContext &ctx, const char *text, const OfxPointD *pos, int alignment) const = 0;
+
+    protected:
+      // the DrawContext state, for the backends
+      static const OfxPointD &pixelScale(const DrawContext &ctx) { return ctx._pixelScale; }
+      static double screenPixelRatio(const DrawContext &ctx) { return ctx._screenPixelRatio; }
+      static OfxRGBAColourF &colour(const DrawContext &ctx) { return ctx._colour; }
+      static float &lineWidth(const DrawContext &ctx) { return ctx._lineWidth; }
+      static OfxDrawLineStipplePattern &lineStipple(const DrawContext &ctx) { return ctx._lineStipple; }
+    };
+
+    /** @brief The OpenGL backend (ofxsDrawContextOpenGL.cpp), NULL if it was compiled with
+        OFXS_DRAWCONTEXT_NO_OPENGL */
+    const DrawContextBackend *openGLDrawContextBackend();
   }
 
   /** @brief The validation code has its own namespace */

@@ -1110,8 +1110,11 @@ namespace OFX {
       return false;
     }
     _overlayDescriptor.reset(desc);
-    if(OFX::gHostDescription.supportsOverlays && desc->getMainEntry())
+    if(OFX::gHostDescription.supportsOverlays && desc->getMainEntry()) {
       _effectProps.propSetPointer(kOfxImageEffectPluginPropOverlayInteractV2, (void*)desc->getMainEntry(), false);
+      // DrawArgs::getDrawContext() then uses the DrawSuite, never OpenGL, for this overlay
+      OFX::Private::setOverlayInteractV2(desc->getMainEntry());
+    }
     return true;
   }
 

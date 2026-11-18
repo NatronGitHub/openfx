@@ -35,16 +35,6 @@ England
 
 */
 
-#if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
-#include <windows.h>
-#endif
-
-#ifdef __APPLE__
-#include <OpenGL/gl.h>
-#else
-#include <GL/gl.h>
-#endif
-
 #include <stdio.h>
 #include "ofxsImageEffect.h"
 #include "ofxsMultiThread.h"
@@ -498,46 +488,67 @@ BasicPlugin::changedClip(const OFX::InstanceChangedArgs &/*args*/, const std::st
 ////////////////////////////////////////////////////////////////////////////////
 // stuff for the interact 
 
-// draw the interact
+// draw the interact.
+// It draws only through args.getDrawContext(), with no OpenGL call, and is registered with
+// setOverlayInteractDescriptorV2() (see describe()): the same code then draws with the OFX 1.5
+// DrawSuite on hosts that have it (the overlay is registered as OverlayInteractV2, which MUST
+// draw with the DrawSuite), and with OpenGL on the others (OverlayInteractV1).
 bool BasicInteract::draw(const OFX::DrawArgs &args)
 {
-  OfxRGBColourF col;
+  const OFX::DrawContext &dc = args.getDrawContext();
+
+  float grey = 0.f;
   switch(_state) 
   {
-  case eInActive : col.r = col.g = col.b = 0.0f; break;
-  case ePoised   : col.r = col.g = col.b = 0.5f; break;
-  case ePicked   : col.r = col.g = col.b = 1.0f; break;
+  case eInActive : grey = 0.0f; break;
+  case ePoised   : grey = 0.5f; break;
+  case ePicked   : grey = 1.0f; break;
   }
 
-  // make the box a constant size on screen by scaling by the pixel scale
-  float dx = (float)(kBoxSize.x * args.pixelScale.x);
-  float dy = (float)(kBoxSize.y * args.pixelScale.y);
+  // make the box a constant size on screen by scaling by the pixel scale.
+  // The coordinates are canonical: the coordinate system aligns with the image plane.
+  const double dx = kBoxSize.x * args.pixelScale.x;
+  const double dy = kBoxSize.y * args.pixelScale.y;
+  const OfxPointD box[4] = {
+    { _position.x - dx, _position.y - dy },
+    { _position.x - dx, _position.y + dy },
+    { _position.x + dx, _position.y + dy },
+    { _position.x + dx, _position.y - dy },
+  };
 
-  // Draw a cross hair, the current coordinate system aligns with the image plane.
-  glPushMatrix();
+  // draw the box
+  dc.setColour(grey, grey, grey);
+  dc.draw(kOfxDrawPrimitiveRectangle, &box[0], 2); // two opposite corners
 
-  // draw the bo
-  glColor3f(col.r, col.g, col.b);
-  glTranslated(_position.x, _position.y, 0);
-  glBegin(GL_POLYGON);
-  glVertex2f(-dx, -dy);
-  glVertex2f(-dx,  dy);
-  glVertex2f( dx,  dy);
-  glVertex2f( dx, -dy);
-  glEnd();
-  glPopMatrix();
+  // draw a complementary outline (dotted while the box is picked)
+  dc.setColour(1.0f - grey, 1.0f - grey, 1.0f - grey);
+  dc.setLineWidth(1.f);
+  dc.setLineStipple(_state == ePicked ? kOfxDrawLineStipplePatternDot : kOfxDrawLineStipplePatternSolid);
+  dc.draw(kOfxDrawPrimitiveLineLoop, box, 4);
+  dc.setLineStipple(kOfxDrawLineStipplePatternSolid);
 
-  glPushMatrix();
-  // draw a complementary outline
-  glColor3f(1.0f - col.r, 1.0f - col.g, 1.0f - col.b);
-  glTranslated(_position.x, _position.y, 0);
-  glBegin(GL_LINE_LOOP);
-  glVertex2f(-dx, -dy);
-  glVertex2f(-dx,  dy);
-  glVertex2f( dx,  dy);
-  glVertex2f( dx, -dy);
-  glEnd();
-  glPopMatrix();
+  // a circle around it when the pen is over it
+  if (_state != eInActive) {
+    OfxRGBAColourF active;
+    if (dc.getColour(kOfxStandardColourOverlayActive, active)) {
+      dc.setColour(active);
+    }
+    const OfxPointD corners[2] = {
+      { _position.x - 2 * dx, _position.y - 2 * dy },
+      { _position.x + 2 * dx, _position.y + 2 * dy },
+    };
+    dc.draw(kOfxDrawPrimitiveEllipse, corners, 2);
+  }
+
+  // and a label, in the host's text colour, centred above the box
+  OfxRGBAColourF text;
+  if (!dc.getColour(kOfxStandardColourOverlayText, text)) {
+    text.r = text.g = text.b = text.a = 1.f;
+  }
+  dc.setColour(text);
+  const OfxPointD labelPos = { _position.x, _position.y + dy + 4 * args.pixelScale.y };
+  dc.drawText(dc.usesDrawSuite() ? "Gain (DrawSuite)" : "Gain (OpenGL)", labelPos,
+              kOfxDrawTextAlignmentCenterH | kOfxDrawTextAlignmentBottom);
 
   return true;
 }
@@ -668,7 +679,9 @@ void BasicExamplePluginFactory::describe(OFX::ImageEffectDescriptor& desc)
   desc.setRenderTwiceAlways(false);
   desc.setSupportsMultipleClipPARs(false);
 
-  desc.setOverlayInteractDescriptor( new BasicExampleOverlayDescriptor);
+  // OverlayInteractV2 (DrawSuite) if the host has the DrawSuite, else V1 (OpenGL): the overlay
+  // draws through DrawArgs::getDrawContext(), which follows the registration
+  desc.setOverlayInteractDescriptorV2( new BasicExampleOverlayDescriptor);
 }
 
 // make a double scale param

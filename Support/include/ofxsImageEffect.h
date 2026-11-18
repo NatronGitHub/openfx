@@ -990,6 +990,14 @@ namespace OFX {
      Otherwise it is registered as OverlayInteractV1 (same as setOverlayInteractDescriptor()),
      DrawArgs::drawContext is NULL, and draw() must use OpenGL.
 
+     The simplest way to support both: draw only through DrawArgs::getDrawContext(), which
+     uses the DrawSuite for the overlays registered as V2 and OpenGL for the others (see
+     OFX::DrawContext), and make no OpenGL call.
+
+     The registration is recorded per overlay main entry (desc->getMainEntry(), i.e. per
+     descriptor class): don't register the same descriptor class with both
+     setOverlayInteractDescriptor() and setOverlayInteractDescriptorV2().
+
      Returns true if registered as V2.
      */
     bool setOverlayInteractDescriptorV2(EffectOverlayDescriptor* desc);
