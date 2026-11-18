@@ -106,7 +106,6 @@ namespace OFX {
     /** @brief PropertyDescription var-args constructor */
     PropertyDescription::PropertyDescription(const char *name, OFX::PropertyTypeEnum ilk, int dimension, ...)
       : _name(name)
-      , _exists(false) // only set when we have validated it
       , _dimension(dimension)
       , _ilk(ilk)
     {      
@@ -145,7 +144,6 @@ namespace OFX {
 
       try {
         int hostDimension = propSet.propGetDimension(_name.c_str());
-        _exists = true;  
 
         if(_dimension != -1) // -1 implies variable dimension
           OFX::Log::error(hostDimension != _dimension, "Host reports property '%s' has dimension %d, it should be %d;", _name.c_str(), hostDimension, _dimension); 
@@ -202,17 +200,14 @@ namespace OFX {
       catch (const OFX::Exception::Suite &e)
       {
         // just catch it, the error will be reported
-        _exists = false;
       }
       catch (const OFX::Exception::PropertyUnknownToHost &e)
       {
         // just catch it, the error will be reported
-        _exists = false;
       }
       catch (const OFX::Exception::PropertyValueIllegalToHost &e)
       {
         // just catch it, the error will be reported
-        _exists = false;
       }
     }
 
