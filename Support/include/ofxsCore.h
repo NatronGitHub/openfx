@@ -124,7 +124,10 @@ of the direct OFX objects and any library side only functions.
 #  define OFX_THROW2(x,y) noexcept(false)
 #  define OFX_THROW3(x,y,z) noexcept(false)
 #  define OFX_THROW4(x,y,z,w) noexcept(false)
+   /** @brief thread_local where available (C++11): per-thread state of the Support library */
+#  define OFXS_THREAD_LOCAL thread_local
 #else
+#  define OFXS_THREAD_LOCAL
 #  define OFX_THROW(x) throw(x)
 #  define OFX_THROW2(x,y) throw(x,y)
 #  define OFX_THROW3(x,y,z) throw(x,y,z)
@@ -332,17 +335,19 @@ namespace OFX {
     /** @brief The raw property handle */
     OfxPropertySetHandle _propHandle;
 
-    /** @brief Class static, whether we are logging each property action */
-    static int _gPropLogging;
+    /** @brief Class static, whether we are logging each property action. Per thread with C++11:
+        the property validation turns logging off on its thread while render threads use
+        properties. */
+    static OFXS_THREAD_LOCAL int _gPropLogging;
 
     /** @brief Do not throw an exception if a host returns 'unsupported' when setting a property */
     static bool _gThrowOnUnsupported;
 
   public :
-    /** @brief turns on logging of property access functions */
+    /** @brief turns on logging of property access functions (on the calling thread, with C++11) */
     static void propEnableLogging(void)  {++_gPropLogging;}
 
-    /** @brief turns off logging of property access functions */
+    /** @brief turns off logging of property access functions (on the calling thread, with C++11) */
     static void propDisableLogging(void) {--_gPropLogging;}
 
     /** @brief Do we throw an exception if a host returns 'unsupported' when setting a property. Default is true */

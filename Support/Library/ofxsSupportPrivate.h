@@ -207,9 +207,6 @@ namespace OFX {
       /** @brief name of the property */
       const std::string _name;
 
-      /** @brief Was it validated */
-      bool _exists;
-
       /** @brief dimension of the property */
       int      _dimension;
 
