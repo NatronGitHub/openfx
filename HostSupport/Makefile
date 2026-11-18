@@ -1,32 +1,32 @@
 # Variables to set to help you
-#   EXPAT_INCLUDE - the directory to find the expat XML parser header files in
+#   EXPAT_CFLAGS  - the compiler flags for the expat XML parser headers (default: from pkg-config;
+#                   EXPAT_INCLUDE=<dir> is also accepted)
 #   DST_DIR       - the directory to put the built library in
 #   DEBUG         - whether to build the libraries with debug information, or optimise.
 #   OPTIMISE      - optimisation flags override.
 
 OS = $(shell uname)
 DEBUG ?= false
-EXPAT ?= expat-2.10.0
-EXPAT_INCLUDE ?= $(EXPAT)/lib
+EXPAT_CFLAGS ?= $(shell pkg-config --cflags expat 2>/dev/null)
+ifdef EXPAT_INCLUDE
+  EXPAT_CFLAGS += -I$(EXPAT_INCLUDE)
+endif
 OBJSUF ?= .o
 LIBSUF ?= .a
 LIBPREFIX ?= lib
 LIBNAME ?= ofxHost
 
 LIBTARGET = $(LIBPREFIX)$(LIBNAME)$(LIBSUF)
-EXPATLIB = $(LIBPREFIX)expat$(LIBSUF)
 
 ifeq ($(DEBUG), true)
   DST_DIR = $(OS)-debug
   OPTIMISE ?= -g -Wall
-  EXPATFLAG = --enable-debug
 else ifeq ($(DEBUG), instrument)
   DST_DIR = $(OS)-instrument
   OPTIMISE ?= -g -O3 -Wall
 else
   DST_DIR = $(OS)-release
   OPTIMISE ?= -O2 -Wall
-  EXPATFLAGS = --disable-debug
 endif
 
 INT_DIR ?= $(DST_DIR)
@@ -46,14 +46,12 @@ ifeq ($(OS),Darwin)
     # OSX 10.4 (Tiger)
     MACOSX := 10.4
     MACOSXSDK := 10.4u
-    # Will not be able to build expat, which requires a definition for BYTEORDER
     CXX_OSFLAGS=-arch i386 -arch ppc
   endif
   ifeq ($(shell uname -r | sed 's/^\(.*\)\..*\..*/\1/'), 9)
     # OSX 10.5 (Leopard)
     MACOSX := 10.5
     MACOSXSDK := 10.5
-    # Will not be able to build expat, which requires a definition for BYTEORDER
     CXX_OSFLAGS=-arch i386 -arch ppc
   endif
   RANLIB = ranlib
@@ -88,7 +86,7 @@ HEADERS = include/ofxhBinary.h                  \
   ../include/ofxTimeLine.h
 
 
-INCLUDES += -I../include -Iinclude -I$(EXPAT_INCLUDE) 
+INCLUDES += -I../include -Iinclude $(EXPAT_CFLAGS)
 
 CXXFLAGS = $(CXX_OSFLAGS) $(INCLUDES) $(OPTIMISE)
 
@@ -105,7 +103,7 @@ objects = $(INT_DIR)/ofxhParam$(OBJSUF) \
 	$(INT_DIR)/ofxhPluginCache$(OBJSUF) \
 	$(INT_DIR)/ofxhPropertySuite$(OBJSUF)
 
-$(DST_DIR)/$(LIBTARGET): $(objects) $(DST_DIR)/$(EXPATLIB)
+$(DST_DIR)/$(LIBTARGET): $(objects)
 	rm -f $(DST_DIR)/$(LIBTARGET)
 	ar -rc $(DST_DIR)/$(LIBTARGET) $(objects)
 	$(RANLIB) $(DST_DIR)/$(LIBTARGET)
@@ -116,15 +114,9 @@ $(objects) : $(DST_DIR)/%.o : src/%.cpp
 
 $(objects) : $(HEADERS)
 
-$(DST_DIR)/$(EXPATLIB):
-	mkdir -p $(DST_DIR)
-	cd $(EXPAT);	pwd; ./configure --disable-shared --without-docbook CC="$(CC)" CFLAGS="$(CXX_OSFLAGS) $(OPTIMISE)" CXX="$(CXX)" CXXFLAGS="$(CXX_OSFLAGS) $(OPTIMISE)" $(EXPATFLAGS); make
-	cp $(EXPAT)/lib/.libs/libexpat.a $(DST_DIR)
-
-all :	@echo "$(DST_DIR)/$(EXPATLIB)" $(DST_DIR)/$(EXPATLIB) $(DST_DIR)/$(LIBTARGET)
+all : $(DST_DIR)/$(LIBTARGET)
 
 clean :
-	rm -f $(DST_DIR)/$(EXPATLIB)
 	rm -f $(DST_DIR)/$(LIBTARGET)
 	rm -f $(INT_DIR)/*$(OBJSUF)
 

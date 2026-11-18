@@ -11,10 +11,10 @@ How to build the library
 
 UNIX
   - simply type 'make' in this directory, it will create 'libofxHost.a' in directory ./lib
-  - the Makefile assumes expat is installed in a standard system location, if it is not, 
-    you need to do the following
+  - the Makefile takes the expat flags from pkg-config, or assumes expat is installed in a
+    standard system location; otherwise, do the following
 
-     make EXPAT_INCLUDE=-IDIRECTORY_WITH_EXPAT
+     make EXPAT_INCLUDE=DIRECTORY_WITH_EXPAT_H
 
 WINDOWS
   - use the vc8 projects
@@ -26,10 +26,10 @@ How to build the examples
 UNIX
   - make the ofxHostLib.a library
   - in the examples directory type 'make',
-  - the Makefile assumes expat is installed in a standard system location, if it is not, 
-    you need to do the following
+  - the Makefile takes the expat flags from pkg-config, or assumes expat is installed in a
+    standard system location; otherwise, do the following
 
-     make EXPAT_INCLUDE=-IDIRECTORY_WITH_EXPAT EXPAT_LIB=SOMEWHERE/libexpat.a
+     make EXPAT_INCLUDE=DIRECTORY_WITH_EXPAT_H EXPAT_LIBS="-LSOMEWHERE -lexpat"
 
 WINDOWS
   - use the vc8 projects

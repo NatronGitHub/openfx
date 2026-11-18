@@ -5,8 +5,9 @@
 # The compile definitions used to build the libraries (OFX_EXTENSIONS_*,
 # OFX_SUPPORTS_*) are usage requirements of the library targets.
 include(CMakeFindDependencyMacro)
-set(OFX_USE_SYSTEM_EXPAT @OFX_USE_SYSTEM_EXPAT@)
-if(OFX_USE_SYSTEM_EXPAT)
+set(OFX_BUILD_HOSTSUPPORT @OFX_BUILD_HOSTSUPPORT@)
+if(OFX_BUILD_HOSTSUPPORT)
+  # openfx::HostSupport links expat (ofxhPluginCache.h includes expat.h)
   find_dependency(EXPAT)
   if(NOT TARGET expat::expat)
     add_library(expat::expat INTERFACE IMPORTED)
