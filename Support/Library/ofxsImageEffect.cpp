@@ -38,7 +38,6 @@ England
 
 #include "ofxsSupportPrivate.h"
 #include <algorithm> // for find, min, max
-#include <cmath> // for floor, ceil
 #include <cstring> // for strlen
 #include <sstream> // stringstream
 #include <set>
@@ -1297,31 +1296,6 @@ namespace OFX {
   void ImageEffectDescriptor::setDescriptionIsMarkdown(bool markdown)
   {
     _effectProps.propSetInt(kNatronOfxPropDescriptionIsMarkdown, (int)markdown, 0, false);
-  }
-
-  /* The selection rectangle property of the descriptor (deprecated: the host updates the
-   property on the instance, see ImageEffect::getSelectionRectangle()).
-   */
-  OfxRectI ImageEffectDescriptor::getSelectionRectangle()
-  {
-    // kNatronOfxImageEffectSelectionRectangle is a double x 4 property (see ofxNatron.h)
-    OfxRectI bounds = { 0, 0, 0, 0 };
-    double r[4];
-    for (int i = 0; i < 4; ++i) {
-      r[i] = _effectProps.propGetDouble(kNatronOfxImageEffectSelectionRectangle, i, false);
-      // clamp before converting: converting NaN or an out-of-range double to int is undefined
-      if (!(r[i] >= (double)kOfxFlagInfiniteMin)) {
-        r[i] = (double)kOfxFlagInfiniteMin; // also catches NaN
-      } else if (r[i] > (double)kOfxFlagInfiniteMax) {
-        r[i] = (double)kOfxFlagInfiniteMax;
-      }
-    }
-    bounds.x1 = (int)std::floor(r[0]);
-    bounds.y1 = (int)std::floor(r[1]);
-    bounds.x2 = (int)std::ceil(r[2]);
-    bounds.y2 = (int)std::ceil(r[3]);
-
-    return bounds;
   }
 
   void ImageEffectDescriptor::addInViewportParam(const std::string& paramName)

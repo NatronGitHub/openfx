@@ -929,15 +929,6 @@ namespace OFX {
       /** @brief Indicates if the plug-in description is written in markdown or plain-text otherwise. */
       void setDescriptionIsMarkdown(bool markdown);
 
-      /** @brief The selection rectangle property of the descriptor, clamped and rounded outward to integers.
-
-       @deprecated The host updates kNatronOfxImageEffectSelectionRectangle on the effect instance,
-       before the kOfxActionInstanceChanged action for the parameter
-       kNatronOfxParamSelectionRectangleState: use ImageEffect::getSelectionRectangle() there.
-       Kept for source compatibility.
-       */
-      OfxRectI getSelectionRectangle();
-
       /** @brief Add a parameter that will be visible in a toolbar in the viewport of the host application. */
       void addInViewportParam(const std::string& paramName);
 
