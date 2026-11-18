@@ -463,6 +463,10 @@ namespace OFX {
           { kOfxParamPropInteractSizeAspect,  Property::eDouble,  1, false, "1" },
           { kOfxParamPropInteractMinimumSize, Property::eDouble,  2, false, "10" },
           { kOfxParamPropInteractPreferedSize,Property::eInt,     2, false, "10" },
+          // OFX 1.2 (ParamsAllButGroupPage): the host sets HasHostOverlayHandle (read only for the
+          // plug-in), the plug-in sets UseHostOverlayHandle
+          { kOfxParamPropHasHostOverlayHandle, Property::eInt,    1, true,  "0" },
+          { kOfxParamPropUseHostOverlayHandle, Property::eInt,    1, false, "0" },
           Property::propSpecEnd
         };
 
