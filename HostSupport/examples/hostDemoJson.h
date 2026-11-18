@@ -46,6 +46,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 
+#include "ofxhUtilities.h" // IsNaN, IsInfinite
+
 namespace MyHost {
 
   class Json {
@@ -182,7 +184,7 @@ namespace MyHost {
     /// values are null
     static void writeNumber(std::ostream& os, double d)
     {
-      if (d != d || d - d != 0.) { // NaN or infinite
+      if (OFX::IsNaN(d) || OFX::IsInfinite(d)) { // bit tests, which -ffast-math doesn't remove
         os << "null";
         return;
       }

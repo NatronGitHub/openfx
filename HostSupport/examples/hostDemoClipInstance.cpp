@@ -61,6 +61,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ofxhPluginCache.h"
 #include "ofxhHost.h"
 #include "ofxhImageEffectAPI.h"
+#include "ofxhUtilities.h" // IsNaN, IsInfinite
 
 // my host
 #include "hostDemoHostDescriptor.h"
@@ -148,7 +149,7 @@ namespace MyHost {
     char* end = NULL;
     errno = 0;
     const double v = std::strtod(s.c_str(), &end);
-    if (errno == ERANGE || end == s.c_str() || end == NULL || *end != '\0' || !(v - v == 0.)) {
+    if (errno == ERANGE || end == s.c_str() || end == NULL || *end != '\0' || OFX::IsNaN(v) || OFX::IsInfinite(v)) {
       return false;
     }
     d = v;
@@ -260,7 +261,7 @@ namespace MyHost {
         ((unsigned int)p[3] << 24) | ((unsigned int)p[2] << 16) | ((unsigned int)p[1] << 8) | (unsigned int)p[0];
       float v;
       std::memcpy(&v, &u, 4);
-      if (!std::isfinite(v)) { // NaN or infinite: an input must be finite (NaN marks unwritten output pixels)
+      if (OFX::IsNaN(v) || OFX::IsInfinite(v)) { // an input must be finite (NaN marks unwritten output pixels); bit tests, which -ffast-math doesn't remove
         std::ostringstream ss;
         const size_t pixel = i / nComps;
         ss << path << ": the value of channel " << i % nComps << " of pixel (" << pixel % w << "," << pixel / w
@@ -513,10 +514,11 @@ namespace MyHost {
     return 0;
   }
 
-  // clamp to [0,1]; NaN gives 0, so that the conversion to an integer is always defined
+  // clamp to [0,1]; NaN gives 0, so that the conversion to an integer is always defined (an
+  // explicit bit test: with -ffast-math, !(v > 0.) may not catch NaN)
   static double clamp01(double v)
   {
-    if (!(v > 0.)) {
+    if (OFX::IsNaN(v) || v <= 0.) {
       return 0.;
     }
     return v > 1. ? 1. : v;
@@ -532,7 +534,7 @@ namespace MyHost {
   // the nearest int (NaN gives 0), so that converting huge values (e.g. an infinite RoD) is defined
   static int clampToInt(double v)
   {
-    if (!(v == v)) {
+    if (OFX::IsNaN(v)) {
       return 0;
     }
     if (v <= (double)INT_MIN) {
@@ -586,8 +588,11 @@ namespace MyHost {
     if (isOutput) {
       // fill with the sentinel, so that the pixels that the plug-in did not write show
       if (_depth == kOfxBitDepthFloat) {
-        std::fill(reinterpret_cast<float*>(_data), reinterpret_cast<float*>(_data + size),
-                  std::numeric_limits<float>::quiet_NaN());
+        // a quiet NaN, written as its bit pattern: no floating-point value or operation, which
+        // -ffast-math (-ffinite-math-only) would assume not to be NaN
+        const unsigned int quietNaNBits = 0x7fc00000U;
+        std::fill(reinterpret_cast<unsigned int*>(_data), reinterpret_cast<unsigned int*>(_data + size),
+                  quietNaNBits);
       } else {
         std::fill(_data, _data + size, (unsigned char)0xCD);
       }
@@ -669,7 +674,7 @@ namespace MyHost {
         v[c] = (reinterpret_cast<const unsigned short*>(pix)[c] * 255 + 32767) / 65535;
       } else {
         float f = reinterpret_cast<const float*>(pix)[c];
-        if (f != f) { // NaN
+        if (OFX::IsNaN(f)) { // NaN: not written (a bit test, which -ffast-math doesn't remove)
           notWritten = true;
           v[c] = 0;
         } else {
