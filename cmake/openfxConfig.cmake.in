@@ -14,7 +14,7 @@ if(_openfx_has_hostsupport)
   if(NOT TARGET expat::expat)
     # only a problem for projects that link openfx::HostSupport (CMake then reports the missing
     # expat::expat target); plug-ins that use openfx::Support or openfx::Api don't need expat
-    message(STATUS "openfx: expat @OFX_EXPAT_VERSION@ or newer not found: openfx::HostSupport can't be used (install expat, or set EXPAT_INCLUDE_DIR and EXPAT_LIBRARY)")
+    message(STATUS "openfx: expat (@OFX_EXPAT_VERSION@ or newer) not found: openfx::HostSupport can't be used (install expat, or set EXPAT_INCLUDE_DIR and EXPAT_LIBRARY)")
   endif()
 endif()
 unset(_openfx_has_hostsupport)
