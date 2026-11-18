@@ -2,7 +2,7 @@
 # and (optionally) the example plug-ins and hosts.
 #
 # Ported from AcademySoftwareFoundation/openfx and adapted to the
-# NatronGitHub fork: the fork's extension headers and defines, the bundled
+# NatronGitHub fork: the fork's extension headers and defines, the system
 # expat, and the fork's examples. It is also the reference for the CMake build of the plug-in
 # repositories (openfx-misc, openfx-io, ...: cmake/OpenFX.cmake and
 # Documentation/proposals/cmake-plugins.md); the Makefiles are kept until Natron's build switches.
@@ -123,21 +123,14 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake ${CMAKE_BINARY_DIR})
 # ---------------------------------------------------------------------------
 # expat, for the HostSupport plug-in cache
 if(OFX_BUILD_HOSTSUPPORT)
-  # the system expat (CMake's FindEXPAT, or conan's expat::expat)
-  list(LENGTH CMAKE_OSX_ARCHITECTURES _ofx_n_archs)
-  if(APPLE AND _ofx_n_archs GREATER 1 AND CMAKE_OSX_SYSROOT AND NOT EXPAT_INCLUDE_DIR
-     AND EXISTS "${CMAKE_OSX_SYSROOT}/usr/lib/libexpat.tbd")
-    # universal build: the SDK's expat is universal, MacPorts' or Homebrew's is not
-    # (EXPAT_LIBRARY_RELEASE: FindEXPAT's cache variable since CMake 3.27)
-    set(EXPAT_INCLUDE_DIR "${CMAKE_OSX_SYSROOT}/usr/include" CACHE PATH "expat include directory")
-    set(EXPAT_LIBRARY "${CMAKE_OSX_SYSROOT}/usr/lib/libexpat.tbd" CACHE FILEPATH "expat library")
-    set(EXPAT_LIBRARY_RELEASE "${EXPAT_LIBRARY}" CACHE FILEPATH "expat library")
-  endif()
-  find_package(EXPAT REQUIRED)
-  if(NOT TARGET expat::expat)
-    # CMake's FindEXPAT provides EXPAT::EXPAT; conan's CMakeDeps provides expat::expat
-    add_library(expat::expat INTERFACE IMPORTED)
-    target_link_libraries(expat::expat INTERFACE EXPAT::EXPAT)
+  include(OpenFXExpat)
+  ofx_find_expat(REQUIRED)
+  # the minimum version for the installed package (ofxhPluginCache.cpp uses the 64-bit line and
+  # column functions with expat >= 2.9)
+  if(EXPAT_VERSION)
+    set(OFX_EXPAT_VERSION "${EXPAT_VERSION}")
+  else()
+    set(OFX_EXPAT_VERSION "${EXPAT_VERSION_STRING}")
   endif()
 endif()
 
@@ -192,7 +185,7 @@ install(DIRECTORY HostSupport/include/ DESTINATION include/HostSupport FILES_MAT
 install(DIRECTORY Support/include/ DESTINATION include/Support FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY Support/Plugins/include/ DESTINATION include/Support/Plugins
         FILES_MATCHING PATTERN "*.h" PATTERN "*.H")
-install(FILES cmake/OpenFX.cmake Examples/Info.plist.in DESTINATION lib/cmake/openfx)
+install(FILES cmake/OpenFX.cmake cmake/OpenFXExpat.cmake Examples/Info.plist.in DESTINATION lib/cmake/openfx)
 install(PROGRAMS Support/include/osxDeploy.sh DESTINATION lib/cmake/openfx)
 set(_ofx_export_targets OfxApi OfxSupport)
 if(OFX_BUILD_HOSTSUPPORT)

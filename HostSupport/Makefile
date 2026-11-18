@@ -7,9 +7,10 @@
 
 OS = $(shell uname)
 DEBUG ?= false
-EXPAT_CFLAGS ?= $(shell pkg-config --cflags expat 2>/dev/null)
 ifdef EXPAT_INCLUDE
-  EXPAT_CFLAGS += -I$(EXPAT_INCLUDE)
+  EXPAT_CFLAGS ?= -I$(EXPAT_INCLUDE)
+else
+  EXPAT_CFLAGS ?= $(shell pkg-config --cflags expat 2>/dev/null)
 endif
 OBJSUF ?= .o
 LIBSUF ?= .a

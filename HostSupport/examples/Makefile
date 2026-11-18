@@ -1,9 +1,10 @@
 DEBUG ?= false
 # expat (the system one): compiler and linker flags from pkg-config, or EXPAT_INCLUDE=<dir> and
 # EXPAT_LIBS="-L<dir> -lexpat"
-EXPAT_CFLAGS ?= $(shell pkg-config --cflags expat 2>/dev/null)
 ifdef EXPAT_INCLUDE
-  EXPAT_CFLAGS += -I$(EXPAT_INCLUDE)
+  EXPAT_CFLAGS ?= -I$(EXPAT_INCLUDE)
+else
+  EXPAT_CFLAGS ?= $(shell pkg-config --cflags expat 2>/dev/null)
 endif
 EXPAT_LIBS ?= $(shell pkg-config --libs expat 2>/dev/null || echo -lexpat)
 OBJSUF ?= .o
