@@ -129,7 +129,8 @@ if(OFX_BUILD_HOSTSUPPORT)
     message(FATAL_ERROR "HostSupport needs the expat library and headers, which were not found. Install "
       "them (e.g. libexpat1-dev, MacPorts expat, MSYS2 mingw-w64-ucrt-x86_64-expat, vcpkg or conan "
       "expat), or set EXPAT_INCLUDE_DIR and EXPAT_LIBRARY, or build without HostSupport "
-      "(-DOFX_BUILD_HOSTSUPPORT=OFF).")
+      "(-DOFX_BUILD_HOSTSUPPORT=OFF, which also needs -DBUILD_EXAMPLE_HOSTS=OFF: the example hosts need "
+      "HostSupport).")
   endif()
   # the minimum expat version for the installed package: ofxhPluginCache.cpp uses the 64-bit line
   # and column functions with expat >= 2.9 headers
