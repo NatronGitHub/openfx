@@ -50,7 +50,7 @@ run() { # mode: package | subdirectory
     case $warned in *libomp.dylib*) ;; *) fail "no minos warning on libomp: $warned" ;; esac
   fi
   # openfx's own libraries and headers aren't installed by a project that uses add_subdirectory
-  # (nor the example hosts, nor the bundled expat headers)
+  # (nor the example hosts, nor expat)
   if [ "$mode" = subdirectory ] && [ "$(ls "$w/install")" != OFX ]; then fail "add_subdirectory(openfx) installed openfx itself: $(ls "$w/install")"; fi
   check "$w/build/Plugins" "$w/install/OFX/Plugins"
 }

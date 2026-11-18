@@ -2,7 +2,7 @@
 # and (optionally) the example plug-ins and hosts.
 #
 # Ported from AcademySoftwareFoundation/openfx and adapted to the
-# NatronGitHub fork: the fork's extension headers and defines, the bundled
+# NatronGitHub fork: the fork's extension headers and defines, the system
 # expat, and the fork's examples. It is also the reference for the CMake build of the plug-in
 # repositories (openfx-misc, openfx-io, ...: cmake/OpenFX.cmake and
 # Documentation/proposals/cmake-plugins.md); the Makefiles are kept until Natron's build switches.
@@ -30,7 +30,7 @@ if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
 else()
   set(_ofx_top_level OFF)
 endif()
-option(OFX_BUILD_HOSTSUPPORT "Build the HostSupport library (and the bundled expat)" ${_ofx_top_level})
+option(OFX_BUILD_HOSTSUPPORT "Build the HostSupport library (needs expat)" ${_ofx_top_level})
 option(OFX_INSTALL "Install the headers, libraries and CMake package of openfx" ${_ofx_top_level})
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -73,13 +73,12 @@ endif()
 set(OFX_EXTRA_DEFINITIONS "" CACHE STRING
     "Additional compile definitions for the libraries and examples (;-separated)")
 
-option(OFX_USE_SYSTEM_EXPAT "HostSupport: use the system expat (find_package(EXPAT)) instead of the bundled HostSupport/expat-2.10.0" OFF)
 
 option(BUILD_EXAMPLE_PLUGINS "Build the example plug-ins (Examples/, Support/Plugins/, Support/PropTester/)" OFF)
 option(BUILD_EXAMPLE_HOSTS "Build the example hosts (HostSupport/examples: hostDemo, cacheDemo, propsetDump)" OFF)
 # the example hosts need HostSupport, also when openfx is used with add_subdirectory()
 if(BUILD_EXAMPLE_HOSTS AND NOT OFX_BUILD_HOSTSUPPORT)
-  set(OFX_BUILD_HOSTSUPPORT ON CACHE BOOL "Build the HostSupport library (and the bundled expat)" FORCE)
+  set(OFX_BUILD_HOSTSUPPORT ON CACHE BOOL "Build the HostSupport library (needs expat)" FORCE)
 endif()
 set(PLUGIN_INSTALLDIR "" CACHE STRING "Where the OFX bundles are installed (relative: to CMAKE_INSTALL_PREFIX; default depends on OS)")
 
@@ -123,26 +122,28 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake ${CMAKE_BINARY_DIR})
 
 # ---------------------------------------------------------------------------
 # expat, for the HostSupport plug-in cache
-if(NOT OFX_BUILD_HOSTSUPPORT)
-  # no HostSupport, no expat
-elseif(OFX_USE_SYSTEM_EXPAT)
-  find_package(EXPAT REQUIRED)
+if(OFX_BUILD_HOSTSUPPORT)
+  include(OpenFXExpat)
+  ofx_find_expat()
   if(NOT TARGET expat::expat)
-    # CMake's FindEXPAT provides EXPAT::EXPAT; conan's CMakeDeps provides expat::expat
-    add_library(expat::expat INTERFACE IMPORTED)
-    target_link_libraries(expat::expat INTERFACE EXPAT::EXPAT)
+    message(FATAL_ERROR "HostSupport needs the expat library and headers, which were not found. Install "
+      "them (e.g. libexpat1-dev, MacPorts expat, MSYS2 mingw-w64-ucrt-x86_64-expat, vcpkg or conan "
+      "expat), or set EXPAT_INCLUDE_DIR and EXPAT_LIBRARY, or build without HostSupport "
+      "(-DOFX_BUILD_HOSTSUPPORT=OFF).")
   endif()
-else()
-  set(EXPAT_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-  set(EXPAT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-  set(EXPAT_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-  set(EXPAT_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-  set(EXPAT_BUILD_FUZZERS OFF CACHE BOOL "" FORCE)
-  set(EXPAT_BUILD_PKGCONFIG OFF CACHE BOOL "" FORCE)
-  set(EXPAT_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-  set(EXPAT_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-  add_subdirectory(HostSupport/expat-2.10.0 EXCLUDE_FROM_ALL)
-  set_target_properties(expat PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  # the minimum expat version for the installed package: ofxhPluginCache.cpp uses the 64-bit line
+  # and column functions with expat >= 2.9 headers
+  if(EXPAT_VERSION)
+    set(_ofx_expat_version "${EXPAT_VERSION}")
+  else()
+    set(_ofx_expat_version "${EXPAT_VERSION_STRING}")
+  endif()
+  # (older headers use functions that every expat 2 has: no minimum)
+  if(_ofx_expat_version VERSION_GREATER_EQUAL 2.9)
+    set(OFX_EXPAT_VERSION 2.9)
+  else()
+    set(OFX_EXPAT_VERSION "")
+  endif()
 endif()
 
 # Optional dependencies of the example plug-ins only
@@ -196,15 +197,11 @@ install(DIRECTORY HostSupport/include/ DESTINATION include/HostSupport FILES_MAT
 install(DIRECTORY Support/include/ DESTINATION include/Support FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY Support/Plugins/include/ DESTINATION include/Support/Plugins
         FILES_MATCHING PATTERN "*.h" PATTERN "*.H")
-install(FILES cmake/OpenFX.cmake Examples/Info.plist.in DESTINATION lib/cmake/openfx)
+install(FILES cmake/OpenFX.cmake cmake/OpenFXExpat.cmake Examples/Info.plist.in DESTINATION lib/cmake/openfx)
 install(PROGRAMS Support/include/osxDeploy.sh DESTINATION lib/cmake/openfx)
 set(_ofx_export_targets OfxApi OfxSupport)
 if(OFX_BUILD_HOSTSUPPORT)
   list(APPEND _ofx_export_targets OfxHost)
-endif()
-if(OFX_BUILD_HOSTSUPPORT AND NOT OFX_USE_SYSTEM_EXPAT)
-  # static bundled expat must be exported with OfxHost
-  list(APPEND _ofx_export_targets expat)
 endif()
 install(TARGETS ${_ofx_export_targets} EXPORT openfxTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
