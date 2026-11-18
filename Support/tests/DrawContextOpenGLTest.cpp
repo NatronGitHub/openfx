@@ -8,6 +8,7 @@
 
   - which backend getDrawContext() picks, for the overlay registrations (V1, V2, unknown) with and
     without a host draw context, with a fake property suite and a fake DrawSuite;
+  - the registry of the overlay registrations (setOverlayInteractV1/V2, isOverlayInteractV2);
   - the OpenGL backend: primitives, "over" compositing, line width and stipple, text size and
     alignment, the error statuses, and that the OpenGL state is restored.
 
@@ -258,6 +259,38 @@ static void testBackendSelection()
   CHECK(!none.draw(kOfxDrawPrimitiveLines, NULL, 0));
 }
 
+// fake overlay main entries, for the registry
+static OfxStatus fakeEntry1(const char *, const void *, OfxPropertySetHandle, OfxPropertySetHandle) { return kOfxStatOK; }
+static OfxStatus fakeEntry2(const char *, const void *, OfxPropertySetHandle, OfxPropertySetHandle) { return kOfxStatOK; }
+
+// the registry that setOverlayInteractDescriptor() and setOverlayInteractDescriptorV2() fill,
+// and that the interact dispatcher reads to set the DrawArgs registration
+static void testRegistry()
+{
+  using namespace OFX::Private;
+  clearOverlayInteractRegistrations();
+  CHECK(!isOverlayInteractV2(fakeEntry1));
+  CHECK(!isOverlayInteractV2(NULL));
+  setOverlayInteractV2(fakeEntry1);
+  CHECK(isOverlayInteractV2(fakeEntry1));
+  CHECK(!isOverlayInteractV2(fakeEntry2));
+  setOverlayInteractV1(fakeEntry2);
+  CHECK(!isOverlayInteractV2(fakeEntry2));
+  setOverlayInteractV2(fakeEntry1); // twice: no change
+  CHECK(isOverlayInteractV2(fakeEntry1));
+  setOverlayInteractV2(NULL);
+  CHECK(!isOverlayInteractV2(NULL));
+#ifdef NDEBUG
+  // registered both as V1 and as V2: a warning (and an assert in debug builds), and V2 wins
+  setOverlayInteractV2(fakeEntry2);
+  CHECK(isOverlayInteractV2(fakeEntry2));
+#endif
+  // the last kOfxActionUnload forgets them
+  clearOverlayInteractRegistrations();
+  CHECK(!isOverlayInteractV2(fakeEntry1));
+  CHECK(!isOverlayInteractV2(fakeEntry2));
+}
+
 static void testOpenGL()
 {
   using namespace OFX;
@@ -352,6 +385,29 @@ static void testOpenGL()
     CHECK(n >= 28 && n <= 36);
     CHECK(lit(0, 10) && lit(1, 10) && !lit(2, 10) && !lit(3, 10)); // 2 on, 2 off
   }
+  // the other patterns, from the first pixel of the line
+  {
+    struct { OfxDrawLineStipplePattern pattern; unsigned short bits; } patterns[] = {
+      { kOfxDrawLineStipplePatternDash, 0x00FF },    // 8 on, 8 off
+      { kOfxDrawLineStipplePatternAltDash, 0xFF00 }, // 8 off, 8 on
+      { kOfxDrawLineStipplePatternDotDash, 0x1FE3 }, // 2 on, 3 off, 8 on, 3 off
+    };
+    for (size_t i = 0; i < sizeof(patterns) / sizeof(patterns[0]); ++i) {
+      clear();
+      CHECK(dc.setLineStipple(patterns[i].pattern));
+      CHECK(dc.draw(kOfxDrawPrimitiveLines, hline, 2));
+      readBack();
+      int mismatches = 0;
+      for (int x = 0; x < 32; ++x) {
+        const bool expected = ( (patterns[i].bits >> (x % 16)) & 1 ) != 0;
+        mismatches += (lit(x, 10) != expected) ? 1 : 0;
+      }
+      if (mismatches != 0) {
+        std::printf("stipple pattern %d: %d mismatched pixels\n", (int)patterns[i].pattern, mismatches);
+      }
+      CHECK(mismatches == 0);
+    }
+  }
   CHECK(dc.setLineStipple(kOfxDrawLineStipplePatternSolid));
 
   // an ellipse: a line, not filled
@@ -423,6 +479,38 @@ static void testOpenGL()
   CHECK(!dc.draw(kOfxDrawPrimitivePolygon, rect, 2));
   CHECK(!dc.draw(kOfxDrawPrimitiveLines, NULL, 2));
   CHECK(!dc.draw(kOfxDrawPrimitiveLines, line, 1));
+  CHECK(!dc.draw(kOfxDrawPrimitiveLines, tri, 3)); // pairs of points, as HostSupport's DrawSuite
+  CHECK(dc.draw(kOfxDrawPrimitiveLineStrip, tri, 3));
+  CHECK(OFX::Private::openGLDrawContextBackend()->setColour(dc, NULL) == kOfxStatErrValue);
+  CHECK(OFX::Private::openGLDrawContextBackend()->drawText(dc, NULL, &rect[0], 0) == kOfxStatErrValue);
+
+  // NaN and infinite inputs: refused widths, and no hang or OpenGL error for the rest
+  const double inf = HUGE_VAL;
+  const double nan = std::sqrt(-1.);
+  CHECK(!dc.setLineWidth((float)nan));
+  CHECK(!dc.setLineWidth((float)inf));
+  CHECK(dc.setLineWidth(1e20f)); // accepted, clamped when drawn
+  CHECK(dc.draw(kOfxDrawPrimitiveLines, line, 2));
+  CHECK(dc.setLineWidth(0.f));
+  OfxPointD bad[2] = { pt(nan, 0), pt(inf, -inf) };
+  CHECK(dc.draw(kOfxDrawPrimitiveEllipse, bad, 2));
+  CHECK(dc.draw(kOfxDrawPrimitiveLines, bad, 2));
+  CHECK(dc.draw(kOfxDrawPrimitiveRectangle, bad, 2));
+  CHECK(dc.drawText("nan", bad[0]));
+  CHECK(dc.drawText("inf", bad[1], kOfxDrawTextAlignmentCenterH | kOfxDrawTextAlignmentCenterV));
+  CHECK(dc.setColour((float)nan, 0.f, 0.f, 1.f));
+  CHECK(dc.draw(kOfxDrawPrimitiveRectangle, rect, 2));
+  CHECK(dc.setColour(1.f, 1.f, 1.f, 1.f));
+  // a large ellipse (capped tessellation): its left arc crosses the viewport near x = 10
+  clear();
+  OfxPointD big[2] = { pt(10, -1e6), pt(10 + 2e6, 1e6) };
+  CHECK(dc.draw(kOfxDrawPrimitiveEllipse, big, 2));
+  readBack();
+  {
+    Box b = litBox();
+    CHECK(b.count > 0 && b.x0 >= 8 && b.x1 <= 12);
+  }
+  CHECK(glGetError() == GL_NO_ERROR);
 
   // the OpenGL state is unchanged
   GLfloat current[4];
@@ -448,6 +536,7 @@ int main()
     std::printf("built with OFXS_DRAWCONTEXT_NO_OPENGL: nothing to test\n");
     return 0;
   }
+  testRegistry();
   testBackendSelection();
   if (!initGL()) {
     return 2;

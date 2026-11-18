@@ -9,7 +9,10 @@
 
   This is the only file of the Support library that calls OpenGL. ofxsInteract.cpp only calls this
   backend through virtual functions, so a plug-in that never calls getDrawContext() doesn't link
-  this file (from a static library) or OpenGL.
+  this file from a static library (libOfxSupport.a, CMake's openfx::Support), or OpenGL. With
+  Support/Plugins/Makefile.master, whose SUPPORTOBJECTS are object files, every plug-in links it
+  (and needs the OpenGL headers; it links OpenGL anyway). The legacy project files
+  (Support.xcodeproj, .vcproj, .dsp) are not maintained and don't list this file.
 
   Define OFXS_DRAWCONTEXT_NO_OPENGL to build without OpenGL (no OpenGL header, no OpenGL call):
   getDrawContext() then returns a context that draws nothing for the V1 overlays.
@@ -109,6 +112,10 @@ namespace OFX {
       };
       const int kStipplePatternCount = (int)(sizeof(kStipplePatterns) / sizeof(kStipplePatterns[0]));
 
+      // limits, so that the conversions to OpenGL types are defined
+      const double kMaxScreenPixelRatio = 64.;
+      const double kMaxLineWidth = 1e4; // device pixels
+
       // text metrics, in screen pixels (one font pixel per screen pixel)
       const int kTextAscent = kFontGlyphHeight; // the glyphs sit on the baseline
       const int kTextDescent = kFontCellHeight - kFontGlyphHeight;
@@ -119,9 +126,12 @@ namespace OFX {
       }
 
       // Saves the OpenGL state that the backend changes, and sets the state common to all the
-      // primitives: no texture, lighting, depth test or face culling, filled polygons, and
-      // "over" compositing ("The host should use "over" compositing when using a non-opaque
-      // colour"). The destructor restores it.
+      // primitives: no texture (1D, 2D, rectangle), lighting, depth or alpha test, face culling
+      // or polygon smoothing/stipple, filled polygons, and "over" compositing ("The host should
+      // use "over" compositing when using a non-opaque colour"). The destructor restores it.
+      // Not handled (the host's overlay state is expected to have the defaults, as for any
+      // OpenGL 1.x overlay): a bound GLSL program (glUseProgram), glBlendEquation, glColorMask,
+      // the stencil and scissor tests, and the texture units other than the active one.
       class GLStateSaver {
       public:
         explicit GLStateSaver(const OfxRGBAColourF &colour)
@@ -130,6 +140,11 @@ namespace OFX {
                        GL_POLYGON_BIT | GL_HINT_BIT);
           glDisable(GL_TEXTURE_1D);
           glDisable(GL_TEXTURE_2D);
+#if defined(GL_TEXTURE_RECTANGLE)
+          glDisable(GL_TEXTURE_RECTANGLE);
+#elif defined(GL_TEXTURE_RECTANGLE_ARB)
+          glDisable(GL_TEXTURE_RECTANGLE_ARB);
+#endif
           glDisable(GL_LIGHTING);
           glDisable(GL_DEPTH_TEST);
           glDisable(GL_CULL_FACE);
@@ -152,6 +167,9 @@ namespace OFX {
 
       class OpenGLBackend : public DrawContextBackend {
       public:
+        // user-provided, so that a const object can be default-initialized (C++98 to C++14)
+        OpenGLBackend() {}
+
         virtual OfxStatus getColour(const DrawContext & /*ctx*/, OfxStandardColour stdColour, OfxRGBAColourF *colour) const
         {
           if (!colour || (int)stdColour < 0 || (int)stdColour >= kStandardColourCount) {
@@ -164,7 +182,7 @@ namespace OFX {
         virtual OfxStatus setColour(const DrawContext &ctx, const OfxRGBAColourF *c) const
         {
           if (!c) {
-            return kOfxStatFailed;
+            return kOfxStatErrValue; // as HostSupport's DrawSuite
           }
           colour(ctx) = *c;
           return kOfxStatOK;
@@ -204,7 +222,8 @@ namespace OFX {
           default:
             return kOfxStatErrValue; // "invalid primitive"
           }
-          if ( !points || pointCount < minCount || (maxCount >= 0 && pointCount > maxCount) ) {
+          if ( !points || pointCount < minCount || (maxCount >= 0 && pointCount > maxCount) ||
+               (primitive == kOfxDrawPrimitiveLines && pointCount % 2 != 0) ) { // pairs, as HostSupport's DrawSuite
             return kOfxStatErrValue; // "point_count not valid for primitive"
           }
 
@@ -266,7 +285,7 @@ namespace OFX {
 
           OfxPointD ps;
           getPixelScale(ctx, ps);
-          const int width = (int)glyphs.size() * kFontCellWidth - (kFontCellWidth - kFontGlyphWidth);
+          const double width = (double)glyphs.size() * kFontCellWidth - (kFontCellWidth - kFontGlyphWidth);
 
           // horizontal: Left (default), Right, or both (CenterH)
           double x0 = pos->x;
@@ -325,11 +344,11 @@ namespace OFX {
         }
 
       private:
-        // the screen pixel ratio, 1 if the host doesn't give it
+        // the screen pixel ratio, 1 if the host doesn't give it, at most kMaxScreenPixelRatio
         static double getScreenPixelRatio(const DrawContext &ctx)
         {
           const double r = screenPixelRatio(ctx);
-          return isFinitePositive(r) ? r : 1.;
+          return isFinitePositive(r) ? std::min(r, kMaxScreenPixelRatio) : 1.;
         }
 
         // the size of a screen pixel in canonical coordinates (1 if the host gave none)
@@ -351,7 +370,8 @@ namespace OFX {
           if (width > 0.f) {
             glEnable(GL_LINE_SMOOTH);
             glHint(GL_LINE_SMOOTH_HINT, GL_DONT_CARE);
-            glLineWidth( (GLfloat)((double)width * ratio) );
+            // (OpenGL clamps it to its own maximum, usually much smaller)
+            glLineWidth( (GLfloat)std::min( (double)width * ratio, kMaxLineWidth ) );
           } else {
             glDisable(GL_LINE_SMOOTH);
             glLineWidth( (GLfloat)std::max(1., std::floor(ratio + 0.5)) );
