@@ -1264,9 +1264,6 @@ says:
  */
 #define kNatronOfxInteractHostPropSupportsKeyModifiers "NatronOfxInteractHostPropSupportsKeyModifiers"
 
-/** @brief Deprecated name of kNatronOfxInteractHostPropSupportsKeyModifiers, kept for source compatibility */
-#define kNatronOfxHostPropInteractKeyModifiers "NatronOfxInteractHostPropSupportsKeyModifiers"
-
 /** @brief The state of the keyboard modifiers (Shift, Control, Alt, Meta) during an interact action. Mirrors the proposed OFX 1.6 kOfxInteractPropKeyModifiers, see 13) of the in-viewer interface extension for the full semantics.
 
  - Type - int X 1

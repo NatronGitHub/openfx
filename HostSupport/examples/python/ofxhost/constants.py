@@ -1210,7 +1210,6 @@ kNatronOfxImageEffectPropOpenGLContextData = 'NatronOfxImageEffectPropOpenGLCont
 kNatronOfxInteractColourPicking = 'NatronOfxInteractColourPicking'
 kNatronOfxPropPickerColour = 'NatronOfxPropPickerColour'
 kNatronOfxInteractHostPropSupportsKeyModifiers = 'NatronOfxInteractHostPropSupportsKeyModifiers'
-kNatronOfxHostPropInteractKeyModifiers = 'NatronOfxInteractHostPropSupportsKeyModifiers'
 kNatronOfxInteractPropKeyModifiers = 'NatronOfxInteractPropKeyModifiers'
 kNatronOfxKeyModifierShift = 1
 kNatronOfxKeyModifierControl = 2

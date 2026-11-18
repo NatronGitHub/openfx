@@ -328,7 +328,6 @@ PROPS = {
 
 # other C names of a property (same string value): {C name: C name of the property}
 ALIASES = {
-    'kNatronOfxHostPropInteractKeyModifiers': 'kNatronOfxInteractHostPropSupportsKeyModifiers',
     'kOfxParamPropPersistent': 'kOfxParamPropPersistant',
 }
 
