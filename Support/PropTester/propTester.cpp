@@ -113,8 +113,13 @@ public:
   }
   void positionFromColour(double r, double g, double b, double& x, double& y) const
   {
-    x = (b/(g+b)) * 100.0 - 0.5;
-    y = (r/(g+r)) * 100.0 - 0.5;
+    // the inverse of colourFromPosition, where g+b = 1-y and g+r = 1-x: if a sum is 0 (an edge
+    // of the square, or a colour that colourFromPosition doesn't give, e.g. black), the ratio
+    // is 0/0, and any value is as good: use 0
+    const double gb = g + b;
+    const double gr = g + r;
+    x = (gb != 0. ? b/gb : 0.) * 100.0 - 0.5;
+    y = (gr != 0. ? r/gr : 0.) * 100.0 - 0.5;
   }
   void colourFromPosition(double x, double y, double& r, double& g, double& b) const
   {
