@@ -114,9 +114,10 @@ of the direct OFX objects and any library side only functions.
 #include <sstream>
 #include <memory>
 #if defined(_MSC_VER)
-#include <float.h> // _isnan
+#include <float.h> // kept for the code that relies on it (IsNaN no longer uses _isnan)
 #endif
-#include <cmath> // isnan, std::isnan
+#include <cmath> // kept for the code that relies on it (IsNaN no longer uses std::isnan)
+#include <cstring> // memcpy (IsNaN, IsInfinite)
 
 #ifdef OFX_CLIENT_EXCEPTION_HEADER
 #include OFX_CLIENT_EXCEPTION_HEADER
@@ -189,24 +190,49 @@ namespace OFX {
   using std::auto_ptr;
 #endif
   
-#if defined(_MSC_VER)
-  inline bool IsInfinite(double x) { return _finite(x) == 0 && _isnan(x) == 0; }
-  inline bool IsNaN     (double x) { return _isnan(x) != 0;                    }
+  // IsNaN and IsInfinite test the bits of the IEEE 754 binary64 representation instead of calling
+  // std::isnan/std::isinf (or _isnan/_finite): with -ffast-math or -Ofast (-ffinite-math-only), or
+  // /fp:fast, the compiler assumes that no floating-point value is NaN or infinite, and folds
+  // std::isnan(x), std::isinf(x) and x != x to false, so that the checks disappear. These functions
+  // check values that cross the API, i.e. that come from another binary (a host or a plug-in),
+  // which may have been built with other options, so they must work whatever the options this
+  // file is compiled with. The bits are integers, but clang also deduces facts about them from the
+  // double they come from (e.g. a fast-math function argument is marked as never infinite), so an
+  // empty asm statement (gcc, clang, clang-cl), or volatile copies (MSVC), hide their origin from
+  // the optimizer. The bits are read as two 32-bit words, which needs neither long long (C++98)
+  // nor 64-bit registers (32-bit x86). The results are those of std::isnan and std::isinf (a float
+  // argument is converted to double, which keeps NaN and infinity).
+  inline void DoubleWords(double x, unsigned int& hi, unsigned int& lo)
+  {
+    unsigned int w[2];
+    std::memcpy(w, &x, sizeof(w));
+    const unsigned int one = 1;
+    unsigned char firstByte;
+    std::memcpy(&firstByte, &one, 1);
+    const int h = (firstByte == 1) ? 1 : 0; // the index of the high word (1 if little-endian)
+#if defined(__GNUC__) || defined(__clang__)
+    __asm__("" : "+r"(w[0]), "+r"(w[1])); // an optimization barrier: the compiler can't know the words
 #else
-#  if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) || _GLIBCXX_USE_C99_MATH // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
-  // These definitions are for the normal Unix suspects.
-  inline bool IsInfinite(double x) { return (std::isinf)(x);    }
-  inline bool IsNaN     (double x) { return (std::isnan)(x);    }
-#  else
-#    ifdef isnan // isnan is defined as a macro
-  inline bool IsInfinite(double x) { return isinf(x);    }
-  inline bool IsNaN     (double x) { return isnan(x);    }
-#    else
-  inline bool IsInfinite(double x) { return ::isinf(x);    }
-  inline bool IsNaN     (double x) { return ::isnan(x);    }
-#    endif
-#  endif
+    volatile unsigned int v0 = w[0];
+    volatile unsigned int v1 = w[1];
+    w[0] = v0;
+    w[1] = v1;
 #endif
+    hi = w[h] & 0x7fffffffU; // without the sign bit
+    lo = w[1 - h];
+  }
+  inline bool IsNaN(double x)
+  {
+    unsigned int hi, lo;
+    DoubleWords(x, hi, lo);
+    return hi > 0x7ff00000U || (hi == 0x7ff00000U && lo != 0); // exponent all ones, mantissa != 0
+  }
+  inline bool IsInfinite(double x)
+  {
+    unsigned int hi, lo;
+    DoubleWords(x, hi, lo);
+    return hi == 0x7ff00000U && lo == 0; // exponent all ones, mantissa == 0
+  }
 
   /** forward class declarations */
   class PropertySet;

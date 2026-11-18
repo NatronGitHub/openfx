@@ -125,7 +125,7 @@ public :
       for(int x = procWindow.x1; x < procWindow.x2; x++) 
       {
         float radsq = (x - _positionx)*(x - _positionx) + (y - _positiony)*(y - _positiony);
-        float val = radsq/radiusSq;
+        float val = radiusSq > 0.f ? radsq/radiusSq : 1.f; // a zero radius draws nothing (radsq/0 may be 0/0)
         for(int c = 0; c < nComponents; c++) 
         {
           dstPix[c] = val < 1.0f ? PIX((1.0f-val)*max) : PIX(0);

@@ -153,7 +153,10 @@ public :
           {
             // apply the gamma to the magnitude and keep the sign, since pow of a negative value is NaN for a fractional exponent
             double s = srcPix[c];
-            float v = (float)(copysign(pow(fabs(s), (double)scales[c]), s)) * maskScale + (1.0f - maskScale) * srcPix[c];
+            // where the mask is 0, the source is unchanged: the gamma may overflow to an infinity, and
+            // inf*0 is NaN (other mask values, negative ones included, are computed as before)
+            float v = maskScale == 0.0f ? (float)srcPix[c] :
+                      (float)(copysign(pow(fabs(s), (double)scales[c]), s)) * maskScale + (1.0f - maskScale) * srcPix[c];
             if(max == 1)
               dstPix[c] = PIX(v);
             else

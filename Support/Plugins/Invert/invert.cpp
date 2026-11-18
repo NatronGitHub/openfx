@@ -40,6 +40,7 @@ England
 #endif
 
 #include <stdio.h>
+#include <limits> // numeric_limits (DBL_MAX is missing with some C++20 toolchains)
 #include "ofxsImageEffect.h"
 #include "ofxsMultiThread.h"
 
@@ -146,6 +147,18 @@ public :
       return; // the default: the region needed
     }
     const OfxRectD& r = args.regionOfInterest;
+    const double dblMax = std::numeric_limits<double>::max();
+    // the bounds first (bit tests, which -ffast-math doesn't remove): a NaN or infinite bound
+    // (if x1 == x2 == inf, x2 - x1 is NaN); then the sizes, which may overflow
+    const double bounds[4] = { r.x1, r.y1, r.x2, r.y2 };
+    for (int i = 0; i < 4; ++i) {
+      if (OFX::IsNaN(bounds[i]) || OFX::IsInfinite(bounds[i])) {
+        return; // no centre half: the default
+      }
+    }
+    if (r.x2 - r.x1 >= dblMax || r.y2 - r.y1 >= dblMax) {
+      return; // an infinite RoI has no centre half (and inf - inf is NaN): the default
+    }
     const double dx = (r.x2 - r.x1) / 4, dy = (r.y2 - r.y1) / 4;
     OfxRectD roi = { r.x1 + dx, r.y1 + dy, r.x2 - dx, r.y2 - dy };
     rois.setRegionOfInterest(*srcClip_, roi);

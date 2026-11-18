@@ -204,6 +204,16 @@ for x in r["renders"]:
 assert len(r["renders"]) == 2
 '
 
+# Degenerate inputs must not make NaNs (NaN audit): the gamma example, where the mask is 0, gives
+# the source unchanged, even if the gamma overflows (1e30^10 is infinite, and inf*0 was NaN). The
+# NaN count must also work with -ffast-math, where std::isnan and x != x are folded to false.
+rm -f gamma0.json
+run hostdemo-gamma0.log -p net.sf.openfx.gammaexample -c general -d float --frames 0 -i Source=solid:1e30,1e30,1e30,1 -i Mask=solid:0,0,0,0 scale=10 -o Gamma0 --report gamma0.json
+jcheck "gamma example, mask 0, overflowing gamma: the source" gamma0.json '
+o = r["renders"][0]["output"]
+assert o["nan"] == 0 and o["min"] == o["max"] and all(abs(v - 1e30) < 1e24 for v in o["min"][:3]), o
+'
+
 # Unwritten float pixels fail the run: the property tester fetches its output image, but doesn't
 # write it. The report is still written, with ok false and the exit status. --allow-unwritten
 # turns the failure into a warning.

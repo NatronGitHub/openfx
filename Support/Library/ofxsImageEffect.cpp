@@ -5486,10 +5486,12 @@ namespace OFX {
         // get the transform in pixel coords using the legacy getTransform function, then convert it to canonical coords
         bool v = effectInstance->getTransform(argsTransform, transformClip, transformMatrix);
 
-        if(v && transformClip) {
+        // transform from pixel to canonical: this divides by the PAR and the render scale, which
+        // the spec defines as positive. If they are not, the conversion would give infinities
+        // and NaNs: don't use the transform, and render the image as per normal
+        const double par = (v && transformClip) ? transformClip->getPixelAspectRatio() : 1.;
+        if(v && transformClip && par > 0. && args.renderScale.x > 0. && args.renderScale.y > 0.) {
           outArgs.propSetString(kOfxPropName, transformClip->name());
-          // transform from pixel to canonical
-          double par = transformClip->getPixelAspectRatio();
           const bool fielded = args.fieldToRender == eFieldLower || args.fieldToRender == eFieldUpper;
           // FS = fielded ? 0.5 : 1.
           // canonical to pixel:
