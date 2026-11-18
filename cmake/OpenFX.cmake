@@ -141,9 +141,10 @@ option(OFX_DEPLOY_STRICT_MINOS "ofx_deploy_bundle(): fail, instead of warning, i
 set(OFX_OPTFLAG "" CACHE STRING "Extra optimization flags of the plug-ins' release configurations (empty: CMake's defaults)")
 # Extra install rpath directories of every plug-in (e.g. dependency prefixes inside the source
 # tree, which INSTALL_RPATH_USE_LINK_PATH skips), after the bundle's own Libraries directory
-# Linux and FreeBSD: link the plug-ins with -z defs (no undefined symbols); OFF for sanitizer builds
-option(OFX_PLUGIN_NO_UNDEFINED "Linux/FreeBSD: link the plug-ins with -z defs (no undefined symbols)" ON)
 set(OFX_PLUGIN_RPATH "" CACHE STRING "Extra install rpath directories of the plug-ins (;-separated)")
+# Linux and FreeBSD: link the plug-ins with -z defs (no undefined symbols). OFF for sanitizer builds
+# with clang, whose runtime the host provides (or use -shared-libsan); gcc's sanitizers link with it
+option(OFX_PLUGIN_NO_UNDEFINED "Linux/FreeBSD: link the plug-ins with -z defs (no undefined symbols)" ON)
 
 # Add OFX_OPTFLAG to the compile options of a target's release configurations (add_ofx_plugin
 # and openfx::Support do it; also for a repository's own static libraries linked into plug-ins):
