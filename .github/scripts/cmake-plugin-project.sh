@@ -61,7 +61,7 @@ run() { # mode: package | subdirectory
       package) [ "$lcb" = "$prefix/lib/cmake/openfx/linuxCheckBundle.sh" ] || fail "OFX_LINUX_CHECK_BUNDLE: $lcb" ;;
       subdirectory) [ "$lcb" = "$src/Support/include/linuxCheckBundle.sh" ] || fail "OFX_LINUX_CHECK_BUNDLE: $lcb" ;;
     esac
-    OFX_ABI_GLIBC=99 OFX_ABI_GLIBCXX=99 OFX_ABI_CXXABI=99 OFX_ABI_GCC=99 OFX_ABI_GOMP=99 \
+    OFX_ABI_GLIBC=99 OFX_ABI_GLIBCXX=99 OFX_ABI_CXXABI=99 OFX_ABI_GCC=99 OFX_ABI_GOMP=99 OFX_ABI_LIBATOMIC=99 OFX_ABI_ZLIB=99 \
       "$lcb" "$w/install/OFX/Plugins" || fail "linuxCheckBundle.sh"
   fi
 }

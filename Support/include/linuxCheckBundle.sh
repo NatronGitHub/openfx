@@ -121,6 +121,8 @@ system_lib() {
     libgomp.so|libgomp.so.*|libatomic.so|libatomic.so.*) return 0 ;;
     libGL.so|libGL.so.*|libGLX.so|libGLX.so.*|libEGL.so|libEGL.so.*) return 0 ;;
     libGLdispatch.so|libGLdispatch.so.*|libOpenGL.so|libOpenGL.so.*) return 0 ;;
+    libGLESv1_CM.so|libGLESv1_CM.so.*|libGLESv2.so|libGLESv2.so.*) return 0 ;;
+    libnsl.so.*|libnss_*.so.*|libBrokenLocale.so.*|libc_malloc_debug.so.*) return 0 ;;
     libOpenCL.so|libOpenCL.so.*|libcuda.so|libcuda.so.*) return 0 ;;
   esac
   word_in "$1" "$OFX_ABI_SYSTEM_LIBS"
@@ -199,12 +201,16 @@ check_elf() {
   local -a entries=() dirs=()
   IFS=: read -r -a entries <<< "$runpath"
   for entry in "${entries[@]}"; do
-    d=${entry//\$\{ORIGIN\}/$dir}
-    d=${d//\$ORIGIN/$dir}
+    d=${entry//\$\{ORIGIN\}/"$dir"} # (quoted: bash 5.2 expands & in a replacement)
+    d=${d//\$ORIGIN/"$dir"}
     if [ -n "$d" ] && inside "$d" "$root"; then
       dirs+=("$d")
     fi
   done
+  # DT_RELR (e.g. -z pack-relative-relocs) needs glibc 2.36's loader, even without a version need
+  if echo "$dyn" | grep -q '(RELR)'; then
+    report "$f" "uses DT_RELR relocations (-z pack-relative-relocs), which the baseline's loader doesn't support"
+  fi
   local lib found
   for lib in $(echo "$dyn" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
     case "$lib" in
@@ -325,7 +331,7 @@ check_bundle() {
       "$b"/Contents/Linux-*/*) nbin=$((nbin + 1)) ;;
     esac
     check_elf "$f" "$root"
-  done < <(find "$b" \( -type f -o -type l \) -print0 2>/dev/null | sort -z)
+  done < <(find -H "$b" \( -type f -o -type l \) -print0 2>/dev/null | sort -z)
   if [ "$nbin" = 0 ]; then
     report "$b" "has no ELF file in Contents/Linux-*/"
   fi
@@ -339,7 +345,7 @@ for arg in "$@"; do
     while IFS= read -r -d '' b; do
       check_bundle "$b"
       n=$((n + 1))
-    done < <(find "$arg" -type d -name '*.ofx.bundle' -prune -print0 | sort -z)
+    done < <(find -H "$arg" -type d -name '*.ofx.bundle' -prune -print0 | sort -z)
     if [ "$n" = 0 ]; then
       report "$arg" "contains no *.ofx.bundle"
     fi
