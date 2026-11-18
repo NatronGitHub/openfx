@@ -17,8 +17,8 @@ endif()
 # CY2027) unless CMAKE_OSX_DEPLOYMENT_TARGET, the MACOSX_DEPLOYMENT_TARGET environment variable or a
 # toolchain file (e.g. conan's, from os.version) says otherwise. CMake reads it at the first
 # project(), so this only applies when openfx is the top-level project: plug-in projects set their
-# own (see cmake/OpenFX.cmake). Not for cross builds (CMAKE_SYSTEM_NAME, e.g. iOS).
-if(CMAKE_HOST_APPLE AND NOT CMAKE_TOOLCHAIN_FILE AND NOT CMAKE_SYSTEM_NAME
+# own (see cmake/OpenFX.cmake). Not for cross builds to other systems (CMAKE_SYSTEM_NAME, e.g. iOS).
+if(CMAKE_HOST_APPLE AND NOT CMAKE_TOOLCHAIN_FILE AND (NOT CMAKE_SYSTEM_NAME OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
    AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET AND "$ENV{MACOSX_DEPLOYMENT_TARGET}" STREQUAL "")
   set(CMAKE_OSX_DEPLOYMENT_TARGET 14.0 CACHE STRING "Minimum macOS version")
 endif()
