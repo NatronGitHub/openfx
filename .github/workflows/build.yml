@@ -61,6 +61,12 @@ jobs:
         run: python scripts/check-props.py
       - name: Generated Python modules (ofxhost.constants, ofxhost.props) are up to date
         run: python scripts/gen-ofxhost-py.py --check
+      - name: Generated property reference pages are up to date
+        run: |
+          python scripts/gen-props-doc.py
+          git diff --exit-code -- Documentation/sources/Reference/ofxPropertiesReferenceGenerated.rst \
+            Documentation/sources/Reference/ofxPropertySetsGenerated.rst \
+            || { echo "::error::run scripts/gen-props-doc.py and commit the generated .rst files"; exit 1; }
       - name: All headers together compile (C++98, C++17; all extension flag sets)
         run: |
           { echo '#include "ofxCore.h"'; echo '#include "ofxImageEffect.h"'

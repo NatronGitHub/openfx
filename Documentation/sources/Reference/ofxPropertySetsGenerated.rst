@@ -315,6 +315,7 @@ These property sets represent collections of properties associated with various 
 
 **Properties**
 
+- :ref:`OfxParamInterpType <prop_OfxParamInterpType>` - Type: enum, Dimension: 1 (doc: :c:macro:`kOfxParamInterpType`)
 - :ref:`OfxParamPropAnimates <prop_OfxParamPropAnimates>` - Type: bool, Dimension: 1 (doc: :c:macro:`kOfxParamPropAnimates`)
 - :ref:`OfxParamPropCacheInvalidation <prop_OfxParamPropCacheInvalidation>` - Type: enum, Dimension: 1 (doc: :c:macro:`kOfxParamPropCacheInvalidation`)
 - :ref:`OfxParamPropCanUndo <prop_OfxParamPropCanUndo>` - Type: bool, Dimension: 1 (doc: :c:macro:`kOfxParamPropCanUndo`)
@@ -439,6 +440,7 @@ These property sets represent collections of properties associated with various 
 
 **Properties**
 
+- :ref:`OfxParamInterpType <prop_OfxParamInterpType>` - Type: enum, Dimension: 1 (doc: :c:macro:`kOfxParamInterpType`)
 - :ref:`OfxParamPropAnimates <prop_OfxParamPropAnimates>` - Type: bool, Dimension: 1 (doc: :c:macro:`kOfxParamPropAnimates`)
 - :ref:`OfxParamPropCacheInvalidation <prop_OfxParamPropCacheInvalidation>` - Type: enum, Dimension: 1 (doc: :c:macro:`kOfxParamPropCacheInvalidation`)
 - :ref:`OfxParamPropCanUndo <prop_OfxParamPropCanUndo>` - Type: bool, Dimension: 1 (doc: :c:macro:`kOfxParamPropCanUndo`)
