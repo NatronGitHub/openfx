@@ -1,6 +1,6 @@
 # hostDemo as a plug-in test host, and a Python test wrapper (`ofxhost`)
 
-Status: implemented (NatronGitHub/openfx #111–#132). hostDemo is now frozen: new host features go to the Python sample hosts on HostSupport bindings ([#136](https://github.com/NatronGitHub/openfx/issues/136)). This document is the design as it was proposed; the code, `hostDemo --help` and `HostSupport/examples/python/README.md` are the reference. It doesn't change the OFX API.
+Status: implemented ([#109](https://github.com/NatronGitHub/openfx/issues/109): #111, #117–#120, #122, #123, #126, #128, #132). hostDemo is now frozen: new host features go to the Python sample hosts on HostSupport bindings ([#136](https://github.com/NatronGitHub/openfx/issues/136)). This document is the design as it was proposed; the code, `hostDemo --help` and `HostSupport/examples/python/README.md` are the reference. It doesn't change the OFX API.
 
 ## Goal
 

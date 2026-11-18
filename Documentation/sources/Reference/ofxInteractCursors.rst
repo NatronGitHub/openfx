@@ -5,10 +5,10 @@ Interact cursors (proposed extension)
 
 .. note::
 
-   This is a **proposed** extension, not part of the OpenFX standard. It is
-   proposed for standardization in
+   This is a **proposed** extension, not part of the OpenFX standard, and not
+   yet submitted upstream. It was tracked in
    `NatronGitHub/openfx#4 <https://github.com/NatronGitHub/openfx/issues/4>`_,
-   and implemented in NatronGitHub/openfx since
+   and is implemented in NatronGitHub/openfx since
    `#63 <https://github.com/NatronGitHub/openfx/pull/63>`_ (headers, HostSupport
    and Support, behind ``OFX_EXTENSIONS_NATRON``), with the host side in Natron
    2.6 and the plug-in side in openfx-supportext and openfx-misc. The full

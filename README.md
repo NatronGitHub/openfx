@@ -37,7 +37,7 @@ work unchanged:
 - colour management (styles, clip colourspaces, GetOutputColourspace).
 
 The gaps found when these features were merged (read-only properties, the Win-arm64ec and Linux arch bundle
-folders, the NoSpatialAwareness render argument, and a property-set audit) are fixed (#76–#79, closed). The host
+folders, the NoSpatialAwareness render argument, and a property-set audit) are fixed ([#76](https://github.com/NatronGitHub/openfx/issues/76)–[#79](https://github.com/NatronGitHub/openfx/issues/79), closed). The host
 side of these features (for example in Natron) must be implemented by each host; see the HostSupport header
 comments.
 
@@ -75,11 +75,12 @@ cmake --install build --prefix /path/to/prefix   # provides find_package(openfx)
 ```
 Main options:
 - `OFX_EXTENSIONS_NATRON`, `_NUKE`, `_VEGAS`, `_TUTTLE` and `_RESOLVE`: the extension headers and code;
-- `OFX_SUPPORTS_OPENGLRENDER`, `_OPENCLRENDER`, `_CUDARENDER`, `_MULTITHREAD`, `_DIALOG` and `_PARAMETRIC`: optional suites and host features;
+- `OFX_SUPPORTS_OPENGLRENDER`, `_OPENCLRENDER` and `_CUDARENDER`: GPU rendering, in the libraries and the examples (CUDA is off on macOS);
+- `OFX_SUPPORTS_MULTITHREAD`, `_DIALOG` and `_PARAMETRIC`: HostSupport features, only for a host that implements them (they add pure virtual functions, and PARAMETRIC needs the host's `ofxhParametricParam.h`);
 - `OFX_BUILD_HOSTSUPPORT`: build HostSupport, on by default at top level;
 - `BUILD_EXAMPLE_PLUGINS` and `BUILD_EXAMPLE_HOSTS`: the example plug-ins and hosts;
-- `OFX_CXX_STANDARD`: the C++ standard of the plug-ins and of openfx::Support (default 17);
-- `OFX_OPTFLAG`: extra release optimization flags (empty: CMake's -O3);
+- `OFX_CXX_STANDARD`: the C++ standard of the plug-ins and of openfx::Support (default: `CMAKE_CXX_STANDARD`, else 17);
+- `OFX_OPTFLAG`: extra optimization flags of the release configurations, after CMake's (empty: CMake's defaults; ignored with MSVC);
 - `OFX_DEPLOY_BUNDLES`: make the installed bundles self-contained (`ofx_deploy_bundle()`).
 
 Plug-in projects use `add_ofx_plugin()` and the other helpers of `cmake/OpenFX.cmake`, with openfx as a subdirectory or as an installed package: see [Documentation/proposals/cmake-plugins.md](Documentation/proposals/cmake-plugins.md).
