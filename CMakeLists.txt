@@ -124,13 +124,24 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake ${CMAKE_BINARY_DIR})
 # expat, for the HostSupport plug-in cache
 if(OFX_BUILD_HOSTSUPPORT)
   include(OpenFXExpat)
-  ofx_find_expat(REQUIRED)
-  # the minimum version for the installed package (ofxhPluginCache.cpp uses the 64-bit line and
-  # column functions with expat >= 2.9)
+  ofx_find_expat()
+  if(NOT TARGET expat::expat)
+    message(FATAL_ERROR "HostSupport needs the expat library and headers, which were not found. Install "
+      "them (e.g. libexpat1-dev, MacPorts expat, MSYS2 mingw-w64-ucrt-x86_64-expat, vcpkg or conan "
+      "expat), or set EXPAT_INCLUDE_DIR and EXPAT_LIBRARY, or build without HostSupport "
+      "(-DOFX_BUILD_HOSTSUPPORT=OFF).")
+  endif()
+  # the minimum expat version for the installed package: ofxhPluginCache.cpp uses the 64-bit line
+  # and column functions with expat >= 2.9 headers
   if(EXPAT_VERSION)
-    set(OFX_EXPAT_VERSION "${EXPAT_VERSION}")
+    set(_ofx_expat_version "${EXPAT_VERSION}")
   else()
-    set(OFX_EXPAT_VERSION "${EXPAT_VERSION_STRING}")
+    set(_ofx_expat_version "${EXPAT_VERSION_STRING}")
+  endif()
+  if(_ofx_expat_version VERSION_GREATER_EQUAL 2.9)
+    set(OFX_EXPAT_VERSION 2.9)
+  else()
+    set(OFX_EXPAT_VERSION "${_ofx_expat_version}")
   endif()
 endif()
 

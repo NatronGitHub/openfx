@@ -6,7 +6,12 @@ ifdef EXPAT_INCLUDE
 else
   EXPAT_CFLAGS ?= $(shell pkg-config --cflags expat 2>/dev/null)
 endif
-EXPAT_LIBS ?= $(shell pkg-config --libs expat 2>/dev/null || echo -lexpat)
+ifdef EXPAT_INCLUDE
+  # headers from EXPAT_INCLUDE: don't take the library from another expat (pkg-config)
+  EXPAT_LIBS ?= -lexpat
+else
+  EXPAT_LIBS ?= $(shell pkg-config --libs expat 2>/dev/null || echo -lexpat)
+endif
 OBJSUF ?= .o
 LIBSUF ?= .a
 LIBPREFIX ?= lib
