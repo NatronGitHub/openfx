@@ -137,7 +137,8 @@ namespace OFX {
   class ImageEffect;
   class ImageMemory;
 
-  /** @brief Enumerates the contexts a plugin can be used in */
+  /** @brief Enumerates the contexts a plugin can be used in
+      (when adding one, also add it to OFX::Private::reserveEffectDescriptors() in ofxsImageEffect.cpp) */
   enum ContextEnum {eContextNone,
     eContextGenerator,
     eContextFilter,

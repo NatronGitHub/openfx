@@ -5587,8 +5587,9 @@ namespace OFX {
         else if(action == kOfxActionDescribe) {
           checkMainHandles(actionRaw, handleRaw, inArgsRaw, outArgsRaw, false, true, true);
 
-          // make the plugin descriptor
-          ImageEffectDescriptor *desc = new ImageEffectDescriptor(handle);
+          // make the plugin descriptor (owned here until it is stored, so that it doesn't leak if
+          // the validation or the plug-in's describe throws)
+          OFX::auto_ptr<ImageEffectDescriptor> desc(new ImageEffectDescriptor(handle));
 
           // validate the host
           OFX::Validation::validatePluginDescriptorProperties(fetchEffectProps(handle));
@@ -5602,7 +5603,7 @@ namespace OFX {
           key.id = it->first;
           key.majorVersion = it->second._plug->pluginVersionMajor;
           key.minorVersion = it->second._plug->pluginVersionMinor;
-          setEffectDescriptor(key, eContextNone, desc);
+          setEffectDescriptor(key, eContextNone, desc.release());
 
           // got here, must be good
           stat = kOfxStatOK;
@@ -5610,8 +5611,9 @@ namespace OFX {
         else if(action == kOfxImageEffectActionDescribeInContext) {
           checkMainHandles(actionRaw, handleRaw, inArgsRaw, outArgsRaw, false, false, true);
 
-          // make the plugin descriptor and pass it to the plugin to do something with it
-          ImageEffectDescriptor *desc = new ImageEffectDescriptor(handle);
+          // make the plugin descriptor and pass it to the plugin to do something with it (owned here
+          // until it is stored, so that it doesn't leak if anything below throws)
+          OFX::auto_ptr<ImageEffectDescriptor> desc(new ImageEffectDescriptor(handle));
 
           // figure the context and map it to an enum
           std::string contextStr = inArgs.propGetString(kOfxImageEffectPropContext);
@@ -5628,7 +5630,7 @@ namespace OFX {
           key.id = it->first;
           key.majorVersion = it->second._plug->pluginVersionMajor;
           key.minorVersion = it->second._plug->pluginVersionMinor;
-          setEffectDescriptor(key, context, desc);
+          setEffectDescriptor(key, context, desc.release());
 
           // got here, must be good
           stat = kOfxStatOK;
