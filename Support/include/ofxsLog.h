@@ -46,10 +46,10 @@ namespace OFX {
 
   /** @brief this namespace wraps up logging functionality */
   namespace Log {
-    /** @brief Indent it, not MP sane at the moment */
+    /** @brief Indent it, per thread with C++11 */
     void indent(void);
 
-    /** @brief Outdent it, not MP sane at the moment */
+    /** @brief Outdent it, per thread with C++11 */
     void outdent(void);
 
     /** @brief Sets the name of the log file. */
