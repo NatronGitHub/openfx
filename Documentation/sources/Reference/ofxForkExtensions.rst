@@ -50,7 +50,9 @@ The header itself has the complete description of each extension.
 
 The parameter-based cursor extension (``kNatronOfxParamCursorName``,
 ``kNatronOfxImageEffectPropDefaultCursors``) is deprecated in favour of the
-proposed :doc:`interact cursors <ofxInteractCursors>`.
+proposed :doc:`interact cursors <ofxInteractCursors>`. Natron 2.6 no longer
+honours it (Natron#1108): plug-ins that still set the cursor parameter get the
+default cursor there.
 
 Nuke (``include/nuke/``, ``OFX_EXTENSIONS_NUKE``)
 -------------------------------------------------

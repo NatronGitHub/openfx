@@ -36,11 +36,10 @@ work unchanged:
 - DrawSuite and OverlayInteractV2;
 - colour management (styles, clip colourspaces, GetOutputColourspace).
 
-Known gaps are tracked in [#76](https://github.com/NatronGitHub/openfx/issues/76) (read-only properties),
-[#77](https://github.com/NatronGitHub/openfx/issues/77) (Win-arm64ec/Linux arch bundle folders),
-[#78](https://github.com/NatronGitHub/openfx/issues/78) (NoSpatialAwareness render argument) and
-[#79](https://github.com/NatronGitHub/openfx/issues/79) (property-set audit). The host side of these features (for
-example in Natron) must be implemented by each host; see the HostSupport header comments.
+The gaps found when these features were merged (read-only properties, the Win-arm64ec and Linux arch bundle
+folders, the NoSpatialAwareness render argument, and a property-set audit) are fixed (#76–#79, closed). The host
+side of these features (for example in Natron) must be implemented by each host; see the HostSupport header
+comments.
 
 ## Extensions
 
@@ -70,10 +69,20 @@ make -C HostSupport/examples   # hostDemo, cacheDemo
 
 With CMake:
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release   # options: OFX_EXTENSIONS_*, OFX_USE_SYSTEM_EXPAT, BUILD_EXAMPLE_HOSTS
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 cmake --install build --prefix /path/to/prefix   # provides find_package(openfx): openfx::Api, openfx::Support, openfx::HostSupport
 ```
+Main options:
+- `OFX_EXTENSIONS_NATRON`, `_NUKE`, `_VEGAS`, `_TUTTLE` and `_RESOLVE`: the extension headers and code;
+- `OFX_SUPPORTS_OPENGLRENDER`, `_OPENCLRENDER`, `_CUDARENDER`, `_MULTITHREAD`, `_DIALOG` and `_PARAMETRIC`: optional suites and host features;
+- `OFX_BUILD_HOSTSUPPORT`: build HostSupport, on by default at top level;
+- `BUILD_EXAMPLE_PLUGINS` and `BUILD_EXAMPLE_HOSTS`: the example plug-ins and hosts;
+- `OFX_CXX_STANDARD`: the C++ standard of the plug-ins and of openfx::Support (default 17);
+- `OFX_OPTFLAG`: extra release optimization flags (empty: CMake's -O3);
+- `OFX_DEPLOY_BUNDLES`: make the installed bundles self-contained (`ofx_deploy_bundle()`).
+
+Plug-in projects use `add_ofx_plugin()` and the other helpers of `cmake/OpenFX.cmake`, with openfx as a subdirectory or as an installed package: see [Documentation/proposals/cmake-plugins.md](Documentation/proposals/cmake-plugins.md).
 A conan recipe (`conanfile.py`, with `test_package/`) is also provided.
 
 Documentation: `cd Documentation && ./build.sh` (see `Documentation/README.md` for the prerequisites).
