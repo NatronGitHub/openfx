@@ -1177,7 +1177,7 @@ namespace OFX {
       {
         // If the kOfxParamPropChoiceLabelOption doesn't exist, we put that information into the Hint.
         // It's better than nothing...
-        std::string hint = _paramProps.propGetString(kOfxParamPropHint);
+        std::string hint = _paramProps.propGetString(kOfxParamPropHint, false);
         if(!hint.empty()) {
           hint += "\n";
           if( nCurrentValues == 0 ) {
@@ -1185,7 +1185,7 @@ namespace OFX {
           }
         }
         hint += optionLabel + ": " + optionHint;
-        _paramProps.propSetString(kOfxParamPropHint, hint);
+        _paramProps.propSetString(kOfxParamPropHint, hint, false);
       }
     }
 #ifdef OFX_EXTENSIONS_NATRON
@@ -3606,7 +3606,7 @@ namespace OFX {
       {
         // If the kOfxParamPropChoiceLabelOption doesn't exist, we put that information into the Hint.
         // It's better than nothing...
-        std::string hint = _paramProps.propGetString(kOfxParamPropHint);
+        std::string hint = _paramProps.propGetString(kOfxParamPropHint, false);
         if(!hint.empty()) {
           hint += "\n";
           if( nCurrentValues == 0 ) {
@@ -3614,7 +3614,7 @@ namespace OFX {
           }
         }
         hint += optionLabel + ": " + optionHint;
-        _paramProps.propSetString(kOfxParamPropHint, hint);
+        _paramProps.propSetString(kOfxParamPropHint, hint, false);
       }
     }
 #ifdef OFX_EXTENSIONS_NATRON

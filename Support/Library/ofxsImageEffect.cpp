@@ -2350,6 +2350,10 @@ namespace OFX {
     }
 #  endif
     if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane) {
+      // a host without the plane suite (e.g. OFX 1.4) has one view and the colour plane only
+      if (std::string(plane) == kFnOfxImagePlaneColour) {
+        return fetchImage(t);
+      }
       throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite"V2");
     }
     OfxPropertySetHandle imageHandle;
@@ -2396,6 +2400,10 @@ namespace OFX {
     }
 #  endif
     if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane) {
+      // a host without the plane suite (e.g. OFX 1.4) has one view and the colour plane only
+      if (std::string(plane) == kFnOfxImagePlaneColour) {
+        return fetchImage(t, bounds);
+      }
       throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite"V2");
     }
     OfxPropertySetHandle imageHandle;
@@ -3703,7 +3711,11 @@ namespace OFX {
     
   std::string ImageEffect::getViewName(int viewIndex) const
   {
-      const char* viewName;
+      if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->getViewName) {
+        // a host without the plane suite V2 (e.g. OFX 1.4) has a single view
+        return viewIndex == 0 ? std::string("Main") : std::string();
+      }
+      const char* viewName = NULL;
       OfxStatus stat = OFX::Private::gImageEffectPlaneSuiteV2->getViewName(_effectHandle, viewIndex, &viewName);
       if(stat == kOfxStatFailed || !viewName) {
           return std::string();
@@ -3714,7 +3726,10 @@ namespace OFX {
     
   int ImageEffect::getViewCount() const
   {
-      int viewCount;
+      if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->getViewCount) {
+        return 1; // a host without the plane suite V2 (e.g. OFX 1.4) has a single view
+      }
+      int viewCount = 0;
       OfxStatus stat = OFX::Private::gImageEffectPlaneSuiteV2->getViewCount(_effectHandle, &viewCount);
       if(stat == kOfxStatFailed) {
           return 0;
@@ -4697,6 +4712,10 @@ namespace OFX {
       int numPlanes = inArgs.propGetDimension(kOfxImageEffectPropRenderPlanes, false);
       for (int i = 0; i < numPlanes; ++i) {
         args.planes.push_back(inArgs.propGetString(kOfxImageEffectPropRenderPlanes, i, false));
+      }
+      if (args.planes.empty()) {
+        // a host without the multi-plane extension (e.g. OFX 1.4) renders the colour plane
+        args.planes.push_back(kFnOfxImagePlaneColour);
       }
 #endif
 
