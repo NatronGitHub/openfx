@@ -67,7 +67,7 @@ run() { # mode: package | subdirectory
     local out
     out=$(env $limits "$lcb" "$w/install/OFX/Plugins") && fail "linuxCheckBundle.sh: absolute RPATH entries not reported"
     case "$out" in
-      *"RUNPATH entry /opt/ofx-test-rpath"*"RUNPATH entry /usr/local/ofx-test-keep"*|*"RUNPATH entry /usr/local/ofx-test-keep"*"RUNPATH entry /opt/ofx-test-rpath"*) ;;
+      *"PATH entry /opt/ofx-test-rpath,"*"PATH entry /usr/local/ofx-test-keep,"*|*"PATH entry /usr/local/ofx-test-keep,"*"PATH entry /opt/ofx-test-rpath,"*) ;; # RUNPATH or RPATH
       *) echo "$out"; fail "linuxCheckBundle.sh: unexpected report" ;;
     esac
     env $limits OFX_ABI_RPATH_ALLOW="/opt/ofx-test-rpath /usr/local/ofx-test-keep" \

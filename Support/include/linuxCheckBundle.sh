@@ -54,7 +54,7 @@
 #   OFX_ABI_ZLIB       1.2.9   zlib
 # Set a limit to 99 to disable it.
 # - A version of one of these libraries without a number (e.g. GLIBC_FOO, or a bare ZLIB) is a
-#   problem.
+#   problem, except libstdc++'s CXXABI_FLOAT128.
 # - GLIBC_PRIVATE and the GLIBC_ABI_* markers (e.g. GLIBC_ABI_DT_RELR, from glibc 2.36's
 #   -z pack-relative-relocs, the default on some newer toolchains) are problems; the
 #   GLIBC_ABI_* names listed in OFX_ABI_GLIBC_ABI_ALLOW (default: none) are allowed.
@@ -64,7 +64,7 @@
 #   OFX_ABI_GLIBC_EXTRA="__memcmpeq epoll_pwait2 __rseq_flags __rseq_offset __rseq_size
 #   _dl_find_object posix_spawn_file_actions_addtcsetpgrp_np"
 #
-# Warnings (not problems): a file needs libOpenGL.so.0 (EL9 has it in libglvnd-opengl, which
+# Also warnings (besides the RUNPATH/RPATH ones above): a file needs libOpenGL.so.0 (EL9 has it in libglvnd-opengl, which
 # isn't always installed: link libGL.so.1 instead; CMake's OpenGL::GL is libOpenGL.so.0 unless
 # OpenGL_GL_PREFERENCE is LEGACY), or libcrypt.so.1 (EL9's libxcrypt is libcrypt.so.2;
 # libcrypt.so.1 needs libxcrypt-compat).
@@ -225,7 +225,7 @@ check_elf() {
     # read -a drops a trailing empty entry: check "a:" by hand. An empty value is ignored by the
     # loader, but an empty entry in a list is the current directory
     case "$runpath" in
-      "") warn "$f" "has an empty $rpathtag" ;;
+      "") warn "$f" "has an empty $rpathtag, which the loader ignores (remove it)" ;;
       :*|*:|*::*) report "$f" "has an empty $rpathtag entry ($runpath), which the loader takes as the current directory" ;;
     esac
   fi
@@ -287,6 +287,8 @@ check_elf() {
         if ! word_in "$ver" "$OFX_ABI_GLIBC_ABI_ALLOW"; then
           report "$f" "needs $ver (from $file), which the baseline glibc doesn't have (see OFX_ABI_GLIBC_ABI_ALLOW)"
         fi
+        continue ;;
+      CXXABI_FLOAT128) # libstdc++'s unnumbered __float128 typeinfo node (float128.ver)
         continue ;;
       GLIBC_PRIVATE)
         report "$f" "needs GLIBC_PRIVATE (from $file): it only works with the glibc build it was linked with"
