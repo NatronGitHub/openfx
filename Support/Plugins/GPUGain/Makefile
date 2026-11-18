@@ -30,8 +30,10 @@ PLUGINOBJECTS += CudaKernel.o
 CUDAPATH ?= /usr/local/cuda
 NVCC ?= $(CUDAPATH)/bin/nvcc
 CUDA_CXXFLAGS ?= -D HAVE_CUDA -I$(CUDAPATH)/include
+# GPU architectures: every major one (nvcc >= 11.5); e.g. CUDA_ARCH= for nvcc's default
+CUDA_ARCH ?= -arch=all-major
 # nvcc flags for CudaKernel.cu (Makefile.master's %.cu rule uses CUFLAGS)
-CUFLAGS ?= $(CUDA_CXXFLAGS) -Xcompiler -fPIC
+CUFLAGS ?= $(CUDA_CXXFLAGS) $(CUDA_ARCH) -Xcompiler -fPIC
 ifeq ($(shell uname -s),Darwin)
 CUDA_LIBS ?= -L$(CUDAPATH)/lib -lcudart
 else

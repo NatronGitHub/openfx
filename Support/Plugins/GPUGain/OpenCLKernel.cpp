@@ -1,7 +1,11 @@
 // Copyright OpenFX and contributors to the OpenFX project.
 // SPDX-License-Identifier: BSD-3-Clause
 
-#ifdef _WIN32
+// std::mutex with C++11, else a platform mutex
+#if __cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)
+#define GPUGAIN_STD_MUTEX 1
+#include <mutex>
+#elif defined(_WIN32)
 #include <windows.h>
 #else
 #include <pthread.h>
@@ -15,7 +19,7 @@
 #include <CL/cl.h>
 #endif
 
-const char *KernelSourceBuffers = "\n" \
+static const char *KernelSourceBuffers = "\n" \
 "__kernel void GainAdjustKernelBuffers(                                 \n" \
 "   int p_Width,                                                        \n" \
 "   int p_Height,                                                       \n" \
@@ -41,7 +45,7 @@ const char *KernelSourceBuffers = "\n" \
 "}                                                                      \n" \
 "\n";
 
-const char *KernelSourceImages = "\n" \
+static const char *KernelSourceImages = "\n" \
 "__constant sampler_t imageSampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;  \n" \
 "                                                                                                           \n" \
 "__kernel void GainAdjustKernelImages(                                                                      \n" \
@@ -67,14 +71,21 @@ const char *KernelSourceImages = "\n" \
 "}                                                                                                          \n" \
 "\n";
 
-void CheckError(cl_int p_Error, const char* p_Msg)
+namespace {
+
+cl_int CheckError(cl_int p_Error, const char* p_Msg)
 {
     if (p_Error != CL_SUCCESS)
     {
-        fprintf(stderr, "%s [%d]\n", p_Msg, p_Error);
+        fprintf(stderr, "GPUGain: %s [%d]\n", p_Msg, p_Error);
     }
+    return p_Error;
 }
 
+#ifdef GPUGAIN_STD_MUTEX
+typedef std::mutex Locker;
+typedef std::lock_guard<std::mutex> AutoLock;
+#else
 class Locker
 {
 public:
@@ -96,7 +107,7 @@ public:
 #endif
     }
 
-    void Lock()
+    void lock()
     {
 #ifdef _WIN32
         EnterCriticalSection(&mutex);
@@ -105,7 +116,7 @@ public:
 #endif
     }
 
-    void Unlock()
+    void unlock()
     {
 #ifdef _WIN32
         LeaveCriticalSection(&mutex);
@@ -115,6 +126,8 @@ public:
     }
 
 private:
+    Locker(const Locker&);
+    Locker& operator=(const Locker&);
 #ifdef _WIN32
     CRITICAL_SECTION mutex;
 #else
@@ -122,150 +135,125 @@ private:
 #endif
 };
 
-void RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, float* p_Gain, const float* p_Input, float* p_Output)
+class AutoLock
 {
-    cl_int error;
+public:
+    explicit AutoLock(Locker& p_Locker) : _locker(p_Locker) { _locker.lock(); }
+    ~AutoLock() { _locker.unlock(); }
+private:
+    AutoLock(const AutoLock&);
+    AutoLock& operator=(const AutoLock&);
+    Locker& _locker;
+};
+#endif
 
-    cl_command_queue cmdQ = static_cast<cl_command_queue>(p_CmdQ);
+// One kernel per command queue and kernel source (required for multi-GPU systems). A cl_kernel
+// isn't thread-safe between clSetKernelArg and clEnqueueNDRangeKernel, so RunKernel holds the
+// lock through both. Failed builds are not cached (they are retried at the next render).
+typedef std::map<std::pair<cl_command_queue, const char*>, cl_kernel> KernelMap;
 
-    // store device id and kernel per command queue (required for multi-GPU systems)
-    static std::map<cl_command_queue, cl_device_id> deviceIdMap;
-    static std::map<cl_command_queue, cl_kernel> kernelMap;
-
-    static Locker locker; // simple lock to control access to the above maps from multiple threads
-
-    locker.Lock();
-
-    // find the device id corresponding to the command queue
-    cl_device_id deviceId = NULL;
-    if (deviceIdMap.find(cmdQ) == deviceIdMap.end())
-    {
-        error = clGetCommandQueueInfo(cmdQ, CL_QUEUE_DEVICE, sizeof(cl_device_id), &deviceId, NULL);
-        CheckError(error, "Unable to get the device");
-
-        deviceIdMap[cmdQ] = deviceId;
-    }
-    else
-    {
-        deviceId = deviceIdMap[cmdQ];
-    }
-
-    // find the program kernel corresponding to the command queue
-    cl_kernel kernel = NULL;
-    if (kernelMap.find(cmdQ) == kernelMap.end())
-    {
-        cl_context clContext = NULL;
-        error = clGetCommandQueueInfo(cmdQ, CL_QUEUE_CONTEXT, sizeof(cl_context), &clContext, NULL);
-        CheckError(error, "Unable to get the context");
-
-        cl_program program = clCreateProgramWithSource(clContext, 1, (const char **)&KernelSourceBuffers, NULL, &error);
-        CheckError(error, "Unable to create program");
-
-        error = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
-        CheckError(error, "Unable to build program");
-
-        kernel = clCreateKernel(program, "GainAdjustKernelBuffers", &error);
-        CheckError(error, "Unable to create kernel");
-
-        kernelMap[cmdQ] = kernel;
-    }
-    else
-    {
-        kernel = kernelMap[cmdQ];
-    }
-
-    locker.Unlock();
-
-    int count = 0;
-    error  = clSetKernelArg(kernel, count++, sizeof(int), &p_Width);
-    error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Height);
-    error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[0]);
-    error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[1]);
-    error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[2]);
-    error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[3]);
-    error |= clSetKernelArg(kernel, count++, sizeof(cl_mem), &p_Input);
-    error |= clSetKernelArg(kernel, count++, sizeof(cl_mem), &p_Output);
-    CheckError(error, "Unable to set kernel arguments");
-
-    size_t localWorkSize[2], globalWorkSize[2];
-    clGetKernelWorkGroupInfo(kernel, deviceId, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), localWorkSize, NULL);
-    localWorkSize[1] = 1;
-    globalWorkSize[0] = ((p_Width + localWorkSize[0] - 1) / localWorkSize[0]) * localWorkSize[0];
-    globalWorkSize[1] = p_Height;
-
-    clEnqueueNDRangeKernel(cmdQ, kernel, 2, NULL, globalWorkSize, localWorkSize, 0, NULL, NULL);
+Locker& GetLocker()
+{
+    static Locker locker;
+    return locker;
 }
 
-void RunOpenCLKernelImages(void* p_CmdQ, int p_Width, int p_Height, float* p_Gain, const float* p_Input, float* p_Output)
+KernelMap& GetKernelMap()
 {
-    cl_int error;
+    static KernelMap kernels;
+    return kernels;
+}
 
-    cl_command_queue cmdQ = static_cast<cl_command_queue>(p_CmdQ);
-
-    // store device id and kernel per command queue (required for multi-GPU systems)
-    static std::map<cl_command_queue, cl_device_id> deviceIdMap;
-    static std::map<cl_command_queue, cl_kernel> kernelMap;
-
-    static Locker locker; // simple lock to control access to the above maps from multiple threads
-
-    locker.Lock();
-
-    // find the device id corresponding to the command queue
-    cl_device_id deviceId = NULL;
-    if (deviceIdMap.find(cmdQ) == deviceIdMap.end())
+// call with the lock held; returns NULL on failure
+cl_kernel GetKernel(cl_command_queue p_CmdQ, const char* p_Source, const char* p_Name)
+{
+    KernelMap& kernels = GetKernelMap();
+    const KernelMap::key_type key(p_CmdQ, p_Source);
+    KernelMap::const_iterator it = kernels.find(key);
+    if (it != kernels.end())
     {
-        error = clGetCommandQueueInfo(cmdQ, CL_QUEUE_DEVICE, sizeof(cl_device_id), &deviceId, NULL);
-        CheckError(error, "Unable to get the device");
-
-        deviceIdMap[cmdQ] = deviceId;
-    }
-    else
-    {
-        deviceId = deviceIdMap[cmdQ];
+        return it->second;
     }
 
-    // find the program kernel corresponding to the command queue
+    cl_context clContext = NULL;
+    if (CheckError(clGetCommandQueueInfo(p_CmdQ, CL_QUEUE_CONTEXT, sizeof(cl_context), &clContext, NULL),
+                   "Unable to get the context") != CL_SUCCESS)
+    {
+        return NULL;
+    }
+    cl_int error = CL_SUCCESS;
+    cl_program program = clCreateProgramWithSource(clContext, 1, &p_Source, NULL, &error);
+    if (CheckError(error, "Unable to create program") != CL_SUCCESS)
+    {
+        return NULL;
+    }
+    error = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
     cl_kernel kernel = NULL;
-    if (kernelMap.find(cmdQ) == kernelMap.end())
+    if (CheckError(error, "Unable to build program") == CL_SUCCESS)
     {
-        cl_context clContext = NULL;
-        error = clGetCommandQueueInfo(cmdQ, CL_QUEUE_CONTEXT, sizeof(cl_context), &clContext, NULL);
-        CheckError(error, "Unable to get the context");
-
-        cl_program program = clCreateProgramWithSource(clContext, 1, (const char **)&KernelSourceImages, NULL, &error);
-        CheckError(error, "Unable to create program");
-
-        error = clBuildProgram(program, 0, NULL, NULL, NULL, NULL);
-        CheckError(error, "Unable to build program");
-
-        kernel = clCreateKernel(program, "GainAdjustKernelImages", &error);
-        CheckError(error, "Unable to create kernel");
-
-        kernelMap[cmdQ] = kernel;
+        kernel = clCreateKernel(program, p_Name, &error);
+        if (CheckError(error, "Unable to create kernel") != CL_SUCCESS)
+        {
+            kernel = NULL;
+        }
     }
-    else
+    // the kernel keeps a reference to its program
+    clReleaseProgram(program);
+    if (kernel)
     {
-        kernel = kernelMap[cmdQ];
+        kernels[key] = kernel;
+    }
+    return kernel;
+}
+
+// returns CL_SUCCESS or an OpenCL error. p_Input and p_Output are cl_mem (buffers or images)
+cl_int RunKernel(const char* p_Source, const char* p_Name,
+                 void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output)
+{
+    cl_command_queue cmdQ = static_cast<cl_command_queue>(p_CmdQ);
+    if (!cmdQ)
+    {
+        return CL_INVALID_COMMAND_QUEUE;
+    }
+    cl_mem input = static_cast<cl_mem>(const_cast<void*>(p_Input));
+    cl_mem output = static_cast<cl_mem>(p_Output);
+
+    AutoLock lock(GetLocker());
+
+    cl_kernel kernel = GetKernel(cmdQ, p_Source, p_Name);
+    if (!kernel)
+    {
+        return CL_INVALID_KERNEL;
     }
 
-    locker.Unlock();
-
-    int count = 0;
-    error = clSetKernelArg(kernel, count++, sizeof(int), &p_Width);
+    cl_uint count = 0;
+    cl_int error = clSetKernelArg(kernel, count++, sizeof(int), &p_Width);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Height);
     error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[0]);
     error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[1]);
     error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[2]);
     error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[3]);
-    error |= clSetKernelArg(kernel, count++, sizeof(cl_mem), &p_Input);
-    error |= clSetKernelArg(kernel, count++, sizeof(cl_mem), &p_Output);
-    CheckError(error, "Unable to set kernel arguments");
+    error |= clSetKernelArg(kernel, count++, sizeof(cl_mem), &input);
+    error |= clSetKernelArg(kernel, count++, sizeof(cl_mem), &output);
+    if (CheckError(error, "Unable to set kernel arguments") != CL_SUCCESS)
+    {
+        return error;
+    }
 
-    size_t localWorkSize[2], globalWorkSize[2];
-    clGetKernelWorkGroupInfo(kernel, deviceId, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), localWorkSize, NULL);
-    localWorkSize[1] = 1;
-    globalWorkSize[0] = ((p_Width + localWorkSize[0] - 1) / localWorkSize[0]) * localWorkSize[0];
-    globalWorkSize[1] = p_Height;
+    // one work item per pixel; the implementation chooses the work-group size
+    const size_t globalWorkSize[2] = { (size_t)p_Width, (size_t)p_Height };
+    return CheckError(clEnqueueNDRangeKernel(cmdQ, kernel, 2, NULL, globalWorkSize, NULL, 0, NULL, NULL),
+                      "Unable to enqueue the kernel");
+}
 
-    clEnqueueNDRangeKernel(cmdQ, kernel, 2, NULL, globalWorkSize, localWorkSize, 0, NULL, NULL);
+} // namespace
+
+int RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output)
+{
+    return RunKernel(KernelSourceBuffers, "GainAdjustKernelBuffers", p_CmdQ, p_Width, p_Height, p_Gain, p_Input, p_Output);
+}
+
+int RunOpenCLKernelImages(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output)
+{
+    return RunKernel(KernelSourceImages, "GainAdjustKernelImages", p_CmdQ, p_Width, p_Height, p_Gain, p_Input, p_Output);
 }

@@ -17,19 +17,26 @@ __global__ void GainAdjustKernel(int p_Width, int p_Height, float p_GainR, float
    }
 }
 
-void RunCudaKernel(void* p_Stream, int p_Width, int p_Height, float* p_Gain, const float* p_Input, float* p_Output)
+// returns 0 (cudaSuccess), or the CUDA error of the launch or of the synchronisation
+int RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Gain, const float* p_Input, float* p_Output)
 {
     dim3 threads(128, 1, 1);
     dim3 blocks(((p_Width + threads.x - 1) / threads.x), p_Height, 1);
     cudaStream_t stream = static_cast<cudaStream_t>(p_Stream);
 
     GainAdjustKernel<<<blocks, threads, 0, stream>>>(p_Width, p_Height, p_Gain[0], p_Gain[1], p_Gain[2], p_Gain[3], p_Input, p_Output);
+    cudaError_t error = cudaGetLastError();
+    if (error != cudaSuccess)
+    {
+        return (int)error;
+    }
 
     // kOfxImageEffectPropCudaStream (ofxGPURender.h): "If not set: the plug-in SHOULD ensure
     // that any asynchronous operations it enqueues have completed before returning from the
     // render action." (a host that supports CUDA render but not CUDA streams)
     if (!stream)
     {
-        cudaStreamSynchronize(0);
+        error = cudaStreamSynchronize(0);
     }
+    return (int)error;
 }

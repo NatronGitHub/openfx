@@ -28,6 +28,13 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
+// The status of a failed GPU render (OFX 1.5 ofxGPURender.h), else kOfxStatFailed
+#ifdef kOfxStatGPURenderFailed
+#define kGPUGainStatGPUFailed kOfxStatGPURenderFailed
+#else
+#define kGPUGainStatGPUFailed kOfxStatFailed
+#endif
+
 class GainExample : public OFX::ImageProcessor
 {
 public:
@@ -48,6 +55,10 @@ public:
     void setScales(float p_ScaleR, float p_ScaleG, float p_ScaleB, float p_ScaleA);
 
 private:
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL) || defined(HAVE_METAL)
+    void checkGPUImages(bool p_Buffers, int* p_Width, int* p_Height) const;
+#endif
+
     OFX::Image* _srcImg;
     float _scales[4];
 };
@@ -59,63 +70,108 @@ GainExample::GainExample(OFX::ImageEffect& p_Instance)
     _scales[0] = _scales[1] = _scales[2] = _scales[3] = 1.f;
 }
 
+#if defined(HAVE_CUDA) || defined(HAVE_OPENCL) || defined(HAVE_METAL)
+// The GPU kernels process the whole image, one pixel per work item at index (y * width + x) * 4:
+// the source and output must have the same bounds, and buffers (CUDA, Metal, OpenCL buffers) must
+// be packed float RGBA rows. Other images are not supported (the host may then render on the CPU).
+void GainExample::checkGPUImages(bool p_Buffers, int* p_Width, int* p_Height) const
+{
+    if (!_srcImg || !_dstImg)
+    {
+        OFX::throwSuiteStatusException(kOfxStatFailed);
+    }
+    const OfxRectI& srcBounds = _srcImg->getBounds();
+    const OfxRectI& dstBounds = _dstImg->getBounds();
+    if ((srcBounds.x1 != dstBounds.x1) || (srcBounds.x2 != dstBounds.x2) ||
+        (srcBounds.y1 != dstBounds.y1) || (srcBounds.y2 != dstBounds.y2))
+    {
+        OFX::throwSuiteStatusException(kOfxStatErrUnsupported);
+    }
+    const int width = dstBounds.x2 - dstBounds.x1;
+    const int height = dstBounds.y2 - dstBounds.y1;
+    if (p_Buffers)
+    {
+        const int packedRowBytes = width * 4 * (int)sizeof(float);
+        if ((_srcImg->getRowBytes() != packedRowBytes) || (_dstImg->getRowBytes() != packedRowBytes))
+        {
+            OFX::throwSuiteStatusException(kOfxStatErrUnsupported);
+        }
+    }
+    *p_Width = width;
+    *p_Height = height;
+}
+#endif
+
 #ifdef HAVE_CUDA
-extern void RunCudaKernel(void* p_Stream, int p_Width, int p_Height, float* p_Gain, const float* p_Input, float* p_Output);
+// returns 0 (cudaSuccess) or a CUDA error
+extern int RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Gain, const float* p_Input, float* p_Output);
 
 void GainExample::processImagesCuda()
 {
-    const OfxRectI& bounds = _srcImg->getBounds();
-    const int width = bounds.x2 - bounds.x1;
-    const int height = bounds.y2 - bounds.y1;
+    int width, height;
+    checkGPUImages(true, &width, &height);
 
-    float* input = static_cast<float*>(_srcImg->getPixelData());
+    const float* input = static_cast<const float*>(_srcImg->getPixelData());
     float* output = static_cast<float*>(_dstImg->getPixelData());
 
-    RunCudaKernel(_pCudaStream, width, height, _scales, input, output);
+    if (RunCudaKernel(_pCudaStream, width, height, _scales, input, output) != 0)
+    {
+        OFX::throwSuiteStatusException(kGPUGainStatGPUFailed);
+    }
 }
 #endif
 
 #ifdef HAVE_METAL
-extern void RunMetalKernel(void* p_CmdQ, int p_Width, int p_Height, float* p_Gain, const float* p_Input, float* p_Output);
+// returns 0, or non-zero if the kernel couldn't be built or encoded
+extern int RunMetalKernel(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const float* p_Input, float* p_Output);
 
 void GainExample::processImagesMetal()
 {
-    const OfxRectI& bounds = _srcImg->getBounds();
-    const int width = bounds.x2 - bounds.x1;
-    const int height = bounds.y2 - bounds.y1;
+    int width, height;
+    checkGPUImages(true, &width, &height);
 
-    float* input = static_cast<float*>(_srcImg->getPixelData());
+    const float* input = static_cast<const float*>(_srcImg->getPixelData());
     float* output = static_cast<float*>(_dstImg->getPixelData());
 
-    RunMetalKernel(_pMetalCmdQ, width, height, _scales, input, output);
+    if (RunMetalKernel(_pMetalCmdQ, width, height, _scales, input, output) != 0)
+    {
+        OFX::throwSuiteStatusException(kGPUGainStatGPUFailed);
+    }
 }
 #endif
 
 #ifdef HAVE_OPENCL
-extern void RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, float* p_Gain, const float* p_Input, float* p_Output);
-extern void RunOpenCLKernelImages(void* p_CmdQ, int p_Width, int p_Height, float* p_Gain, const float* p_Input, float* p_Output);
+// return 0 (CL_SUCCESS) or an OpenCL error
+extern int RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output);
+extern int RunOpenCLKernelImages(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output);
 
 void GainExample::processImagesOpenCL()
 {
-    const OfxRectI& bounds = _srcImg->getBounds();
-    const int width = bounds.x2 - bounds.x1;
-    const int height = bounds.y2 - bounds.y1;
-
-    float* input = static_cast<float*>(_srcImg->getOpenCLImage());
-    float* output = static_cast<float*>(_dstImg->getOpenCLImage());
-
     // if a plugin supports both OpenCL Buffers and Images, the host decides which is used and
     // the plugin must determine which based on whether kOfxImageEffectPropOpenCLImage or kOfxImagePropData is set
-    if (input || output)
+    const void* inputImage = _srcImg ? _srcImg->getOpenCLImage() : NULL;
+    void* outputImage = _dstImg ? _dstImg->getOpenCLImage() : NULL;
+    const bool images = inputImage || outputImage;
+
+    int width, height;
+    checkGPUImages(!images, &width, &height);
+
+    int status;
+    if (images)
     {
-        RunOpenCLKernelImages(_pOpenCLCmdQ, width, height, _scales, input, output);
+        if (!inputImage || !outputImage)
+        {
+            OFX::throwSuiteStatusException(kOfxStatFailed);
+        }
+        status = RunOpenCLKernelImages(_pOpenCLCmdQ, width, height, _scales, inputImage, outputImage);
     }
     else
     {
-        input = static_cast<float*>(_srcImg->getPixelData());
-        output = static_cast<float*>(_dstImg->getPixelData());
-
-        RunOpenCLKernelBuffers(_pOpenCLCmdQ, width, height, _scales, input, output);
+        status = RunOpenCLKernelBuffers(_pOpenCLCmdQ, width, height, _scales, _srcImg->getPixelData(), _dstImg->getPixelData());
+    }
+    if (status != 0)
+    {
+        OFX::throwSuiteStatusException(kGPUGainStatGPUFailed);
     }
 }
 #endif

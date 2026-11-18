@@ -3,6 +3,11 @@
 
 #import <Metal/Metal.h>
 
+// manual retain/release (newLibraryWithSource etc. return retained objects, released below)
+#if __has_feature(objc_arc)
+#error "MetalKernel.mm uses manual reference counting: compile it without -fobjc-arc"
+#endif
+
 #include <stdio.h>
 
 #include <unordered_map>
@@ -25,85 +30,103 @@ static const char* kernelSource =  \
 "   }                                                                                                                                                    \n" \
 "}                                                                                                                                                       \n";
 
-static std::mutex s_PipelineQueueMutex;
-typedef std::unordered_map<id<MTLCommandQueue>, id<MTLComputePipelineState>> PipelineQueueMap;
-static PipelineQueueMap s_PipelineQueueMap;
+// one compute pipeline per Metal device (a pipeline state belongs to the device that built it,
+// and several queues may share a device); kept for the life of the plug-in
+static std::mutex s_PipelineDeviceMutex;
+typedef std::unordered_map<id<MTLDevice>, id<MTLComputePipelineState>> PipelineDeviceMap;
+static PipelineDeviceMap s_PipelineDeviceMap;
 
-void RunMetalKernel(void* p_CmdQ, int p_Width, int p_Height, float* p_Gain, const float* p_Input, float* p_Output)
+// the pipeline of the device, built on first use; nil on failure (not cached: retried next time)
+static id<MTLComputePipelineState> GetPipelineState(id<MTLDevice> device)
 {
-    const char* kernelName = "GainAdjustKernel";
+    std::unique_lock<std::mutex> lock(s_PipelineDeviceMutex);
 
-    id<MTLCommandQueue>            queue = static_cast<id<MTLCommandQueue> >(p_CmdQ);
-    id<MTLDevice>                  device = queue.device;
-    id<MTLComputePipelineState>    pipelineState;    // Metal pipeline
-
-    std::unique_lock<std::mutex> lock(s_PipelineQueueMutex);
-
-    const auto it = s_PipelineQueueMap.find(queue);
-    if (it == s_PipelineQueueMap.end())
+    const auto it = s_PipelineDeviceMap.find(device);
+    if (it != s_PipelineDeviceMap.end())
     {
-        id<MTLLibrary>                 metalLibrary;     // Metal library
-        id<MTLFunction>                kernelFunction;   // Compute kernel
-        NSError* err;
-
-        MTLCompileOptions* options = [MTLCompileOptions new];
-        options.fastMathEnabled = YES;
-        metalLibrary = [device newLibraryWithSource:@(kernelSource) options:options error:&err];
-        [options release];
-        if (!metalLibrary)
-        {
-            fprintf(stderr, "Failed to load metal library, %s\n", err.localizedDescription.UTF8String);
-            return;
-        }
-        if (!(kernelFunction  = [metalLibrary newFunctionWithName:[NSString stringWithUTF8String:kernelName]/* constantValues : constantValues */]))
-        {
-            fprintf(stderr, "Failed to retrieve kernel\n");
-            [metalLibrary release];
-            return;
-        }
-        if (!(pipelineState   = [device newComputePipelineStateWithFunction:kernelFunction error:&err]))
-        {
-            fprintf(stderr, "Unable to compile, %s\n", err.localizedDescription.UTF8String);
-            [metalLibrary release];
-            [kernelFunction release];
-            return;
-        }
-
-        s_PipelineQueueMap[queue] = pipelineState;
-
-        //Release resources
-        [metalLibrary release];
-        [kernelFunction release];
-    }
-    else
-    {
-        pipelineState = it->second;
+        return it->second;
     }
 
-    id<MTLBuffer> srcDeviceBuf = reinterpret_cast<id<MTLBuffer> >(const_cast<float *>(p_Input));
-    id<MTLBuffer> dstDeviceBuf = reinterpret_cast<id<MTLBuffer> >(p_Output);
+    NSError* err = nil;
+    MTLCompileOptions* options = [MTLCompileOptions new];
+    options.fastMathEnabled = YES;
+    id<MTLLibrary> metalLibrary = [device newLibraryWithSource:@(kernelSource) options:options error:&err];
+    [options release];
+    if (!metalLibrary)
+    {
+        fprintf(stderr, "GPUGain: failed to load the Metal library, %s\n", err ? err.localizedDescription.UTF8String : "");
+        return nil;
+    }
+    id<MTLFunction> kernelFunction = [metalLibrary newFunctionWithName:@"GainAdjustKernel"];
+    [metalLibrary release];
+    if (!kernelFunction)
+    {
+        fprintf(stderr, "GPUGain: failed to retrieve the Metal kernel\n");
+        return nil;
+    }
+    err = nil;
+    id<MTLComputePipelineState> pipelineState = [device newComputePipelineStateWithFunction:kernelFunction error:&err];
+    [kernelFunction release];
+    if (!pipelineState)
+    {
+        fprintf(stderr, "GPUGain: unable to compile the Metal kernel, %s\n", err ? err.localizedDescription.UTF8String : "");
+        return nil;
+    }
 
-    id<MTLCommandBuffer> commandBuffer = [queue commandBuffer];
-    commandBuffer.label = [NSString stringWithFormat:@"GainAdjustKernel"];
+    s_PipelineDeviceMap[device] = pipelineState;
+    return pipelineState;
+}
 
-    id<MTLComputeCommandEncoder> computeEncoder = [commandBuffer computeCommandEncoder];
-    [computeEncoder setComputePipelineState:pipelineState];
+// returns 0, or non-zero if the kernel couldn't be built or encoded
+int RunMetalKernel(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const float* p_Input, float* p_Output)
+{
+    @autoreleasepool
+    {
+        id<MTLCommandQueue> queue = static_cast<id<MTLCommandQueue> >(p_CmdQ);
+        if (!queue)
+        {
+            return 1;
+        }
+        id<MTLComputePipelineState> pipelineState = GetPipelineState(queue.device);
+        if (!pipelineState)
+        {
+            return 1;
+        }
 
-    int exeWidth = [pipelineState threadExecutionWidth];
-    MTLSize threadGroupCount = MTLSizeMake(exeWidth, 1, 1);
-    MTLSize threadGroups     = MTLSizeMake((p_Width + exeWidth - 1)/exeWidth, p_Height, 1);
+        id<MTLBuffer> srcDeviceBuf = reinterpret_cast<id<MTLBuffer> >(const_cast<float *>(p_Input));
+        id<MTLBuffer> dstDeviceBuf = reinterpret_cast<id<MTLBuffer> >(p_Output);
 
-    [computeEncoder setBuffer:srcDeviceBuf offset: 0 atIndex: 0];
-    [computeEncoder setBuffer:dstDeviceBuf offset: 0 atIndex: 8];
-    [computeEncoder setBytes:&p_Width length:sizeof(int) atIndex:11];
-    [computeEncoder setBytes:&p_Height length:sizeof(int) atIndex:12];
-    [computeEncoder setBytes:&p_Gain[0] length:sizeof(float) atIndex:13];
-    [computeEncoder setBytes:&p_Gain[1] length:sizeof(float) atIndex:14];
-    [computeEncoder setBytes:&p_Gain[2] length:sizeof(float) atIndex:15];
-    [computeEncoder setBytes:&p_Gain[3] length:sizeof(float) atIndex:16];
+        id<MTLCommandBuffer> commandBuffer = [queue commandBuffer];
+        if (!commandBuffer)
+        {
+            return 1;
+        }
+        commandBuffer.label = @"GainAdjustKernel";
 
-    [computeEncoder dispatchThreadgroups:threadGroups threadsPerThreadgroup: threadGroupCount];
+        id<MTLComputeCommandEncoder> computeEncoder = [commandBuffer computeCommandEncoder];
+        if (!computeEncoder)
+        {
+            return 1;
+        }
+        [computeEncoder setComputePipelineState:pipelineState];
 
-    [computeEncoder endEncoding];
-    [commandBuffer commit];
+        const NSUInteger exeWidth = [pipelineState threadExecutionWidth];
+        MTLSize threadGroupCount = MTLSizeMake(exeWidth, 1, 1);
+        MTLSize threadGroups     = MTLSizeMake((p_Width + exeWidth - 1) / exeWidth, p_Height, 1);
+
+        [computeEncoder setBuffer:srcDeviceBuf offset: 0 atIndex: 0];
+        [computeEncoder setBuffer:dstDeviceBuf offset: 0 atIndex: 8];
+        [computeEncoder setBytes:&p_Width length:sizeof(int) atIndex:11];
+        [computeEncoder setBytes:&p_Height length:sizeof(int) atIndex:12];
+        [computeEncoder setBytes:&p_Gain[0] length:sizeof(float) atIndex:13];
+        [computeEncoder setBytes:&p_Gain[1] length:sizeof(float) atIndex:14];
+        [computeEncoder setBytes:&p_Gain[2] length:sizeof(float) atIndex:15];
+        [computeEncoder setBytes:&p_Gain[3] length:sizeof(float) atIndex:16];
+
+        [computeEncoder dispatchThreadgroups:threadGroups threadsPerThreadgroup: threadGroupCount];
+
+        [computeEncoder endEncoding];
+        [commandBuffer commit];
+    }
+    return 0;
 }
