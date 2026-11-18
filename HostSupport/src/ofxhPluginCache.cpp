@@ -54,6 +54,7 @@
 #include "ofxhPluginAPICache.h"
 #include "ofxhPluginCache.h"
 #include "ofxhHost.h"
+#include "ofxhImageEffect.h" // gImageEffectHost, the default host for OfxSetHost
 #include "ofxhXml.h"
 #include "ofxhUtilities.h"
 
@@ -344,6 +345,20 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
   if (_binary) {
     _getNumberOfPlugins = (OfxGetNumberOfPluginsFunc) _binary->findSymbol("OfxGetNumberOfPlugins");
     _getPluginFunc = (OfxGetPluginFunc) _binary->findSymbol("OfxGetPlugin");
+    // OFX 1.5 (ofxCore.h): "The order of calls is then: 1) OfxSetHost, 2) OfxGetNumberOfPlugins,
+    // 3) OfxGetPlugin", and the symbol may be absent. "Plug-in can return kOfxStatFailed to
+    // indicate it has nothing to do here, it's not for this Host and it should be skipped
+    // silently": the binary is then valid, with no plug-ins (cached as such, and scanned again if
+    // it changes).
+    OfxSetHostFunc setHost = (OfxSetHostFunc) _binary->findSymbol("OfxSetHost");
+    OFX::Host::Host* host = cache ? cache->getPluginHost() : NULL;
+    if (setHost && host && _getNumberOfPlugins && _getPluginFunc) {
+      OfxStatus st = (*setHost)(host->getHandle());
+      if (st == kOfxStatFailed) {
+        _plugins.clear();
+        return;
+      }
+    }
   }
   
   
@@ -411,6 +426,12 @@ PluginHandle::PluginHandle(Plugin *p, OFX::Host::Host *host)
   }
   if (!getPlug && _b->_binary) {
     getPlug = (OfxPlugin*(*)(int)) _b->_binary->findSymbol("OfxGetPlugin");
+  }
+  // OFX 1.5: OfxSetHost before OfxGetPlugin, also when the binary is loaded again after the scan
+  // (or was only known from the cache); a failure means the plug-in is not for this host
+  OfxSetHostFunc setHostFunc = _b->_binary ? (OfxSetHostFunc) _b->_binary->findSymbol("OfxSetHost") : 0;
+  if (getPlug && setHostFunc && (*setHostFunc)(host->getHandle()) == kOfxStatFailed) {
+    getPlug = 0;
   }
   if (getPlug) {
     _op = getPlug(p->getIndex());
@@ -490,6 +511,7 @@ PluginCache::~PluginCache()
 
 PluginCache::PluginCache()
 : _hostSpec(NULL)
+, _pluginHost(NULL)
 #ifdef OFX_USE_STATIC_PLUGINS
 , _staticBinary(NULL)
 #endif
@@ -1135,6 +1157,11 @@ void PluginCache::writePluginCache(std::ostream &os) const {
   os << "</cache>\n";
 }
 
+
+OFX::Host::Host* PluginCache::getPluginHost() const
+{
+  return _pluginHost ? _pluginHost : ImageEffect::gImageEffectHost;
+}
 
 APICache::PluginAPICacheI *PluginCache::findApiHandler(const std::string &api, int version) {
   std::list<PluginCacheSupportedApi>::iterator i = _apiHandlers.begin();

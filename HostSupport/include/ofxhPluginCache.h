@@ -55,6 +55,7 @@ namespace OFX {
 
     typedef int(*OfxGetNumberOfPluginsFunc)(void);
     typedef OfxPlugin*(*OfxGetPluginFunc)(int);
+    typedef OfxStatus(*OfxSetHostFunc)(const OfxHost*); ///< optional OFX 1.5 entry point, see ofxCore.h
     
     class Host;
 
@@ -413,6 +414,7 @@ namespace OFX {
     class PluginCache {
     protected :
       OFX::Host::Property::PropSpec* _hostSpec;
+      OFX::Host::Host* _pluginHost; ///< the host passed to OfxSetHost when scanning a binary, see setPluginHost()
 
       std::list<std::string>    _pluginPath;  ///< list of directories to look in
       std::set<std::string>     _nonrecursePath; ///< list of directories to look in (non-recursively)
@@ -449,6 +451,12 @@ namespace OFX {
 
       /// dtor
       ~PluginCache();
+
+      /// The host passed to a binary's OfxSetHost (OFX 1.5, optional entry point) when the binary is
+      /// scanned for plug-ins. If not set, the image effect host (ImageEffect::gImageEffectHost) is used.
+      /// A binary whose OfxSetHost returns kOfxStatFailed is skipped: it has no plug-ins for this host.
+      void setPluginHost(OFX::Host::Host* host) { _pluginHost = host; }
+      OFX::Host::Host* getPluginHost() const;
 
       /// call this before the first call to getPluginCache() in order to ignore the standard OFX plugin path
       static void useStdOFXPluginsLocation(bool val) { _useStdOFXPluginsLocation = val; }

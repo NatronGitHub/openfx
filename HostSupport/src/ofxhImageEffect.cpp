@@ -430,6 +430,11 @@ namespace OFX {
       }
 #endif
 
+      bool Base::isObsolete() const
+      {
+        return _properties.getIntProperty(kOfxImageEffectPluginPropObsolete) != 0;
+      }
+
 #ifdef OFX_EXTENSIONS_NATRON
       bool Base::canDistort() const
       {
