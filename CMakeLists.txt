@@ -59,6 +59,17 @@ option(OFX_EXTENSIONS_RESOLVE "DaVinci Resolve extensions" OFF)
 # so only enable them for a host that implements them (Natron enables both).
 option(OFX_SUPPORTS_MULTITHREAD "HostSupport: the host implements OfxMultiThreadSuiteV1" OFF)
 option(OFX_SUPPORTS_DIALOG "HostSupport: the host implements the dialog suite" OFF)
+# Parametric parameters (ofxParametricParam.h) in HostSupport: the host provides
+# ofxhParametricParam.h and its implementation (e.g. Natron's libs/OpenFX_extensions), and adds
+# them to the HostSupport target after add_subdirectory(openfx EXCLUDE_FROM_ALL), with absolute paths:
+#   target_sources(OfxHost PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/<dir>/ofxhParametricParam.cpp)
+#   target_include_directories(OfxHost PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/<dir>>)
+# OFX_SUPPORTS_PARAMETRIC_V2 needs an implementation of the V2 suite (Natron's doesn't build with it).
+option(OFX_SUPPORTS_PARAMETRIC "HostSupport: the host provides parametric parameters (ofxhParametricParam.h)" OFF)
+option(OFX_SUPPORTS_PARAMETRIC_V2 "HostSupport: parametric parameters with interpolations (needs OFX_SUPPORTS_PARAMETRIC and a V2 implementation)" OFF)
+if(OFX_SUPPORTS_PARAMETRIC_V2 AND NOT OFX_SUPPORTS_PARAMETRIC)
+  message(WARNING "OFX_SUPPORTS_PARAMETRIC_V2 has no effect on HostSupport without OFX_SUPPORTS_PARAMETRIC")
+endif()
 set(OFX_EXTRA_DEFINITIONS "" CACHE STRING
     "Additional compile definitions for the libraries and examples (;-separated)")
 
@@ -81,15 +92,15 @@ foreach(_def
     OFX_SUPPORTS_OPENGLRENDER OFX_SUPPORTS_OPENCLRENDER OFX_SUPPORTS_CUDARENDER
     OFX_EXTENSIONS_NATRON OFX_EXTENSIONS_NUKE OFX_EXTENSIONS_VEGAS
     OFX_EXTENSIONS_TUTTLE OFX_EXTENSIONS_RESOLVE
-    OFX_SUPPORTS_MULTITHREAD OFX_SUPPORTS_DIALOG)
+    OFX_SUPPORTS_MULTITHREAD OFX_SUPPORTS_DIALOG
+    OFX_SUPPORTS_PARAMETRIC OFX_SUPPORTS_PARAMETRIC_V2)
   if(${_def})
     list(APPEND OFX_DEFINITIONS ${_def})
   endif()
 endforeach()
 list(APPEND OFX_DEFINITIONS ${OFX_EXTRA_DEFINITIONS})
-if(APPLE)
-  list(APPEND OFX_DEFINITIONS GL_SILENCE_DEPRECATION)
-endif()
+# GL_SILENCE_DEPRECATION (Apple's OpenGL headers) is a plug-in-side definition: it is set by
+# add_ofx_plugin and openfx::Support, not by openfx::Api or openfx::HostSupport (hosts don't need it)
 if(OFX_SUPPORTS_OPENCLRENDER AND NOT APPLE)
   find_package(OpenCLHeaders REQUIRED)
   find_package(OpenCLICDLoader REQUIRED)

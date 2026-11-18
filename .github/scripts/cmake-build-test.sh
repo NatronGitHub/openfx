@@ -21,3 +21,4 @@ mkdir -p "$build/checks"
 cd "$build/checks"
 "$root/.github/scripts/hostdemo-checks.sh" "$bin" "$build/Plugins"
 "$root/.github/scripts/cmake-plugin-project.sh" "$build/install" "$build/plugin project"  # a space: osxDeploy.sh and the helpers quote paths
+"$root/.github/scripts/cmake-host-project.sh" "$build/host project"

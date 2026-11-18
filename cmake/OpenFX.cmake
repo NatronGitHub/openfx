@@ -243,6 +243,9 @@ function(add_ofx_plugin TARGET)
   if(TARGET openfx::Api)
     set_property(TARGET ${TARGET} APPEND PROPERTY LINK_LIBRARIES openfx::Api)
   endif()
+  if(APPLE) # plug-ins may use Apple's deprecated OpenGL headers
+    target_compile_definitions(${TARGET} PRIVATE GL_SILENCE_DEPRECATION)
+  endif()
 
   # Info.plist, assembled into the bundle in the build tree:
   # <BUNDLE_NAME>.ofx.bundle/Contents/{Info.plist,<ARCHDIR>/<BUNDLE_NAME>.ofx}

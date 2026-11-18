@@ -4,10 +4,11 @@ name: Build
 # (policy for all Natron-related repos). macOS runs after Linux and Windows pass, and isn't
 # required for merging (macOS arm64 runners are scarce); extended.yml builds it nightly:
 #   - Linux (ubuntu-24.04): CMake (.github/scripts/cmake-build-test.sh: build, install, the hostDemo
-#     checks, and a plug-in project built against the installed package), plus the header and
+#     checks, a plug-in project built against the installed package, and a host project using
+#     HostSupport with add_subdirectory and the system expat), plus the header and
 #     property metadata checks and the Python tests (HostSupport/examples/python, Support/Plugins/tests)
 #   - macOS 15 arm64: CMake, system (Xcode) clang, MacPorts tools and libomp, no Homebrew
-#   - Windows: MSYS2 UCRT64, CMake
+#   - Windows: MSYS2 UCRT64, CMake, the plug-in and host projects
 # The plug-in repositories build with CMake (Natron#1181), so the per-PR builds do too. Other
 # variants (the Makefiles, C++20/23, MSVC, debug builds) are in extended.yml, which runs nightly
 # and on demand.
@@ -54,7 +55,7 @@ jobs:
           cache-dependency-path: .github/workflows/build.yml
       - name: Install dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev
+          sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev
           pip install pyyaml
       - name: Property metadata (@propdef)
         run: python scripts/check-props.py
@@ -130,6 +131,7 @@ jobs:
             mingw-w64-ucrt-x86_64-libgomp
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-expat
       - name: Configure
         run: |
           set -eo pipefail
@@ -157,6 +159,10 @@ jobs:
         run: |
           set -eo pipefail
           CMAKE_GENERATOR=Ninja .github/scripts/cmake-plugin-project.sh "$PWD/install" "$PWD/plugin project"
+      - name: Host project using HostSupport with add_subdirectory and the system expat
+        run: |
+          set -eo pipefail
+          CMAKE_GENERATOR=Ninja .github/scripts/cmake-host-project.sh "$PWD/host project"
       - name: Every plug-in exports OfxGetPlugin
         run: |
           set -eo pipefail

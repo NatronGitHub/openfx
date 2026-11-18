@@ -5,11 +5,12 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
 ## Order
 
 1. **openfx PR A:** the `cmake/OpenFX.cmake` API below. The Support plug-ins and the examples are built with it, and openfx's per-PR Linux and macOS CI moves to CMake (Windows already uses it).
-2. **openfx PR B:** HostSupport usable by Natron's CMake build:
-   - the defines as options, set before the sources compile: OFX_EXTENSIONS_NUKE/TUTTLE/VEGAS/NATRON/RESOLVE and OFX_SUPPORTS_PARAMETRIC/OPENGLRENDER/MULTITHREAD/DIALOG;
-   - a static library with PIC;
-   - expat bundled or from the system;
-   - no `include_directories` leaking to the consumer.
+2. **openfx PR B:** HostSupport usable by Natron's CMake build. `openfx::HostSupport` (target `OfxHost`) is a static PIC library, with its include directories and definitions as PUBLIC usage requirements and expat linked PUBLIC (ofxhPluginCache.h includes expat.h). A host uses it with `add_subdirectory(openfx EXCLUDE_FROM_ALL)` (so that only what it links is built, not OfxSupport), setting the options first (CMP0077 is NEW with CMake 3.16), and may add `add_library(HostSupport ALIAS OfxHost)` for its existing target names:
+   - OFX_EXTENSIONS_NUKE/TUTTLE/VEGAS/NATRON/RESOLVE, and OFX_SUPPORTS_OPENGLRENDER/MULTITHREAD/DIALOG/PARAMETRIC. OFX_SUPPORTS_PARAMETRIC_V2 needs a V2 implementation of the parametric suite, which Natron's isn't. The options are also OfxApi INTERFACE definitions;
+   - `OFX_USE_SYSTEM_EXPAT=ON` for the system expat (CMake's FindEXPAT, `EXPAT::EXPAT`), otherwise the bundled one;
+   - with OFX_SUPPORTS_PARAMETRIC, the host provides `ofxhParametricParam.h` and its implementation (Natron: `libs/OpenFX_extensions`) and adds them with absolute paths: `target_sources(OfxHost PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/<dir>/ofxhParametricParam.cpp)`, `target_include_directories(OfxHost PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/<dir>>)` (the generator expression keeps `install(EXPORT)` working);
+   - nothing is installed and nothing is added to the parent's global include directories or compile options (OFX_INSTALL is OFF under add_subdirectory).
+   Tested by `cmake/tests/host-project` (`.github/scripts/cmake-host-project.sh`, on Linux, macOS and Windows/MSYS2), which also builds the parametric recipe with a stub `ofxhParametricParam.cpp`.
 3. **openfx-supportext** (openfx-supportext#45): `supportext_add_sources(<target> [ALL] [OPENGL] [OSMESA] [EGL] [COMPONENTS ...])` in `SupportExt/cmake/SupportExt.cmake`. The components are THREADS, FILEOPEN, LUT, MULTIPLANE, SHUTTER, TRANSFORM3X3, TRANSFORM_INTERACT, RECTANGLE_INTERACT, GENERATOR, TEXT, RAMP, TRACKING, OGL_FUNCTIONS and EGL, with their dependencies pulled in; OSMESA links `OSMesa::OSMesa`, which the consumer provides.
    - the sources are added PRIVATE to the plug-in target, so they compile with the plug-in's exact defines. OFX_EXTENSIONS_* and OFXS_HAVE_DRAWSUITE change class layouts, so a separately compiled library would break the one-definition rule;
    - it also adds the include directories, and links openfx::Support if that target exists.
@@ -114,7 +115,7 @@ Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_dep
   - `OFX_USE_OPENMP` (ON);
   - `OFX_DEPLOY_BUNDLES` (OFF). Natron's builds set it ON on macOS only, where it replaces Makefile.master's osxDeploy step. On Windows it stays OFF: build-Windows-installer.sh strips the `.ofx`, copies the DLLs and embeds its own manifest;
   - `PLUGIN_INSTALLDIR` (default `OFX/Plugins`, relative to `CMAKE_INSTALL_PREFIX`: set the prefix to `/usr` or `/Library` for the standard OFX folders);
-  - `OFX_OPTFLAG` (empty): optimization flags of the release configurations of the plug-ins and of openfx::Support, after CMake's (so `-O2` overrides Release's `-O3`). `ofx_target_optflag(<target>)` applies it to a repository's own libraries. An installed openfx::Support keeps the flags it was built with. Ignored with MSVC. The level is decided after the per-repository -O2/-O3 study;
+  - `OFX_OPTFLAG` (empty): optimization flags of the release configurations of the plug-ins and of openfx::Support, after CMake's (so `-O2` overrides Release's `-O3`). `ofx_target_optflag(<target>)` applies it to a repository's own libraries. An installed openfx::Support keeps the flags it was built with. Ignored with MSVC. Decided after the per-repository -O2/-O3 study: plug-in release builds use CMake's Release default, -O3 (it changed no output in openfx-misc, io, arena or gmic on macOS or Linux, except at most one 16-bit step in 3 plug-ins on aarch64; size +2.5-4% with clang, +13-23% with GCC), and OFX_OPTFLAG stays an empty override. Don't use -Ofast: it disables NaN checks;
   - `OFX_PLUGIN_RPATH` (empty): extra install rpath directories of every plug-in (ignored on Windows, like `RPATH`);
   - `OFX_LICENSE=GPL|COMMERCIAL`, only where it changes what's built (openfx-arena: no poppler when COMMERCIAL);
   - `BUILD_TESTING`.

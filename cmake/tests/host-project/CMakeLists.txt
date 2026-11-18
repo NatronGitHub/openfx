@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# A host built against openfx's HostSupport with add_subdirectory(openfx EXCLUDE_FROM_ALL), as
+# Natron does: the options set before add_subdirectory, the system expat (CMake's FindEXPAT), and
+# the PUBLIC definitions reaching the host's own sources. With OFX_TEST_PARAMETRIC, the host adds
+# its ofxhParametricParam.{h,cpp} (a stub here) to OfxHost, as documented in openfx's CMakeLists.txt.
+# Checked by .github/scripts/cmake-host-project.sh.
+cmake_minimum_required(VERSION 3.16)
+project(OfxHostProjectTest C CXX)
+if(NOT OFX_SOURCE_DIR)
+  message(FATAL_ERROR "set OFX_SOURCE_DIR to the openfx source tree")
+endif()
+set(OFX_BUILD_HOSTSUPPORT ON)
+set(OFX_USE_SYSTEM_EXPAT ON)
+set(OFX_SUPPORTS_MULTITHREAD ON)
+set(OFX_SUPPORTS_DIALOG ON)
+set(OFX_EXTENSIONS_TUTTLE OFF) # a default-ON option turned off before add_subdirectory
+if(OFX_TEST_PARAMETRIC)
+  set(OFX_SUPPORTS_PARAMETRIC ON)
+endif()
+add_subdirectory("${OFX_SOURCE_DIR}" openfx EXCLUDE_FROM_ALL)
+if(TARGET expat)
+  message(FATAL_ERROR "OFX_USE_SYSTEM_EXPAT=ON, but the bundled expat was added")
+endif()
+if(OFX_TEST_PARAMETRIC)
+  target_sources(OfxHost PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/parametric/ofxhParametricParam.cpp")
+  target_include_directories(OfxHost PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/parametric>")
+endif()
+add_executable(host main.cpp)
+target_link_libraries(host PRIVATE openfx::HostSupport)
+get_target_property(_defs OfxHost INTERFACE_COMPILE_DEFINITIONS)
+foreach(_d OFX_SUPPORTS_MULTITHREAD OFX_SUPPORTS_DIALOG)
+  if(NOT _d IN_LIST _defs)
+    message(FATAL_ERROR "openfx::HostSupport lacks the PUBLIC definition ${_d}: ${_defs}")
+  endif()
+endforeach()
+if("OFX_EXTENSIONS_TUTTLE" IN_LIST _defs)
+  message(FATAL_ERROR "OFX_EXTENSIONS_TUTTLE=OFF set before add_subdirectory was ignored: ${_defs}")
+endif()
+if(OFX_TEST_PARAMETRIC AND NOT "OFX_SUPPORTS_PARAMETRIC" IN_LIST _defs)
+  message(FATAL_ERROR "openfx::HostSupport lacks OFX_SUPPORTS_PARAMETRIC: ${_defs}")
+endif()
