@@ -1,0 +1,7 @@
+CXXFLAGS = -I../../include
+OPTIMIZER = -g
+
+colourspace.ofx : colourspace.o
+	$(CXX) -bundle colourspace.o -o colourspace.ofx
+	mkdir -p colourspace.ofx.bundle/Contents/MacOS/
+	cp colourspace.ofx colourspace.ofx.bundle/Contents/MacOS/
