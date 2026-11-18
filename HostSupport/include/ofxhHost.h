@@ -75,6 +75,11 @@ namespace OFX {
       ///    PropertySuite
       ///    MemorySuite
       virtual const void *fetchSuite(const char *suiteName, int suiteVersion);
+
+      /// Called just before the OfxSetHost of a binary (OFX 1.5), with the binary's file path, before
+      /// any of its plug-ins is known: a host whose properties (e.g. kOfxPropName) depend on the
+      /// plug-in can set them for this binary here. The default does nothing.
+      virtual void loadingBinary(const std::string& /*filePath*/) {}
       
       /// get the C API handle that is passed across the API to represent this host
       OfxHost *getHandle();

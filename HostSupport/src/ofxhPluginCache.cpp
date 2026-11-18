@@ -328,6 +328,7 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
   if (isInvalid()) {
     return;
   }
+  bool tookSessionRef = false; // the reference taken below, released if OfxSetHost refuses
 
   if (_binary) {
     _fileModificationTime = _binary->getTime();
@@ -338,6 +339,7 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
     // This avoid lots of useless calls to dlopen()/dlclose().
     if (!_binary->isLoaded()) {
       _binary->ref();
+      tookSessionRef = true;
     }
   }
 
@@ -349,14 +351,23 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
     // 3) OfxGetPlugin", and the symbol may be absent. "Plug-in can return kOfxStatFailed to
     // indicate it has nothing to do here, it's not for this Host and it should be skipped
     // silently": the binary is then valid, with no plug-ins (cached as such, and scanned again if
-    // it changes).
+    // it changes), and unloaded.
     OfxSetHostFunc setHost = (OfxSetHostFunc) _binary->findSymbol("OfxSetHost");
-    OFX::Host::Host* host = cache ? cache->getPluginHost() : NULL;
-    if (setHost && host && _getNumberOfPlugins && _getPluginFunc) {
-      OfxStatus st = (*setHost)(host->getHandle());
-      if (st == kOfxStatFailed) {
-        _plugins.clear();
-        return;
+    OFX::Host::Host* host = cache ? cache->getScanHost() : NULL;
+    _setHostFailed = false;
+    if (setHost && _getNumberOfPlugins && _getPluginFunc) {
+      if (host) {
+        host->loadingBinary(_filePath);
+        _setHostFailed = ((*setHost)(host->getHandle()) == kOfxStatFailed);
+        if (_setHostFailed) {
+          _plugins.clear();
+          if (tookSessionRef) {
+            _binary->unref(); // the session reference taken above: the binary is unloaded
+          }
+          return;
+        }
+      } else {
+        std::cerr << "OFX: " << _filePath << ": no host to pass to OfxSetHost (call PluginCache::setScanHost() before the scan)" << std::endl;
       }
     }
   }
@@ -416,6 +427,9 @@ PluginBinary::~PluginBinary() {
 PluginHandle::PluginHandle(Plugin *p, OFX::Host::Host *host)
 {
   _b = p->getBinary();
+  // a fresh load of the binary (only known from the cache, or unloaded since the scan): OfxSetHost
+  // must be called again, once, before OfxGetPlugin (OFX 1.5)
+  const bool freshLoad = _b->_binary && !_b->_binary->isLoaded();
   if (_b->_binary) {
     _b->_binary->ref();
   }
@@ -427,10 +441,18 @@ PluginHandle::PluginHandle(Plugin *p, OFX::Host::Host *host)
   if (!getPlug && _b->_binary) {
     getPlug = (OfxPlugin*(*)(int)) _b->_binary->findSymbol("OfxGetPlugin");
   }
-  // OFX 1.5: OfxSetHost before OfxGetPlugin, also when the binary is loaded again after the scan
-  // (or was only known from the cache); a failure means the plug-in is not for this host
-  OfxSetHostFunc setHostFunc = _b->_binary ? (OfxSetHostFunc) _b->_binary->findSymbol("OfxSetHost") : 0;
-  if (getPlug && setHostFunc && (*setHostFunc)(host->getHandle()) == kOfxStatFailed) {
+  // OFX 1.5: OfxSetHost is called once per load of the binary, before OfxGetPlugin; a failure means
+  // that its plug-ins are not for this host (the handle then has no OfxPlugin)
+  if (freshLoad && getPlug) {
+    OfxSetHostFunc setHostFunc = (OfxSetHostFunc) _b->_binary->findSymbol("OfxSetHost");
+    if (setHostFunc) {
+      host->loadingBinary(_b->getFilePath());
+      _b->_setHostFailed = ((*setHostFunc)(host->getHandle()) == kOfxStatFailed);
+    } else {
+      _b->_setHostFailed = false;
+    }
+  }
+  if (_b->_setHostFailed) {
     getPlug = 0;
   }
   if (getPlug) {
@@ -1158,7 +1180,7 @@ void PluginCache::writePluginCache(std::ostream &os) const {
 }
 
 
-OFX::Host::Host* PluginCache::getPluginHost() const
+OFX::Host::Host* PluginCache::getScanHost() const
 {
   return _pluginHost ? _pluginHost : ImageEffect::gImageEffectHost;
 }
