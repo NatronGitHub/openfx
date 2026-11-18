@@ -192,7 +192,8 @@ endfunction()
 # Contents/, and installs the bundle into PLUGIN_INSTALLDIR.
 # Each plug-in's install rules (binary, Info.plist, resources, deployment) are in an install
 # component named after the target: `cmake --install <build> --component <target>` installs that
-# bundle only (a plain `cmake --install` installs them all).
+# bundle only (a plain `cmake --install` installs them all). A project's own install() of a file
+# into a bundle (e.g. a DLL next to the plug-in) must pass `COMPONENT <target>` too.
 # - INFO_PLIST: the plug-in's own Info.plist, run through configure_file(@ONLY) (a file without
 #   @VAR@ is copied unchanged). Default: the generic template, with IDENTIFIER (default
 #   org.openeffects.plugins.<BUNDLE_NAME>) and VERSION (default 1.0.0).
