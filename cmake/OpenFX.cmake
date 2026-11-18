@@ -223,6 +223,8 @@ unset(_ofx_check_bundle)
 #   and /opt/homebrew (their libraries have absolute install names; Makefile.master's bundles
 #   only have the @loader_path rpaths), as Makefile.master's -Wl,-rpath: installers
 #   (osxDeploy.sh, Natron's Linux installer) find the libraries there, then rewrite the rpath.
+#   On Linux, linuxCheckBundle.sh (OFX_LINUX_CHECK_BUNDLE) reports every non-$ORIGIN entry left in
+#   an installed bundle: rewrite them at install, or list them in OFX_ABI_RPATH_ALLOW for a CI check.
 #   Unlike Makefile.master's list, it has no system directory (/usr/lib64, ...): CMake leaves
 #   out its implicit link directories, which the loader searches anyway. (CMake puts the
 #   directories of the linked libraries before the others in the installed binary.)

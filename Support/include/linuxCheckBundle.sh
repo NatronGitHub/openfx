@@ -32,12 +32,15 @@
 #   have its own rpath (e.g. $ORIGIN). --no-needed (or OFX_ABI_CHECK_NEEDED=0) skips this rule,
 #   for CI builds against the distribution's libraries; the other checks still apply.
 #
-# DT_RUNPATH and DT_RPATH: every entry must start with $ORIGIN (or ${ORIGIN}). An absolute entry
-# (e.g. a build-machine path such as /opt/rh/gcc-toolset-14/..., /__w/..., or an SDK prefix added
-# by CMake's INSTALL_RPATH_USE_LINK_PATH), a relative one or an empty one (both are relative to the
-# current directory) is a problem, unless it is listed in OFX_ABI_RPATH_ALLOW (default: none;
-# whitespace-separated, exact entries). The loader would search it on the user's machine. An
-# $ORIGIN entry that leads outside the bundle is a warning.
+# DT_RUNPATH and DT_RPATH (DT_RPATH is ignored when DT_RUNPATH exists, as the loader does): every
+# entry must start with $ORIGIN (or ${ORIGIN}), without $LIB or $PLATFORM. An absolute entry (e.g.
+# a build-machine path such as /opt/rh/gcc-toolset-14/... or /__w/..., an SDK prefix added by
+# CMake's INSTALL_RPATH_USE_LINK_PATH, an add_ofx_plugin(RPATH) or OFX_PLUGIN_RPATH entry, or a
+# Makefile's -Wl,-rpath,<libdir>), a relative one or an empty one in a list (both relative to the
+# current directory) is a problem: the loader would search it on the user's machine. Entries listed
+# in OFX_ABI_RPATH_ALLOW (default: none; whitespace-separated exact entries, so an entry with a
+# space can't be listed) are allowed. An empty DT_RUNPATH/DT_RPATH value, which the loader ignores,
+# and an $ORIGIN entry that leads outside the bundle are warnings.
 #
 # Symbol versions: every version that a file needs (readelf -V, .gnu.version_r) must exist on the
 # baseline. The limits can be set in the environment; the defaults are EL9's, measured with
@@ -50,6 +53,8 @@
 #   OFX_ABI_LIBATOMIC  1.2     libatomic
 #   OFX_ABI_ZLIB       1.2.9   zlib
 # Set a limit to 99 to disable it.
+# - A version of one of these libraries without a number (e.g. GLIBC_FOO, or a bare ZLIB) is a
+#   problem.
 # - GLIBC_PRIVATE and the GLIBC_ABI_* markers (e.g. GLIBC_ABI_DT_RELR, from glibc 2.36's
 #   -z pack-relative-relocs, the default on some newer toolchains) are problems; the
 #   GLIBC_ABI_* names listed in OFX_ABI_GLIBC_ABI_ALLOW (default: none) are allowed.
@@ -204,21 +209,32 @@ check_elf() {
   # DT_NEEDED, resolved through the DT_RUNPATH (or DT_RPATH) directories inside the bundle
   local dir runpath entry d
   dir=$(dirname "$f")
-  runpath=$(echo "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')
-  [ -n "$runpath" ] || runpath=$(echo "$dyn" | sed -n 's/.*(RPATH).*\[\(.*\)\]/\1/p')
+  # the loader ignores DT_RPATH when DT_RUNPATH exists (even if empty)
+  local rpathtag=""
+  if [[ "$dyn" == *"(RUNPATH)"* ]]; then
+    rpathtag=RUNPATH
+    runpath=$(echo "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')
+  elif [[ "$dyn" == *"(RPATH)"* ]]; then
+    rpathtag=RPATH
+    runpath=$(echo "$dyn" | sed -n 's/.*(RPATH).*\[\(.*\)\]/\1/p')
+  else
+    runpath=""
+  fi
   local -a entries=() dirs=()
-  local rpathtag=RUNPATH
-  [ -n "$(echo "$dyn" | sed -n 's/.*(RUNPATH).*\[\(.*\)\]/\1/p')" ] || rpathtag=RPATH
-  if echo "$dyn" | grep -q '(RUNPATH)\|(RPATH)'; then
-    # read -a drops a trailing empty entry: check "a:" and "" by hand
+  if [ -n "$rpathtag" ]; then
+    # read -a drops a trailing empty entry: check "a:" by hand. An empty value is ignored by the
+    # loader, but an empty entry in a list is the current directory
     case "$runpath" in
-      ""|:*|*:|*::*) report "$f" "has an empty $rpathtag entry ($runpath), which the loader takes as the current directory" ;;
+      "") warn "$f" "has an empty $rpathtag" ;;
+      :*|*:|*::*) report "$f" "has an empty $rpathtag entry ($runpath), which the loader takes as the current directory" ;;
     esac
   fi
   IFS=: read -r -a entries <<< "$runpath"
   for entry in "${entries[@]}"; do
     case "$entry" in
       '') ;; # reported above
+      *'$LIB'*|*'${LIB}'*|*'$PLATFORM'*|*'${PLATFORM}'*)
+        report "$f" "has the $rpathtag entry $entry, with \$LIB or \$PLATFORM: a plug-in bundle has a fixed layout (use \$ORIGIN paths)" ;;
       '$ORIGIN'|'$ORIGIN/'*|'${ORIGIN}'|'${ORIGIN}/'*) ;;
       *)
         if ! word_in "$entry" "$OFX_ABI_RPATH_ALLOW"; then
@@ -230,11 +246,15 @@ check_elf() {
     if [ -n "$d" ] && inside "$d" "$root"; then
       dirs+=("$d")
     elif [ -n "$d" ] && [ "$d" != "$entry" ]; then
-      warn "$f" "its $rpathtag entry $entry leads outside the bundle"
+      if [[ "$root" == *.ofx.bundle ]]; then
+        warn "$f" "its $rpathtag entry $entry leads outside the bundle"
+      else
+        warn "$f" "its $rpathtag entry $entry leads outside the file's directory (not in a bundle)"
+      fi
     fi
   done
   # DT_RELR (e.g. -z pack-relative-relocs) needs glibc 2.36's loader, even without a version need
-  if echo "$dyn" | grep -q '(RELR)'; then
+  if [[ "$dyn" == *"(RELR)"* ]]; then
     report "$f" "uses DT_RELR relocations (-z pack-relative-relocs), which the baseline's loader doesn't support"
   fi
   local lib found
@@ -285,7 +305,9 @@ check_elf() {
     esac
     case "$num" in
       [0-9]*) ;;
-      *) continue ;;
+      *) # e.g. GLIBC_FOO, or a bare ZLIB: no baseline version to compare with
+        report "$f" "needs $ver (from $file), a $tag version without a number, which the baseline can't be checked against"
+        continue ;;
     esac
     version_le "$num" "$max" && continue
     syms=$(undefined_symbols_at "$f" "$ver" | tr '\n' ' ')
