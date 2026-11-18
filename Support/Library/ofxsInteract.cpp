@@ -509,7 +509,7 @@ namespace OFX {
     props.propGetDoubleN(kOfxInteractPropPenPosition, &penPosition.x, 2);
     // Introduced in OFX 1.2. Return (-1,-1) if not available
     OfxPointI pen = {-1, -1};
-    props.propGetIntN(kOfxInteractPropPenViewportPosition, &pen.x, 2);
+    props.propGetIntN(kOfxInteractPropPenViewportPosition, &pen.x, 2, false);
     penViewportPosition.x = pen.x;
     penViewportPosition.y = pen.y;
     penPressure   = props.propGetDouble(kOfxInteractPropPenPressure);

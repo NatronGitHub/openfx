@@ -1167,23 +1167,26 @@ namespace OFX {
   /** @brief Add a pixel depth to those supported */
   void ImageEffectDescriptor::addSupportedOpenGLBitDepth(BitDepthEnum v)
   {
-    int n = _effectProps.propGetDimension(kOfxOpenGLPropPixelDepth);
+    if (!gHostDescription.supportsOpenGLRender) {
+      return; // the host has no OpenGL render suite (e.g. OFX 1.4)
+    }
+    int n = _effectProps.propGetDimension(kOfxOpenGLPropPixelDepth, false);
     switch(v) 
     {
     case eBitDepthNone :
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthNone  , n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthNone  , n, false);
       break;
     case eBitDepthUByte :
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthByte  , n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthByte  , n, false);
       break;
     case eBitDepthUShort :
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthShort  , n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthShort  , n, false);
       break;
     case eBitDepthHalf :
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthHalf  , n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthHalf  , n, false);
       break;
     case eBitDepthFloat :
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthFloat  , n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthFloat  , n, false);
       break;
     default:
       break;
@@ -1471,10 +1474,15 @@ namespace OFX {
   }
 
   void ImageEffectDescriptor::addOpenGLBitDepth(BitDepthEnum v) {
-    int n = _effectProps.propGetDimension(kOfxImageEffectPropSupportedPixelDepths);
+    if (!gHostDescription.supportsOpenGLRender) {
+      return; // the host has no OpenGL render suite (e.g. OFX 1.4)
+    }
+    // append to kOfxOpenGLPropPixelDepth (the index was the dimension of
+    // kOfxImageEffectPropSupportedPixelDepths)
+    int n = _effectProps.propGetDimension(kOfxOpenGLPropPixelDepth, false);
     std::string value = mapBitDepthEnumToStr(v);
     if (!value.empty()) {
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, value, n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, value, n, false);
     }
   }
 #endif
@@ -2330,7 +2338,7 @@ namespace OFX {
       throwSuiteStatusException(kOfxStatErrValue);
     }
 #  endif
-    if (!OFX::Private::gImageEffectPlaneSuiteV2) {
+    if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetRegionOfDefinition) {
       return getRegionOfDefinition(t);
     }
     OfxRectD bounds;
@@ -2475,6 +2483,9 @@ namespace OFX {
     else
 #endif
     {
+      if (view == 0) {
+        return fetchImage(t); // a host without views (e.g. OFX 1.4) has the main view only
+      }
 #if defined(OFX_EXTENSIONS_VEGAS) && defined(OFX_EXTENSIONS_NUKE)
       throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite "V2 & " kOfxVegasStereoscopicImageEffectSuite);
 #else

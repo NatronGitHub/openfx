@@ -375,13 +375,13 @@ namespace OFX {
   void
     ParamDescriptor::setInViewportLabel(const std::string& label)
   {
-    _paramProps.propSetString(kNatronOfxParamPropInViewerContextLabel, label, 0);
+    _paramProps.propSetString(kNatronOfxParamPropInViewerContextLabel, label, 0, false);
   }
 
   void
     ParamDescriptor::setInViewportIsSecret(bool secret)
   {
-    _paramProps.propSetInt(kNatronOfxParamPropInViewerContextSecret, (int)secret);
+    _paramProps.propSetInt(kNatronOfxParamPropInViewerContextSecret, (int)secret, 0, false);
   }
 #endif
 
@@ -1100,19 +1100,19 @@ namespace OFX {
   /*If called, the parameter will be defined as an action in the host viewport toolbar. The parameter should be added to a group on which the property kNatronOfxParamPropInViewerContextIsInToolbar was set to 1 */
   void BooleanParamDescriptor::setAsInViewportToolbuttonAction()
   {
-    _paramProps.propSetInt(kNatronOfxParamPropInViewerContextIsInToolbar, 1);
+    _paramProps.propSetInt(kNatronOfxParamPropInViewerContextIsInToolbar, 1, 0, false);
   }
 
   void BooleanParamDescriptor::setAsToggableButton()
   {
-    _paramProps.propSetInt(kNatronOfxBooleanParamPropIsToggableButton, 1);
+    _paramProps.propSetInt(kNatronOfxBooleanParamPropIsToggableButton, 1, 0, false);
   }
 
   /*If called, the host can add an entry in the shortcut editor for this parameter when the user is using the viewport.
    The default value for the shortcut may be specified on the ImageEffectDescriptor by calling the function setDefaultParamInViewportShortcut()*/
   void BooleanParamDescriptor::setInViewportCanHaveShortcut()
   {
-    _paramProps.propSetInt(kNatronOfxParamPropInViewerContextCanHaveShortcut, 1);
+    _paramProps.propSetInt(kNatronOfxParamPropInViewerContextCanHaveShortcut, 1, 0, false);
   }
 
 #endif
@@ -1471,7 +1471,7 @@ namespace OFX {
 
   void PageParamDescriptor::setAsInViewportToolbar()
   {
-    _paramProps.propSetInt(kNatronOfxParamPropInViewerContextIsInToolbar, 1, 0);
+    _paramProps.propSetInt(kNatronOfxParamPropInViewerContextIsInToolbar, 1, 0, false);
   }
 #endif
 
@@ -1496,7 +1496,7 @@ namespace OFX {
    The default value for the shortcut may be specified on the ImageEffectDescriptor by calling the function setDefaultParamInViewportShortcut()*/
   void PushButtonParamDescriptor::setInViewportCanHaveShortcut()
   {
-    _paramProps.propSetInt(kNatronOfxParamPropInViewerContextCanHaveShortcut, 1, 0);
+    _paramProps.propSetInt(kNatronOfxParamPropInViewerContextCanHaveShortcut, 1, 0, false);
   }
 #endif
 
@@ -1572,6 +1572,9 @@ namespace OFX {
       throwSuiteStatusException(kOfxStatErrValue);
     }
 #  endif
+    if (!OFX::Private::gParametricParameterSuite) {
+      throwHostMissingSuiteException(kOfxParametricParameterSuite);
+    }
     OfxStatus stat = OFX::Private::gParametricParameterSuite->parametricParamAddControlPoint(_ofxParamHandle, id, time, x, y, addKey);
     throwSuiteStatusException(stat);
   }
@@ -4066,6 +4069,9 @@ namespace OFX {
     }
 #  endif
     double returnValue = 0.0;
+    if (!OFX::Private::gParametricParameterSuite) {
+      throwHostMissingSuiteException(kOfxParametricParameterSuite);
+    }
     OfxStatus stat = OFX::Private::gParametricParameterSuite->parametricParamGetValue(_paramHandle,
                                                                                        curveIndex,
                                                                                        time,
@@ -4091,6 +4097,9 @@ namespace OFX {
     }
 #  endif
     int returnValue = 0;
+    if (!OFX::Private::gParametricParameterSuite) {
+      throwHostMissingSuiteException(kOfxParametricParameterSuite);
+    }
     OfxStatus stat = OFX::Private::gParametricParameterSuite->parametricParamGetNControlPoints(_paramHandle,
                                                                                                 curveIndex,
                                                                                                 time,
@@ -4117,6 +4126,9 @@ namespace OFX {
     }
 #  endif
     std::pair<double, double> returnValue;
+    if (!OFX::Private::gParametricParameterSuite) {
+      throwHostMissingSuiteException(kOfxParametricParameterSuite);
+    }
     OfxStatus stat = OFX::Private::gParametricParameterSuite->parametricParamGetNthControlPoint(_paramHandle,
                                                                                                  curveIndex,
                                                                                                  time,
@@ -4160,6 +4172,9 @@ namespace OFX {
       throwSuiteStatusException(kOfxStatErrValue);
     }
 #  endif
+    if (!OFX::Private::gParametricParameterSuite) {
+      throwHostMissingSuiteException(kOfxParametricParameterSuite);
+    }
     OfxStatus stat = OFX::Private::gParametricParameterSuite->parametricParamSetNthControlPoint(_paramHandle,
                                                                                                  curveIndex,
                                                                                                  time,
@@ -4214,6 +4229,9 @@ namespace OFX {
       throwSuiteStatusException(kOfxStatErrValue);
     }
 #  endif
+    if (!OFX::Private::gParametricParameterSuite) {
+      throwHostMissingSuiteException(kOfxParametricParameterSuite);
+    }
     OfxStatus stat = OFX::Private::gParametricParameterSuite->parametricParamAddControlPoint(_paramHandle, curveIndex, time, key, value, addAnimationKey);
     throwSuiteStatusException(stat);
   }
@@ -4226,6 +4244,9 @@ namespace OFX {
   void ParametricParam::deleteControlPoint(const int curveIndex,
                                             const int nthCtl)
   {
+    if (!OFX::Private::gParametricParameterSuite) {
+      throwHostMissingSuiteException(kOfxParametricParameterSuite);
+    }
     OfxStatus stat = OFX::Private::gParametricParameterSuite->parametricParamDeleteControlPoint(_paramHandle, curveIndex, nthCtl);
     throwSuiteStatusException(stat);
   }
@@ -4236,6 +4257,9 @@ namespace OFX {
   */
   void ParametricParam::deleteControlPoint(const int curveIndex)
   {
+    if (!OFX::Private::gParametricParameterSuite) {
+      throwHostMissingSuiteException(kOfxParametricParameterSuite);
+    }
     OfxStatus stat = OFX::Private::gParametricParameterSuite->parametricParamDeleteAllControlPoints(_paramHandle, curveIndex);
     throwSuiteStatusException(stat);
   }
