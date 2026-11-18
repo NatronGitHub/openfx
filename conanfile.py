@@ -49,7 +49,6 @@ class openfx(ConanFile):
 		{
 			"build_examples": [True, False],
 			"use_opencl": [True, False],
-			"use_system_expat": [True, False],
 		},
 		**{opt: [True, False] for opt in _EXTENSIONS})
 	# Defaults match the Natron plug-ins (openfx-misc, openfx-io, openfx-arena).
@@ -57,7 +56,6 @@ class openfx(ConanFile):
 	default_options = {
 		"build_examples": False,
 		"use_opencl": False,
-		"use_system_expat": True,  # conan's expat; False builds the bundled HostSupport/expat-2.10.0
 		"natron": True,
 		"nuke": True,
 		"vegas": True,
@@ -70,9 +68,8 @@ class openfx(ConanFile):
 	}
 
 	def requirements(self):
-		if self.options.use_system_expat:
-			# HostSupport parses the plug-in cache with expat; ofxhPluginCache.h includes expat.h
-			self.requires("expat/[>=2.7.1 <3]", transitive_headers=True)
+		# HostSupport parses the plug-in cache with expat; ofxhPluginCache.h includes expat.h
+		self.requires("expat/[>=2.7.1 <3]", transitive_headers=True)
 		if self.options.build_examples and self.options.use_opencl and self.settings.os != "Macos":
 			self.requires("opencl-icd-loader/2023.12.14")
 			self.requires("opencl-headers/2023.12.14")
@@ -90,7 +87,6 @@ class openfx(ConanFile):
 		tc = CMakeToolchain(self)
 		tc.cache_variables["BUILD_EXAMPLE_PLUGINS"] = bool(self.options.build_examples)
 		tc.cache_variables["OFX_SUPPORTS_OPENCLRENDER"] = bool(self.options.use_opencl)
-		tc.cache_variables["OFX_USE_SYSTEM_EXPAT"] = bool(self.options.use_system_expat)
 		for opt, define in _EXTENSIONS.items():
 			tc.cache_variables[define] = bool(self.options.get_safe(opt))
 		if self.settings.os == "Macos":
@@ -132,10 +128,7 @@ class openfx(ConanFile):
 		host.includedirs = ["include/HostSupport", "include"]
 		host.requires = ["Api"]
 		host.defines = defines
-		if self.options.use_system_expat:
-			host.requires.append("expat::expat")
-		else:
-			host.libs.append("expat")
+		host.requires.append("expat::expat")
 		if self.settings.os in ("Linux", "FreeBSD"):
 			host.system_libs = ["dl"]
 

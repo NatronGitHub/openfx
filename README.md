@@ -20,7 +20,7 @@ and the Natron, Nuke, Vegas, Resolve and TuttleOFX extensions. See `release-note
 |---|---|
 | `include/` | The OpenFX C API headers. They include the OFX 1.5 headers `ofxGPURender.h`, `ofxColour.h` (with the native OCIO/ACES config) and `ofxDrawSuite.h`. `ofxOpenGLRender.h` is kept as a compatibility header that includes `ofxGPURender.h`. Every property definition carries `@propdef` metadata (`scripts/check-props.py`). Extension headers: `ofxNatron.h`, `nuke/`, `ofxSonyVegas.h`, `tuttle/`. |
 | `Support/` | The C++ plug-in support library (`OFX::ImageEffect`, params, clips, interacts), compiled into each plug-in. |
-| `HostSupport/` | The C++ host support library (plug-in cache, property suite, param/clip/effect instances) used by Natron. It bundles expat 2.10.0. |
+| `HostSupport/` | The C++ host support library (plug-in cache, property suite, param/clip/effect instances) used by Natron. It needs the system expat library (e.g. `libexpat1-dev`, MacPorts `expat`, MSYS2 `mingw-w64-ucrt-x86_64-expat`, vcpkg or conan `expat`). |
 | `openfx-cpp/` | Upstream's newer C++ layer (generated property accessors). It is additive: `Support/` remains the main plug-in library. |
 | `Examples/`, `Support/Plugins/`, `HostSupport/examples/` | Example plug-ins and the `hostDemo`/`cacheDemo` example hosts. |
 | `Documentation/` | The OFX 1.5.1 documentation (Sphinx and doxygen), with pages on the fork's extensions. |
@@ -62,7 +62,7 @@ The libraries are usually compiled as part of a host or plug-in build. The repos
 With Make (still used by the consumers' release builds, e.g. Natron's `build-plugins.sh`; their CI builds with CMake):
 ```sh
 make -C Support/Library        # libOfxSupport.a
-make -C HostSupport            # libofxHost.a (builds the bundled expat)
+make -C HostSupport            # libofxHost.a (needs expat: pkg-config, or EXPAT_INCLUDE=<dir>)
 make -C Support/Plugins        # sample plug-ins; CONFIG=debug|release|relwithdebinfo
 make -C HostSupport/examples   # hostDemo, cacheDemo
 ```
