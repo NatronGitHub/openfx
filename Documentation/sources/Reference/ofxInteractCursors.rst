@@ -5,15 +5,14 @@ Interact cursors (proposed extension)
 
 .. note::
 
-   This is a **proposed** extension, not part of the OpenFX standard and not
-   yet merged in NatronGitHub/openfx. It is tracked in
-   `NatronGitHub/openfx#4 <https://github.com/NatronGitHub/openfx/issues/4>`_
-   and implemented in pull request
-   `NatronGitHub/openfx#63 <https://github.com/NatronGitHub/openfx/pull/63>`_
-   (headers, HostSupport and Support, behind ``OFX_EXTENSIONS_NATRON``), with
-   the host side in Natron and the plug-in side in openfx-supportext and
-   openfx-misc. The full proposal is in
-   ``Documentation/proposals/interact-cursor.md`` on that pull request's branch.
+   This is a **proposed** extension, not part of the OpenFX standard, and not
+   yet submitted upstream. It was tracked in
+   `NatronGitHub/openfx#4 <https://github.com/NatronGitHub/openfx/issues/4>`_,
+   and is implemented in NatronGitHub/openfx since
+   `#63 <https://github.com/NatronGitHub/openfx/pull/63>`_ (headers, HostSupport
+   and Support, behind ``OFX_EXTENSIONS_NATRON``), with the host side in Natron's
+   RB-2.6 branch (Natron 2.6, unreleased) and the plug-in side in openfx-supportext and openfx-misc. The full
+   proposal is in ``Documentation/proposals/interact-cursor.md``.
 
 An overlay interact can draw its own cursor (with OpenGL or the DrawSuite), but
 OFX 1.5.1 has no way to change or hide the window-system cursor, which is

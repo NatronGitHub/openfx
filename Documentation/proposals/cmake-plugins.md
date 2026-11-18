@@ -1,6 +1,6 @@
-# DRAFT: CMake for the plug-in repositories (Natron#1181)
+# CMake for the plug-in repositories (Natron#1181)
 
-Status: plan v1, implemented by openfx PR A (except the Windows part of `ofx_deploy_bundle`, which needs Windows CI and comes next). Agreed with the openfx-misc, openfx-io, openfx-arena, openfx-gmic, openfx-supportext and Natron sessions on 2026-11-16. The openfx repository is the reference for the CMake build of plug-ins. Each repository keeps its Makefiles until Natron's `tools/jenkins/build-plugins.sh` switches to CMake.
+Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-ups #127, #129), PR B is #139. The Windows and Linux parts of `ofx_deploy_bundle` are not implemented yet. Agreed with the openfx-misc, openfx-io, openfx-arena, openfx-gmic, openfx-supportext and Natron sessions on 2026-11-16. The openfx repository is the reference for the CMake build of plug-ins. Each repository keeps its Makefiles until Natron's `tools/jenkins/build-plugins.sh` switches to CMake.
 
 ## Order
 

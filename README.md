@@ -36,11 +36,10 @@ work unchanged:
 - DrawSuite and OverlayInteractV2;
 - colour management (styles, clip colourspaces, GetOutputColourspace).
 
-Known gaps are tracked in [#76](https://github.com/NatronGitHub/openfx/issues/76) (read-only properties),
-[#77](https://github.com/NatronGitHub/openfx/issues/77) (Win-arm64ec/Linux arch bundle folders),
-[#78](https://github.com/NatronGitHub/openfx/issues/78) (NoSpatialAwareness render argument) and
-[#79](https://github.com/NatronGitHub/openfx/issues/79) (property-set audit). The host side of these features (for
-example in Natron) must be implemented by each host; see the HostSupport header comments.
+The gaps found when these features were merged (read-only properties, the Win-arm64ec and Linux arch bundle
+folders, the NoSpatialAwareness render argument, and a property-set audit) are fixed ([#76](https://github.com/NatronGitHub/openfx/issues/76)–[#79](https://github.com/NatronGitHub/openfx/issues/79), closed). The host
+side of these features (for example in Natron) must be implemented by each host; see the HostSupport header
+comments.
 
 ## Extensions
 
@@ -60,7 +59,7 @@ Each set is enabled with the matching `OFX_EXTENSIONS_*` define. The documentati
 
 The libraries are usually compiled as part of a host or plug-in build. The repository can also be built on its own.
 
-With Make (what the consumer repositories use):
+With Make (still used by the consumers' release builds, e.g. Natron's `build-plugins.sh`; their CI builds with CMake):
 ```sh
 make -C Support/Library        # libOfxSupport.a
 make -C HostSupport            # libofxHost.a (needs expat: pkg-config, or EXPAT_INCLUDE=<dir>)
@@ -70,10 +69,21 @@ make -C HostSupport/examples   # hostDemo, cacheDemo
 
 With CMake:
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release   # options: OFX_EXTENSIONS_*, BUILD_EXAMPLE_HOSTS
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 cmake --install build --prefix /path/to/prefix   # provides find_package(openfx): openfx::Api, openfx::Support, openfx::HostSupport
 ```
+Main options:
+- `OFX_EXTENSIONS_NATRON`, `_NUKE`, `_VEGAS`, `_TUTTLE` (ON) and `_RESOLVE` (OFF): enable the extensions in the Support and HostSupport code. They are PUBLIC compile definitions that change class layouts, so they must match between the libraries and the plug-in or host built with them (the extension headers are always installed);
+- `OFX_SUPPORTS_OPENGLRENDER` (ON), `_OPENCLRENDER` and `_CUDARENDER` (OFF): GPU rendering in the libraries and the examples (OpenCL needs the OpenCLHeaders and OpenCLICDLoader packages; CUDA is off on macOS);
+- `OFX_SUPPORTS_MULTITHREAD`, `_DIALOG`, `_PARAMETRIC` and `_PARAMETRIC_V2` (OFF): HostSupport features, only for a host that implements them (they add pure virtual functions, and PARAMETRIC needs the host's `ofxhParametricParam.h`);
+- `OFX_BUILD_HOSTSUPPORT`: build HostSupport, on by default at top level;
+- `BUILD_EXAMPLE_PLUGINS` and `BUILD_EXAMPLE_HOSTS`: the example plug-ins and hosts;
+- `OFX_CXX_STANDARD`: the C++ standard of the plug-ins and of openfx::Support (default: `CMAKE_CXX_STANDARD`, else 17);
+- `OFX_OPTFLAG`: extra optimization flags of the release configurations, after CMake's (empty: CMake's defaults; ignored with MSVC);
+- `OFX_DEPLOY_BUNDLES` (for plug-in projects, macOS only for now): make the installed bundles self-contained with `ofx_deploy_bundle()`.
+
+Plug-in projects use `add_ofx_plugin()` and the other helpers of `cmake/OpenFX.cmake`, with openfx as a subdirectory or as an installed package: see [Documentation/proposals/cmake-plugins.md](Documentation/proposals/cmake-plugins.md).
 A conan recipe (`conanfile.py`, with `test_package/`) is also provided.
 
 Documentation: `cd Documentation && ./build.sh` (see `Documentation/README.md` for the prerequisites).
