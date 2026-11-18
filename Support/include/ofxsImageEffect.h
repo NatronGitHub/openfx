@@ -45,6 +45,7 @@ of the direct OFX objects and any library side only functions.
 #include <map>
 #include <string>
 #include <sstream> // stringstream
+#include <locale> // std::locale::classic
 #include <memory>
 #ifndef NDEBUG
 #include <stdio.h> // printf in debug
@@ -364,6 +365,7 @@ namespace OFX {
     std::string toString(unsigned int val)
     {
       std::ostringstream ss;
+      ss.imbue(std::locale::classic()); // no digit grouping, whatever the global locale
       ss << val;
       return ss.str();
     }
