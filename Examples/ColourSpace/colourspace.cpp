@@ -10,12 +10,18 @@
   this version has no third-party dependency: it logs with printf-style messages on
   stderr instead of spdlog, and writes its text into the output image with a small
   built-in bitmap font (../include/ofxuFont5x7.H) instead of CImg.
+
+  Logging: quiet by default. Set OFX_COLOURSPACE_EXAMPLE_VERBOSE=1 in the host's
+  environment to print every action and the colourspaces on stderr (as upstream does
+  always). Warnings and errors are always printed.
  */
 #include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
+#include <vector>
 #include <set>
 #include <stdexcept>
 #include <new>
@@ -34,9 +40,25 @@
 #if defined(__GNUC__) || defined(__clang__)
 static void logMessage(const char *level, const char *format, ...) __attribute__((format(printf, 2, 3)));
 #endif
+// Info messages (every action, the colourspaces...) are only printed if the
+// OFX_COLOURSPACE_EXAMPLE_VERBOSE environment variable is set to a non-empty value other
+// than "0", so that the plug-in is quiet in hosts that just scan plug-ins. Warnings and
+// errors are always printed.
+static bool
+verbose()
+{
+  static const bool v = [] {
+    const char *e = std::getenv("OFX_COLOURSPACE_EXAMPLE_VERBOSE");
+    return e && e[0] != '\0' && std::strcmp(e, "0") != 0;
+  }();
+  return v;
+}
+
 static void
 logMessage(const char *level, const char *format, ...)
 {
+  if (std::strcmp(level, "info") == 0 && !verbose())
+    return;
   std::fprintf(stderr, "[colourspace] [%s] ", level);
   va_list args;
   va_start(args, format);
@@ -381,6 +403,37 @@ drawTextT(const std::string &message, int x, int y, int sx, int sy,
         pix[3] = toPixel<T>(white);
     }
   }
+}
+
+// Split a line into lines of at most maxChars characters, breaking after the last
+// space, '_' or '-' that fits (else anywhere); continuation lines are indented by 2.
+static std::vector<std::string>
+wrapText(const std::string &line, size_t maxChars)
+{
+  std::vector<std::string> out;
+  std::string rest = line;
+  bool first = true;
+  while (true) {
+    const std::string prefix = first ? "" : "  ";
+    const size_t room = maxChars > prefix.size() + 1 ? maxChars - prefix.size() : 1;
+    if (rest.size() <= room) {
+      out.push_back(prefix + rest);
+      break;
+    }
+    size_t cut = rest.find_last_of(" _-", room - 1);
+    cut = (cut == std::string::npos || cut == 0) ? room : cut + 1;
+    std::string head = rest.substr(0, cut);
+    while (!head.empty() && head[head.size() - 1] == ' ')
+      head.erase(head.size() - 1);
+    out.push_back(prefix + head);
+    rest = rest.substr(cut);
+    while (!rest.empty() && rest[0] == ' ')
+      rest.erase(0, 1);
+    if (rest.empty())
+      break;
+    first = false;
+  }
+  return out;
 }
 
 static void
@@ -767,12 +820,16 @@ static OfxStatus render( OfxImageEffectHandle  instance,
       par = 1.0;
     const double xScale = renderScale[0] / par; // pixels per canonical unit, horizontally
     const double yScale = renderScale[1];
-    // font pixel size: lines about 50 pixels high at render scale 1, as upstream
-    const int sx = std::max(1, (int)std::floor(6 * xScale + 0.5));
-    const int sy = std::max(1, (int)std::floor(6 * yScale + 0.5));
+    // font pixel size: 3 canonical pixels, so a character cell is 18x24 at render scale 1
+    // (about 40 characters across an SD image), with a 20-pixel margin; longer lines wrap
+    const double kMargin = 20;
+    const int sx = std::max(1, (int)std::floor(3 * xScale + 0.5));
+    const int sy = std::max(1, (int)std::floor(3 * yScale + 0.5));
     const int lineHeight = ofxu::kFontCellHeight * sy;
-    const int xstart = (int)std::floor((rod.x1 + 100) * xScale);
-    int ystart = (int)std::floor((rod.y2 - 100) * yScale) - lineHeight;
+    const int xstart = (int)std::floor((rod.x1 + kMargin) * xScale);
+    const int xend = (int)std::floor((rod.x2 - kMargin) * xScale);
+    const size_t maxChars = (size_t)std::max(8, (xend - xstart) / (ofxu::kFontCellWidth * sx));
+    int ystart = (int)std::floor((rod.y2 - kMargin) * yScale) - lineHeight;
 
     LOG_INFO("Rendering window (%d,%d)-(%d,%d) of %dx%d image @%d,%d, depth=%d",
              renderWindow.x1, renderWindow.y1, renderWindow.x2, renderWindow.y2,
@@ -800,8 +857,10 @@ static OfxStatus render( OfxImageEffectHandle  instance,
       "output colourspace: " + outputColourspace,
     };
     for (const std::string &line : lines) {
-      drawText(line, xstart, ystart, sx, sy, dst, dstRect, dstRowBytes, dstBitDepth, renderWindow);
-      ystart -= lineHeight;
+      for (const std::string &wrapped : wrapText(line, maxChars)) {
+        drawText(wrapped, xstart, ystart, sx, sy, dst, dstRect, dstRowBytes, dstBitDepth, renderWindow);
+        ystart -= lineHeight;
+      }
     }
   }
   catch(OfxuNoImageException &) {
