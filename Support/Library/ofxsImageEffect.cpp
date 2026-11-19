@@ -2505,12 +2505,20 @@ namespace OFX {
 #  endif
     if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane) {
       // without the plane suite V2, view 0 (the only view of a host without views, e.g. OFX 1.4)
-      // comes from the V1 suite, which itself falls back to fetchImage() for the colour plane; another
-      // view of the colour plane comes from the Vegas stereoscopic suite, if any: never return view 0
+      // comes from the V1 suite, which itself falls back to fetchImage() for the colour plane; with
+      // the Vegas stereoscopic suite, every view of the colour plane comes from it; never return view 0
       // for another view
+#ifdef OFX_EXTENSIONS_VEGAS
+      if (std::string(plane) == kFnOfxImagePlaneColour && OFX::Private::gVegasStereoscopicImageSuite &&
+          OFX::Private::gVegasStereoscopicImageSuite->clipGetStereoscopicImage) {
+        // every view, view 0 included: on a stereoscopic Vegas host, fetchImage() returns the
+        // view being rendered, not view 0
+        return fetchStereoscopicImage(t, view);
+      }
+#endif
       if (view != 0) {
         if (std::string(plane) == kFnOfxImagePlaneColour) {
-          return fetchStereoscopicImage(t, view); // the Vegas stereoscopic suite, or an exception
+          return fetchStereoscopicImage(t, view); // an exception: no suite gives that view
         }
         throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite"V2");
       }
@@ -2561,11 +2569,13 @@ namespace OFX {
 #  endif
     if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane) {
       // without the plane suite V2, view 0 (the only view of a host without views, e.g. OFX 1.4)
-      // comes from the V1 suite, which itself falls back to fetchImage() for the colour plane; another
-      // view of the colour plane comes from the Vegas stereoscopic suite, if any: never return view 0
+      // comes from the V1 suite, which itself falls back to fetchImage() for the colour plane; with
+      // the Vegas stereoscopic suite, every view of the colour plane comes from it; never return view 0
       // for another view
-      if (view != 0) {
+      {
 #ifdef OFX_EXTENSIONS_VEGAS
+        // every view, view 0 included: on a stereoscopic Vegas host, fetchImage() returns the
+        // view being rendered, not view 0
         if (std::string(plane) == kFnOfxImagePlaneColour && OFX::Private::gVegasStereoscopicImageSuite &&
             OFX::Private::gVegasStereoscopicImageSuite->clipGetStereoscopicImage) {
           OfxPropertySetHandle imageHandle;
@@ -2578,7 +2588,13 @@ namespace OFX {
           return newImageOrRelease(imageHandle);
         }
 #endif
+      }
+      if (view != 0) {
+#ifdef OFX_EXTENSIONS_VEGAS
+        throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite "V2 & " kOfxVegasStereoscopicImageEffectSuite);
+#else
         throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite"V2");
+#endif
       }
       return fetchImagePlane(t, plane, bounds);
     }
