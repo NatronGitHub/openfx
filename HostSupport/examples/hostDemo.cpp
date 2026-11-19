@@ -1570,6 +1570,13 @@ static int run(int argc, char **argv)
     // the first arg is the context, the second is client data we are allowed to pass down the call chain
 
     OFX::Host::auto_ptr<OFX::Host::ImageEffect::Instance> instance(plugin->createInstance(context, NULL));
+    // send kOfxActionDestroyInstance while the instance is still whole, before it is deleted (the
+    // guard is destroyed before the auto_ptr): a plug-in may call the host during that action (e.g.
+    // clearPersistentMessage()), which made a pure virtual call when the HostSupport destructor sent it
+    struct DestroyInstanceGuard {
+      OFX::Host::ImageEffect::Instance *instance;
+      ~DestroyInstanceGuard() { if (instance) { instance->destroyInstanceAction(); } }
+    } destroyInstanceGuard = { instance.get() };
     MyHost::MyEffectInstance* myInstance = dynamic_cast<MyHost::MyEffectInstance*>(instance.get());
 
     if(!myInstance) {
