@@ -162,6 +162,7 @@ assert mask["optional"] is True and mask["isMask"] is True and mask["supportedCo
 assert g["clips"][0]["optional"] is False and "OfxImageComponentRGBA" in g["clips"][0]["supportedComponents"]
 f = g["flags"]
 assert set(f["supportedPixelDepths"]) == {"OfxBitDepthByte", "OfxBitDepthShort", "OfxBitDepthFloat"}
+assert len(f["supportedPixelDepths"]) == 3, f["supportedPixelDepths"]  # described once: no duplicates
 assert f["supportsTiles"] is True and f["renderThreadSafety"] == "OfxImageEffectRenderInstanceSafe"
 p = dict((q["name"], q) for q in g["params"])
 assert [q["name"] for q in g["params"]] == ["Controls", "componentScales", "scale", "scaleComponents", "scaleR", "scaleG", "scaleB", "scaleA"]
@@ -369,6 +370,35 @@ assert [x["params"]["keysDouble"] for x in r["renders"]] == [2, 3]
 fails hostdemo-keynoanim.log "doesn't animate" -p net.sf.openfx.GenericTestPlugin -s animateDbl@1=2
 fails hostdemo-keytime.log "invalid key time" -s supportsTiles@x=1
 fails hostdemo-nobutton.log "invalid parameter assignment" -s supportsTiles
+
+# kOfxActionLoad and kOfxActionDescribe once per load of the binary (ofxCore.h: Load "will not be
+# called again while the binary containing the plug-in remains loaded"), and kOfxActionUnload
+# before the binary is unloaded. The property tester prints these actions with
+# OFX_PROPTESTER_TRACE=1. By default the scan sends Load, Describe and Unload and unloads the
+# binary, and the first use (--describe) loads it again. With OFX_HOSTDEMO_KEEP_LOADED=1
+# (Host::keepPluginsLoadedAfterScan()) the scanned plug-in stays loaded: its first use sends no
+# second Load or Describe, and Unload comes once, at exit. A run that uses the plug-in cache loads
+# the binary only at the first use, in both modes.
+lifecycle_trace() { grep -o 'propTester: OfxAction[A-Za-z]*' "$1" | sed 's/^propTester: OfxAction//' | tr '\n' ' '; }
+# lifecycle NAME EXPECTED CACHE KEEP: --describe of the property tester, without the plug-in cache
+# (CACHE=0), or in the directory lifecycle-cache (CACHE=1, which keeps its cache file)
+lifecycle() { local name=$1 expected=$2 cache=$3 keep=$4 log=$PWD/lifecycle-$1.log
+  if [ "$cache" = 1 ]; then
+    (mkdir -p lifecycle-cache && cd lifecycle-cache &&
+     OFX_PROPTESTER_TRACE=1 OFX_HOSTDEMO_KEEP_LOADED=$keep OFX_PLUGIN_PATH="$dirs" "$hostDemo" --no-std-paths --quiet \
+       -p net.sf.openfx.propertyTester --describe lifecycle.json) > "$log" 2>&1
+  else
+    OFX_PROPTESTER_TRACE=1 OFX_HOSTDEMO_KEEP_LOADED=$keep hostdemo -p net.sf.openfx.propertyTester --describe lifecycle.json > "$log" 2>&1
+  fi || { echo "lifecycle $name: hostDemo failed"; cat "$log"; exit 1; }
+  expect "Load/Describe/Unload: $name" "$(lifecycle_trace "$log")" "$expected"; }
+lifecycle "scan, then first use" "Load Describe Unload Load Describe Unload " 0 0
+lifecycle "scan, kept loaded" "Load Describe Unload " 0 1
+rm -rf lifecycle-cache
+lifecycle "scan that writes the cache" "Load Describe Unload Load Describe Unload " 1 0
+lifecycle "from the cache" "Load Describe Unload " 1 0
+lifecycle "from the cache, keep mode" "Load Describe Unload " 1 1
+rm -rf lifecycle-cache
+lifecycle "scan that writes the cache, kept loaded" "Load Describe Unload " 1 1
 
 # OFX 1.4 hosts: every plug-in must keep working in a host that implements only OFX 1.4. hostDemo
 # --ofx14 has only the OFX 1.4 host properties (a plug-in reading another one gets

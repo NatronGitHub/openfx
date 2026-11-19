@@ -28,6 +28,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include <iostream>
+#include <cstdlib> // getenv
 #include <cstring> // strcmp
 #include <fstream>
 #include <set>
@@ -69,7 +70,10 @@ namespace MyHost
 { 
   Host::Host()
     : _ofx14(false)
+    , _keepLoaded(false)
   {
+    const char *keepLoaded = getenv("OFX_HOSTDEMO_KEEP_LOADED");
+    _keepLoaded = keepLoaded != NULL && strcmp(keepLoaded, "1") == 0;
     // set host properties... TODO
     _properties.setIntProperty(kOfxPropAPIVersion, 1, 0);
     _properties.setIntProperty(kOfxPropAPIVersion, 4, 1);
@@ -188,7 +192,7 @@ namespace MyHost
     return OFX::Host::ImageEffect::Host::fetchSuite(suiteName, suiteVersion);
   }
 
-  OFX::Host::ImageEffect::Instance* Host::newInstance(void* clientData,
+  OFX::Host::ImageEffect::Instance* Host::newInstance(void* /*clientData*/,
                                                       OFX::Host::ImageEffect::ImageEffectPlugin* plugin,
                                                       OFX::Host::ImageEffect::Descriptor& desc,
                                                       const std::string& context)
@@ -221,7 +225,7 @@ namespace MyHost
   
   /// message
   OfxStatus Host::vmessage(const char* type,
-                           const char* id,
+                           const char* /*id*/,
                            const char* format,
                            va_list args)
   {

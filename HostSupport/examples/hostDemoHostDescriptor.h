@@ -54,6 +54,11 @@ namespace MyHost {
     /// false with restrictToOFX14()
     virtual bool supportsOfxSetHost() const { return !_ofx14; }
 
+    /// true if the environment variable OFX_HOSTDEMO_KEEP_LOADED is 1: the scanned plug-ins stay
+    /// loaded (one kOfxActionLoad and kOfxActionDescribe), instead of being unloaded after the
+    /// scan and loaded again at their first use (for the checks of both behaviours)
+    virtual bool keepPluginsLoadedAfterScan() const { return _keepLoaded; }
+
     /// Create a new instance of an image effect plug-in.
     ///
     /// It is called by ImageEffectPlugin::createInstance which the
@@ -107,6 +112,7 @@ namespace MyHost {
 #endif
   private:
     bool _ofx14; ///< restrictToOFX14()
+    bool _keepLoaded; ///< OFX_HOSTDEMO_KEEP_LOADED=1
   };
 
   // my ofx host object

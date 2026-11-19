@@ -4760,6 +4760,55 @@ namespace OFX {
       gLoadCount++;
     }
 
+    /** @brief After the last plug-in of the binary was unloaded: forget the host and its suites */
+    static
+    void releaseLibraryState()
+    {
+      // the host description is fetched again at the next kOfxActionLoad (the binary may stay
+      // in memory after it is unloaded, e.g. on macOS an image with thread-local variables)
+      OFX::gHostDescription = OFX::ImageEffectHostDescription();
+      OFX::gHostDescriptionHasInit = false;
+      // force these to null
+      gEffectSuite = 0;
+      gPropSuite = 0;
+      gParamSuite = 0;
+      gMemorySuite = 0;
+      gThreadSuite = 0;
+      gMessageSuite = 0;
+      gMessageSuiteV2 = 0;
+      gInteractSuite = 0;
+      gDrawSuite = 0;
+      // the overlay registrations (the plug-ins are described again after the next load)
+      clearOverlayInteractRegistrations();
+      gParametricParameterSuite = 0;
+      gOpenCLProgramSuite = 0;
+#ifdef OFX_EXTENSIONS_NUKE
+      gCameraSuite = 0;
+      gImageEffectPlaneSuiteV1 = 0;
+      gImageEffectPlaneSuiteV2 = 0;
+#endif
+#ifdef OFX_EXTENSIONS_VEGAS
+#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
+      gHWNDInteractSuite  = 0;
+#endif // #if defined(_WIN32) || defined(WIN32) || defined(WIN64)
+      gVegasStereoscopicImageSuite  = 0;
+      gVegasKeyframeSuite  = 0;
+#endif
+    }
+
+    /** @brief kOfxActionLoad failed after loadAction() (the plug-in's load() threw): the host
+        doesn't send kOfxActionUnload, so undo the count of loadAction() */
+    static
+    void loadActionFailed()
+    {
+      if (gLoadCount > 0) {
+        gLoadCount--;
+      }
+      if (gLoadCount == 0) {
+        releaseLibraryState();
+      }
+    }
+
     /** @brief Library side unload action, this fetches all the suite pointers */
     static
     void unloadAction(const char* id, unsigned int majorVersion, unsigned int minorVersion)
@@ -4773,34 +4822,8 @@ namespace OFX {
         return;
       }
 
-      if(gLoadCount==0)
-      {
-        // force these to null
-        gEffectSuite = 0;
-        gPropSuite = 0;
-        gParamSuite = 0;
-        gMemorySuite = 0;
-        gThreadSuite = 0;
-        gMessageSuite = 0;
-        gMessageSuiteV2 = 0;
-        gInteractSuite = 0;
-        gDrawSuite = 0;
-        // the overlay registrations (the plug-ins are described again after the next load)
-        clearOverlayInteractRegistrations();
-        gParametricParameterSuite = 0;
-        gOpenCLProgramSuite = 0;
-#ifdef OFX_EXTENSIONS_NUKE
-        gCameraSuite = 0;
-        gImageEffectPlaneSuiteV1 = 0;
-        gImageEffectPlaneSuiteV2 = 0;
-#endif
-#ifdef OFX_EXTENSIONS_VEGAS
-#if defined(_WIN32) || defined(WIN32) || defined(WIN64)
-        gHWNDInteractSuite  = 0;
-#endif // #if defined(_WIN32) || defined(WIN32) || defined(WIN64)
-        gVegasStereoscopicImageSuite  = 0;
-        gVegasKeyframeSuite  = 0;
-#endif
+      if(gLoadCount==0) {
+        releaseLibraryState();
       }
 
       {
@@ -5854,7 +5877,16 @@ namespace OFX {
           OFX::Private::loadAction(); 
 
           // call the plugin side load action, param-less
-          factory->load();
+          try {
+            factory->load();
+          } catch (...) {
+            try {
+              OFX::Private::loadActionFailed();
+            } catch (...) {
+              // keep the original exception (and its status)
+            }
+            throw;
+          }
 
           // got here, must be good
           stat = kOfxStatOK;

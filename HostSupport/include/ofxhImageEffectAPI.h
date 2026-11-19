@@ -67,6 +67,17 @@ namespace OFX {
 
         auto_ptr<PluginHandle> _pluginHandle;
 
+        /// OfxSetHost refused this host, or kOfxActionLoad or kOfxActionDescribe failed:
+        /// "no further actions will be passed to the plug-in", so getPluginHandle() doesn't try again
+        /// while the binary stays loaded (same PluginBinary::getLoadGeneration())
+        bool _loadFailed;
+        int _failedLoadGeneration;
+
+        /// record a failure of getPluginHandle(), release the handle, return NULL
+        PluginHandle *loadFailed();
+
+        friend class PluginCache; // loadFromPlugin() calls unload()
+
         void addContextInternal(const std::string &context) const;
 
       public:
@@ -104,6 +115,23 @@ namespace OFX {
 
         const std::set<std::string>& getContexts() const;
 
+        /// Load the plug-in, if it isn't yet: load the binary if needed (with its OfxSetHost), then
+        /// kOfxActionLoad, then kOfxActionDescribe on the base descriptor, which is first reset in
+        /// place to its initial state (it may hold the values read from the plug-in cache, or
+        /// described during a previous load). The handle keeps the binary loaded until
+        /// kOfxActionUnload: when the plug-in is deleted, or after the scan (see
+        /// Host::keepPluginsLoadedAfterScan()). Returns NULL if OfxSetHost, Load or Describe failed
+        /// (Load and Describe failures are logged on std::cerr, after a failed Describe the plug-in
+        /// gets kOfxActionUnload), and then NULL again while the binary stays loaded. Once the
+        /// binary was unloaded, the next call loads it and tries again: e.g. a Describe that
+        /// returned kOfxStatErrMemory ("describe may be called again after a memory purge").
+        ///
+        /// Not thread-safe. The call that loads the plug-in (no handle yet), and the unload (after
+        /// the scan, or PluginCache::clearPluginCache()), change state that all the plug-ins of the
+        /// binary share (PluginBinary): the host must serialize them with every other call of
+        /// getPluginHandle(), getContext() and createInstance(), for all the plug-ins of the binary,
+        /// and not call these during the scan. Once the plug-in is loaded, getPluginHandle() only
+        /// reads; getContext() still describes a new context, so serialize it per plug-in.
         PluginHandle *getPluginHandle();
 
         /// this is called to make an instance of the effect
@@ -111,7 +139,10 @@ namespace OFX {
         ImageEffect::Instance* createInstance(const std::string &context, void *clientDataPtr);
 
       private:
-        void unload();
+        /// if the plug-in is loaded: kOfxActionUnload, then release the handle (which may unload the
+        /// binary) and the context descriptors of this load, and, unless the plug-in is being
+        /// deleted, reset the pointer properties of the base descriptor and its overlay descriptor
+        void unload(bool deleting = false);
       };
 
       class MajorPlugin {

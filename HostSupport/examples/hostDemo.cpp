@@ -770,6 +770,8 @@ static void usage(const char* prog)
     "  --no-cache         don't read or write hostDemoPluginCache.xml\n"
     "  --quiet            print only the plug-in's messages on stdout\n"
     "  --allow-unwritten  don't fail on unwritten (NaN) output pixels (float only)\n"
+    "Environment: OFX_HOSTDEMO_KEEP_LOADED=1 keeps the scanned plug-ins loaded (by default they\n"
+    "are unloaded after the scan, and loaded again at their first use).\n"
     "Formats and JSON schemas: HostSupport/examples/python/README.md. Exit status: 0 on success.\n";
 }
 

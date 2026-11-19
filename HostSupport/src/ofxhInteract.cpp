@@ -78,6 +78,16 @@ namespace OFX {
       {
       }
 
+      void Descriptor::reset()
+      {
+        _state = eUninitialised;
+        _entryPoint = NULL;
+        const Property::PropertyMap &props = _properties.getProperties();
+        for (Property::PropertyMap::const_iterator it = props.begin(); it != props.end(); ++it) {
+          it->second->reset();
+        }
+      }
+
       /// call describe on this descriptor
       bool Descriptor::describe(int bitDepthPerComponent, bool hasAlpha)
       {
