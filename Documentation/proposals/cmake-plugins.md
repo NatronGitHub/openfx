@@ -101,7 +101,7 @@ Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-u
 - MinGW: `_USE_MATH_DEFINES` and `__USE_MINGW_ANSI_STDIO=1`;
 - MSVC: `/Zc:__cplusplus`.
 
-**openfx::Support:** static, PIC, built with `OFX_CXX_STANDARD`, with `Support/Plugins/include` on its include path (as in the Makefiles), and openfx::Api PUBLIC. It links `CMAKE_DL_LIBS`, not OpenGL: the OpenGL backend of `DrawArgs::getDrawContext()` (`ofxsDrawContextOpenGL.cpp`, #165, #171) loads OpenGL at run time, and only the plug-ins that call `getDrawContext()` or `isOpenGLContextCurrent()` (e.g. through SupportExt's `OverlayDraw`) pull that object from the static library. Without the OpenGL headers, CMake compiles it with `OFXS_DRAWCONTEXT_NO_OPENGL` (also with `OFX_SUPPORT_DRAWCONTEXT_OPENGL=OFF`). Hidden visibility comes with openfx#124 (upstream #278); the export lists already restrict the exports. G'MIC uses the raw C API, so it links openfx::Api only.
+**openfx::Support:** static, PIC, built with `OFX_CXX_STANDARD`, with `Support/Plugins/include` on its include path (as in the Makefiles), and openfx::Api PUBLIC. It links `CMAKE_DL_LIBS`, not OpenGL: the OpenGL backend of `DrawArgs::getDrawContext()` (`ofxsDrawContextOpenGL.cpp`, #165, #171) loads OpenGL at run time, and only the plug-ins that call `getDrawContext()` or `isOpenGLContextCurrent()` (e.g. through SupportExt's `OverlayDraw`) pull that object from the static library. It needs no OpenGL header (it draws with `include/ofxDrawSuiteOpenGL.h`, which declares the OpenGL types and constants it uses), so openfx::Support doesn't look for OpenGL; `OFX_SUPPORT_DRAWCONTEXT_OPENGL=OFF` compiles it with `OFXS_DRAWCONTEXT_NO_OPENGL`. Hidden visibility comes with openfx#124 (upstream #278); the export lists already restrict the exports. G'MIC uses the raw C API, so it links openfx::Api only.
 
 ## How openfx tests it
 
@@ -112,7 +112,7 @@ Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-u
   - Resources, with a subdirectory;
   - the exported symbols (exactly OfxGetPlugin and OfxGetNumberOfPlugins) and the rpath;
   - on macOS, deployment: libomp bundled, `codesign --verify --strict`, and nothing referenced outside the bundle.
-- It runs the Support self-test `drawcontext-opengl-test` (macOS in an offscreen CGL context, Linux without a context, to test the run-time loading of OpenGL).
+- It runs the Support self-tests `drawsuite-opengl-test` (the OpenGL DrawSuite core with a fake OpenGL table, also on Windows) and `drawcontext-opengl-test` (macOS in an offscreen CGL context, Linux without a context, to test the run-time loading of OpenGL).
 - On Linux, `cmake-plugin-project.sh` checks that `OFX_LINUX_CHECK_BUNDLE` points to the installed or the source-tree script, and that `linuxCheckBundle.sh` reports the test plug-ins' deliberate absolute rpath entries, then accepts them once they are in `OFX_ABI_RPATH_ALLOW`. On macOS it builds with `CMAKE_OSX_DEPLOYMENT_TARGET=14.0`.
 - On Linux, it runs `linuxCheckBundle.sh` on the installed examples: no system library bundled and no other library needed (they need only system libraries), with the symbol-version limits disabled (`OFX_ABI_*=99`: the Ubuntu builder is newer than EL9; the baseline is checked where the releases are built). Finding no bundle fails.
 - The Makefile builds run nightly (extended.yml).

@@ -144,13 +144,41 @@ shared with other Support versions can test it:
 
 The OpenGL backend loads the OpenGL functions it uses at run time, so neither
 the Support library nor the plug-ins need OpenGL at link time (the
-Makefiles weak-link it on macOS). It uses the OpenGL headers at compile time.
-Without them, CMake compiles ``ofxsDrawContextOpenGL.cpp`` with
-``OFXS_DRAWCONTEXT_NO_OPENGL`` (also with
-``OFX_SUPPORT_DRAWCONTEXT_OPENGL=OFF``); Makefile builds pass
-``-DOFXS_DRAWCONTEXT_NO_OPENGL``. ``getDrawContext()`` then draws nothing on V1
-overlays. The comments of ``ofxsInteract.h`` and
-``ofxsImageEffect.h`` are the reference.
+Makefiles weak-link it on macOS). It needs no OpenGL header either: its
+drawing code is the OpenGL DrawSuite core (see below), which declares the
+OpenGL types and constants it uses. ``OFX_SUPPORT_DRAWCONTEXT_OPENGL=OFF``
+compiles ``ofxsDrawContextOpenGL.cpp`` with ``OFXS_DRAWCONTEXT_NO_OPENGL``
+(Makefile builds can pass ``-DOFXS_DRAWCONTEXT_NO_OPENGL``):
+``getDrawContext()`` then draws nothing on V1 overlays. The comments of
+``ofxsInteract.h`` and ``ofxsImageEffect.h`` are the reference.
+
+The OpenGL DrawSuite core
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``include/ofxDrawSuiteOpenGL.h`` (namespace ``OFX::DrawSuiteOpenGL``) is a
+header-only C++98 implementation of the OFX 1.5 DrawSuite with OpenGL 1.1
+compatibility-profile calls. It is not part of the standard. The Support
+library's OpenGL backend draws with it, and hosts that implement the
+DrawSuite with OpenGL can use it too, so that a DrawSuite overlay looks the
+same in a DrawSuite host and, through Support's emulation, in an OpenGL-only
+host. It includes no OpenGL header: the caller fills a table of the 13
+OpenGL 1.1 functions it calls (``GLFunctions``, with ``loadGLFunctions()``
+and the caller's symbol lookup, e.g. dlsym, GetProcAddress or glad). It
+provides the DrawSuite state (``State``, ``resetState()``), the DrawSuite
+functions (``standardColour()``, ``setColour()``, ``setLineWidth()``,
+``setLineStipple()``, ``drawPrimitive()``, ``drawText()`` with the built-in
+5x7 font of ``include/ofxFont5x7.h``), and their building blocks
+(``ScopedGLState``, ``applyLineState()``, ``stipplePattern()``,
+``ellipseSegmentCount()``, ``builtinTextMetrics()``, ``drawBuiltinText()``,
+``alignText()``), so that a host can draw the text with its own font and
+keep the rest. Its header comment documents the behaviour: line widths in
+screen pixels scaled by the screen pixel ratio, width 0 an aliased line,
+the stipple patterns, ellipses within 1/4 screen pixel, the text
+alignment, and the optional drop shadows (``State::shadows``), which
+plug-ins never draw with DrawSuite calls. The self-test
+``Support/tests/DrawSuiteOpenGLTest.cpp`` (CMake target
+``drawsuite-opengl-test``) checks its OpenGL calls with a fake OpenGL
+table.
 
 The Support library also falls back on hosts that implement only OFX 1.4: one
 view, named "Main", without the plane suite V2; ``Clip::fetchImagePlane()``

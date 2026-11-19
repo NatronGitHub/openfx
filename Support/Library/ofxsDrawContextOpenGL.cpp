@@ -7,12 +7,15 @@
   calls, for the overlays registered as kOfxImageEffectPluginPropOverlayInteractV1. See the
   documentation of OFX::DrawContext in ofxsInteract.h.
 
-  This is the only file of the Support library that calls OpenGL. ofxsInteract.cpp only calls this
-  backend through virtual functions, so a plug-in that never calls getDrawContext() doesn't link
-  this file from a static library (libOfxSupport.a, CMake's openfx::Support). With
-  Support/Plugins/Makefile.master, whose SUPPORTOBJECTS are object files, every plug-in links it
-  (and needs the OpenGL headers). The legacy project files (Support.xcodeproj, .vcproj, .dsp) are
-  not maintained and don't list this file.
+  This is the only file of the Support library that calls OpenGL. The drawing itself is the
+  OpenGL DrawSuite core, include/ofxDrawSuiteOpenGL.h, shared with the hosts: this file loads the
+  OpenGL functions, checks that a context is current, and passes the DrawContext's state to the
+  core. It needs no OpenGL header (the core declares the OpenGL types and constants it uses).
+  ofxsInteract.cpp only calls this backend through virtual functions, so a plug-in that never
+  calls getDrawContext() doesn't link this file from a static library (libOfxSupport.a, CMake's
+  openfx::Support). With Support/Plugins/Makefile.master, whose SUPPORTOBJECTS are object files,
+  every plug-in links it. The legacy project files (Support.xcodeproj, .vcproj, .dsp) are not
+  maintained and don't list this file.
 
   It doesn't link OpenGL: it has no undefined OpenGL symbol, and loads the OpenGL 1.1 functions it
   uses at run time, the first time getDrawContext() needs OpenGL: in a draw action called through
@@ -49,7 +52,7 @@
   draw, even if the host passed a draw context: V1 draws use only OpenGL, V2 draws only the
   DrawSuite.
 
-  Define OFXS_DRAWCONTEXT_NO_OPENGL to build without OpenGL (no OpenGL header, no OpenGL call):
+  Define OFXS_DRAWCONTEXT_NO_OPENGL to build without OpenGL (no OpenGL call, no run-time loading):
   getDrawContext() then returns a context that draws nothing for the V1 overlays.
 
   Spec references (upstream include/ofxDrawSuite.h, include/ofxInteract.h and
@@ -80,7 +83,8 @@
     CenterH = (Left | Right), CenterV = (Top | Baseline). CenterV is Top|Baseline, not
     Top|Bottom: this backend centres the text vertically when Top is set with Bottom or Baseline.
   - getColour: "Retrieves the host's desired draw colour for" an OfxStandardColour; the spec
-    gives no values. This backend returns the fixed colours of kStandardColours below.
+    gives no values. This backend returns the fixed colours of
+    OFX::DrawSuiteOpenGL::standardColour() (ofxDrawSuiteOpenGL.h).
  */
 
 #include "ofxsSupportPrivate.h"
@@ -94,37 +98,21 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <windows.h> // for WINGDIAPI and APIENTRY, used by GL/gl.h
-#endif
-
-#ifdef __APPLE__
-#ifndef GL_SILENCE_DEPRECATION
-#define GL_SILENCE_DEPRECATION // OpenGL 1.x compatibility profile, as every OpenGL overlay
-#endif
-#include <OpenGL/gl.h>
-#else
-#include <GL/gl.h>
-#endif
-// only for the types and constants: the functions are loaded at run time (see above)
-
-#if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
-#define OFXS_GL_APIENTRY APIENTRY // the calling convention of opengl32.dll (__stdcall on x86)
+#include <windows.h> // GetModuleHandleA, LoadLibraryExA, GetProcAddress
 #else
 #include <dlfcn.h>
-#define OFXS_GL_APIENTRY
 #endif
 
-#include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <cstring>
-#include <string>
 #if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L))
 #define OFXS_DRAWCONTEXT_CXX11 1
 #include <mutex>
 #endif
 
-#include "ofxsFont5x7.h"
+// the drawing code, shared with the hosts (no OpenGL header: it declares the OpenGL types and
+// constants it uses, and calls the functions loaded here)
+#include "ofxDrawSuiteOpenGL.h"
 
 #endif // !OFXS_DRAWCONTEXT_NO_OPENGL
 
@@ -136,22 +124,7 @@ namespace OFX {
 
     namespace {
 
-      // The OpenGL 1.1 functions that the backend calls, loaded at run time
-      struct GLFunctions {
-        void (OFXS_GL_APIENTRY *Begin)(GLenum mode);
-        void (OFXS_GL_APIENTRY *End)(void);
-        void (OFXS_GL_APIENTRY *Vertex2d)(GLdouble x, GLdouble y);
-        void (OFXS_GL_APIENTRY *Color4f)(GLfloat r, GLfloat g, GLfloat b, GLfloat a);
-        void (OFXS_GL_APIENTRY *Enable)(GLenum cap);
-        void (OFXS_GL_APIENTRY *Disable)(GLenum cap);
-        void (OFXS_GL_APIENTRY *Hint)(GLenum target, GLenum mode);
-        void (OFXS_GL_APIENTRY *LineWidth)(GLfloat width);
-        void (OFXS_GL_APIENTRY *LineStipple)(GLint factor, GLushort pattern);
-        void (OFXS_GL_APIENTRY *PolygonMode)(GLenum face, GLenum mode);
-        void (OFXS_GL_APIENTRY *BlendFunc)(GLenum sfactor, GLenum dfactor);
-        void (OFXS_GL_APIENTRY *PushAttrib)(GLbitfield mask);
-        void (OFXS_GL_APIENTRY *PopAttrib)(void);
-      };
+      using DrawSuiteOpenGL::GLFunctions;
 
       // A function pointer can't be converted from a void* in standard C++: copy the bits. The
       // sizes are checked at compile time (C++98-compatible static assertion).
@@ -242,38 +215,22 @@ namespace OFX {
 #endif
 #endif
 
-      template<class F>
-      bool loadGLFunction(void *lib, const char *name, F &f)
+      // the symbol lookup of loadGLFunctions(): openGLSymbol() in the library userData
+      void *openGLSymbolResolver(const char *name, void *lib)
       {
-        void *p = openGLSymbol(lib, name);
-        f = p ? functionFromPointer<F>(p) : NULL;
-        return f != NULL;
+        return openGLSymbol(lib, name);
       }
 
       // all the functions from lib (fns is filled in, even if some are missing)
       bool loadGLFunctions(void *lib, GLFunctions &fns)
       {
-        bool ok = true;
-        ok = loadGLFunction(lib, "glBegin", fns.Begin) && ok;
-        ok = loadGLFunction(lib, "glEnd", fns.End) && ok;
-        ok = loadGLFunction(lib, "glVertex2d", fns.Vertex2d) && ok;
-        ok = loadGLFunction(lib, "glColor4f", fns.Color4f) && ok;
-        ok = loadGLFunction(lib, "glEnable", fns.Enable) && ok;
-        ok = loadGLFunction(lib, "glDisable", fns.Disable) && ok;
-        ok = loadGLFunction(lib, "glHint", fns.Hint) && ok;
-        ok = loadGLFunction(lib, "glLineWidth", fns.LineWidth) && ok;
-        ok = loadGLFunction(lib, "glLineStipple", fns.LineStipple) && ok;
-        ok = loadGLFunction(lib, "glPolygonMode", fns.PolygonMode) && ok;
-        ok = loadGLFunction(lib, "glBlendFunc", fns.BlendFunc) && ok;
-        ok = loadGLFunction(lib, "glPushAttrib", fns.PushAttrib) && ok;
-        ok = loadGLFunction(lib, "glPopAttrib", fns.PopAttrib) && ok;
-        return ok;
+        return DrawSuiteOpenGL::loadGLFunctions(fns, openGLSymbolResolver, lib);
       }
 
       // The functions that return the current OpenGL context (NULL if none), to check that one
       // is current before any OpenGL call: legacy OpenGL calls without a current context
       // usually crash (macOS). An OpenGL context is current if any of them returns non-NULL.
-      typedef void *(OFXS_GL_APIENTRY *CurrentContextFunction)(void);
+      typedef void *(OFX_DRAWGL_APIENTRY *CurrentContextFunction)(void);
       enum { kMaxCurrentContextFunctions = 8 };
       struct CurrentContextFunctions {
         CurrentContextFunction f[kMaxCurrentContextFunctions];
@@ -447,83 +404,9 @@ namespace OFX {
         return *openGLFunctions();
       }
 
-      // The colours returned by getColour(), indexed by OfxStandardColour. The spec gives no
-      // values: these are close to the colours of the Natron and SupportExt OpenGL overlays.
-      const OfxRGBAColourF kStandardColours[] = {
-        { 0.f, 0.f, 0.f, 1.f },     // kOfxStandardColourOverlayBackground: black (the overlays' shadow)
-        { 0.f, 1.f, 0.f, 1.f },     // kOfxStandardColourOverlayActive: green (hovered, being dragged)
-        { 1.f, 0.f, 0.f, 1.f },     // kOfxStandardColourOverlaySelected: red
-        { 0.8f, 0.8f, 0.8f, 1.f },  // kOfxStandardColourOverlayDeselected: light grey (the default)
-        { 0.5f, 0.8f, 1.f, 1.f },   // kOfxStandardColourOverlayMarqueeFG: light blue (Natron's selection rectangle)
-        { 0.5f, 0.8f, 1.f, 0.4f },  // kOfxStandardColourOverlayMarqueeBG: translucent light blue
-        { 1.f, 1.f, 1.f, 1.f },     // kOfxStandardColourOverlayText: white
-      };
-      const int kStandardColourCount = (int)(sizeof(kStandardColours) / sizeof(kStandardColours[0]));
-
-      // GL_LINE_STIPPLE patterns, in screen pixels (bit 0 is the first pixel), indexed by
-      // OfxDrawLineStipplePattern (solid: no stipple)
-      const GLushort kStipplePatterns[] = {
-        0xFFFF, // kOfxDrawLineStipplePatternSolid   -----
-        0x3333, // kOfxDrawLineStipplePatternDot     .....  2 on, 2 off
-        0x00FF, // kOfxDrawLineStipplePatternDash    - - -  8 on, 8 off
-        0xFF00, // kOfxDrawLineStipplePatternAltDash  - - - 8 off, 8 on
-        0x1FE3, // kOfxDrawLineStipplePatternDotDash .-.-.- 2 on, 3 off, 8 on, 3 off
-      };
-      const int kStipplePatternCount = (int)(sizeof(kStipplePatterns) / sizeof(kStipplePatterns[0]));
-
-      // limits, so that the conversions to OpenGL types are defined
-      const double kMaxScreenPixelRatio = 64.;
-      const double kMaxLineWidth = 1e4; // device pixels
-
-      // text metrics, in screen pixels (one font pixel per screen pixel)
-      const int kTextAscent = kFontGlyphHeight; // the glyphs sit on the baseline
-      const int kTextDescent = kFontCellHeight - kFontGlyphHeight;
-
-      inline bool isFinitePositive(double v)
-      {
-        return v > 0. && v < 1e300; // false for NaN and infinities
-      }
-
-      // Saves the OpenGL state that the backend changes, and sets the state common to all the
-      // primitives: no texture (1D, 2D, rectangle), lighting, depth or alpha test, face culling
-      // or polygon smoothing/stipple, filled polygons, and "over" compositing ("The host should
-      // use "over" compositing when using a non-opaque colour"). The destructor restores it.
-      // Not handled (the host's overlay state is expected to have the defaults, as for any
-      // OpenGL 1.x overlay): a bound GLSL program (glUseProgram), glBlendEquation, glColorMask,
-      // the stencil and scissor tests, and the texture units other than the active one.
-      class GLStateSaver {
-      public:
-        explicit GLStateSaver(const OfxRGBAColourF &colour)
-        {
-          gl().PushAttrib(GL_CURRENT_BIT | GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_LINE_BIT |
-                       GL_POLYGON_BIT | GL_HINT_BIT);
-          gl().Disable(GL_TEXTURE_1D);
-          gl().Disable(GL_TEXTURE_2D);
-#if defined(GL_TEXTURE_RECTANGLE)
-          gl().Disable(GL_TEXTURE_RECTANGLE);
-#elif defined(GL_TEXTURE_RECTANGLE_ARB)
-          gl().Disable(GL_TEXTURE_RECTANGLE_ARB);
-#endif
-          gl().Disable(GL_LIGHTING);
-          gl().Disable(GL_DEPTH_TEST);
-          gl().Disable(GL_CULL_FACE);
-          gl().Disable(GL_ALPHA_TEST);
-          gl().Disable(GL_POLYGON_SMOOTH);
-          gl().Disable(GL_POLYGON_STIPPLE);
-          gl().PolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-          gl().Enable(GL_BLEND);
-          gl().BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-          gl().Color4f(colour.r, colour.g, colour.b, colour.a);
-        }
-        ~GLStateSaver()
-        {
-          gl().PopAttrib();
-        }
-      private:
-        GLStateSaver(const GLStateSaver &);
-        GLStateSaver &operator=(const GLStateSaver &);
-      };
-
+      // The OpenGL backend: the DrawContext's state (colour, line width, stipple, pixel scale,
+      // screen pixel ratio) as a DrawSuiteOpenGL::State, drawn by the core
+      // (include/ofxDrawSuiteOpenGL.h)
       class OpenGLBackend : public DrawContextBackend {
       public:
         // user-provided, so that a const object can be default-initialized (C++98 to C++14)
@@ -531,260 +414,59 @@ namespace OFX {
 
         virtual OfxStatus getColour(const DrawContext & /*ctx*/, OfxStandardColour stdColour, OfxRGBAColourF *colour) const
         {
-          if (!colour || (int)stdColour < 0 || (int)stdColour >= kStandardColourCount) {
-            return kOfxStatErrValue; // "std_colour was invalid"
-          }
-          *colour = kStandardColours[(int)stdColour];
-          return kOfxStatOK;
+          return DrawSuiteOpenGL::standardColour(stdColour, colour); // "std_colour was invalid"
         }
 
         virtual OfxStatus setColour(const DrawContext &ctx, const OfxRGBAColourF *c) const
         {
-          if (!c) {
-            return kOfxStatErrValue; // as HostSupport's DrawSuite
+          DrawSuiteOpenGL::State s = state(ctx);
+          const OfxStatus st = DrawSuiteOpenGL::setColour(s, c);
+          if (st == kOfxStatOK) {
+            colour(ctx) = s.colour;
           }
-          colour(ctx) = *c;
-          return kOfxStatOK;
+          return st;
         }
 
         virtual OfxStatus setLineWidth(const DrawContext &ctx, float width) const
         {
-          if ( !(width >= 0.f && width < 1e30f) ) { // negative, NaN or infinite
-            return kOfxStatFailed; // (the spec lists no kOfxStatErrValue for setLineWidth)
+          DrawSuiteOpenGL::State s = state(ctx);
+          const OfxStatus st = DrawSuiteOpenGL::setLineWidth(s, width);
+          if (st == kOfxStatOK) {
+            lineWidth(ctx) = s.lineWidth;
           }
-          lineWidth(ctx) = width;
-          return kOfxStatOK;
+          return st;
         }
 
         virtual OfxStatus setLineStipple(const DrawContext &ctx, OfxDrawLineStipplePattern pattern) const
         {
-          if ( (int)pattern < 0 || (int)pattern >= kStipplePatternCount ) {
-            return kOfxStatErrValue; // "pattern was not valid"
+          DrawSuiteOpenGL::State s = state(ctx);
+          const OfxStatus st = DrawSuiteOpenGL::setLineStipple(s, pattern);
+          if (st == kOfxStatOK) {
+            lineStipple(ctx) = s.stipple;
           }
-          lineStipple(ctx) = pattern;
-          return kOfxStatOK;
+          return st;
         }
 
         virtual OfxStatus draw(const DrawContext &ctx, OfxDrawPrimitive primitive, const OfxPointD *points, int pointCount) const
         {
-          int minCount, maxCount;
-          switch (primitive) {
-          case kOfxDrawPrimitiveLines:
-          case kOfxDrawPrimitiveLineStrip:
-          case kOfxDrawPrimitiveLineLoop:
-            minCount = 2; maxCount = -1; break;
-          case kOfxDrawPrimitivePolygon:
-            minCount = 3; maxCount = -1; break;
-          case kOfxDrawPrimitiveRectangle:
-          case kOfxDrawPrimitiveEllipse:
-            minCount = 2; maxCount = 2; break; // "defined by 2 opposite corner points"
-          default:
-            return kOfxStatErrValue; // "invalid primitive"
-          }
-          if ( !points || pointCount < minCount || (maxCount >= 0 && pointCount > maxCount) ||
-               (primitive == kOfxDrawPrimitiveLines && pointCount % 2 != 0) ) { // pairs, as HostSupport's DrawSuite
-            return kOfxStatErrValue; // "point_count not valid for primitive"
-          }
-
-          GLStateSaver saver(colour(ctx));
-          switch (primitive) {
-          case kOfxDrawPrimitiveLines:
-            setLineState(ctx);
-            drawVertices(GL_LINES, points, pointCount);
-            break;
-          case kOfxDrawPrimitiveLineStrip:
-            setLineState(ctx);
-            drawVertices(GL_LINE_STRIP, points, pointCount);
-            break;
-          case kOfxDrawPrimitiveLineLoop:
-            setLineState(ctx);
-            drawVertices(GL_LINE_LOOP, points, pointCount);
-            break;
-          case kOfxDrawPrimitivePolygon:
-            drawVertices(GL_POLYGON, points, pointCount);
-            break;
-          case kOfxDrawPrimitiveRectangle:
-            gl().Begin(GL_QUADS);
-            gl().Vertex2d(points[0].x, points[0].y);
-            gl().Vertex2d(points[1].x, points[0].y);
-            gl().Vertex2d(points[1].x, points[1].y);
-            gl().Vertex2d(points[0].x, points[1].y);
-            gl().End();
-            break;
-          case kOfxDrawPrimitiveEllipse:
-            setLineState(ctx);
-            drawEllipse(ctx, points[0], points[1]);
-            break;
-          default:
-            break;
-          }
-          return kOfxStatOK;
+          return DrawSuiteOpenGL::drawPrimitive(gl(), state(ctx), primitive, points, pointCount);
         }
 
         virtual OfxStatus drawText(const DrawContext &ctx, const char *text, const OfxPointD *pos, int alignment) const
         {
-          if (!text || !pos) {
-            return kOfxStatErrValue; // "text or pos were not defined"
-          }
-          // the glyphs: printable ASCII, '?' for the other characters (one per UTF-8 sequence),
-          // nothing for the control characters
-          std::string glyphs;
-          for (const unsigned char *p = (const unsigned char *)text; *p; ++p) {
-            if (*p < 0x80) {
-              if (*p >= 0x20 && *p < 0x7F) {
-                glyphs += (char)*p;
-              }
-            } else if ( (*p & 0xC0) != 0x80 ) { // the first byte of a UTF-8 sequence
-              glyphs += '?';
-            }
-          }
-          if ( glyphs.empty() ) {
-            return kOfxStatOK;
-          }
-
-          OfxPointD ps;
-          getPixelScale(ctx, ps);
-          const double width = (double)glyphs.size() * kFontCellWidth - (kFontCellWidth - kFontGlyphWidth);
-
-          // horizontal: Left (default), Right, or both (CenterH)
-          double x0 = pos->x;
-          const bool left = (alignment & kOfxDrawTextAlignmentLeft) != 0;
-          const bool right = (alignment & kOfxDrawTextAlignmentRight) != 0;
-          if (right && left) {
-            x0 -= 0.5 * width * ps.x;
-          } else if (right) {
-            x0 -= width * ps.x;
-          }
-          // vertical: Baseline (default), Top, Bottom, or Top with Bottom or Baseline (centred:
-          // kOfxDrawTextAlignmentCenterV is Top | Baseline)
-          double baseline = pos->y;
-          const bool top = (alignment & kOfxDrawTextAlignmentTop) != 0;
-          const bool bottom = (alignment & kOfxDrawTextAlignmentBottom) != 0;
-          const bool onBaseline = (alignment & kOfxDrawTextAlignmentBaseline) != 0;
-          if ( top && (bottom || onBaseline) ) {
-            baseline -= 0.5 * (kTextAscent - kTextDescent) * ps.y;
-          } else if (top) {
-            baseline -= kTextAscent * ps.y;
-          } else if (bottom) {
-            baseline += kTextDescent * ps.y;
-          }
-
-          GLStateSaver saver(colour(ctx));
-          // one quad per vertical run of pixels in each glyph column. A quad of one screen
-          // pixel covers exactly one pixel centre, so the text is sharp at any position.
-          gl().Begin(GL_QUADS);
-          for (size_t i = 0; i < glyphs.size(); ++i) {
-            const unsigned char *glyph = kFont5x7[(unsigned char)glyphs[i] - 0x20];
-            for (int col = 0; col < kFontGlyphWidth; ++col) {
-              const double xl = x0 + ( (int)i * kFontCellWidth + col ) * ps.x;
-              const double xr = xl + ps.x;
-              int row = 0;
-              while (row < kFontGlyphHeight) {
-                if ( !( (glyph[col] >> row) & 1 ) ) {
-                  ++row;
-                  continue;
-                }
-                const int first = row; // top row of the run
-                while ( row < kFontGlyphHeight && ( (glyph[col] >> row) & 1 ) ) {
-                  ++row;
-                }
-                // row kFontGlyphHeight - 1 sits on the baseline
-                const double yt = baseline + (kFontGlyphHeight - first) * ps.y;
-                const double yb = baseline + (kFontGlyphHeight - row) * ps.y;
-                gl().Vertex2d(xl, yb);
-                gl().Vertex2d(xr, yb);
-                gl().Vertex2d(xr, yt);
-                gl().Vertex2d(xl, yt);
-              }
-            }
-          }
-          gl().End();
-          return kOfxStatOK;
+          return DrawSuiteOpenGL::drawText(gl(), state(ctx), text, pos, alignment);
         }
 
       private:
-        // the screen pixel ratio, 1 if the host doesn't give it, at most kMaxScreenPixelRatio
-        static double getScreenPixelRatio(const DrawContext &ctx)
+        // the core's state for ctx (resetState() sanitises the pixel scale and the ratio)
+        static DrawSuiteOpenGL::State state(const DrawContext &ctx)
         {
-          const double r = screenPixelRatio(ctx);
-          return isFinitePositive(r) ? std::min(r, kMaxScreenPixelRatio) : 1.;
-        }
-
-        // the size of a screen pixel in canonical coordinates (1 if the host gave none)
-        static void getPixelScale(const DrawContext &ctx, OfxPointD &ps)
-        {
-          const OfxPointD &s = pixelScale(ctx);
-          ps.x = isFinitePositive(std::fabs(s.x)) ? std::fabs(s.x) : 1.;
-          ps.y = isFinitePositive(std::fabs(s.y)) ? std::fabs(s.y) : 1.;
-        }
-
-        // the line width and stipple, for the lines and the ellipse
-        static void setLineState(const DrawContext &ctx)
-        {
-          // "Use width 0 for a single pixel line or non-zero for a smooth line of the desired
-          // width. The host should adjust for screen density.": widths are in screen pixels,
-          // and OpenGL's are device pixels
-          const double ratio = getScreenPixelRatio(ctx);
-          const float width = lineWidth(ctx);
-          if (width > 0.f) {
-            gl().Enable(GL_LINE_SMOOTH);
-            gl().Hint(GL_LINE_SMOOTH_HINT, GL_DONT_CARE);
-            // (OpenGL clamps it to its own maximum, usually much smaller)
-            gl().LineWidth( (GLfloat)std::min( (double)width * ratio, kMaxLineWidth ) );
-          } else {
-            gl().Disable(GL_LINE_SMOOTH);
-            gl().LineWidth( (GLfloat)std::max(1., std::floor(ratio + 0.5)) );
-          }
-          const OfxDrawLineStipplePattern pattern = lineStipple(ctx);
-          if (pattern == kOfxDrawLineStipplePatternSolid) {
-            gl().Disable(GL_LINE_STIPPLE);
-          } else {
-            gl().Enable(GL_LINE_STIPPLE);
-            // the patterns are in screen pixels
-            const GLint factor = (GLint)std::min(256., std::max(1., std::floor(ratio + 0.5)));
-            gl().LineStipple(factor, kStipplePatterns[(int)pattern]);
-          }
-        }
-
-        static void drawVertices(GLenum mode, const OfxPointD *points, int pointCount)
-        {
-          gl().Begin(mode);
-          for (int i = 0; i < pointCount; ++i) {
-            gl().Vertex2d(points[i].x, points[i].y);
-          }
-          gl().End();
-        }
-
-        // "an axis-aligned elliptical line (not filled) within the rectangle defined by 2
-        // opposite corner points": a line loop, within 1/4 screen pixel of the ellipse
-        static void drawEllipse(const DrawContext &ctx, const OfxPointD &p0, const OfxPointD &p1)
-        {
-          OfxPointD ps;
-          getPixelScale(ctx, ps);
-          const double cx = 0.5 * (p0.x + p1.x);
-          const double cy = 0.5 * (p0.y + p1.y);
-          const double rx = 0.5 * std::fabs(p1.x - p0.x);
-          const double ry = 0.5 * std::fabs(p1.y - p0.y);
-          // the largest radius in screen pixels: the sagitta of a segment of angle a is
-          // r (1 - cos(a/2)), at most tolerance for a = 2 acos(1 - tolerance / r)
-          const double r = std::max(rx / ps.x, ry / ps.y);
-          const double tolerance = 0.25;
-          const double pi = 3.14159265358979323846;
-          int n = 8;
-          if ( r > tolerance && r < 1e300 ) {
-            const double a = 2. * std::acos(1. - tolerance / r);
-            if (a > 0.) {
-              n = (int)std::min( 4096., std::max( 8., std::ceil(2. * pi / a) ) );
-            } else {
-              n = 4096;
-            }
-          }
-          gl().Begin(GL_LINE_LOOP);
-          for (int i = 0; i < n; ++i) {
-            const double t = 2. * pi * i / n;
-            gl().Vertex2d(cx + rx * std::cos(t), cy + ry * std::sin(t));
-          }
-          gl().End();
+          DrawSuiteOpenGL::State s;
+          DrawSuiteOpenGL::resetState(s, pixelScale(ctx), screenPixelRatio(ctx), false);
+          s.colour = colour(ctx);
+          s.lineWidth = lineWidth(ctx);
+          s.stipple = lineStipple(ctx);
+          return s;
         }
       };
 

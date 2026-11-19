@@ -153,6 +153,12 @@ jobs:
         run: |
           set -eo pipefail
           cmake --build build --parallel
+      - name: Self-test of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows)
+        run: |
+          set -eo pipefail
+          dst=$(find build -name drawsuite-opengl-test.exe -type f | head -1)
+          test -n "$dst" || { echo "drawsuite-opengl-test was not built"; exit 1; }
+          "$dst"
       - name: Install
         run: |
           set -eo pipefail

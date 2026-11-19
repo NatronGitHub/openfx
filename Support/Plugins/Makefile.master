@@ -62,7 +62,8 @@ endif
 # -lGL -pthread, plus -ldl on Linux, where dlopen is not in libc before glibc 2.34, e.g. for glad;
 # -lopengl32 on MinGW) come last on the link line, after LDFLAGS_ADD and LDFLAGS_EXTRA, so that
 # with --as-needed they also satisfy the static libraries that consumers link.
-# The Support library itself doesn't link OpenGL (ofxsDrawContextOpenGL.cpp loads it at run time):
+# The Support library itself doesn't link OpenGL and needs no OpenGL header (ofxsDrawContextOpenGL.cpp
+# draws with include/ofxDrawSuiteOpenGL.h and loads the OpenGL functions at run time):
 # -lGL is only for the plug-ins that call OpenGL themselves, so it is linked --as-needed (and the
 # OpenGL framework is weak-linked on macOS), and a plug-in that makes no OpenGL call loads on a
 # machine without OpenGL.

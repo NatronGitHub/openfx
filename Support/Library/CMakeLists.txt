@@ -35,30 +35,17 @@ target_include_directories(OfxSupport PUBLIC
 	$<INSTALL_INTERFACE:include/Support/Plugins>)
 
 # The OpenGL backend of DrawArgs::getDrawContext() is the only Support file that calls OpenGL. It
-# only needs the OpenGL headers: it loads the OpenGL functions at run time (dlopen/dlsym, or
-# GetProcAddress on Windows), so neither openfx::Support nor the plug-ins that call
-# getDrawContext() need to link OpenGL, and they load on machines without OpenGL.
+# needs no OpenGL header (the drawing code, include/ofxDrawSuiteOpenGL.h, declares the OpenGL types
+# and constants it uses) and links no OpenGL: it loads the OpenGL functions at run time
+# (dlopen/dlsym, or GetProcAddress on Windows), so neither openfx::Support nor the plug-ins that
+# call getDrawContext() need to link OpenGL, and they load on machines without OpenGL.
 # dlopen is in libdl on Linux before glibc 2.34.
 if(CMAKE_DL_LIBS)
   target_link_libraries(OfxSupport PUBLIC ${CMAKE_DL_LIBS})
 endif()
-set(_ofx_drawcontext_gl "${OFX_SUPPORT_LIBRARY_DIR}/ofxsDrawContextOpenGL.cpp")
-set(_ofx_drawcontext_gl_ok OFF)
-if(OFX_SUPPORT_DRAWCONTEXT_OPENGL)
-  if(NOT TARGET OpenGL::GL)
-    find_package(OpenGL QUIET)
-  endif()
-  if(TARGET OpenGL::GL OR OPENGL_FOUND)
-    set(_ofx_drawcontext_gl_ok ON)
-    if(OPENGL_INCLUDE_DIR)
-      set_property(SOURCE "${_ofx_drawcontext_gl}" APPEND PROPERTY INCLUDE_DIRECTORIES "${OPENGL_INCLUDE_DIR}")
-    endif()
-  else()
-    message(STATUS "openfx: no OpenGL headers, OFX::DrawArgs::getDrawContext() has no OpenGL backend")
-  endif()
-endif()
-if(NOT _ofx_drawcontext_gl_ok)
-  set_property(SOURCE "${_ofx_drawcontext_gl}" APPEND PROPERTY COMPILE_DEFINITIONS OFXS_DRAWCONTEXT_NO_OPENGL)
+if(NOT OFX_SUPPORT_DRAWCONTEXT_OPENGL)
+  set_property(SOURCE "${OFX_SUPPORT_LIBRARY_DIR}/ofxsDrawContextOpenGL.cpp" APPEND PROPERTY
+               COMPILE_DEFINITIONS OFXS_DRAWCONTEXT_NO_OPENGL)
 endif()
 
 # the plug-ins' optimization flags (OFX_OPTFLAG), so that a plug-in and its Support code match

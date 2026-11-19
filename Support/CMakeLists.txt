@@ -5,6 +5,11 @@ add_subdirectory(Library)
 if(BUILD_EXAMPLE_PLUGINS)
   add_subdirectory(Plugins)
   add_subdirectory(PropTester)
+  # self-test of the OpenGL DrawSuite core (include/ofxDrawSuiteOpenGL.h) with a recording fake
+  # OpenGL table: no OpenGL header or library, built and run on every platform
+  # (.github/scripts/cmake-build-test.sh runs it)
+  add_executable(drawsuite-opengl-test tests/DrawSuiteOpenGLTest.cpp)
+  target_include_directories(drawsuite-opengl-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include")
   # self-test of DrawArgs::getDrawContext() and its OpenGL backend: on macOS in an offscreen CGL
   # context (it links OpenGL for CGL); elsewhere without a context, and without linking OpenGL,
   # to test the run-time loading (not on Windows). It prints the failed checks and exits with 0

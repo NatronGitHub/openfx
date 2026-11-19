@@ -1,21 +1,26 @@
 // Copyright OpenFX and contributors to the OpenFX project.
 // SPDX-License-Identifier: BSD-3-Clause
 
-#ifndef _ofxsFont5x7_h_
-#define _ofxsFont5x7_h_
+#ifndef _ofxFont5x7_h_
+#define _ofxFont5x7_h_
 
-/** @file ofxsFont5x7.h
-  A tiny 5x7 bitmap font (printable ASCII, 0x20 to 0x7E), private to the Support library: the
-  OpenGL backend of OFX::DrawContext::drawText() (ofxsDrawContextOpenGL.cpp) draws with it.
-  Same glyphs as Examples/include/ofxuFont5x7.H.
+/** @file ofxFont5x7.h
+  A tiny 5x7 bitmap font (printable ASCII, 0x20 to 0x7E), the built-in font of the OpenGL
+  DrawSuite core (ofxDrawSuiteOpenGL.h, OFX::DrawSuiteOpenGL::drawText()), used by the Support
+  library's OpenGL backend of OFX::DrawContext and by hosts. Not part of the OFX standard (a
+  NatronGitHub/openfx addition). C++ only. Same glyphs as Examples/include/ofxuFont5x7.H.
 
   Each glyph is 5 columns, left to right. In each column byte, bit 0 is the top row and bit 6
   the bottom row, which sits on the baseline (bit 7 is unused). A glyph cell is 6x8 (one blank
   column on the right, one blank row below the baseline).
  */
 
+#ifndef __cplusplus
+#error "ofxFont5x7.h is C++"
+#endif
+
 namespace OFX {
-  namespace Private {
+  namespace DrawSuiteOpenGL {
 
     // int constants, not an unnamed enum: C++20 deprecates arithmetic between an enum and a double
     static const int kFontGlyphWidth = 5, kFontGlyphHeight = 7, kFontCellWidth = 6, kFontCellHeight = 8;
@@ -119,7 +124,7 @@ namespace OFX {
       {0x08,0x04,0x08,0x10,0x08}, // '~'
     };
 
-  } // namespace Private
+  } // namespace DrawSuiteOpenGL
 } // namespace OFX
 
-#endif // _ofxsFont5x7_h_
+#endif // _ofxFont5x7_h_
