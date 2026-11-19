@@ -2220,9 +2220,13 @@ namespace OFX {
                                    OfxPropertySetHandle *propertySet)
       {
 #       ifdef OFX_DEBUG_PARAMETERS
-        std::cout << "OFX: paramDefine - " << paramSet << ' ' << paramType << ' ' << name << ' ' << propertySet << " ...";
+        std::cout << "OFX: paramDefine - " << paramSet << ' ' << (paramType ? paramType : "(null)") << ' ' << (name ? name : "(null)") << ' ' << propertySet << " ...";
 #       endif
-        SetDescriptor *paramSetDescriptor = reinterpret_cast<SetDescriptor*>(paramSet);
+        // the handle is a BaseSet (getParamSetHandle()). Params are defined in a describe
+        // action, on a descriptor's set: an instance's set is "kOfxStatErrBadHandle - if the
+        // plugin handle was invalid" (a reinterpret_cast would use it as a SetDescriptor).
+        BaseSet *baseSet = reinterpret_cast<BaseSet*>(paramSet);
+        SetDescriptor *paramSetDescriptor = baseSet ? dynamic_cast<SetDescriptor*>(baseSet) : NULL;
 
         if (!paramSetDescriptor) {
 #         ifdef OFX_DEBUG_PARAMETERS
@@ -2231,7 +2235,24 @@ namespace OFX {
           return kOfxStatErrBadHandle;
         }
 
-        if (name && paramSetDescriptor->getParams().count(name)) {
+        // a NULL type is not a type: "kOfxStatErrUnknown - if the type is unknown"
+        if (!paramType) {
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << ' ' << StatStr(kOfxStatErrUnknown) << std::endl;
+#         endif
+          return kOfxStatErrUnknown;
+        }
+
+        // the spec lists no status for a NULL name (the "unique name of the parameter"):
+        // it is "kOfxStatErrValue", "something failed due an illegal value" (ofxCore.h)
+        if (!name) {
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << ' ' << StatStr(kOfxStatErrValue) << std::endl;
+#         endif
+          return kOfxStatErrValue;
+        }
+
+        if (paramSetDescriptor->getParams().count(name)) {
           // "kOfxStatErrExists - if a parameter of that name exists already in this plugin"
           // (defining it twice would make every instance of the effect fail in populate())
 #         ifdef OFX_DEBUG_PARAMETERS
@@ -2253,7 +2274,7 @@ namespace OFX {
         // A host without the property at all is a host from before the type (an OFX 1.4 host,
         // e.g. hostDemo --ofx14) that doesn't know it: "kOfxStatErrUnknown - if the type is
         // unknown".
-        if (paramType && std::string(paramType) == kOfxParamTypeStrChoice &&
+        if (std::string(paramType) == kOfxParamTypeStrChoice &&
             !(ImageEffect::gImageEffectHost &&
               ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxParamHostPropSupportsStrChoice) != 0)) {
           const OfxStatus st = (ImageEffect::gImageEffectHost &&
@@ -2268,7 +2289,7 @@ namespace OFX {
         // Same for Bytes params (OFX 1.5). The standard has no host property for them:
         // plug-ins find out from this status (see the upstream Examples/Custom plug-in).
         // HostSupport-based hosts opt in with kOfxHostSupportHostPropSupportsBytes.
-        if (paramType && std::string(paramType) == kOfxParamTypeBytes &&
+        if (std::string(paramType) == kOfxParamTypeBytes &&
             !(ImageEffect::gImageEffectHost &&
               ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxHostSupportHostPropSupportsBytes) != 0)) {
           const OfxStatus st = (ImageEffect::gImageEffectHost &&
@@ -2318,8 +2339,16 @@ namespace OFX {
                                       OfxPropertySetHandle *propertySet)
       {
 #       ifdef OFX_DEBUG_PARAMETERS
-        std::cout << "OFX: paramGetHandle - " << paramSet << ' ' << name << ' ' << param << ' ' << propertySet << " ...";
+        std::cout << "OFX: paramGetHandle - " << paramSet << ' ' << (name ? name : "(null)") << ' ' << param << ' ' << propertySet << " ...";
 #       endif
+        // on failure, hand back NULL handles rather than leaving them uninitialised
+        if (param) {
+          *param = NULL;
+        }
+        if (propertySet) {
+          *propertySet = NULL;
+        }
+
         BaseSet *baseSet = reinterpret_cast<BaseSet*>(paramSet);
 
         if (!baseSet) {
@@ -2327,6 +2356,15 @@ namespace OFX {
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
           return kOfxStatErrBadHandle;
+        }
+
+        // a NULL name names no parameter: "kOfxStatErrUnknown", the status of an
+        // "operation on or request for an unknown object" (ofxCore.h), as for a name not found
+        if (!name) {
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << ' ' << StatStr(kOfxStatErrUnknown) << std::endl;
+#         endif
+          return kOfxStatErrUnknown;
         }
 
         SetInstance *setInstance = dynamic_cast<SetInstance*>(baseSet);
@@ -2461,18 +2499,32 @@ namespace OFX {
         }
       } 
       
+      /// Map a param handle to a param instance. The handle is Base::getHandle(), the address
+      /// of the (polymorphic) Param::Base, which may be a describe-time Param::Descriptor: the
+      /// value, key and copy functions need an Instance, and get NULL for a descriptor
+      /// ("kOfxStatErrBadHandle - if the parameter handle was invalid").
+      static Instance *paramHandleToInstance(OfxParamHandle paramHandle)
+      {
+        Base *paramBase = reinterpret_cast<Base*>(paramHandle);
+        if (!paramBase || !paramBase->verifyMagic()) {
+          return NULL;
+        }
+        return dynamic_cast<Instance*>(paramBase);
+      }
+
       static OfxStatus paramGetPropertySetImpl(OfxParamHandle param,
                                            OfxPropertySetHandle *propHandle)
       {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramGetPropertySet - " << param << ' ' << propHandle << " ...";
 #       endif
-        Param::Instance *paramInstance = reinterpret_cast<Param::Instance*>(param);
+        // valid on a descriptor (in describe) as on an instance: the handle is a Param::Base
+        Base *paramBase = reinterpret_cast<Base*>(param);
         
-        if(paramInstance && paramInstance->verifyMagic()){
+        if(paramBase && paramBase->verifyMagic()){
           // get the param property set
           if (propHandle) {
-            *propHandle = paramInstance->getPropHandle();
+            *propHandle = paramBase->getPropHandle();
 #           ifdef OFX_DEBUG_PARAMETERS
             std::cout << ' ' << *propHandle;
 #           endif
@@ -2511,8 +2563,8 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramGetValue - " << paramHandle << " ...";
 #       endif
-        Instance *paramInstance = reinterpret_cast<Instance*>(paramHandle);
-        if(!paramInstance || !paramInstance->verifyMagic()) {
+        Instance *paramInstance = paramHandleToInstance(paramHandle);
+        if(!paramInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
@@ -2547,8 +2599,8 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramGetValueAtTime - " << paramHandle << ' ' << time << " ...";
 #       endif
-        Instance *paramInstance = reinterpret_cast<Instance*>(paramHandle);
-        if(!paramInstance || !paramInstance->verifyMagic()) {
+        Instance *paramInstance = paramHandleToInstance(paramHandle);
+        if(!paramInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
@@ -2584,8 +2636,8 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramGetDerivative - " << paramHandle << ' ' << time << " ...";
 #       endif
-        Instance *paramInstance = reinterpret_cast<Instance*>(paramHandle);
-        if(!paramInstance || !paramInstance->verifyMagic()) {
+        Instance *paramInstance = paramHandleToInstance(paramHandle);
+        if(!paramInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
@@ -2619,8 +2671,8 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramGetIntegral - " << paramHandle << ' ' << time1 << ' ' << time2 << " ...";
 #       endif
-        Instance *paramInstance = reinterpret_cast<Instance*>(paramHandle);
-        if(!paramInstance || !paramInstance->verifyMagic()) {
+        Instance *paramInstance = paramHandleToInstance(paramHandle);
+        if(!paramInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
@@ -2651,8 +2703,8 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramSetValue - " << paramHandle << ' ';
 #       endif
-        Instance *paramInstance = reinterpret_cast<Instance*>(paramHandle);
-        if(!paramInstance || !paramInstance->verifyMagic()) {
+        Instance *paramInstance = paramHandleToInstance(paramHandle);
+        if(!paramInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << " ... " << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
@@ -2692,8 +2744,8 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramSetValueAtTime - " << paramHandle << ' ' << time << ' ';
 #       endif
-        Instance *paramInstance = reinterpret_cast<Instance*>(paramHandle);
-        if(!paramInstance || !paramInstance->verifyMagic()) {
+        Instance *paramInstance = paramHandleToInstance(paramHandle);
+        if(!paramInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << " ... " << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
@@ -2727,9 +2779,9 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramGetNumKeys - " << paramHandle << " ...";
 #       endif
-        Param::Instance *pInstance = reinterpret_cast<Param::Instance*>(paramHandle);
+        Param::Instance *pInstance = paramHandleToInstance(paramHandle);
 
-        if (!pInstance || !pInstance->verifyMagic()) {
+        if (!pInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
@@ -2774,9 +2826,9 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramGetKeyTime - " << paramHandle << " ...";
 #       endif
-        Param::Instance *pInstance = reinterpret_cast<Param::Instance*>(paramHandle);
+        Param::Instance *pInstance = paramHandleToInstance(paramHandle);
 
-        if (!pInstance || !pInstance->verifyMagic()) {
+        if (!pInstance) {
 #       ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #       endif
@@ -2822,9 +2874,9 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramGetKeyIndex - " << paramHandle << " ...";
 #       endif
-        Param::Instance *pInstance = reinterpret_cast<Param::Instance*>(paramHandle);
+        Param::Instance *pInstance = paramHandleToInstance(paramHandle);
 
-        if (!pInstance || !pInstance->verifyMagic()) {
+        if (!pInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
@@ -2868,9 +2920,9 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramDeleteKey - " << paramHandle << " ...";
 #       endif
-        Param::Instance *pInstance = reinterpret_cast<Param::Instance*>(paramHandle);
+        Param::Instance *pInstance = paramHandleToInstance(paramHandle);
 
-        if (!pInstance || !pInstance->verifyMagic()) {
+        if (!pInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
@@ -2910,9 +2962,9 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramDeleteAllKeys - " << paramHandle << " ...";
 #       endif
-        Param::Instance *pInstance = reinterpret_cast<Param::Instance*>(paramHandle);
-        
-        if (!pInstance || !pInstance->verifyMagic()) {
+        Param::Instance *pInstance = paramHandleToInstance(paramHandle);
+
+        if (!pInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
@@ -2954,11 +3006,10 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramCopy - " << paramTo << " ...";
 #       endif
-        Instance *paramInstanceTo = reinterpret_cast<Instance*>(paramTo);
-        Instance *paramInstanceFrom = reinterpret_cast<Instance*>(paramFrom);        
+        Instance *paramInstanceTo = paramHandleToInstance(paramTo);
+        Instance *paramInstanceFrom = paramHandleToInstance(paramFrom);
 
-        if(!paramInstanceTo || !paramInstanceTo->verifyMagic() ||
-           !paramInstanceFrom || !paramInstanceFrom->verifyMagic()) {
+        if(!paramInstanceTo || !paramInstanceFrom) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
