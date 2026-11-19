@@ -58,10 +58,10 @@ endif()
 # Rendering extensions
 option(OFX_SUPPORTS_OPENGLRENDER "OpenGL render support (OFX_SUPPORTS_OPENGLRENDER)" ON)
 # The OpenGL backend of OFX::DrawArgs::getDrawContext() (Support/Library/ofxsDrawContextOpenGL.cpp):
-# OFF, or no OpenGL headers, compiles it with OFXS_DRAWCONTEXT_NO_OPENGL (getDrawContext() then draws
-# nothing on V1 overlays). Either way neither openfx::Support nor the plug-ins that call
-# getDrawContext() need to link OpenGL: the backend loads it at run time, in the draw actions that
-# may use OpenGL (V1 entries, parameter interacts).
+# OFF compiles it with OFXS_DRAWCONTEXT_NO_OPENGL (getDrawContext() then draws nothing on V1
+# overlays). It needs no OpenGL header (include/ofxDrawSuiteOpenGL.h), and neither openfx::Support
+# nor the plug-ins that call getDrawContext() need to link OpenGL: the backend loads it at run time,
+# in the draw actions that may use OpenGL (V1 entries, parameter interacts).
 option(OFX_SUPPORT_DRAWCONTEXT_OPENGL "Support: OpenGL backend of OFX::DrawArgs::getDrawContext()" ON)
 option(OFX_SUPPORTS_OPENCLRENDER "Build examples with support for OpenCL GPU rendering" OFF)
 
