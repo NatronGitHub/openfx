@@ -3816,14 +3816,20 @@ namespace OFX {
         if (!clip) {
           return kOfxStatErrBadHandle;
         }
+        *clip = NULL;
+        if (propertySet) {
+          *propertySet = NULL;
+        }
 
         ImageEffect::Base *effectBase = reinterpret_cast<ImageEffect::Base*>(imageEffect);
 
-        if (!effectBase || !effectBase->verifyMagic()) {
+        if (!effectBase || !effectBase->verifyMagic() || !name) {
           return kOfxStatErrBadHandle;
         }
 
-        ImageEffect::Instance *effectInstance = reinterpret_cast<ImageEffect::Instance*>(effectBase);
+        // "Not a valid call in any of the describe actions": the handle may be a descriptor,
+        // which has no clip instances (a reinterpret_cast would use it as an instance).
+        ImageEffect::Instance *effectInstance = dynamic_cast<ImageEffect::Instance*>(effectBase);
 
         if(effectInstance){
           ClipInstance* instance = effectInstance->getClip(name);
@@ -3905,12 +3911,13 @@ namespace OFX {
         }
 
         ImageEffect::Base *effectBase = reinterpret_cast<ImageEffect::Base*>(instanceHandle);
-        ImageEffect::Instance *effectInstance = reinterpret_cast<ImageEffect::Instance*>(effectBase);
         Memory::Instance* memory;
 
-        if(effectInstance){
+        if(effectBase){
 
-          if (!effectInstance->verifyMagic()) {
+          // the handle must be an effect instance (a descriptor has no imageMemoryAlloc())
+          ImageEffect::Instance *effectInstance = effectBase->verifyMagic() ? dynamic_cast<ImageEffect::Instance*>(effectBase) : NULL;
+          if (!effectInstance) {
             *memoryHandle = NULL;
             return kOfxStatErrBadHandle;
           }
