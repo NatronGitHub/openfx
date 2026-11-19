@@ -559,11 +559,6 @@ namespace OFX {
     return _overlayRegistration == Private::eOverlayRegistrationV2;
   }
 
-  OfxDrawContextHandle DrawArgs::getHostDrawContext() const
-  {
-    return _drawContextStorage.getHandle();
-  }
-
   /** @brief ctor */
   PenArgs::PenArgs(const PropertySet &props)
     : InteractArgs(props)
@@ -689,8 +684,7 @@ namespace OFX {
       OfxInteractHandle      handle,
       PropertySet              inArgs,
       PropertySet              /*outArgs*/,
-      OverlayRegistrationEnum  registration,
-      bool                     hideDrawContext)
+      OverlayRegistrationEnum  registration)
     {
       OfxStatus stat = kOfxStatReplyDefault;
 
@@ -742,12 +736,12 @@ namespace OFX {
 #endif
         // the backend of drawArgs.getDrawContext()
         DrawArgsAccess::setOverlayRegistration(drawArgs, registration);
-        if (hideDrawContext) {
-          // the OpenGL V1 entry of an overlay registered with setOverlayInteractDescriptorV2():
-          // "If this is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD
-          // use OpenGL". Its draw() tests drawContext to choose the DrawSuite (e.g. SupportExt's
-          // OverlayDraw), so hide the host's context (HostSupport passes one to every overlay).
-          drawArgs.drawContext = NULL;
+        if (registration != eOverlayRegistrationV2) {
+          // A V1 draw (a V1 overlay entry, or a parameter interact): "If this is called via
+          // kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL". V1 draws use
+          // only OpenGL, so drop the host's draw context (HostSupport passes one to every
+          // overlay): drawContext is NULL, and getDrawContext() never uses the DrawSuite.
+          DrawArgsAccess::clearDrawSuiteContext(drawArgs);
         }
         if(interact->draw(drawArgs))
           stat = kOfxStatOK;
@@ -886,16 +880,16 @@ namespace OFX {
           stat = kOfxStatOK;
         }
         else if (entry == eInteractEntryOpenGL) {
-          // the OpenGL V1 entry that setOverlayInteractDescriptorV2() registers next to the V2
-          // one: V1, and no DrawSuite context
-          stat = interactMainEntry(action, handle, inArgs, outArgs, eOverlayRegistrationV1, true);
+          // the OpenGL V1 entry that setOverlayInteractDescriptorV2(desc, true) registers next
+          // to the V2 one: V1, and no DrawSuite context
+          stat = interactMainEntry(action, handle, inArgs, outArgs, eOverlayRegistrationV1);
         }
         else {
           // V2 if this main entry was registered as kOfxImageEffectPluginPropOverlayInteractV2
           // (V1 for the other overlays and for parameter interacts)
           const OverlayRegistrationEnum registration =
             isOverlayInteractV2(desc.getMainEntry()) ? eOverlayRegistrationV2 : eOverlayRegistrationV1;
-          stat = interactMainEntry(action, handle, inArgs, outArgs, registration, false);
+          stat = interactMainEntry(action, handle, inArgs, outArgs, registration);
         }
 
       }

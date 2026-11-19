@@ -168,14 +168,18 @@ namespace OFX {
     };
 
     /** @brief The registry of the overlay registrations (ofxsImageEffect.cpp).
-        Record that the overlay with that main entry is registered as
-        kOfxImageEffectPluginPropOverlayInteractV1 (ImageEffectDescriptor::setOverlayInteractDescriptor) */
+        Record that the overlay with that entry point is registered as
+        kOfxImageEffectPluginPropOverlayInteractV1 (ImageEffectDescriptor::setOverlayInteractDescriptor:
+        on a DrawSuite host, the V1 sibling entry if the descriptor class has one, else the main
+        entry; setOverlayInteractDescriptorV2(desc, true): the V1 sibling entry) */
     void setOverlayInteractV1(OfxPluginEntryPoint *mainEntry);
 
     /** @brief Record that the overlay with that main entry is registered as
         kOfxImageEffectPluginPropOverlayInteractV2 (ImageEffectDescriptor::setOverlayInteractDescriptorV2).
-        If it is also registered as V1, V2 wins (isOverlayInteractV2() is true), and a warning is
-        logged once (and printed to std::cerr in DEBUG builds). */
+        If the same entry is also registered as V1, V2 wins (isOverlayInteractV2() is true), and a
+        warning is logged once (and printed to std::cerr in DEBUG builds). That only happens for a
+        descriptor class without a V1 sibling entry: on a DrawSuite host,
+        setOverlayInteractDescriptor() registers the sibling, so the main entry is only V2. */
     void setOverlayInteractV2(OfxPluginEntryPoint *mainEntry);
 
     /** @brief true if the overlay with that main entry was registered as V2 */
@@ -195,6 +199,8 @@ namespace OFX {
       static void setOverlayRegistration(DrawArgs &args, OverlayRegistrationEnum r) { args._overlayRegistration = (int)r; }
       static OverlayRegistrationEnum getOverlayRegistration(const DrawArgs &args) { return (OverlayRegistrationEnum)args._overlayRegistration; }
       static const DrawContext &drawSuiteContext(const DrawArgs &args) { return args._drawContextStorage; }
+      // a V1 draw: forget the host's draw context (drawContext becomes NULL)
+      static void clearDrawSuiteContext(DrawArgs &args) { args._drawContextStorage = DrawContext(); args.drawContext = NULL; }
       // the context that getDrawContext() returns for V1 overlays: getDrawContext() sets its
       // backend (the only change made through a const DrawArgs)
       static DrawContext &openGLContext(const DrawArgs &args) { return args._openGLDrawContext; }

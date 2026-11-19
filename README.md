@@ -33,8 +33,10 @@ work unchanged:
 - string-valued choice params (StrChoice), ChoiceOrder, Bytes params and InterpType;
 - the effect properties Obsolete, CPURenderSupported, ThumbnailRender and DisplayTimeOffset;
 - CUDA (and CUDA streams), Metal (buffers and textures) and OpenCL (buffers, images and the program suite) render properties;
-- DrawSuite and OverlayInteractV2. With the Support library, `DrawArgs::getDrawContext()` gives one overlay `draw()` for
-  DrawSuite hosts and OpenGL hosts, and `setOverlayInteractDescriptorV2()` also registers an OpenGL V1 entry;
+- DrawSuite and OverlayInteractV2. The Support library applies the spec strictly: V1 overlay draws use only OpenGL,
+  V2 draws only the DrawSuite. With `setOverlayInteractDescriptorV2()` and `DrawArgs::getDrawContext()`, one DrawSuite
+  overlay `draw()` also works on hosts without the DrawSuite (it is converted to OpenGL there), and
+  `setOverlayInteractDescriptorV2(desc, true)` also registers a V1 entry for plug-ins that have their own OpenGL code;
 - colour management (styles, clip colourspaces, GetOutputColourspace);
 - the optional `OfxSetHost` entry point, which HostSupport calls before `OfxGetNumberOfPlugins`.
 

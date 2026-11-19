@@ -1259,22 +1259,36 @@ namespace OFX {
   {
     _overlayDescriptor.reset(desc);
     if(OFX::gHostDescription.supportsOverlays && desc->getMainEntry()) {
-      _effectProps.propSetPointer(kOfxImageEffectPluginPropOverlayInteractV1, (void*)desc->getMainEntry());
-      OFX::Private::setOverlayInteractV1(desc->getMainEntry());
+      // On a DrawSuite host, register the V1 sibling entry of the descriptor class
+      // (InteractMainEntry<DESC>::overlayInteractMainEntryV1) if it has one, so that the main
+      // entry is only ever V2 there: a descriptor class also registered with
+      // setOverlayInteractDescriptorV2() then still draws with OpenGL through V1 and with the
+      // DrawSuite through V2. Without the DrawSuite, the main entry (V2 is never registered).
+      OfxPluginEntryPoint *entry = desc->getMainEntry();
+      if (OFX::gHostDescription.supportsDrawSuite) {
+        OfxPluginEntryPoint *mainEntryV1 = OFX::Private::getOverlayInteractV1Sibling(entry);
+        if (mainEntryV1) {
+          entry = mainEntryV1;
+        }
+      }
+      _effectProps.propSetPointer(kOfxImageEffectPluginPropOverlayInteractV1, (void*)entry);
+      OFX::Private::setOverlayInteractV1(entry);
     }
   }
 
-  bool ImageEffectDescriptor::setOverlayInteractDescriptorV2(EffectOverlayDescriptor* desc)
+  bool ImageEffectDescriptor::setOverlayInteractDescriptorV2(EffectOverlayDescriptor* desc, bool hasOpenGLDraw)
   {
     if (!OFX::gHostDescription.supportsDrawSuite) {
-      // no DrawSuite: register the same overlay as V1. It then gets
-      // DrawArgs::drawContext == NULL and must draw with OpenGL.
+      // No DrawSuite (e.g. an OFX 1.4 host): the compatibility layer. Register the overlay as
+      // V1: its draw() gets DrawArgs::drawContext == NULL, and getDrawContext() converts its
+      // DrawSuite calls to OpenGL (ofxsDrawContextOpenGL.cpp).
       setOverlayInteractDescriptor(desc);
       return false;
     }
     if(!OFX::gHostDescription.supportsOverlays || !desc->getMainEntry()) {
+      // nothing registered
       _overlayDescriptor.reset(desc);
-      return true;
+      return false;
     }
     // record V2 only if the host accepted the property; if it refused it, register as V1
     OfxStatus stat = kOfxStatFailed;
@@ -1304,12 +1318,17 @@ namespace OFX {
     _overlayDescriptor.reset(desc);
     // DrawArgs::getDrawContext() then uses the DrawSuite, never OpenGL, for this overlay
     OFX::Private::setOverlayInteractV2(desc->getMainEntry());
-    // Also register the OpenGL V1 entry of the same descriptor class, for the hosts that
-    // call kOfxImageEffectPluginPropOverlayInteractV1 ("If this is called via
-    // kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL"): it is a
-    // distinct entry point (InteractMainEntry<DESC>::overlayInteractMainEntryV1), so the
-    // dispatcher knows that the host called it, and its draw actions use OpenGL. There is none
-    // if the descriptor's main entry is not an InteractMainEntry<DESC> one: then V2 only.
+    if (!hasOpenGLDraw) {
+      // the plug-in only draws with the DrawSuite: V2 only (a V1 draw uses only OpenGL)
+      return true;
+    }
+    // The plug-in's draw() has its own OpenGL path: also register the V1 entry of the same
+    // descriptor class, for the hosts that call kOfxImageEffectPluginPropOverlayInteractV1
+    // ("If this is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use
+    // OpenGL"). It is a distinct entry point (InteractMainEntry<DESC>::overlayInteractMainEntryV1),
+    // so the dispatcher knows that the host called it, and its draw actions use only OpenGL.
+    // There is none if the descriptor's main entry is not an InteractMainEntry<DESC> one: then
+    // V2 only.
     OfxPluginEntryPoint *mainEntryV1 = OFX::Private::getOverlayInteractV1Sibling(desc->getMainEntry());
     if (mainEntryV1 && mainEntryV1 != desc->getMainEntry()) {
       stat = OFX::Private::gPropSuite->propSetPointer(_effectProps.propSetHandle(), kOfxImageEffectPluginPropOverlayInteractV1,
