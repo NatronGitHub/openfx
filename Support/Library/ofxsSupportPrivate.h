@@ -233,7 +233,8 @@ namespace OFX {
     };
 
     /** @brief The OpenGL backend (ofxsDrawContextOpenGL.cpp), NULL if it was compiled with
-        OFXS_DRAWCONTEXT_NO_OPENGL */
+        OFXS_DRAWCONTEXT_NO_OPENGL or if the OpenGL functions can't be loaded at run time (the
+        first call loads them: only call it where an OpenGL context is current) */
     const DrawContextBackend *openGLDrawContextBackend();
   }
 

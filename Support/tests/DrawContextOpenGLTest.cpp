@@ -793,7 +793,7 @@ int main()
   OFX::Private::gInteractSuite = &gFakeInteractSuite;
   OFX::gHostDescriptionHasInit = true; // getImageEffectHostDescription() (ImageEffect's constructor)
   if (!OFX::Private::openGLDrawContextBackend()) {
-    std::printf("built with OFXS_DRAWCONTEXT_NO_OPENGL: nothing to test\n");
+    std::printf("built with OFXS_DRAWCONTEXT_NO_OPENGL, or OpenGL can't be loaded: nothing to test\n");
     return 0;
   }
   testRegistry();

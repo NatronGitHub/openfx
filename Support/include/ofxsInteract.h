@@ -161,10 +161,15 @@ namespace OFX {
    The OpenGL backend is not compiled if OFXS_DRAWCONTEXT_NO_OPENGL is defined when compiling
    ofxsDrawContextOpenGL.cpp (for plug-in binaries built without OpenGL): getDrawContext() on a
    V1 overlay then draws nothing (canDraw() is false). Plug-ins that call getDrawContext() must
-   compile and link ofxsDrawContextOpenGL.cpp, and link OpenGL (as every OpenGL overlay does).
-   From libOfxSupport.a (CMake's openfx::Support), plug-ins that don't call it link neither;
+   compile and link ofxsDrawContextOpenGL.cpp, which needs the OpenGL headers but doesn't link
+   OpenGL: it loads the OpenGL 1.1 functions at run time, at the first getDrawContext() in a draw
+   action called through a V1 entry (dlopen/dlsym of libGL.so.1, of the OpenGL framework on
+   macOS, GetProcAddress on opengl32.dll on Windows; -ldl on Linux before glibc 2.34). So a
+   plug-in that calls it still loads on a machine without OpenGL; if OpenGL can't be loaded,
+   getDrawContext() on a V1 overlay draws nothing (canDraw() is false).
+   From libOfxSupport.a (CMake's openfx::Support), plug-ins that don't call it don't link it;
    Support/Plugins/Makefile.master's SUPPORTOBJECTS are plain object files, so every plug-in built
-   with it links ofxsDrawContextOpenGL.o and needs the OpenGL headers (it already links OpenGL).
+   with it links ofxsDrawContextOpenGL.o and needs the OpenGL headers.
    The legacy project files (Support/Support.xcodeproj, the .vcproj and .dsp files) are not
    maintained and don't list ofxsDrawContextOpenGL.cpp.
    */

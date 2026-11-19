@@ -35,8 +35,13 @@ target_include_directories(OfxSupport PUBLIC
 	$<INSTALL_INTERFACE:include/Support/Plugins>)
 
 # The OpenGL backend of DrawArgs::getDrawContext() is the only Support file that calls OpenGL. It
-# only needs the OpenGL headers here: openfx::Support doesn't link OpenGL, the plug-ins that call
-# getDrawContext() do (that object file is not linked into the others, from this static library).
+# only needs the OpenGL headers: it loads the OpenGL functions at run time (dlopen/dlsym, or
+# GetProcAddress on Windows), so neither openfx::Support nor the plug-ins that call
+# getDrawContext() need to link OpenGL, and they load on machines without OpenGL.
+# dlopen is in libdl on Linux before glibc 2.34.
+if(CMAKE_DL_LIBS)
+  target_link_libraries(OfxSupport PUBLIC ${CMAKE_DL_LIBS})
+endif()
 set(_ofx_drawcontext_gl "${OFX_SUPPORT_LIBRARY_DIR}/ofxsDrawContextOpenGL.cpp")
 set(_ofx_drawcontext_gl_ok OFF)
 if(OFX_SUPPORT_DRAWCONTEXT_OPENGL)

@@ -55,7 +55,12 @@ foreach(PLUGIN IN LISTS PLUGINS)
 	set(TGT example-${PLUGIN}-support)
 	add_ofx_plugin(${TGT} ${PLUGIN})
 	target_sources(${TGT} PRIVATE ${PLUGIN_SOURCES})
-	target_link_libraries(${TGT} PRIVATE OfxSupport OpenGL::GL)
+	target_link_libraries(${TGT} PRIVATE OfxSupport)
+	# only the plug-ins whose overlays call OpenGL themselves link it: the Support library loads it
+	# at run time (DrawArgs::getDrawContext(), used by Basic), so the others load without OpenGL
+	if(PLUGIN STREQUAL "ChoiceParams" OR PLUGIN STREQUAL "MultiBundle" OR PLUGIN STREQUAL "Tester")
+		target_link_libraries(${TGT} PRIVATE OpenGL::GL)
+	endif()
 	target_include_directories(${TGT} PRIVATE ${OFX_SUPPORT_PLUGINS_INCLUDE_DIR})
 
 	if(PLUGIN STREQUAL "MultiplyGPU")
