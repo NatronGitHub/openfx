@@ -250,6 +250,12 @@ namespace OFX {
         /// interact's view. The defaults return kOfxStatErrMissingHostFeature.
         /// The semantics of each function are those of include/ofxDrawSuite.h.
         ///
+        /// A host that draws its overlays with OpenGL can forward these hooks to an
+        /// OFX::Host::Interact::OpenGLDrawSuite member (ofxhDrawSuiteOpenGL.h, optional and
+        /// header-only), which draws with the OpenGL DrawSuite core shared with the Support
+        /// library's DrawSuite-to-OpenGL emulation (include/ofxDrawSuiteOpenGL.h), with hooks
+        /// for the host's colours and font, and the shadows of drawSuiteShadows().
+        ///
         /// Graphics state: HostSupport makes no OpenGL (or other graphics API) call around
         /// these hooks, and does not require any graphics context to be current. They are
         /// called synchronously, on the thread that called drawAction(), from inside the
@@ -301,6 +307,15 @@ namespace OFX {
 
         /// is kOfxInteractActionDraw currently being called on this instance?
         bool isInDraw() const { return _inDraw; }
+
+        /// Does the host want drop shadows on the DrawSuite elements of this interact? With
+        /// OFX_EXTENSIONS_NATRON, drawAction() sets kNatronOfxInteractPropDrawSuiteShadows
+        /// (ofxNatron.h, extension 14) to it in the inArgs of kOfxInteractActionDraw. The host's
+        /// DrawSuite hooks draw the shadows of V2 draws (e.g. OpenGLDrawSuite::beginDraw() with
+        /// this value); the Support library's DrawSuite-to-OpenGL emulation draws those of V1
+        /// draws. Plug-ins never draw shadows with DrawSuite calls, and their OpenGL code keeps
+        /// its own. Default: false.
+        virtual bool drawSuiteShadows() const { return false; }
 
         /// returns the params the interact uses
         virtual void getSlaveToParam(std::vector<std::string>& params) const;

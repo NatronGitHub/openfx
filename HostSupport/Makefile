@@ -61,6 +61,7 @@ endif
 HEADERS = include/ofxhBinary.h                  \
 	include/ofxhArchDirs.h               \
    include/ofxhClip.h                           \
+   include/ofxhDrawSuiteOpenGL.h                \
    include/ofxhHost.h                           \
    include/ofxhImageEffect.h                    \
    include/ofxhImageEffectAPI.h                 \

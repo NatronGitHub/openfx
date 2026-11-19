@@ -50,6 +50,7 @@ PROPS = {
     'NatronOfxImageEffectSelectionRectangle': PropDef('NatronOfxImageEffectSelectionRectangle', 'kNatronOfxImageEffectSelectionRectangle', 'double', 4, extension='natron', header='ofxNatron.h'),
     'NatronOfxInteractColourPicking': PropDef('NatronOfxInteractColourPicking', 'kNatronOfxInteractColourPicking', 'bool', 1, extension='natron', header='ofxNatron.h'),
     'NatronOfxInteractHostPropSupportsKeyModifiers': PropDef('NatronOfxInteractHostPropSupportsKeyModifiers', 'kNatronOfxInteractHostPropSupportsKeyModifiers', 'bool', 1, extension='natron', header='ofxNatron.h'),
+    'NatronOfxInteractPropDrawSuiteShadows': PropDef('NatronOfxInteractPropDrawSuiteShadows', 'kNatronOfxInteractPropDrawSuiteShadows', 'bool', 1, extension='natron', header='ofxNatron.h'),
     'NatronOfxInteractPropKeyModifiers': PropDef('NatronOfxInteractPropKeyModifiers', 'kNatronOfxInteractPropKeyModifiers', 'int', 1, extension='natron', header='ofxNatron.h'),
     'NatronOfxPageParamPropInViewerContextIsToolbar': PropDef('NatronOfxPageParamPropInViewerContextIsToolbar', 'kNatronOfxParamPropInViewerContextIsInToolbar', 'bool', 1, extension='natron', header='ofxNatron.h'),
     'NatronOfxParamHostPropSupportsDynamicChoices': PropDef('NatronOfxParamHostPropSupportsDynamicChoices', 'kNatronOfxParamHostPropSupportsDynamicChoices', 'int', 1, extension='natron', header='ofxNatron.h'),

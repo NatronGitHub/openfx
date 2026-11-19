@@ -458,11 +458,12 @@ namespace OFX {
         }
 
       private:
-        // the core's state for ctx (resetState() sanitises the pixel scale and the ratio)
+        // the core's state for ctx (resetState() sanitises the pixel scale and the ratio); the
+        // shadows: kNatronOfxInteractPropDrawSuiteShadows of the draw action
         static DrawSuiteOpenGL::State state(const DrawContext &ctx)
         {
           DrawSuiteOpenGL::State s;
-          DrawSuiteOpenGL::resetState(s, pixelScale(ctx), screenPixelRatio(ctx), false);
+          DrawSuiteOpenGL::resetState(s, pixelScale(ctx), screenPixelRatio(ctx), drawSuiteShadows(ctx));
           s.colour = colour(ctx);
           s.lineWidth = lineWidth(ctx);
           s.stipple = lineStipple(ctx);

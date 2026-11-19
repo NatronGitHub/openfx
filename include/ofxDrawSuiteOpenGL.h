@@ -55,14 +55,19 @@
     kOfxStatErrValue. Aligned with alignText().
   - standardColour: fixed colours, close to the Natron and SupportExt OpenGL overlays.
 
-  Shadows: if State::shadows is true, drawPrimitive() and drawText() first draw the same element
-  offset by one device pixel right and down (shadowOffset(): (+pixelScale.x / screenPixelRatio,
+  Shadows: if State::shadows is true, drawPrimitive() (for the lines, line strips and loops and
+  the ellipse outline: hasShadow()) and drawText() first draw the same element offset by one
+  device pixel right and down (shadowOffset(): (+pixelScale.x / screenPixelRatio,
   -pixelScale.y / screenPixelRatio) in canonical coordinates, as the OpenGL shadows of the
   Natron and SupportExt overlays), in the standard background colour
-  (kOfxStandardColourOverlayBackground) with the current colour's alpha, then the element. Off by
-  default. Plug-ins never draw shadows with DrawSuite calls: the shadows are for hosts (a host
-  setting) and for Support's DrawSuite-to-OpenGL compatibility layer (see
-  kNatronOfxInteractPropDrawSuiteShadows in ofxNatron.h).
+  (kOfxStandardColourOverlayBackground, black) with the current colour's alpha, then the element.
+  The filled primitives (Rectangle, Polygon) have no shadow: a shadow under a translucent fill
+  (e.g. kOfxStandardColourOverlayMarqueeBG) makes it hazy, and the Natron and SupportExt OpenGL
+  overlays only shadow their lines and points. Off by default. Plug-ins never draw shadows with
+  DrawSuite calls: the shadows are for hosts (a host setting) and for Support's
+  DrawSuite-to-OpenGL compatibility layer (see kNatronOfxInteractPropDrawSuiteShadows in
+  ofxNatron.h). Hosts that use their own background colour for the shadows draw the two passes
+  themselves (as HostSupport's ofxhDrawSuiteOpenGL.h does).
  */
 
 #ifndef __cplusplus
@@ -569,6 +574,14 @@ namespace OFX {
       return c;
     }
 
+    /** @brief true if primitive gets a shadow (State::shadows): the lines, line strips and
+        loops, and the ellipse outline; not the filled Rectangle and Polygon */
+    inline bool hasShadow(OfxDrawPrimitive primitive)
+    {
+      return primitive == kOfxDrawPrimitiveLines || primitive == kOfxDrawPrimitiveLineStrip ||
+             primitive == kOfxDrawPrimitiveLineLoop || primitive == kOfxDrawPrimitiveEllipse;
+    }
+
     /** @brief The offset of the shadows, in canonical coordinates: one device pixel right and
         down, (+pixelScale.x / screenPixelRatio, -pixelScale.y / screenPixelRatio) with the
         state's sanitised values (a screen pixel at ratio 1, half a screen pixel at ratio 2), as
@@ -638,7 +651,8 @@ namespace OFX {
     } // namespace Detail
 
     /** @brief draw (OfxDrawSuiteV1::draw): validatePrimitive(), then the primitive with the
-        state (and its shadow first if state.shadows), inside a ScopedGLState.
+        state (and its shadow first if state.shadows and hasShadow(primitive)), inside a
+        ScopedGLState.
         kOfxStatErrValue for invalid arguments, kOfxStatFailed if gl is not complete. */
     inline OfxStatus drawPrimitive(const GLFunctions &gl, const State &state, OfxDrawPrimitive primitive,
                                    const OfxPointD *points, int pointCount)
@@ -655,13 +669,14 @@ namespace OFX {
         ellipseCount = ellipseSegmentCount(0.5 * (points[1].x - points[0].x) / state.pixelScale.x,
                                            0.5 * (points[1].y - points[0].y) / state.pixelScale.y);
       }
-      ScopedGLState saver( gl, state.shadows ? shadowColour(state) : state.colour );
+      const bool shadow = state.shadows && hasShadow(primitive);
+      ScopedGLState saver( gl, shadow ? shadowColour(state) : state.colour );
       if (primitive != kOfxDrawPrimitivePolygon && primitive != kOfxDrawPrimitiveRectangle) {
         applyLineState(gl, state); // the lines and the ellipse
       }
       OfxPointD none;
       none.x = none.y = 0.;
-      if (state.shadows) {
+      if (shadow) {
         Detail::primitive( gl, primitive, points, pointCount, shadowOffset(state), ellipseCount );
         gl.Color4f(state.colour.r, state.colour.g, state.colour.b, state.colour.a);
       }

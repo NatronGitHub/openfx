@@ -26,6 +26,10 @@ def test_props():
     assert (p.type, p.dimension, p.extension) == ("bool", 1, "natron")
     assert (k.kNatronOfxKeyModifierShift, k.kNatronOfxKeyModifierControl,
             k.kNatronOfxKeyModifierAlt, k.kNatronOfxKeyModifierMeta) == (1, 2, 4, 8)
+    # ofxNatron.h extension 14: DrawSuite shadows
+    p = PROPS[k.kNatronOfxInteractPropDrawSuiteShadows]
+    assert (p.type, p.dimension, p.extension) == ("bool", 1, "natron")
+    assert p.name == "NatronOfxInteractPropDrawSuiteShadows"
     assert PROPS[k.kOfxParamPropDefault].type == ("int", "double", "string", "pointer")
     assert PROPS[k.kOfxParamInterpType].values == (
         k.kOfxParamInterpTypeConstantStep, k.kOfxParamInterpTypeLinear, k.kOfxParamInterpTypeSmooth)

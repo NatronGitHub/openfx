@@ -582,6 +582,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
     12) Deprecate kOfxParamPropUseHostOverlayHandle, instead add a property on the image effect descriptor indicating group of parameters which altogether control
  more complex overlays. A host can then provide default overlay interact handling.
     13) Pass the state of the keyboard modifiers (Shift, Control, Alt, Meta) to the interact actions, of image effect overlays and of parameter interacts.
+    14) Let the host ask for drop shadows on the elements drawn with the OFX 1.5 DrawSuite (kNatronOfxInteractPropDrawSuiteShadows).
 
 1) In the host viewport, parameters can be arranged by widget rows controlled by the kNatronOfxImageEffectPropInViewerContextParamsOrder property.
  This index indicates the order of the parameter in the rows.
@@ -676,6 +677,11 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  Hosts are not required to redraw interacts when only the state of the modifiers changes. A plug-in whose drawing depends on the modifiers (e.g. a hint shown while Shift is held) should request a redraw (OfxInteractSuiteV1::interactRedraw) from its key actions for the modifier keys.
  Negotiation and compatibility: a host that supports this extension sets the property in all the actions and interacts listed above, and sets kNatronOfxInteractHostPropSupportsKeyModifiers to 1 on the host descriptor. A host that doesn't support it doesn't set the property, so it is missing from the inArgs and propGetInt returns kOfxStatErrUnknown. A plug-in must check that status in each action and, if the property is missing, fall back to tracking the modifier key symbols from the key actions it gets, and reset the tracked state on kOfxInteractActionLoseFocus. Plug-ins that ignore this property are not affected by it: hosts still send the key actions of the modifier keys.
  The Support library does both: InteractArgs::keyModifiers is the host's value in the inArgs of the action when it passes it, and the tracked state otherwise; OFX::ImageEffect::getKeyModifiers() and OFX::Interact::getKeyModifiers() are the state of the last action of the instance's overlay interacts (the host's value or the tracked state), also in parameter interacts and in kOfxActionInstanceChanged. When built with an ofxInteract.h that defines kOfxInteractPropKeyModifiers, the Support library and HostSupport also use the kOfx names.
+
+  14) OpenGL overlays (Natron's, openfx-supportext's) draw a drop shadow under their lines and text, so that they stay visible on any image. A plug-in that draws with the OFX 1.5 DrawSuite can't do the same: the host chooses the look of DrawSuite elements, and drawing each element twice from the plug-in would double the shadows of a host that already draws them. So the shadows of DrawSuite elements are the host's job, and the host tells the DrawSuite code which look it wants with the read-only int property kNatronOfxInteractPropDrawSuiteShadows in the inArgs of kOfxInteractActionDraw: 1 if the host wants drop shadows on DrawSuite elements, 0 (or absent) if not.
+ The shadows are drawn by the host's DrawSuite implementation (in a draw called through kOfxImageEffectPluginPropOverlayInteractV2) and by the OFX Support library's DrawSuite-to-OpenGL compatibility layer (OFX::DrawArgs::getDrawContext() in a draw called through kOfxImageEffectPluginPropOverlayInteractV1, which emulates the DrawSuite with OpenGL; see include/ofxDrawSuiteOpenGL.h). Plug-ins must never draw shadows with DrawSuite calls. OpenGL drawing code keeps its own shadows: the property is not about the plug-ins' own OpenGL calls.
+ Which elements: the lines (kOfxDrawPrimitiveLines, LineStrip, LineLoop), the ellipse outline (kOfxDrawPrimitiveEllipse) and the text get a shadow; the filled primitives (kOfxDrawPrimitiveRectangle, kOfxDrawPrimitivePolygon) don't, since a shadow under a translucent fill (e.g. kOfxStandardColourOverlayMarqueeBG) makes it hazy, and the Natron and SupportExt OpenGL overlays only shadow their lines and points.
+ The shadow is offset by one device pixel right and down, as the OpenGL shadows of the Natron and SupportExt overlays (half a screen pixel on a HiDPI screen whose kOfxInteractPropScreenPixelRatio is 2). Its colour is the host's kOfxStandardColourOverlayBackground (OfxDrawSuiteV1::getColour) in the host's DrawSuite draws, and the fixed standard background colour of include/ofxDrawSuiteOpenGL.h (black) in the Support library's emulation, which can't query the host's colours in V1 draws; with the alpha of the current colour.
  
  */
 
@@ -1288,6 +1294,24 @@ says:
 #define kNatronOfxKeyModifierAlt 0x4
 /** @brief Bit of kNatronOfxInteractPropKeyModifiers, set while a Meta key (reported as kOfxKey_Meta_L or kOfxKey_Meta_R) is down. Hosts built with Qt report the Control key on macOS as kOfxKey_Meta_L/R by default. Mirrors kOfxKeyModifierMeta. */
 #define kNatronOfxKeyModifierMeta 0x8
+
+/** @brief 1 if the host wants drop shadows on DrawSuite elements, see 14) of the in-viewer interface extension.
+
+ - Type - int X 1
+ - Property Set - inArgs of kOfxInteractActionDraw (read only)
+ - Default - 0 (absent is 0)
+ - Valid Values - 0 or 1
+
+ The shadows are drawn by the host's DrawSuite implementation and by OFX Support's DrawSuite-to-OpenGL compatibility layer (the emulation of the DrawSuite in the draws called through kOfxImageEffectPluginPropOverlayInteractV1). Plug-ins must never draw shadows with DrawSuite calls. OpenGL drawing code keeps its own shadows.
+ A shadow is the element drawn first offset by one device pixel to the right and down, in the background colour (the host's kOfxStandardColourOverlayBackground in the host's DrawSuite, black in the Support library's emulation; with the alpha of the current colour), then the element itself (include/ofxDrawSuiteOpenGL.h). Only the lines, line strips and loops, the ellipse outline and the text get a shadow, not the filled rectangles and polygons.
+ A host that doesn't support this extension doesn't set it: a plug-in (or the Support library) must treat a failed propGetInt (kOfxStatErrUnknown) as 0.
+
+    @propdef
+    type: bool
+    dimension: 1
+    extension: natron
+ */
+#define kNatronOfxInteractPropDrawSuiteShadows "NatronOfxInteractPropDrawSuiteShadows"
 
 /** @brief Property to indicate the whether the curves in the parametric parametric
  are considered to be periodic or not. If periodic the first and last control point
