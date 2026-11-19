@@ -369,3 +369,54 @@ assert [x["params"]["keysDouble"] for x in r["renders"]] == [2, 3]
 fails hostdemo-keynoanim.log "doesn't animate" -p net.sf.openfx.GenericTestPlugin -s animateDbl@1=2
 fails hostdemo-keytime.log "invalid key time" -s supportsTiles@x=1
 fails hostdemo-nobutton.log "invalid parameter assignment" -s supportsTiles
+
+# OFX 1.4 hosts: every plug-in must keep working in a host that implements only OFX 1.4. hostDemo
+# --ofx14 has only the OFX 1.4 host properties (a plug-in reading another one gets
+# kOfxStatErrUnknown) and suites (no DrawSuite, OpenCL program, plane or Vegas suites), doesn't
+# call OfxSetHost, refuses StrChoice and Bytes params (kOfxStatErrUnknown) and renders one view.
+# The ColourSpace example (CMake builds only) reads the OFX 1.5 colour management style and the
+# StrChoice support, and logs that the host has neither.
+if grep -q "^Plug-in:io.aswf.openfx.example.ColourspacePluginCore$" cachedemo.log; then
+  OFX_COLOURSPACE_EXAMPLE_VERBOSE=1 run hostdemo-ofx14-colour.log --ofx14 -p io.aswf.openfx.example.ColourspacePluginCore --describe ofx14-colour.json
+  grep -q "host does not support colour management (err=ErrUnknown)" hostdemo-ofx14-colour.log &&
+    grep -q "host does not support StrChoice params" hostdemo-ofx14-colour.log ||
+    { echo "--ofx14: the ColourSpace example found OFX 1.5 host properties"; cat hostdemo-ofx14-colour.log; exit 1; }
+  echo "--ofx14: no OFX 1.5 host properties: OK"
+fi
+# Every plug-in that cacheDemo loaded is described, then rendered at t=0 in the filter context
+# (else the general one), by the default host and by the OFX 1.4 host. Both hosts must give the
+# same results, and succeed, except for the plug-ins that need a feature hostDemo doesn't have
+# (they fail in both hosts): an overlay host (the Overlay and Custom examples: describe fails),
+# OpenGL (the OpenGL example: render fails), the effect's identity (the DrawSuite example's
+# render writes nothing: it relies on isIdentity), a filter or general context with an output
+# (the Test example).
+needs_more=" uk.co.thefoundry.BasicOverlayPlugin uk.co.thefoundry.CustomParamPlugin com.genarts:OpenGLSamplePlugin uk.co.thefoundry.BasicDrawSuitePlugin net.sf.openfx:PropertyTestPlugin "
+# result ID ARGS...: "describe=<status> contexts=<n> render=<status>" for the plug-in ID
+result() { local id=$1 log=hostdemo-ofx14-sweep.log; shift
+  rm -f sweep-describe.json sweep-report.json
+  local ds=0 rs=- ctx
+  hostdemo "$@" -p "$id" --describe sweep-describe.json > "$log" 2>&1 || ds=$?
+  ctx=$(python3 -I -c 'import json, sys
+c = json.load(open(sys.argv[1]))["contexts"]
+ok = [k for k, v in c.items() if v["ok"]]
+print(len(ok), "filter" if "OfxImageEffectContextFilter" in ok else "general" if "OfxImageEffectContextGeneral" in ok else "-")' sweep-describe.json 2>/dev/null || echo "0 -")
+  if [ "${ctx#* }" != - ]; then
+    rs=0; hostdemo "$@" -p "$id" -c "${ctx#* }" --frames 0 -o Sweep --report sweep-report.json >> "$log" 2>&1 || rs=$?
+    [ "$rs" != 0 ] || [ "$#" = 0 ] || jcheck "--ofx14: $id: report" sweep-report.json 'assert r["host"]["profile"] == "ofx14"' > /dev/null || rs=profile
+  fi
+  echo "describe=$ds contexts=${ctx% *} render=$rs"; }
+nplugins=0
+for id in $(sed -n 's/^Plug-in://p' cachedemo.log | sort -u); do
+  default=$(result "$id")
+  ofx14=$(result "$id" --ofx14)
+  case "$needs_more" in *" $id "*) known=1 ;; *) known=0 ;; esac
+  if [ "$ofx14" != "$default" ]; then
+    echo "--ofx14: $id: $ofx14 in the OFX 1.4 host, $default in the default host"; cat hostdemo-ofx14-sweep.log; exit 1
+  fi
+  if [ $known = 0 ] && ! echo "$default" | grep -q "^describe=0 contexts=[1-9][0-9]* render=0$"; then
+    echo "--ofx14: $id: $default"; cat hostdemo-ofx14-sweep.log; exit 1
+  fi
+  echo "--ofx14: $id: $ofx14$([ $known = 1 ] && echo " (needs a feature hostDemo doesn't have, in both hosts)")"
+  nplugins=$((nplugins + 1))
+done
+echo "--ofx14: $nplugins plug-ins work in the OFX 1.4 host as in the default host"

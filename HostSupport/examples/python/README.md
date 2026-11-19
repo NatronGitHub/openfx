@@ -93,6 +93,15 @@ the tests when hostDemo isn't built.
   keys sets the key at the current time: the timeline (timeLineGetTime) is at the time of the
   current action (the render's time, or the time of the instanceChanged). String, Custom,
   StrChoice and Bytes parameters don't animate. paramEditBegin and paramEditEnd succeed.
+- `--ofx14` makes hostDemo an OFX 1.4 host, to check that a plug-in still works in hosts
+  without OFX 1.5 and the extensions: the host descriptor has only the OFX 1.4 host properties
+  (reading another one, e.g. kOfxParamHostPropSupportsStrChoice, kOfxImageEffectPropCPURenderSupported,
+  the colour management or Natron properties, gives kOfxStatErrUnknown), fetchSuite gives only
+  the OFX 1.4 suites (no DrawSuite, OpenCL program suite, plane or Vegas suites),
+  OfxSetHost is not called, paramDefine of a StrChoice or Bytes param returns
+  kOfxStatErrUnknown, and one view is rendered. The report's `host.profile` is "ofx14" (else
+  "default"). It uses its own plug-in cache file, hostDemoPluginCache-ofx14.xml. In Python:
+  `extra_args=["--ofx14"]`.
 - Times, scale and window: `--frames t0,t1,...` (default 0,1; any distinct finite times,
   fractional too, distinct to 12 significant digits) renders each time, in the given order, into
   `<prefix>.<t>[l|r]` (12 significant digits). begin/endSequenceRender declare a sequential render
@@ -116,7 +125,8 @@ in canonical coordinates, except `renderWindow` and `bounds` (pixels).
 `--report file.json`, written after the run even if it failed (but not if the command line
 is invalid: hostDemo then exits with status 1 before running anything): `schema`
 ("hostDemo.report"), `schemaVersion` (1), `ok`, `exitStatus`, `plugin` {id, versionMajor,
-versionMinor, label, grouping, filePath}, `context`, `host` {name, profile}, `depth`,
+versionMinor, label, grouping, filePath}, `context`, `host` {name, profile ("default", or "ofx14"
+with `--ofx14`)}, `depth`,
 `frames`, `renderScale` [sx, sy], `window` (`--window`, or null), `query`,
 `inputs` {Clip: {spec, connected, optional, isMask, unmappedDepth, unmappedComponents}},
 `actions` [{action, ok, status[, param, value, time]}] (value null for a button press) (createInstance, getClipPreferences,

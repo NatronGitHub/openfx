@@ -43,6 +43,18 @@ namespace MyHost {
   public:    
     Host();
 
+    /// --ofx14: behave as a host that implements OFX 1.4 only. The host descriptor keeps only
+    /// the OFX 1.4 host properties, fetchSuite() returns only the OFX 1.4 suites, and OfxSetHost
+    /// is not called. Call it before the plug-in scan.
+    void restrictToOFX14();
+    bool isOFX14() const { return _ofx14; }
+
+    /// the base class suites, or only the OFX 1.4 ones with restrictToOFX14()
+    virtual const void *fetchSuite(const char *suiteName, int suiteVersion);
+
+    /// false with restrictToOFX14()
+    virtual bool supportsOfxSetHost() const { return !_ofx14; }
+
     /// Create a new instance of an image effect plug-in.
     ///
     /// It is called by ImageEffectPlugin::createInstance which the
@@ -94,6 +106,8 @@ namespace MyHost {
     /// @see OfxImageEffectOpenGLRenderSuiteV1.flushResources()
     virtual OfxStatus flushOpenGLResources() const { return kOfxStatFailed; };
 #endif
+  private:
+    bool _ofx14; ///< restrictToOFX14()
   };
 
   // my ofx host object
