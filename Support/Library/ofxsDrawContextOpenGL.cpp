@@ -39,8 +39,11 @@
   unconditional, but hosts that call V2 overlays with the DrawSuite don't necessarily honour it.
   The check uses, loaded at run time like the rest: wglGetCurrentContext (Windows),
   CGLGetCurrentContext (macOS), glXGetCurrentContext and eglGetCurrentContext (ELF systems, from
-  the libraries that are already loaded: GLX, EGL or GLVND), and OSMesaGetCurrentContext if OSMesa
-  is loaded. OpenGL is current if any of them returns a context; if none can be loaded, it isn't.
+  the libraries that are already loaded: GLX, EGL or GLVND), and on ELF systems
+  OSMesaGetCurrentContext, only if it is in the same library as the gl* functions (not a
+  plug-in-private OSMesa). OpenGL is current if any of them returns a context; if none can be
+  loaded, it isn't. The list of these functions is looked up again as long as it is empty (the
+  host may load libEGL or libGLX later).
   Without a current OpenGL context, getDrawContext() uses the host's draw context if it passed one
   (DrawSuite through V1 is allowed: "Some existing plugins may use DrawSuite via
   kOfxImageEffectPluginPropOverlayInteractV1 if it's supported by the host, but this is
@@ -117,6 +120,10 @@
 #include <cstddef>
 #include <cstring>
 #include <string>
+#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L))
+#define OFXS_DRAWCONTEXT_CXX11 1
+#include <mutex>
+#endif
 
 #include "ofxsFont5x7.h"
 
@@ -192,6 +199,40 @@ namespace OFX {
         return dlsym(lib, name);
       }
 
+      // the address of a function, as an object pointer (for dladdr)
+      template<class F>
+      void *pointerFromFunction(F f)
+      {
+        typedef char function_and_object_pointers_have_the_same_size[(sizeof(F) == sizeof(void *)) ? 1 : -1];
+        (void)sizeof(function_and_object_pointers_have_the_same_size);
+        void *p = NULL;
+        std::memcpy(&p, &f, sizeof(p));
+        return p;
+      }
+
+#ifndef __APPLE__
+      // the base address of the library that contains the address p, NULL if unknown
+      void *libraryBase(void *p)
+      {
+        Dl_info info;
+        if ( p && dladdr(p, &info) ) {
+          return info.dli_fbase;
+        }
+        return NULL;
+      }
+#endif
+
+#ifdef RTLD_NOLOAD
+      // keep the library that contains the address p loaded (a reference that is never released)
+      void pinLibraryOf(void *p)
+      {
+        Dl_info info;
+        if ( p && dladdr(p, &info) && info.dli_fname ) {
+          (void)dlopen(info.dli_fname, RTLD_LAZY | RTLD_LOCAL | RTLD_NOLOAD);
+        }
+      }
+#endif
+
 #if defined(RTLD_NOLOAD) && !defined(__APPLE__)
       // a library, only if it is already loaded (its functions can only report a current
       // context if the host loaded it). Never closed.
@@ -234,18 +275,17 @@ namespace OFX {
       // is current before any OpenGL call: legacy OpenGL calls without a current context
       // usually crash (macOS). An OpenGL context is current if any of them returns non-NULL.
       typedef void *(OFXS_GL_APIENTRY *CurrentContextFunction)(void);
+      enum { kMaxCurrentContextFunctions = 8 };
       struct CurrentContextFunctions {
-        CurrentContextFunction f[4];
+        CurrentContextFunction f[kMaxCurrentContextFunctions];
         int count;
       };
 
-      void addCurrentContextFunction(CurrentContextFunctions &c, void *lib, const char *name)
+      // lib may be RTLD_DEFAULT, which is NULL on glibc and musl: the callers check that the
+      // other libraries are not NULL
+      void addCurrentContextFunctionPointer(CurrentContextFunctions &c, void *p)
       {
-        if (!lib || c.count >= 4) {
-          return;
-        }
-        void *p = openGLSymbol(lib, name);
-        if (!p) {
+        if (!p || c.count >= kMaxCurrentContextFunctions) {
           return;
         }
         const CurrentContextFunction f = functionFromPointer<CurrentContextFunction>(p);
@@ -255,6 +295,11 @@ namespace OFX {
           }
         }
         c.f[c.count++] = f;
+      }
+
+      void addCurrentContextFunction(CurrentContextFunctions &c, void *lib, const char *name)
+      {
+        addCurrentContextFunctionPointer( c, openGLSymbol(lib, name) );
       }
 
       // the OpenGL functions and the library they come from (NULL if they can't all be loaded)
@@ -278,7 +323,12 @@ namespace OFX {
         // functions are found there (another library exports them), try the OpenGL libraries.
         if ( loadGLFunctions(RTLD_DEFAULT, fns) ) {
           r.fns = &fns;
-          r.lib = RTLD_DEFAULT;
+          r.lib = RTLD_DEFAULT; // NULL on glibc and musl: test r.fns, not r.lib
+#ifdef RTLD_NOLOAD
+          // dlsym(RTLD_DEFAULT) takes no reference: keep the library that has them loaded,
+          // so that the pointers stay valid if the host unloads it
+          pinLibraryOf( pointerFromFunction(fns.Begin) );
+#endif
           return r;
         }
 #ifdef __APPLE__
@@ -319,36 +369,77 @@ namespace OFX {
       {
         CurrentContextFunctions c;
         c.count = 0;
-        void *gl = openGLLoad().lib;
-        if (!gl) {
+        const OpenGLLoad &load = openGLLoad();
+        if (!load.fns) { // (not load.lib: RTLD_DEFAULT is NULL on glibc and musl)
           return c;
         }
+        void *gl = load.lib;
 #if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
         addCurrentContextFunction(c, gl, "wglGetCurrentContext");
 #elif defined(__APPLE__)
+        // (no OSMesa: a plug-in-private OSMesa, e.g. openfx-misc's Shadertoy with
+        // libMangledOSMesa32, exports an unmangled OSMesaGetCurrentContext, and its context
+        // being current says nothing about the OpenGL framework that the gl* functions use)
         addCurrentContextFunction(c, gl, "CGLGetCurrentContext");
         addCurrentContextFunction(c, RTLD_DEFAULT, "CGLGetCurrentContext");
-        addCurrentContextFunction(c, RTLD_DEFAULT, "OSMesaGetCurrentContext");
 #else
-        // GLX (libGL, or GLVND's libGLX), EGL (e.g. Wayland, or GLVND's libOpenGL with EGL),
-        // OSMesa: a context of any of them may be current. Only the libraries that are already
-        // loaded can have one.
+        // GLX (libGL, or GLVND's libGLX), EGL (e.g. Wayland, or GLVND's libOpenGL with EGL):
+        // a context of either may be current. Only the libraries that are already loaded can
+        // have one.
         addCurrentContextFunction(c, gl, "glXGetCurrentContext");
         addCurrentContextFunction(c, RTLD_DEFAULT, "glXGetCurrentContext");
         addCurrentContextFunction(c, RTLD_DEFAULT, "eglGetCurrentContext");
-        addCurrentContextFunction(c, RTLD_DEFAULT, "OSMesaGetCurrentContext");
 #ifdef RTLD_NOLOAD
-        addCurrentContextFunction(c, loadedLibrary("libGLX.so.0"), "glXGetCurrentContext");
-        addCurrentContextFunction(c, loadedLibrary("libEGL.so.1"), "eglGetCurrentContext");
-        addCurrentContextFunction(c, loadedLibrary("libOSMesa.so.8"), "OSMesaGetCurrentContext");
+        void *glx = loadedLibrary("libGLX.so.0");
+        if (glx) {
+          addCurrentContextFunction(c, glx, "glXGetCurrentContext");
+        }
+        void *egl = loadedLibrary("libEGL.so.1");
+        if (egl) {
+          addCurrentContextFunction(c, egl, "eglGetCurrentContext");
+        }
 #endif
+        // OSMesa: only if the gl* functions come from the same library as
+        // OSMesaGetCurrentContext (a host that renders its viewer with OSMesa). A plug-in-private
+        // OSMesa (e.g. Shadertoy's libMangledOSMesa32, which exports an unmangled
+        // OSMesaGetCurrentContext) being current says nothing about the libGL context.
+        void *glBase = libraryBase( pointerFromFunction(load.fns->Begin) );
+        void *osmesa = openGLSymbol(RTLD_DEFAULT, "OSMesaGetCurrentContext");
+#ifdef RTLD_NOLOAD
+        if (!osmesa) {
+          void *lib = loadedLibrary("libOSMesa.so.8");
+          if (lib) {
+            osmesa = openGLSymbol(lib, "OSMesaGetCurrentContext");
+          }
+        }
+#endif
+        if ( osmesa && glBase && libraryBase(osmesa) == glBase ) {
+          addCurrentContextFunctionPointer(c, osmesa);
+        }
 #endif
         return c;
       }
 
-      const CurrentContextFunctions &currentContextFunctions()
+#ifdef OFXS_DRAWCONTEXT_CXX11
+      std::mutex &currentContextFunctionsMutex()
       {
-        static const CurrentContextFunctions c = loadCurrentContextFunctions();
+        static std::mutex *m = new std::mutex; // never deleted (usable at exit)
+        return *m;
+      }
+#endif
+
+      // Loaded at the first call, and loaded again as long as none was found: the host may load
+      // libEGL or libGLX after the first draw. Serialized in C++11 and later (the C++98 build
+      // doesn't lock: then the first calls must not be concurrent).
+      CurrentContextFunctions currentContextFunctions()
+      {
+#ifdef OFXS_DRAWCONTEXT_CXX11
+        std::lock_guard<std::mutex> lock( currentContextFunctionsMutex() );
+#endif
+        static CurrentContextFunctions c; // zero-initialized
+        if (c.count == 0) {
+          c = loadCurrentContextFunctions();
+        }
         return c;
       }
 
@@ -719,7 +810,7 @@ namespace OFX {
 #ifndef OFXS_DRAWCONTEXT_NO_OPENGL
       // no function to check it (e.g. an unknown OpenGL platform): not current, so that no
       // OpenGL call is made without a context
-      const CurrentContextFunctions &c = currentContextFunctions();
+      const CurrentContextFunctions c = currentContextFunctions();
       for (int i = 0; i < c.count; ++i) {
         if ( c.f[i]() ) {
           return true;
@@ -729,7 +820,22 @@ namespace OFX {
       return false;
     }
 
+    int openGLCurrentContextFunctionCount()
+    {
+#ifndef OFXS_DRAWCONTEXT_NO_OPENGL
+      return currentContextFunctions().count;
+#else
+      return 0;
+#endif
+    }
+
   } // namespace Private
+
+  bool DrawArgs::isOpenGLContextCurrent() const
+  {
+    // (loads the OpenGL functions, which the check needs)
+    return Private::openGLDrawContextBackend() && Private::openGLContextIsCurrent();
+  }
 
   const DrawContext &DrawArgs::getDrawContext() const
   {

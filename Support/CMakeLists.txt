@@ -5,11 +5,20 @@ add_subdirectory(Library)
 if(BUILD_EXAMPLE_PLUGINS)
   add_subdirectory(Plugins)
   add_subdirectory(PropTester)
-  # self-test of DrawArgs::getDrawContext() and its OpenGL backend, in an offscreen CGL context
-  # (macOS only; run it by hand: it prints the failed checks and exits with 0 if all passed)
-  if(APPLE)
+  # self-test of DrawArgs::getDrawContext() and its OpenGL backend: on macOS in an offscreen CGL
+  # context (it links OpenGL for CGL); elsewhere without a context, and without linking OpenGL,
+  # to test the run-time loading (not on Windows). It prints the failed checks and exits with 0
+  # if all passed (.github/scripts/cmake-build-test.sh runs it).
+  if(NOT WIN32)
     add_executable(drawcontext-opengl-test tests/DrawContextOpenGLTest.cpp)
     target_include_directories(drawcontext-opengl-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Library")
-    target_link_libraries(drawcontext-opengl-test PRIVATE OfxSupport OpenGL::GL)
+    target_link_libraries(drawcontext-opengl-test PRIVATE OfxSupport)
+    if(APPLE)
+      target_link_libraries(drawcontext-opengl-test PRIVATE OpenGL::GL)
+    endif()
+    if(TARGET OpenGL::GL AND OFX_SUPPORT_DRAWCONTEXT_OPENGL)
+      # OpenGL is installed: the backend must load it
+      target_compile_definitions(drawcontext-opengl-test PRIVATE OFXS_DRAWCONTEXT_TEST_EXPECT_OPENGL)
+    endif()
   endif()
 endif()

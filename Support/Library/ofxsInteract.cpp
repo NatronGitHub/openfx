@@ -559,6 +559,11 @@ namespace OFX {
     return _overlayRegistration == Private::eOverlayRegistrationV2;
   }
 
+  OfxDrawContextHandle DrawArgs::getHostDrawContext() const
+  {
+    return _drawContextStorage.getHandle();
+  }
+
   /** @brief ctor */
   PenArgs::PenArgs(const PropertySet &props)
     : InteractArgs(props)

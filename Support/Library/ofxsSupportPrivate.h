@@ -241,10 +241,14 @@ namespace OFX {
     const DrawContextBackend *openGLDrawContextBackend();
 
     /** @brief true if an OpenGL context is current on this thread (wglGetCurrentContext,
-        CGLGetCurrentContext, glXGetCurrentContext, eglGetCurrentContext or
-        OSMesaGetCurrentContext, loaded at run time); false if none is, if OpenGL can't be
+        CGLGetCurrentContext, glXGetCurrentContext, eglGetCurrentContext, or on ELF systems
+        OSMesaGetCurrentContext from the library of the gl* functions, loaded at run time); false if none is, if OpenGL can't be
         loaded, or if no such function can be loaded. Call it after openGLDrawContextBackend(). */
     bool openGLContextIsCurrent();
+
+    /** @brief The number of functions openGLContextIsCurrent() uses (for the self-test): 0 if
+        OpenGL can't be loaded, or if no such function was found */
+    int openGLCurrentContextFunctionCount();
   }
 
   /** @brief The validation code has its own namespace */

@@ -1006,10 +1006,12 @@ namespace OFX {
      detect a host that has the DrawSuite but no OpenGL, which is why V2 is always registered
      when the DrawSuite exists. In the draw actions called through
      that V1 entry, DrawArgs::drawContext is NULL (even if the host passed a draw context),
-     DrawArgs::calledViaOverlayInteractV2() is false and getDrawContext() uses OpenGL. So the
-     overlay's draw() must be able to draw with OpenGL: draw through getDrawContext(), or test
-     drawContext (or calledViaOverlayInteractV2()) in each draw(), never the host's DrawSuite
-     support or anything decided when the interact was created. This needs a descriptor whose
+     DrawArgs::calledViaOverlayInteractV2() is false, and getDrawContext() uses OpenGL if an
+     OpenGL context is current, else the host's draw context if it passed one, else draws
+     nothing. So the overlay's draw() must be able to draw with OpenGL: draw through
+     getDrawContext(), or test calledViaOverlayInteractV2() and isOpenGLContextCurrent() (with
+     getHostDrawContext() as the fallback) in each draw(), not drawContext == NULL, the host's
+     DrawSuite support or anything decided when the interact was created. This needs a descriptor whose
      getMainEntry() is InteractMainEntry<DESC>::overlayInteractMainEntry (as
      DefaultEffectOverlayDescriptor); with another main entry, only V2 is registered.
 
