@@ -775,10 +775,10 @@ protected:
 };
 
 // a host that overrides the shadow colour (black, not its grey background) and the offset
-// (one device pixel, as Natron's own OpenGL overlays)
-class DevicePixelShadowDrawSuite : public HostDrawSuite {
+// (one screen pixel instead of the default one device pixel)
+class ScreenPixelShadowDrawSuite : public HostDrawSuite {
 public:
-  explicit DevicePixelShadowDrawSuite(const GLFunctions *gl) : HostDrawSuite(gl) {}
+  explicit ScreenPixelShadowDrawSuite(const GLFunctions *gl) : HostDrawSuite(gl) {}
 protected:
   virtual OfxRGBAColourF shadowColour() const
   {
@@ -788,8 +788,8 @@ protected:
   virtual OfxPointD shadowOffset() const
   {
     OfxPointD o;
-    o.x = state().pixelScale.x / state().screenPixelRatio;
-    o.y = -state().pixelScale.y / state().screenPixelRatio;
+    o.x = state().pixelScale.x;
+    o.y = -state().pixelScale.y;
     return o;
   }
 };
@@ -1019,9 +1019,24 @@ static void testHostHelper()
     CHECK(host.drawText("AB", &pos, 0) == kOfxStatOK && host.texts.size() == 1);
   }
 
-  // overridden shadowColour() and shadowOffset(): black, one device pixel (ratio 2)
+  // the default offset at ratio 2: one device pixel, half a screen pixel
   {
-    DevicePixelShadowDrawSuite host(&gl);
+    HostDrawSuite host(&gl);
+    host.beginDraw(pt(2., 3.), 2., true);
+    CHECK(host.drawText("AB", &pos, 0) == kOfxStatOK);
+    CHECK(host.texts.size() == 2);
+    if (host.texts.size() == 2) {
+      CHECK(near(host.texts[0].baselineLeft.x, host.texts[1].baselineLeft.x + 1.) &&
+            near(host.texts[0].baselineLeft.y, host.texts[1].baselineLeft.y - 1.5));
+    }
+    host.recordPrimitives = true;
+    CHECK(host.drawPrimitive(kOfxDrawPrimitiveLines, line, 2) == kOfxStatOK);
+    CHECK(host.primitives.size() == 2 && host.primitives[0].points[1].x == 11. && host.primitives[0].points[1].y == 3.5);
+  }
+
+  // overridden shadowColour() and shadowOffset(): black, one screen pixel (ratio 2)
+  {
+    ScreenPixelShadowDrawSuite host(&gl);
     host.beginDraw(pt(2., 3.), 2., true);
     const OfxRGBAColourF col = { 0.2f, 0.4f, 0.6f, 0.5f };
     host.setColour(&col);
@@ -1029,14 +1044,14 @@ static void testHostHelper()
     CHECK(host.texts.size() == 2);
     if (host.texts.size() == 2) {
       const HostDrawSuite::TextCall &sh = host.texts[0], &t = host.texts[1];
-      CHECK(near(sh.baselineLeft.x, t.baselineLeft.x + 1.) && near(sh.baselineLeft.y, t.baselineLeft.y - 1.5));
+      CHECK(near(sh.baselineLeft.x, t.baselineLeft.x + 2.) && near(sh.baselineLeft.y, t.baselineLeft.y - 3.));
       CHECK(sh.colour.r == 0.f && sh.colour.b == 0.f && sh.colour.a == 0.5f);
     }
     host.recordPrimitives = true;
     CHECK(host.drawPrimitive(kOfxDrawPrimitiveLines, line, 2) == kOfxStatOK);
     CHECK(host.primitives.size() == 2);
     if (host.primitives.size() == 2) {
-      CHECK(host.primitives[0].points[1].x == 11. && host.primitives[0].points[1].y == 3.5);
+      CHECK(host.primitives[0].points[1].x == 12. && host.primitives[0].points[1].y == 2.);
       CHECK(host.primitives[0].colour.b == 0.f && host.primitives[0].colour.a == 0.5f);
     }
     // the built-in font: the same overrides
@@ -1047,7 +1062,7 @@ static void testHostHelper()
     CHECK(b.size() == 2);
     if (b.size() == 2) {
       CHECK(b[0].colour[2] == 0. && b[0].colour[3] == 0.5);
-      CHECK(near(b[0].vertices[0].x, b[1].vertices[0].x + 1.) && near(b[0].vertices[0].y, b[1].vertices[0].y - 1.5));
+      CHECK(near(b[0].vertices[0].x, b[1].vertices[0].x + 2.) && near(b[0].vertices[0].y, b[1].vertices[0].y - 3.));
     }
   }
 }

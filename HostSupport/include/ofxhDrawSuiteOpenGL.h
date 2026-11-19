@@ -51,13 +51,12 @@
   Shadows (kNatronOfxInteractPropDrawSuiteShadows, ofxNatron.h): beginDraw(..., shadows) sets
   State::shadows. Then drawPrimitive() (the lines, strips, loops and the ellipse outline; not the
   filled Rectangle and Polygon, see OFX::DrawSuiteOpenGL::hasShadow()) and drawText() draw each
-  element twice: first offset by shadowOffset() (by default one screen pixel right and down: 2
-  device pixels on HiDPI screens, whereas the OpenGL shadows of the SupportExt and Natron
-  overlays are 1 device pixel; a host can override it), in shadowColour() (by default
+  element twice: first offset by shadowOffset() (by default one device pixel right and down, as
+  the OpenGL shadows of the SupportExt and Natron overlays and Support's V1 emulation; a host
+  can override it), in shadowColour() (by default
   getColour() of kOfxStandardColourOverlayBackground, so the host's background colour, unlike
   Support's V1 emulation, which can't query the host and uses the core's black; with the
-  current colour's alpha; a host can override it), then normally. Support's V1 emulation keeps
-  the 1-screen-pixel offset. OpenGLDrawSuite makes the two passes for every element, with
+  current colour's alpha; a host can override it), then normally. OpenGLDrawSuite makes the two passes for every element, with
   the built-in font or the host's: renderPrimitive() and renderText() (and the built-in font)
   are called once per pass, with state().colour the colour of the pass and state().shadows
   false, so they draw one pass only. Plug-ins never draw shadows with DrawSuite calls.
@@ -281,11 +280,11 @@ namespace OFX {
           return c;
         }
 
-        /// The offset of the shadow passes, in canonical coordinates. The default is one screen
-        /// pixel right and down, (+pixelScale.x, -pixelScale.y), as Support's DrawSuite-to-OpenGL
-        /// emulation (OFX::DrawSuiteOpenGL::shadowOffset()). A host whose own OpenGL overlays
-        /// offset their shadows by one device pixel (Natron, SupportExt) can return
-        /// (+pixelScale.x / screenPixelRatio, -pixelScale.y / screenPixelRatio) from state().
+        /// The offset of the shadow passes, in canonical coordinates. The default is one device
+        /// pixel right and down, (+pixelScale.x / screenPixelRatio, -pixelScale.y /
+        /// screenPixelRatio) of state(), as Support's DrawSuite-to-OpenGL emulation
+        /// (OFX::DrawSuiteOpenGL::shadowOffset()) and the OpenGL shadows of the Natron and
+        /// SupportExt overlays. A host can override it for another offset.
         virtual OfxPointD shadowOffset() const
         {
           return OFX::DrawSuiteOpenGL::shadowOffset(_state);

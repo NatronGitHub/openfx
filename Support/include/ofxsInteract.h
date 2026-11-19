@@ -182,8 +182,9 @@ namespace OFX {
      size on screen), 6 pixels per character, 7 pixels above the baseline and 1 below.
    - shadows: if the host sets kNatronOfxInteractPropDrawSuiteShadows to 1 in the draw action's
      inArgs (ofxNatron.h, extension 14, read with OFX_EXTENSIONS_NATRON; absent is 0), each line,
-     line strip or loop, ellipse outline and text is drawn first offset by one screen pixel right
-     and down, in the standard background colour (black: this backend can't query the host's)
+     line strip or loop, ellipse outline and text is drawn first offset by one device pixel right
+     and down (pixelScale / screenPixelRatio, as the OpenGL shadows of the Natron and SupportExt
+     overlays), in the standard background colour (black: this backend can't query the host's)
      with the current alpha, then normally, as the host draws its own DrawSuite elements. The
      filled rectangles and polygons get no shadow. Plug-ins never draw shadows with DrawSuite
      calls (in V2 draws, the host's DrawSuite draws them): a plug-in that draws through
