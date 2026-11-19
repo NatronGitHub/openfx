@@ -1418,6 +1418,8 @@ namespace OFX {
     OfxRectD getRegionOfDefinition(double t, int view);
       
     /** @brief fetch an image for the given plane and view
+
+    For the output clip, view must be the view being rendered (RenderArguments::renderView).
        
     When finished with, the client code must delete the image.
     
