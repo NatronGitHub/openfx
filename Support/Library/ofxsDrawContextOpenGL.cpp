@@ -15,21 +15,37 @@
   not maintained and don't list this file.
 
   It doesn't link OpenGL: it has no undefined OpenGL symbol, and loads the OpenGL 1.1 functions it
-  uses at run time, the first time getDrawContext() is called in a draw action called through a
-  kOfxImageEffectPluginPropOverlayInteractV1 entry (the only place where the spec guarantees an
-  OpenGL context: kOfxInteractActionDraw, "the openGL context for this interact has been set").
-  So a plug-in that uses it still loads on a machine or in a host without OpenGL (a render node,
-  or a DrawSuite host without OpenGL: kOfxImageEffectPropSupportsOverlays is not tied to OpenGL).
-  - Linux, FreeBSD and the other ELF systems: dlsym(RTLD_DEFAULT) (OpenGL already loaded
-    globally), else dlopen("libGL.so.1"), "libGL.so", then GLVND's "libOpenGL.so.0" (the library
-    the host loaded is shared, dlopen doesn't load a second copy). Linux before glibc 2.34 needs
-    -ldl (Makefile.master links it; openfx::Support links CMAKE_DL_LIBS).
+  uses at run time, the first time getDrawContext() needs OpenGL: in a draw action called through
+  a kOfxImageEffectPluginPropOverlayInteractV1 entry, in the draw action of a parameter interact
+  (always V1: there is no DrawSuite registration for them), or for DrawArgs not made by the
+  dispatcher whose inArgs have no draw context. So a plug-in that uses it still loads on a
+  machine or in a host without OpenGL (a render node, or a DrawSuite host without OpenGL:
+  kOfxImageEffectPropSupportsOverlays is not tied to OpenGL).
+  - Linux, FreeBSD and the other ELF systems: dlsym(RTLD_DEFAULT) if it finds all the functions
+    (OpenGL already loaded globally), else dlopen("libGL.so.1"), "libGL.so", then GLVND's
+    "libOpenGL.so.0" (the library the host loaded is shared, dlopen doesn't load a second copy).
+    Linux before glibc 2.34 needs -ldl (Makefile.master links it; openfx::Support links
+    CMAKE_DL_LIBS).
   - macOS: dlsym(RTLD_DEFAULT), else dlopen of /System/Library/Frameworks/OpenGL.framework/OpenGL.
-  - Windows: GetProcAddress on opengl32.dll (already loaded by the host, else LoadLibrary): the
-    OpenGL 1.1 functions are exported by opengl32.dll, wglGetProcAddress doesn't return them.
-  If they can't all be loaded, getDrawContext() returns a context that draws nothing (canDraw()
-  is false, every function returns false) on V1 overlays. The result is computed once (thread-safe
-  in C++11 and later).
+  - Windows: GetProcAddress on opengl32.dll (already loaded by the host, else LoadLibraryEx from
+    System32 only, against DLL planting): the OpenGL 1.1 functions are exported by opengl32.dll,
+    wglGetProcAddress doesn't return them.
+  If they can't all be loaded, getDrawContext() doesn't use OpenGL. The result is computed once
+  (thread-safe in C++11 and later).
+
+  It also checks that an OpenGL context is current before using OpenGL, since legacy OpenGL calls
+  without one usually crash (macOS), and a host may have the DrawSuite and no OpenGL. The spec's
+  precondition of kOfxInteractActionDraw, "the openGL context for this interact has been set", is
+  unconditional, but hosts that call V2 overlays with the DrawSuite don't necessarily honour it.
+  The check uses, loaded at run time like the rest: wglGetCurrentContext (Windows),
+  CGLGetCurrentContext (macOS), glXGetCurrentContext and eglGetCurrentContext (ELF systems, from
+  the libraries that are already loaded: GLX, EGL or GLVND), and OSMesaGetCurrentContext if OSMesa
+  is loaded. OpenGL is current if any of them returns a context; if none can be loaded, it isn't.
+  Without a current OpenGL context, getDrawContext() uses the host's draw context if it passed one
+  (DrawSuite through V1 is allowed: "Some existing plugins may use DrawSuite via
+  kOfxImageEffectPluginPropOverlayInteractV1 if it's supported by the host, but this is
+  discouraged"), else it returns a context that draws nothing (canDraw() is false, every function
+  returns false).
 
   Define OFXS_DRAWCONTEXT_NO_OPENGL to build without OpenGL (no OpenGL header, no OpenGL call):
   getDrawContext() then returns a context that draws nothing for the V1 overlays.
@@ -131,70 +147,72 @@ namespace OFX {
         void (OFXS_GL_APIENTRY *PopAttrib)(void);
       };
 
+      // A function pointer can't be converted from a void* in standard C++: copy the bits. The
+      // sizes are checked at compile time (C++98-compatible static assertion).
+      template<class F>
+      F functionFromPointer(void *p)
+      {
+        typedef char function_and_object_pointers_have_the_same_size[(sizeof(F) == sizeof(void *)) ? 1 : -1];
+        (void)sizeof(function_and_object_pointers_have_the_same_size);
+        F f;
+        std::memcpy(&f, &p, sizeof(f));
+        return f;
+      }
+
 #if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
-      void *openGLLibrary()
+#ifndef LOAD_LIBRARY_SEARCH_SYSTEM32
+#define LOAD_LIBRARY_SEARCH_SYSTEM32 0x00000800 // (old MinGW headers)
+#endif
+      // opengl32.dll: the host's (already loaded), else the one in System32 only (no search of
+      // the current or the application directory, against DLL planting). Never freed.
+      void *openGLLibraryWindows()
       {
         HMODULE lib = GetModuleHandleA("opengl32.dll");
         if (!lib) {
-          lib = LoadLibraryA("opengl32.dll"); // (never freed)
+          lib = LoadLibraryExA("opengl32.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
         }
         return (void *)lib;
       }
 
       void *openGLSymbol(void *lib, const char *name)
       {
+        if (!lib) {
+          return NULL;
+        }
         FARPROC f = GetProcAddress((HMODULE)lib, name);
+        typedef char farproc_and_object_pointers_have_the_same_size[(sizeof(f) == sizeof(void *)) ? 1 : -1];
+        (void)sizeof(farproc_and_object_pointers_have_the_same_size);
         void *p = NULL;
-        std::memcpy(&p, &f, sizeof(p) < sizeof(f) ? sizeof(p) : sizeof(f));
+        std::memcpy(&p, &f, sizeof(p));
         return p;
       }
 #else
-      void *openGLLibrary()
-      {
-        // already loaded globally (e.g. the host links it): no dlopen
-        if (dlsym(RTLD_DEFAULT, "glBegin") && dlsym(RTLD_DEFAULT, "glPushAttrib")) {
-          return RTLD_DEFAULT;
-        }
-#ifdef __APPLE__
-        static const char *const names[] = { "/System/Library/Frameworks/OpenGL.framework/OpenGL", NULL };
-#else
-        static const char *const names[] = { "libGL.so.1", "libGL.so", "libOpenGL.so.0", NULL };
-#endif
-        for (int i = 0; names[i]; ++i) {
-          void *lib = dlopen(names[i], RTLD_LAZY | RTLD_LOCAL); // (never closed)
-          if (lib) {
-            return lib;
-          }
-        }
-        return NULL;
-      }
-
       void *openGLSymbol(void *lib, const char *name)
       {
         return dlsym(lib, name);
       }
+
+#if defined(RTLD_NOLOAD) && !defined(__APPLE__)
+      // a library, only if it is already loaded (its functions can only report a current
+      // context if the host loaded it). Never closed.
+      void *loadedLibrary(const char *name)
+      {
+        return dlopen(name, RTLD_LAZY | RTLD_LOCAL | RTLD_NOLOAD);
+      }
+#endif
 #endif
 
-      // (a function pointer can't be converted from a void* in standard C++)
       template<class F>
       bool loadGLFunction(void *lib, const char *name, F &f)
       {
         void *p = openGLSymbol(lib, name);
-        f = NULL;
-        if (p) {
-          std::memcpy(&f, &p, sizeof(f));
-        }
+        f = p ? functionFromPointer<F>(p) : NULL;
         return f != NULL;
       }
 
-      // the OpenGL functions, or NULL if they can't all be loaded
-      const GLFunctions *loadOpenGL()
+      // all the functions from lib (fns is filled in, even if some are missing)
+      bool loadGLFunctions(void *lib, GLFunctions &fns)
       {
-        static GLFunctions fns;
-        void *lib = openGLLibrary();
-        if (!lib) {
-          return NULL;
-        }
         bool ok = true;
         ok = loadGLFunction(lib, "glBegin", fns.Begin) && ok;
         ok = loadGLFunction(lib, "glEnd", fns.End) && ok;
@@ -209,14 +227,129 @@ namespace OFX {
         ok = loadGLFunction(lib, "glBlendFunc", fns.BlendFunc) && ok;
         ok = loadGLFunction(lib, "glPushAttrib", fns.PushAttrib) && ok;
         ok = loadGLFunction(lib, "glPopAttrib", fns.PopAttrib) && ok;
-        return ok ? &fns : NULL;
+        return ok;
+      }
+
+      // The functions that return the current OpenGL context (NULL if none), to check that one
+      // is current before any OpenGL call: legacy OpenGL calls without a current context
+      // usually crash (macOS). An OpenGL context is current if any of them returns non-NULL.
+      typedef void *(OFXS_GL_APIENTRY *CurrentContextFunction)(void);
+      struct CurrentContextFunctions {
+        CurrentContextFunction f[4];
+        int count;
+      };
+
+      void addCurrentContextFunction(CurrentContextFunctions &c, void *lib, const char *name)
+      {
+        if (!lib || c.count >= 4) {
+          return;
+        }
+        void *p = openGLSymbol(lib, name);
+        if (!p) {
+          return;
+        }
+        const CurrentContextFunction f = functionFromPointer<CurrentContextFunction>(p);
+        for (int i = 0; i < c.count; ++i) {
+          if (c.f[i] == f) {
+            return;
+          }
+        }
+        c.f[c.count++] = f;
+      }
+
+      // the OpenGL functions and the library they come from (NULL if they can't all be loaded)
+      struct OpenGLLoad {
+        const GLFunctions *fns;
+        void *lib;
+      };
+
+      OpenGLLoad loadOpenGL()
+      {
+        static GLFunctions fns;
+        OpenGLLoad r = { NULL, NULL };
+#if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
+        void *lib = openGLLibraryWindows();
+        if ( lib && loadGLFunctions(lib, fns) ) {
+          r.fns = &fns;
+          r.lib = lib;
+        }
+#else
+        // already loaded globally (e.g. the host links it): no dlopen. If only some of the
+        // functions are found there (another library exports them), try the OpenGL libraries.
+        if ( loadGLFunctions(RTLD_DEFAULT, fns) ) {
+          r.fns = &fns;
+          r.lib = RTLD_DEFAULT;
+          return r;
+        }
+#ifdef __APPLE__
+        static const char *const names[] = { "/System/Library/Frameworks/OpenGL.framework/OpenGL", NULL };
+#else
+        static const char *const names[] = { "libGL.so.1", "libGL.so", "libOpenGL.so.0", NULL };
+#endif
+        for (int i = 0; names[i]; ++i) {
+          // (the library the host loaded is shared: dlopen doesn't load a second copy)
+          void *lib = dlopen(names[i], RTLD_LAZY | RTLD_LOCAL); // never closed if used
+          if (!lib) {
+            continue;
+          }
+          if ( loadGLFunctions(lib, fns) ) {
+            r.fns = &fns;
+            r.lib = lib;
+            return r;
+          }
+          dlclose(lib);
+        }
+#endif
+        return r;
       }
 
       // loaded once, at the first call (thread-safe in C++11 and later)
+      const OpenGLLoad &openGLLoad()
+      {
+        static const OpenGLLoad load = loadOpenGL();
+        return load;
+      }
+
       const GLFunctions *openGLFunctions()
       {
-        static const GLFunctions *fns = loadOpenGL();
-        return fns;
+        return openGLLoad().fns;
+      }
+
+      CurrentContextFunctions loadCurrentContextFunctions()
+      {
+        CurrentContextFunctions c;
+        c.count = 0;
+        void *gl = openGLLoad().lib;
+        if (!gl) {
+          return c;
+        }
+#if defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
+        addCurrentContextFunction(c, gl, "wglGetCurrentContext");
+#elif defined(__APPLE__)
+        addCurrentContextFunction(c, gl, "CGLGetCurrentContext");
+        addCurrentContextFunction(c, RTLD_DEFAULT, "CGLGetCurrentContext");
+        addCurrentContextFunction(c, RTLD_DEFAULT, "OSMesaGetCurrentContext");
+#else
+        // GLX (libGL, or GLVND's libGLX), EGL (e.g. Wayland, or GLVND's libOpenGL with EGL),
+        // OSMesa: a context of any of them may be current. Only the libraries that are already
+        // loaded can have one.
+        addCurrentContextFunction(c, gl, "glXGetCurrentContext");
+        addCurrentContextFunction(c, RTLD_DEFAULT, "glXGetCurrentContext");
+        addCurrentContextFunction(c, RTLD_DEFAULT, "eglGetCurrentContext");
+        addCurrentContextFunction(c, RTLD_DEFAULT, "OSMesaGetCurrentContext");
+#ifdef RTLD_NOLOAD
+        addCurrentContextFunction(c, loadedLibrary("libGLX.so.0"), "glXGetCurrentContext");
+        addCurrentContextFunction(c, loadedLibrary("libEGL.so.1"), "eglGetCurrentContext");
+        addCurrentContextFunction(c, loadedLibrary("libOSMesa.so.8"), "OSMesaGetCurrentContext");
+#endif
+#endif
+        return c;
+      }
+
+      const CurrentContextFunctions &currentContextFunctions()
+      {
+        static const CurrentContextFunctions c = loadCurrentContextFunctions();
+        return c;
       }
 
       // the backend only exists if openGLFunctions() is not NULL
@@ -581,6 +714,21 @@ namespace OFX {
 #endif
     }
 
+    bool openGLContextIsCurrent()
+    {
+#ifndef OFXS_DRAWCONTEXT_NO_OPENGL
+      // no function to check it (e.g. an unknown OpenGL platform): not current, so that no
+      // OpenGL call is made without a context
+      const CurrentContextFunctions &c = currentContextFunctions();
+      for (int i = 0; i < c.count; ++i) {
+        if ( c.f[i]() ) {
+          return true;
+        }
+      }
+#endif
+      return false;
+    }
+
   } // namespace Private
 
   const DrawContext &DrawArgs::getDrawContext() const
@@ -593,7 +741,7 @@ namespace OFX {
       return drawSuite;
     case Private::eOverlayRegistrationV1:
       // "If this is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use
-      // OpenGL": OpenGL, even if the host passed a draw context
+      // OpenGL": OpenGL, even if the host passed a draw context (parameter interacts too)
       break;
     case Private::eOverlayRegistrationUnknown:
     default:
@@ -604,7 +752,20 @@ namespace OFX {
       break;
     }
     DrawContext &openGL = Private::DrawArgsAccess::openGLContext(*this);
-    Private::DrawArgsAccess::setOpenGLBackend(openGL, Private::openGLDrawContextBackend());
+    // OpenGL, only if it can be loaded and an OpenGL context is current: a host may have the
+    // DrawSuite and no OpenGL, and legacy OpenGL calls without a current context usually crash
+    const Private::DrawContextBackend *backend = Private::openGLDrawContextBackend();
+    if ( backend && Private::openGLContextIsCurrent() ) {
+      Private::DrawArgsAccess::setOpenGLBackend(openGL, backend);
+      return openGL;
+    }
+    // No OpenGL context: the host's DrawSuite context if it passed one ("Some existing plugins
+    // may use DrawSuite via kOfxImageEffectPluginPropOverlayInteractV1 if it's supported by the
+    // host, but this is discouraged"), else a context that draws nothing
+    if ( drawSuite.usesDrawSuite() ) {
+      return drawSuite;
+    }
+    Private::DrawArgsAccess::setOpenGLBackend(openGL, NULL);
     return openGL;
   }
 

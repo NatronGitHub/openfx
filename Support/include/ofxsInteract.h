@@ -100,8 +100,11 @@ namespace OFX {
      - overlay called through a kOfxImageEffectPluginPropOverlayInteractV1 entry
        (setOverlayInteractDescriptor(), setOverlayInteractDescriptorV2() on a host without the
        DrawSuite, or the OpenGL V1 entry that setOverlayInteractDescriptorV2() registers next to
-       the V2 one on a DrawSuite host): OpenGL (usesOpenGL()), even if the host also passed a
-       DrawSuite context.
+       the V2 one on a DrawSuite host), and parameter interacts: OpenGL (usesOpenGL()), even if
+       the host also passed a DrawSuite context. But if no OpenGL context is current (or OpenGL
+       can't be loaded): the host's DrawSuite context if it passed one ("Some existing plugins
+       may use DrawSuite via kOfxImageEffectPluginPropOverlayInteractV1 if it's supported by the
+       host, but this is discouraged"), else a context that draws nothing.
      - DrawArgs not made by the Support library's dispatcher (e.g. built by the plug-in from a
        property set): the DrawSuite if the inArgs have a draw context, else OpenGL.
      So a plug-in writes a single draw() for all hosts: register the overlay with
@@ -118,9 +121,13 @@ namespace OFX {
      draw with OpenGL.
 
    The only OpenGL guarantee for an overlay is the precondition of kOfxInteractActionDraw, "the
-   openGL context for this interact has been set", which is the V1 text: the Support library
-   uses OpenGL only inside a draw action called through a V1 entry, and plug-ins must not use it
-   in the other actions, or in the V2 draw actions. kOfxInteractPropBitDepth,
+   openGL context for this interact has been set". It is unconditional in the spec, but hosts
+   that call V2 overlays with the DrawSuite may have no OpenGL and don't honour it in practice.
+   So the Support library uses OpenGL only inside a draw action that is not a V2 one (a V1
+   entry, a parameter interact, or DrawArgs not made by the dispatcher without a draw context),
+   and only if an OpenGL context is actually current (checked at run time: legacy OpenGL calls
+   without a current context usually crash); plug-ins must not use OpenGL in the other actions,
+   or in the V2 draw actions. kOfxInteractPropBitDepth,
    kOfxInteractPropHasAlpha, kOfxInteractPropPenViewportPosition (Interact::getBitDepth(),
    hasAlpha(), PenArgs::penViewportPosition) and interactSwapBuffers are defined in OpenGL terms:
    don't rely on them when drawing with the DrawSuite.
@@ -162,11 +169,12 @@ namespace OFX {
    ofxsDrawContextOpenGL.cpp (for plug-in binaries built without OpenGL): getDrawContext() on a
    V1 overlay then draws nothing (canDraw() is false). Plug-ins that call getDrawContext() must
    compile and link ofxsDrawContextOpenGL.cpp, which needs the OpenGL headers but doesn't link
-   OpenGL: it loads the OpenGL 1.1 functions at run time, at the first getDrawContext() in a draw
-   action called through a V1 entry (dlopen/dlsym of libGL.so.1, of the OpenGL framework on
-   macOS, GetProcAddress on opengl32.dll on Windows; -ldl on Linux before glibc 2.34). So a
-   plug-in that calls it still loads on a machine without OpenGL; if OpenGL can't be loaded,
-   getDrawContext() on a V1 overlay draws nothing (canDraw() is false).
+   OpenGL: it loads the OpenGL 1.1 functions at run time, at the first getDrawContext() that may
+   use OpenGL (a draw action called through a V1 entry, a parameter interact's draw action, or
+   DrawArgs not made by the dispatcher without a draw context), with dlopen/dlsym of libGL.so.1,
+   of the OpenGL framework on macOS, GetProcAddress on opengl32.dll on Windows (-ldl on Linux
+   before glibc 2.34). So a plug-in that calls it still loads on a machine without OpenGL; if
+   OpenGL can't be loaded, getDrawContext() behaves as without a current OpenGL context (above).
    From libOfxSupport.a (CMake's openfx::Support), plug-ins that don't call it don't link it;
    Support/Plugins/Makefile.master's SUPPORTOBJECTS are plain object files, so every plug-in built
    with it links ofxsDrawContextOpenGL.o and needs the OpenGL headers.
@@ -275,7 +283,8 @@ namespace OFX {
 
     /** @brief The context to draw this overlay with, on any host: the DrawSuite for an
         overlay called through its V2 entry, OpenGL for an overlay called through a V1 entry
-        (see DrawContext). Never NULL. Defined in ofxsDrawContextOpenGL.cpp. */
+        if an OpenGL context is current (else the host's draw context if any, else a context
+        that draws nothing; see DrawContext). Never NULL. Defined in ofxsDrawContextOpenGL.cpp. */
     const DrawContext &getDrawContext() const;
 
     /** @brief true if the Support library's dispatcher made these args for a draw action
@@ -804,7 +813,9 @@ namespace OFX {
     }
 
   private:
-    // the descriptor that both entry points use (describe, createInstance)
+    // The descriptor that both entry points use (describe, createInstance). As before, nothing
+    // locks it: kOfxActionDescribe sets its property set during describe(), so a host that
+    // describes the interact through both entries (or twice) at the same time races on it.
     static DESC &descriptor()
     {
       static DESC desc;

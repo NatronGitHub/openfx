@@ -233,9 +233,18 @@ namespace OFX {
     };
 
     /** @brief The OpenGL backend (ofxsDrawContextOpenGL.cpp), NULL if it was compiled with
-        OFXS_DRAWCONTEXT_NO_OPENGL or if the OpenGL functions can't be loaded at run time (the
-        first call loads them: only call it where an OpenGL context is current) */
+        OFXS_DRAWCONTEXT_NO_OPENGL or if the OpenGL functions can't be loaded at run time. The
+        first call loads them (no OpenGL context is needed for that): only call it in the draw
+        actions that may use OpenGL (V1 entries, parameter interacts, DrawArgs not made by the
+        dispatcher without a draw context), so that the other plug-ins never load OpenGL. Its
+        functions must only be used if openGLContextIsCurrent(). */
     const DrawContextBackend *openGLDrawContextBackend();
+
+    /** @brief true if an OpenGL context is current on this thread (wglGetCurrentContext,
+        CGLGetCurrentContext, glXGetCurrentContext, eglGetCurrentContext or
+        OSMesaGetCurrentContext, loaded at run time); false if none is, if OpenGL can't be
+        loaded, or if no such function can be loaded. Call it after openGLDrawContextBackend(). */
+    bool openGLContextIsCurrent();
   }
 
   /** @brief The validation code has its own namespace */
