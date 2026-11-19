@@ -35,6 +35,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <map>
 #include <list>
 #include <vector>
+#include <memory>
+#include "ofxhMemory.h" // OFX::Host::auto_ptr (std::unique_ptr in C++11)
 #include <cstdarg>
 
 //ofx
@@ -137,6 +139,21 @@ namespace OFX {
       /// the Descriptor of a plugin parameter
       class Descriptor : public Base {
         Descriptor();
+
+        /// Bytes params (OFX 1.5): kOfxParamPropDefault points to the plug-in's OfxBytes, whose data may be
+        /// freed when describeInContext returns (e.g. a buffer on the stack), but each new instance reads
+        /// the default (BytesInstance). The descriptor keeps a copy, made when the plug-in sets the
+        /// property, and the property points to it.
+        class BytesDefaultHook : public Property::NotifyHook {
+          Descriptor &_descriptor;
+          bool _copying;
+        public:
+          explicit BytesDefaultHook(Descriptor &descriptor) : _descriptor(descriptor), _copying(false) {}
+          virtual void notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC;
+        };
+        std::vector<unsigned char> _bytesDefaultData;
+        OfxBytes _bytesDefault;
+        auto_ptr<BytesDefaultHook> _bytesDefaultHook;
        
       public:
         /// make a parameter, with the given type and name

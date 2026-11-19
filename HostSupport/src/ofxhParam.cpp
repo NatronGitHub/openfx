@@ -515,6 +515,35 @@ namespace OFX {
 
         _properties.addProperties(invariantProps);
         _properties.addProperties(variantProps);
+
+        if (type == kOfxParamTypeBytes) {
+          _bytesDefault.data = NULL;
+          _bytesDefault.length = 0;
+          _bytesDefaultHook.reset(new BytesDefaultHook(*this));
+          _properties.addNotifyHook(kOfxParamPropDefault, _bytesDefaultHook.get());
+        }
+      }
+
+      /// copy the plug-in's default of a Bytes param, and point the property to the copy
+      void Descriptor::BytesDefaultHook::notify(const std::string &/*name*/, bool /*single*/, int /*num*/) OFX_EXCEPTION_SPEC
+      {
+        if (_copying) {
+          return; // the property is being pointed to the copy
+        }
+        _copying = true;
+        const OfxBytes *def = (const OfxBytes *)_descriptor.getProperties().getPointerProperty(kOfxParamPropDefault);
+        if (def != &_descriptor._bytesDefault) {
+          if (def && def->data && def->length > 0) {
+            _descriptor._bytesDefaultData.assign(def->data, def->data + def->length);
+          } else {
+            _descriptor._bytesDefaultData.clear();
+          }
+          _descriptor._bytesDefault.data = _descriptor._bytesDefaultData.empty() ? NULL : &_descriptor._bytesDefaultData[0];
+          _descriptor._bytesDefault.length = _descriptor._bytesDefaultData.size();
+          // a NULL default stays NULL ("pointer to OfxBytes struct of one dimension, or nullptr")
+          _descriptor.getProperties().setPointerProperty(kOfxParamPropDefault, def ? (void*)&_descriptor._bytesDefault : NULL);
+        }
+        _copying = false;
       }
       
       /// add standard properties to a value holding param
