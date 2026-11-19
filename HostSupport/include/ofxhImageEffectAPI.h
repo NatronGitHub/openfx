@@ -67,6 +67,10 @@ namespace OFX {
 
         auto_ptr<PluginHandle> _pluginHandle;
 
+        /// OfxSetHost refused this host, or kOfxActionLoad or kOfxActionDescribe failed:
+        /// "no further actions will be passed to the plug-in", so getPluginHandle() doesn't try again
+        bool _loadFailed;
+
         void addContextInternal(const std::string &context) const;
 
       public:
@@ -104,6 +108,11 @@ namespace OFX {
 
         const std::set<std::string>& getContexts() const;
 
+        /// Load the plug-in, if it isn't yet: kOfxActionLoad, then kOfxActionDescribe on the base
+        /// descriptor, which is first reset to its initial state (it may hold the values read from
+        /// the plug-in cache). This is done once: the handle keeps the binary loaded until the
+        /// plug-in is deleted, which sends kOfxActionUnload. Returns NULL if OfxSetHost, Load or
+        /// Describe failed (and then always NULL).
         PluginHandle *getPluginHandle();
 
         /// this is called to make an instance of the effect

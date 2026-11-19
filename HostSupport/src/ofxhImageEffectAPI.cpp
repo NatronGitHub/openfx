@@ -70,6 +70,7 @@ namespace OFX {
         , _baseDescriptor(NULL)
         , _madeKnownContexts(false)
         , _pluginHandle()
+        , _loadFailed(false)
       {
         _baseDescriptor = gImageEffectHost->makeDescriptor(this);
       }
@@ -88,6 +89,7 @@ namespace OFX {
         , _baseDescriptor(NULL) 
         , _madeKnownContexts(false)
         , _pluginHandle()
+        , _loadFailed(false)
       {        
         _baseDescriptor = gImageEffectHost->makeDescriptor(this);
       }
@@ -161,15 +163,59 @@ namespace OFX {
         }
       }
 
+      /// copy the values of the properties of src into the properties of dst which have the same name
+      /// and type (a variable-dimension property gets the dimension of the source)
+      template<class P>
+      static bool copyPropertyValues(Property::Property *dst, Property::Property *src)
+      {
+        P *d = dynamic_cast<P *>(dst);
+        P *s = dynamic_cast<P *>(src);
+        if (!d || !s) {
+          return false;
+        }
+        const std::vector<typename P::Type> values = s->getValues();
+        if (!d->isFixedSize()) {
+          d->setValueN(NULL, 0);
+        }
+        for (size_t i = 0; i < values.size(); ++i) {
+          d->setValue(values[i], (int)i);
+        }
+        return true;
+      }
+
+      static void copyPropertySetValues(Property::Set &dst, const Property::Set &src)
+      {
+        const Property::PropertyMap &srcProps = src.getProperties();
+        for (Property::PropertyMap::const_iterator it = srcProps.begin(); it != srcProps.end(); ++it) {
+          Property::Property *d = dst.fetchProperty(it->first);
+          Property::Property *s = it->second;
+          if (!d || d == s) {
+            continue;
+          }
+          (void)(copyPropertyValues<Property::Int>(d, s) ||
+                 copyPropertyValues<Property::Double>(d, s) ||
+                 copyPropertyValues<Property::String>(d, s) ||
+                 copyPropertyValues<Property::Pointer>(d, s));
+        }
+      }
+
       PluginHandle *ImageEffectPlugin::getPluginHandle() 
       {
-        if(!_pluginHandle.get()) {
+        // ofxCore.h: kOfxActionLoad "will not be called again while the binary containing the
+        // plug-in remains loaded", and kOfxActionDescribe "will not be called again, unless it fails
+        // and returns one of the error codes where the host is allowed to attempt the action
+        // again". The handle, kept until the plug-in is deleted, keeps the binary loaded: the plug-in
+        // gets Load and Describe once, and kOfxActionUnload in unload(). After a failure, "no
+        // further actions will be passed to the plug-in".
+        if(!_pluginHandle.get() && !_loadFailed) {
           _pluginHandle.reset(new OFX::Host::PluginHandle(this, _pc.getHost())); 
           
           OfxPlugin *op = _pluginHandle->getOfxPlugin();
           
           if (!op) {
+            // OfxSetHost refused this host, or the binary no longer has this plug-in
             _pluginHandle.reset(NULL);
+            _loadFailed = true;
             return 0;
           }
 
@@ -186,9 +232,24 @@ namespace OFX {
 
           if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
             _pluginHandle.reset(NULL);
+            _loadFailed = true;
             return 0;
           }
-          
+
+          // The base descriptor may hold the values read from the plug-in cache (the binary was
+          // not loaded when it was read): Describe must start from the initial state of a
+          // descriptor, or the values that the plug-in appends (kOfxImageEffectPropSupportedContexts,
+          // kOfxImageEffectPropSupportedPixelDepths...) would be duplicated. It is reset in place,
+          // because the plug-in "is at liberty to cache the handle away for future reference until
+          // the plug-in is unloaded", and the host may hold references to getDescriptor().
+          // Properties that a fresh descriptor doesn't have (read from an older cache) are kept.
+          Property::Set &props = getDescriptor().getProps();
+          Property::Set cachedProps(props); // restored if Describe fails
+          {
+            auto_ptr<ImageEffect::Descriptor> fresh(gImageEffectHost->makeDescriptor(this));
+            copyPropertySetValues(props, fresh->getProps());
+          }
+
           try {
 #           ifdef OFX_DEBUG_ACTIONS
               std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionDescribe<<"()"<<std::endl;
@@ -200,6 +261,7 @@ namespace OFX {
           } CatchAllSetStatus(stat, gImageEffectHost, op, kOfxActionDescribe);
 
           if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+            copyPropertySetValues(props, cachedProps);
             // kOfxActionLoad succeeded, so the plug-in may have allocated global
             // resources: it must get kOfxActionUnload before being dropped.
             // ("kOfxStatErrMissingHostFeature, in which the plugin will be unloaded and ignored")
@@ -209,6 +271,7 @@ namespace OFX {
             } CatchAllSetStatus(unloadStat, gImageEffectHost, op, kOfxActionUnload);
             (void)unloadStat;
             _pluginHandle.reset(NULL);
+            _loadFailed = true;
             return 0;
           }
         }
@@ -268,11 +331,11 @@ namespace OFX {
       ImageEffect::Instance* ImageEffectPlugin::createInstance(const std::string &context, void *clientData)
       {          
 
-        /// todo - we need to make sure action:load is called, then action:describe again
-        /// (not because we are expecting the results to change, but because plugin
-        /// might get confused otherwise), then a describe_in_context
-
-        getPluginHandle();
+        // kOfxActionLoad and kOfxActionDescribe, if they were not called since the binary was
+        // loaded (getContext() calls it too, before kOfxImageEffectActionDescribeInContext)
+        if (!getPluginHandle()) {
+          return 0;
+        }
 
         Descriptor *desc = getContext(context);
         
@@ -420,50 +483,14 @@ namespace OFX {
           return;
         }
 
-        PluginHandle plug(p, _host);
-        if (!plug.getOfxPlugin()) {
-          // OfxSetHost refused this host, or the binary no longer has this plug-in
-          return;
-        }
-#       ifdef OFX_DEBUG_ACTIONS
-        OfxPlugin *ofxp = plug.getOfxPlugin();
-        const char* id = ofxp->pluginIdentifier;
-#       endif
-
-        OfxStatus stat;
-        try {
-#         ifdef OFX_DEBUG_ACTIONS
-            std::cout << "OFX: "<<id<<"("<<ofxp<<")->"<<kOfxActionLoad<<"()"<<std::endl;
-#         endif
-          stat = plug->mainEntry(kOfxActionLoad, 0, 0, 0);
-#         ifdef OFX_DEBUG_ACTIONS
-            std::cout << "OFX: "<<id<<"("<<ofxp<<")->"<<kOfxActionLoad<<"()->"<<StatStr(stat)<<std::endl;
-#         endif
-        } CatchAllSetStatus(stat, gImageEffectHost, plug, kOfxActionLoad);
-
-        if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
-          std::cerr << "load failed on plugin " << op->getIdentifier() << std::endl;          
-          return;
-        }
-
-        try {
-#         ifdef OFX_DEBUG_ACTIONS
-            std::cout << "OFX: "<<id<<"("<<ofxp<<")->"<<kOfxActionDescribe<<"()"<<std::endl;
-#         endif
-          stat = plug->mainEntry(kOfxActionDescribe, p->getDescriptor().getHandle(), 0, 0);
-#         ifdef OFX_DEBUG_ACTIONS
-            std::cout << "OFX: "<<id<<"("<<ofxp<<")->"<<kOfxActionDescribe<<"()->"<<StatStr(stat)<<std::endl;
-#         endif
-        } CatchAllSetStatus(stat, gImageEffectHost, plug, kOfxActionDescribe);
-
-        if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
-          std::cerr << "describe failed on plugin " << op->getIdentifier() << std::endl;          
-          // kOfxActionLoad succeeded: balance it with kOfxActionUnload
-          OfxStatus unloadStat;
-          try {
-            unloadStat = plug->mainEntry(kOfxActionUnload, 0, 0, 0);
-          } CatchAllSetStatus(unloadStat, gImageEffectHost, plug, kOfxActionUnload);
-          (void)unloadStat;
+        // kOfxActionLoad, then kOfxActionDescribe, once: the plug-in keeps the handle, so these are
+        // not sent again while the binary stays loaded, and it gets kOfxActionUnload when it is
+        // deleted (ofxCore.h: Load "will not be called again while the binary containing the
+        // plug-in remains loaded"). This used to send Load, Describe and Unload here, then Load and
+        // Describe again on the same descriptor at the first getPluginHandle(), with the binary
+        // still loaded.
+        if (!p->getPluginHandle()) {
+          std::cerr << "load or describe failed on plugin " << op->getIdentifier() << std::endl;
           return;
         }
 
@@ -475,21 +502,6 @@ namespace OFX {
         for (int j=0;j<size;j++) {
           std::string context = eProps.getStringProperty(kOfxImageEffectPropSupportedContexts, j);
           p->addContext(context);
-        }
-
-        try {
-#         ifdef OFX_DEBUG_ACTIONS
-            std::cout << "OFX: "<<id<<"("<<ofxp<<")->"<<kOfxActionUnload<<"()"<<std::endl;
-#         endif
-          stat = plug->mainEntry(kOfxActionUnload, 0, 0, 0);
-#         ifdef OFX_DEBUG_ACTIONS
-            std::cout << "OFX: "<<id<<"("<<ofxp<<")->"<<kOfxActionUnload<<"()->"<<StatStr(stat)<<std::endl;
-#         endif
-        } CatchAllSetStatus(stat, gImageEffectHost, plug, kOfxActionUnload);
-
-        if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
-          std::cerr << "unload failed on plugin " << op->getIdentifier() << std::endl;
-          return;
         }
       }
 
