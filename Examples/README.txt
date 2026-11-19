@@ -46,7 +46,8 @@ See the Readme.txt in each directory.
 
      - Cuda    - CUDA render (kOfxImageEffectPropCudaRenderSupported,
                  kOfxImageEffectPropCudaEnabled, kOfxImageEffectPropCudaStream).
-                 Needs nvcc: "make HAVE_CUDA=1", or CMake -DOFX_SUPPORTS_CUDARENDER=ON.
+                 Needs nvcc: CMake -DOFX_SUPPORTS_CUDARENDER=ON (Linux, Windows
+                 with MSVC), or "make HAVE_CUDA=1" (Linux).
      - OpenCL  - OpenCL render, with buffers (kOfxImageEffectPropOpenCLRenderSupported)
                  or images (kOfxImageEffectPropOpenCLSupported,
                  kOfxImageEffectPropOpenCLImage), on

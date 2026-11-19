@@ -35,8 +35,8 @@ The examples follow the same scheme:
   can render on the GPU, and on the CPU ("needed" would mean that it can't
   work without the GPU). An OFX 1.4 host doesn't know these properties: the
   plug-in ignores the status, and renders on the CPU there.
-- the load action reads the same properties on the host descriptor.
-- render reads the "...Enabled" property in its inArgs. When it is 1, the
+- render reads the "...Enabled" property in its inArgs (0 if it is missing,
+  as on an OFX 1.4 host; whatever the host descriptor says). When it is 1, the
   images are GPU memory (CUDA device pointers, OpenCL buffers or images, Metal
   buffers): the plug-in renders on them directly, on the host's stream or
   queue, and doesn't wait for the GPU before returning (except CUDA without a
