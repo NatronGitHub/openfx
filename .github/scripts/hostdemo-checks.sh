@@ -162,6 +162,7 @@ assert mask["optional"] is True and mask["isMask"] is True and mask["supportedCo
 assert g["clips"][0]["optional"] is False and "OfxImageComponentRGBA" in g["clips"][0]["supportedComponents"]
 f = g["flags"]
 assert set(f["supportedPixelDepths"]) == {"OfxBitDepthByte", "OfxBitDepthShort", "OfxBitDepthFloat"}
+assert len(f["supportedPixelDepths"]) == 3, f["supportedPixelDepths"]  # described once: no duplicates
 assert f["supportsTiles"] is True and f["renderThreadSafety"] == "OfxImageEffectRenderInstanceSafe"
 p = dict((q["name"], q) for q in g["params"])
 assert [q["name"] for q in g["params"]] == ["Controls", "componentScales", "scale", "scaleComponents", "scaleR", "scaleG", "scaleB", "scaleA"]
