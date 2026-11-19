@@ -20,6 +20,16 @@
 #include "ofxhImageEffect.h"
 #include "hostDemoHostDescriptor.h"
 
+// the interact and draw suites, and an effect instance of a plug-in found in OFX_PLUGIN_PATH
+#include <cstdlib>
+#include <limits>
+#include "ofxInteract.h"
+#include "ofxDrawSuite.h"
+#include "ofxhInteract.h"
+#include "ofxhPluginCache.h"
+#include "ofxhImageEffectAPI.h"
+#include "hostDemoEffectInstance.h"
+
 using namespace OFX::Host;
 
 namespace {
@@ -61,8 +71,170 @@ namespace {
   };
 }
 
+namespace {
+  /// an interact instance with no view: swapBuffers() and redraw() count their calls
+  class TestInteract : public Interact::Instance {
+  public:
+    int swaps, redraws;
+    TestInteract(Interact::Descriptor &d) : Interact::Instance(d, NULL), swaps(0), redraws(0) {}
+#ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
+    virtual void getViewportSize(double &w, double &h) const { w = h = 100.; }
+#endif
+    virtual void getPixelScale(double &x, double &y) const { x = y = 1.; }
+#ifdef OFX_EXTENSIONS_NATRON
+    virtual double getScreenPixelRatio() const { return 1.; }
+#endif
+    virtual void getBackgroundColour(double &r, double &g, double &b) const { r = g = b = 0.; }
+    virtual bool getSuggestedColour(double &, double &, double &) const { return false; }
+    virtual OfxStatus swapBuffers() { ++swaps; return kOfxStatOK; }
+    virtual OfxStatus redraw() { ++redraws; return kOfxStatOK; }
+  };
+
+  /// what the interact's kOfxInteractActionDraw saw (gInteractEntry)
+  const OfxDrawSuiteV1 *gDrawSuite = NULL;
+  void *gDrawInteractHandle = NULL;  ///< the handle of the interact instance being drawn
+  void *gDrawDescriptorHandle = NULL; ///< the handle of its descriptor
+  int gDraws = 0;
+  bool gDrawContextIsHandle = false;
+  OfxStatus gDrawInstanceStatus = kOfxStatOK, gDrawDescriptorStatus = kOfxStatOK, gDrawNullStatus = kOfxStatOK;
+
+  /// the interact's entry point: in kOfxInteractActionDraw, use the DrawSuite with the draw
+  /// context, with the descriptor's handle and with NULL
+  OfxStatus gInteractEntry(const char *action, const void *handle, OfxPropertySetHandle inArgs, OfxPropertySetHandle)
+  {
+    if (std::string(action) != kOfxInteractActionDraw || !inArgs) {
+      return kOfxStatReplyDefault;
+    }
+    ++gDraws;
+    void *context = reinterpret_cast<Property::Set *>(inArgs)->getPointerProperty(kOfxInteractPropDrawContext);
+    gDrawContextIsHandle = context != NULL && context == handle && handle == gDrawInteractHandle;
+    // the base Instance doesn't implement the DrawSuite: "kOfxStatErrMissingHostFeature" means
+    // that the call reached the instance
+    gDrawInstanceStatus = gDrawSuite->setLineWidth((OfxDrawContextHandle)context, 1.f);
+    gDrawDescriptorStatus = gDrawSuite->setLineWidth((OfxDrawContextHandle)gDrawDescriptorHandle, 1.f);
+    gDrawNullStatus = gDrawSuite->setLineWidth(NULL, 1.f);
+    return kOfxStatOK;
+  }
+
+  /// the interact suite: NULL and descriptor handles, NULL outputs; the DrawSuite: NULL, descriptor
+  /// and instance handles, outside and inside kOfxInteractActionDraw
+  void checkInteractSuites()
+  {
+    const OfxInteractSuiteV1 *is = (const OfxInteractSuiteV1 *)Interact::GetSuite(1);
+    gDrawSuite = (const OfxDrawSuiteV1 *)Interact::GetDrawSuite(1);
+    check("interact and draw suites", is && gDrawSuite);
+    if (!is || !gDrawSuite) {
+      return;
+    }
+    Interact::Descriptor desc;
+    desc.setEntryPoint(gInteractEntry);
+    TestInteract inst(desc);
+    OfxInteractHandle descHandle = desc.getHandle();
+    OfxInteractHandle instHandle = inst.getHandle();
+
+    check("interactSwapBuffers(NULL) = kOfxStatErrBadHandle", is->interactSwapBuffers(NULL) == kOfxStatErrBadHandle);
+    check("interactSwapBuffers(descriptor) = kOfxStatErrBadHandle", is->interactSwapBuffers(descHandle) == kOfxStatErrBadHandle);
+    check("interactSwapBuffers(instance) = kOfxStatOK", is->interactSwapBuffers(instHandle) == kOfxStatOK && inst.swaps == 1);
+    check("interactRedraw(NULL) = kOfxStatErrBadHandle", is->interactRedraw(NULL) == kOfxStatErrBadHandle);
+    check("interactRedraw(descriptor) = kOfxStatErrBadHandle", is->interactRedraw(descHandle) == kOfxStatErrBadHandle);
+    check("interactRedraw(instance) = kOfxStatOK", is->interactRedraw(instHandle) == kOfxStatOK && inst.redraws == 1);
+
+    OfxPropertySetHandle props = (OfxPropertySetHandle)&inst;
+    check("interactGetPropertySet(NULL) = kOfxStatErrBadHandle", is->interactGetPropertySet(NULL, &props) == kOfxStatErrBadHandle);
+    check("interactGetPropertySet(NULL): *property = NULL", props == NULL);
+    check("interactGetPropertySet(NULL output) = kOfxStatErrBadHandle", is->interactGetPropertySet(instHandle, NULL) == kOfxStatErrBadHandle);
+    check("interactGetPropertySet(descriptor) = kOfxStatOK",
+          is->interactGetPropertySet(descHandle, &props) == kOfxStatOK && props == desc.getPropHandle());
+    check("interactGetPropertySet(instance) = kOfxStatOK",
+          is->interactGetPropertySet(instHandle, &props) == kOfxStatOK && props == inst.getPropHandle());
+
+    // ofxDrawSuite.h: "kOfxStatFailed - failure, e.g. if function is called outside kOfxInteractActionDraw"
+    check("DrawSuite(NULL) = kOfxStatFailed", gDrawSuite->setLineWidth(NULL, 1.f) == kOfxStatFailed);
+    check("DrawSuite(descriptor) = kOfxStatFailed", gDrawSuite->setLineWidth((OfxDrawContextHandle)descHandle, 1.f) == kOfxStatFailed);
+    check("DrawSuite(instance, outside the draw action) = kOfxStatFailed",
+          gDrawSuite->setLineWidth((OfxDrawContextHandle)instHandle, 1.f) == kOfxStatFailed);
+
+    gDrawInteractHandle = instHandle;
+    gDrawDescriptorHandle = descHandle;
+    OfxPointD renderScale = { 1., 1. };
+    const OfxStatus drawStatus = inst.drawAction(0., renderScale
+#ifdef OFX_EXTENSIONS_NUKE
+                                                 , 0
+#endif
+#ifdef OFX_EXTENSIONS_NATRON
+                                                 , NULL
+#endif
+                                                 );
+    check("drawAction = kOfxStatOK", drawStatus == kOfxStatOK && gDraws == 1);
+    check("kOfxInteractPropDrawContext is the interact handle", gDrawContextIsHandle);
+    check("DrawSuite(draw context, in the draw action) reaches the instance", gDrawInstanceStatus == kOfxStatErrMissingHostFeature);
+    check("DrawSuite(descriptor, in the draw action) = kOfxStatFailed", gDrawDescriptorStatus == kOfxStatFailed);
+    check("DrawSuite(NULL, in the draw action) = kOfxStatFailed", gDrawNullStatus == kOfxStatFailed);
+    gDrawInteractHandle = gDrawDescriptorHandle = NULL;
+  }
+
+  /// the progress and timeline suites on a valid effect instance handle: a real instance of a
+  /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
+  void checkEffectInstance(MyHost::Host &host)
+  {
+    const char *path = std::getenv("OFX_PLUGIN_PATH");
+    if (!path || !*path) {
+      std::printf("suiteHandleChecks: OFX_PLUGIN_PATH is not set: the effect instance checks are skipped\n");
+      return;
+    }
+    const char *pluginId = "net.sf.openfx.invertPlugin"; // Support/Plugins/Invert, as hostDemo
+    ImageEffect::PluginCache imageEffectPluginCache(&host);
+    imageEffectPluginCache.registerInCache(*PluginCache::getPluginCache());
+    PluginCache::getPluginCache()->scanPluginFiles();
+    ImageEffect::ImageEffectPlugin *plugin = imageEffectPluginCache.getPluginById(pluginId);
+    check((std::string("plug-in ") + pluginId + " in OFX_PLUGIN_PATH").c_str(), plugin != NULL);
+    ImageEffect::Instance *instance = plugin ? plugin->createInstance(kOfxImageEffectContextFilter, NULL) : NULL;
+    MyHost::MyEffectInstance *myInstance = dynamic_cast<MyHost::MyEffectInstance *>(instance);
+    check("createInstance", myInstance != NULL);
+    if (myInstance) {
+      const OfxStatus stat = instance->createInstanceAction();
+      check("createInstanceAction", stat == kOfxStatOK || stat == kOfxStatReplyDefault);
+      void *h = (void *)instance->getHandle();
+      const OfxProgressSuiteV1 *progress1 = (const OfxProgressSuiteV1 *)host.fetchSuite(kOfxProgressSuite, 1);
+      const OfxProgressSuiteV2 *progress2 = (const OfxProgressSuiteV2 *)host.fetchSuite(kOfxProgressSuite, 2);
+      const OfxTimeLineSuiteV1 *timeline = (const OfxTimeLineSuiteV1 *)host.fetchSuite(kOfxTimeLineSuite, 1);
+      if (progress1 && progress2 && timeline) {
+        // a NULL label or message id is an empty string
+        const size_t n = myInstance->getProgress().size();
+        check("progressStart V1(instance, NULL label) = kOfxStatOK",
+              progress1->progressStart(h, NULL) == kOfxStatOK && myInstance->getProgress().size() == n + 1 &&
+              myInstance->getProgress().back().message.empty() && myInstance->getProgress().back().id.empty());
+        check("progressEnd(instance) = kOfxStatOK", progress1->progressEnd(h) == kOfxStatOK && myInstance->getProgress().back().ended);
+        check("progressStart V2(instance, NULL message, NULL messageId) = kOfxStatOK",
+              progress2->progressStart(h, NULL, NULL) == kOfxStatOK && myInstance->getProgress().size() == n + 2 &&
+              myInstance->getProgress().back().message.empty() && myInstance->getProgress().back().id.empty());
+        check("progressStart V2(instance, message, NULL messageId) = kOfxStatOK",
+              progress2->progressStart(h, "message", NULL) == kOfxStatOK && myInstance->getProgress().size() == n + 3 &&
+              myInstance->getProgress().back().message == "message" && myInstance->getProgress().back().id.empty());
+        check("progressUpdate(instance) = kOfxStatOK", progress2->progressUpdate(h, 0.5) == kOfxStatOK);
+        check("progressEnd V2(instance) = kOfxStatOK", progress2->progressEnd(h) == kOfxStatOK);
+
+        double t = -1., t1 = -1., t2 = -1.;
+        check("gotoTime(instance, 3) = kOfxStatOK", timeline->gotoTime(h, 3.) == kOfxStatOK);
+        check("gotoTime(instance, NaN) = kOfxStatErrValue", timeline->gotoTime(h, std::numeric_limits<double>::quiet_NaN()) == kOfxStatErrValue);
+        check("getTime(instance) = kOfxStatOK, the time before the NaN", timeline->getTime(h, &t) == kOfxStatOK && t == 3.);
+        check("getTime(instance, NULL) = kOfxStatErrBadHandle", timeline->getTime(h, NULL) == kOfxStatErrBadHandle);
+        check("getTimeBounds(instance) = kOfxStatOK", timeline->getTimeBounds(h, &t1, &t2) == kOfxStatOK && t1 <= t2);
+        check("getTimeBounds(instance, NULL, &lastTime) = kOfxStatErrBadHandle", timeline->getTimeBounds(h, NULL, &t2) == kOfxStatErrBadHandle);
+        check("getTimeBounds(instance, &firstTime, NULL) = kOfxStatErrBadHandle", timeline->getTimeBounds(h, &t1, NULL) == kOfxStatErrBadHandle);
+      }
+      // before deleting the instance, while it is whole (ofxhImageEffect.h)
+      instance->destroyInstanceAction();
+    }
+    delete instance;
+    PluginCache::clearPluginCache();
+  }
+}
+
 int main()
 {
+  // only the plug-ins of OFX_PLUGIN_PATH (checkEffectInstance()); before the first getPluginCache()
+  PluginCache::useStdOFXPluginsLocation(false);
   MyHost::Host host;
   ImageEffect::gImageEffectHost = &host; // (set by ImageEffectPluginCache in a real host)
 
@@ -140,6 +312,9 @@ int main()
     }
   }
 
+  // the interact suite and the DrawSuite (no plug-in needed: a test interact)
+  checkInteractSuites();
+
   // the C fetchSuite of the host
   OfxHost *ofxHost = host.getHandle();
   Property::Set notHostProps;
@@ -147,6 +322,9 @@ int main()
   check("fetchSuite(NULL host) = NULL", ofxHost->fetchSuite(NULL, kOfxPropertySuite, 1) == NULL);
   check("fetchSuite(not the host property set) = NULL", ofxHost->fetchSuite(notHostProps.getHandle(), kOfxPropertySuite, 1) == NULL);
   check("fetchSuite(NULL name) = NULL", ofxHost->fetchSuite(ofxHost->host, NULL, 1) == NULL);
+
+  // a real effect instance (the progress and timeline functions on a valid handle)
+  checkEffectInstance(host);
 
   ImageEffect::gImageEffectHost = NULL;
   std::printf("suiteHandleChecks: %d of %d checks OK\n", gChecks - gFailures, gChecks);

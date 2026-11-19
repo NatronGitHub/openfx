@@ -540,6 +540,15 @@ namespace OFX {
       /// an image effect plugin instance.
       ///
       /// Client code needs to filling the pure virtuals in this.
+      ///
+      /// Lifetime: construct, populate the params and clips, createInstanceAction(), ...,
+      /// destroyInstanceAction(), then delete. The host must call destroyInstanceAction() before
+      /// deleting the instance: kOfxActionDestroyInstance requires that "the instance has not had
+      /// any of its members destroyed yet" (ofxCore.h), and the plug-in may call the host during
+      /// that action (e.g. clearPersistentMessage(), a param get), which reaches the host's
+      /// overrides. If it was not called, ~Instance() sends the action, but only as a safety net:
+      /// by then the derived classes are destroyed, so the overridden virtuals are gone (a call to
+      /// a pure virtual aborts) and the host's members too.
       class Instance : public Base,
                        public Param::SetInstance,
                        public Progress::ProgressI,
@@ -575,6 +584,10 @@ namespace OFX {
         /// at least as long as this instance
         Instance(const Instance& other);
 
+        /// Call destroyInstanceAction() first (see the class doc). If the instance is still
+        /// created, the destructor sends kOfxActionDestroyInstance as a safety net only: the
+        /// derived classes are already destroyed, and the plug-in's calls to the host during the
+        /// action can't reach their overrides.
         virtual ~Instance();
 
         /// implemented for Param::SetInstance
@@ -778,8 +791,10 @@ namespace OFX {
         /// values (either persisted ones or the defaults)
         virtual OfxStatus createInstanceAction();
 
-        /// destroy an instance. This needs to be called before the destructor,
-        /// since it may call virtual functions
+        /// destroy an instance (kOfxActionDestroyInstance, only if createInstanceAction() succeeded,
+        /// and only once). The host must call it before deleting the instance, while the instance
+        /// is whole ("the instance has not had any of its members destroyed yet", ofxCore.h): the
+        /// plug-in may call the host during the action, which reaches virtual functions
         virtual OfxStatus destroyInstanceAction();
 
         // begin/change/end instance changed

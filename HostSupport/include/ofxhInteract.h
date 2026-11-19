@@ -167,6 +167,11 @@ namespace OFX {
       public:
         Instance(Descriptor &desc, void *effectInstance);
 
+        /// Sends kOfxActionDestroyInstance if createInstanceAction() succeeded. Interact instances
+        /// have no destroyInstanceAction() (unlike ImageEffect::Instance): the action is sent from
+        /// this destructor, when the derived classes are already destroyed. A plug-in that calls
+        /// interactSwapBuffers() or interactRedraw() then, or reads a property with a get hook
+        /// (kOfxInteractPropPixelScale...), reaches pure virtuals, which aborts.
         virtual ~Instance();
 
         /// what is it's state?
