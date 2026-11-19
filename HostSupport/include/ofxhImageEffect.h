@@ -146,6 +146,9 @@ namespace OFX {
         /// The ofxInteracts.rst sentence "If the plugin requests OverlayInteractV2 and the host
         /// supports it, then the plugin *must* do all drawing with the DrawSuite" is about how
         /// the V2 entry draws when the host calls it, not about which entry the host picks.
+        /// A host that returns true must make an OpenGL context current around every V1 draw
+        /// (the kOfxInteractActionDraw precondition "the openGL context for this interact has
+        /// been set"): plug-ins with their own V1 drawing code call OpenGL there.
         /// Only meaningful if supportsDrawSuite() is true. It must return the same value for
         /// the whole session (the choice is made when an overlay descriptor is described).
         /// Default: false (V2 when both are set).
