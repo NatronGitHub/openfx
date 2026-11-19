@@ -37,7 +37,7 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 
 ## Fixes in OpenFX Version NEXT:
 
-- HostSupport: a Bytes param descriptor keeps a copy of its default (`kOfxParamPropDefault`, a pointer to an `OfxBytes`), made when the plug-in sets it. Each new instance used to copy the default from the plug-in's own buffer, which may be freed after `describeInContext` (e.g. a buffer on the stack): a use-after-free at every instance creation (NatronGitHub/Natron#1102, #1422).
+- HostSupport: a Bytes param descriptor keeps its own copy of its default (`kOfxParamPropDefault`, a pointer to an `OfxBytes`), made when the plug-in sets it, so the plug-in's buffer may be freed after `describeInContext` (e.g. a buffer on the stack). A NULL default stays NULL, `{NULL, length > 0}` is refused with `kOfxStatErrValue`, and a copy that fails gives `kOfxStatErrMemory` and a NULL default. Reading the default back returns the host's copy (NatronGitHub/Natron#1102, NatronGitHub/Natron#1422).
 - Fixed incorrect enum value names in property metadata (`@propdef`) for several properties, and made the generator reject unknown enum names so this can't regress (issue #247).
 - Set proper RGBA colour defaults on the colour parameter in the Rectangle example (issue #240).
 - Fixed the ColourSpace example to compile under `FMT_ENFORCE_COMPILE_STRING`, with a CI job to keep it that way (issue #236).

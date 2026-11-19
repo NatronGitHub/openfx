@@ -270,6 +270,8 @@ namespace OFX {
       Descriptor::Descriptor(const std::string &type, 
                              const std::string &name) : Base(name, type)
       {
+        _bytesDefault.data = NULL;
+        _bytesDefault.length = 0;
         const char *ctype = type.c_str();
         const char *cname = name.c_str();
 
@@ -516,9 +518,7 @@ namespace OFX {
         _properties.addProperties(invariantProps);
         _properties.addProperties(variantProps);
 
-        if (type == kOfxParamTypeBytes) {
-          _bytesDefault.data = NULL;
-          _bytesDefault.length = 0;
+        if (type == kOfxParamTypeBytes && !_bytesDefaultHook.get()) { // install the hook once
           _bytesDefaultHook.reset(new BytesDefaultHook(*this));
           _properties.addNotifyHook(kOfxParamPropDefault, _bytesDefaultHook.get());
         }
@@ -530,22 +530,44 @@ namespace OFX {
         if (_copying) {
           return; // the property is being pointed to the copy
         }
+        Property::Set &props = _descriptor.getProperties();
+        const OfxBytes *def = (const OfxBytes *)props.getPointerProperty(kOfxParamPropDefault);
+        if (def == &_descriptor._bytesDefault) {
+          return; // already the copy
+        }
         _copying = true;
-        const OfxBytes *def = (const OfxBytes *)_descriptor.getProperties().getPointerProperty(kOfxParamPropDefault);
-        if (def != &_descriptor._bytesDefault) {
-          if (def && def->data && def->length > 0) {
+        OfxStatus stat = kOfxStatOK;
+        try {
+          if (def && !def->data && def->length > 0) {
+            stat = kOfxStatErrValue; // no data, but a length: as BytesInstance::setV
+          } else if (def && def->data && def->length > 0) {
             _descriptor._bytesDefaultData.assign(def->data, def->data + def->length);
           } else {
             _descriptor._bytesDefaultData.clear();
           }
-          _descriptor._bytesDefault.data = _descriptor._bytesDefaultData.empty() ? NULL : &_descriptor._bytesDefaultData[0];
-          _descriptor._bytesDefault.length = _descriptor._bytesDefaultData.size();
-          // a NULL default stays NULL ("pointer to OfxBytes struct of one dimension, or nullptr")
-          _descriptor.getProperties().setPointerProperty(kOfxParamPropDefault, def ? (void*)&_descriptor._bytesDefault : NULL);
+        } catch (...) {
+          stat = kOfxStatErrMemory; // e.g. bad_alloc or length_error for a garbage length
+        }
+        if (stat != kOfxStatOK) {
+          // never keep the plug-in's pointer, which may be freed: the default becomes NULL
+          _descriptor._bytesDefaultData.clear();
+          def = NULL;
+        }
+        _descriptor._bytesDefault.data = _descriptor._bytesDefaultData.empty() ? NULL : &_descriptor._bytesDefaultData[0];
+        _descriptor._bytesDefault.length = _descriptor._bytesDefaultData.size();
+        // a NULL default stays NULL ("pointer to OfxBytes struct of one dimension, or nullptr")
+        try {
+          props.setPointerProperty(kOfxParamPropDefault, def ? (void*)&_descriptor._bytesDefault : NULL);
+        } catch (...) {
+          _copying = false;
+          throw Property::Exception(kOfxStatFailed);
         }
         _copying = false;
+        if (stat != kOfxStatOK) {
+          throw Property::Exception(stat);
+        }
       }
-      
+
       /// add standard properties to a value holding param
       void Descriptor::addNumericParamProps(const std::string &type, Property::TypeEnum valueType, int dim)
       {

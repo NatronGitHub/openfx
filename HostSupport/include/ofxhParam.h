@@ -35,7 +35,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <map>
 #include <list>
 #include <vector>
-#include <memory>
 #include "ofxhMemory.h" // OFX::Host::auto_ptr (std::unique_ptr in C++11)
 #include <cstdarg>
 
@@ -154,6 +153,9 @@ namespace OFX {
         std::vector<unsigned char> _bytesDefaultData;
         OfxBytes _bytesDefault;
         auto_ptr<BytesDefaultHook> _bytesDefaultHook;
+        // not copyable: the hook refers to this descriptor, and the default property points to _bytesDefault
+        Descriptor(const Descriptor &);
+        Descriptor &operator=(const Descriptor &);
        
       public:
         /// make a parameter, with the given type and name
