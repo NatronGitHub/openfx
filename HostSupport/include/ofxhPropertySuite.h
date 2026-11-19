@@ -466,8 +466,9 @@ namespace OFX {
         /// add one new property
         void addProperty(Property *prop);
 
-        /// remove (and delete) a property, if it exists: e.g. a host property that a host
-        /// application doesn't have. Don't call it while a plug-in may hold the property.
+        /// remove (and delete) a property of this set, if it exists: e.g. a host property that a
+        /// host application doesn't have. It doesn't follow the chained set. Don't call it while a
+        /// plug-in may hold the property.
         void removeProperty(const std::string &name);
 
         /// set the chained property set

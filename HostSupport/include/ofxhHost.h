@@ -86,7 +86,9 @@ namespace OFX {
 
       /// Whether the plug-in cache calls the OfxSetHost of the binaries (OFX 1.5) before their
       /// OfxGetPlugin. Return false to behave as an OFX 1.4 host, which only passes the host to
-      /// OfxPlugin::setHost. The default is true.
+      /// OfxPlugin::setHost. The default is true. The plug-in cache records what the plug-ins said
+      /// in OfxSetHost and describe: a host whose answer changes (e.g. with a command-line option)
+      /// must also change its plug-in cache version (PluginCache::setCacheVersion()) or file.
       virtual bool supportsOfxSetHost() const { return true; }
       
       /// get the C API handle that is passed across the API to represent this host

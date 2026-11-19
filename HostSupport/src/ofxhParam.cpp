@@ -2257,7 +2257,7 @@ namespace OFX {
             !(ImageEffect::gImageEffectHost &&
               ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxParamHostPropSupportsStrChoice) != 0)) {
           const OfxStatus st = (ImageEffect::gImageEffectHost &&
-                                !ImageEffect::gImageEffectHost->getProperties().fetchProperty(kOfxParamHostPropSupportsStrChoice)) ?
+                                !ImageEffect::gImageEffectHost->getProperties().fetchProperty(kOfxParamHostPropSupportsStrChoice, true)) ?
                                kOfxStatErrUnknown : kOfxStatErrUnsupported;
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(st) << std::endl;
@@ -2272,7 +2272,7 @@ namespace OFX {
             !(ImageEffect::gImageEffectHost &&
               ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxHostSupportHostPropSupportsBytes) != 0)) {
           const OfxStatus st = (ImageEffect::gImageEffectHost &&
-                                !ImageEffect::gImageEffectHost->getProperties().fetchProperty(kOfxHostSupportHostPropSupportsBytes)) ?
+                                !ImageEffect::gImageEffectHost->getProperties().fetchProperty(kOfxHostSupportHostPropSupportsBytes, true)) ?
                                kOfxStatErrUnknown : kOfxStatErrUnsupported;
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(st) << std::endl;
