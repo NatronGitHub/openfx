@@ -20,9 +20,20 @@ The current examples are all written in C++ and are...
      - DepthConverter - shows how to deal with pixel preferences.
      - Rectangle - example generator and filter that shows how to deal with spatial
                  parameters.
+     - DrawSuite - (OFX 1.5) sets both overlay entry points: V1 draws with OpenGL
+                 (orange, "V1 OpenGL"), V2 draws with the OfxDrawSuiteV1 (magenta,
+                 "V2 DrawSuite") and calls every DrawSuite function.
+     - ColourSpace - (OFX 1.5) colour management: three plug-ins (Basic, Core and
+                 Full styles) that set their preferred input and output colourspaces,
+                 and write the clip colourspaces into the output image.
+     - ChoiceParams - (OFX 1.5) Choice params with kOfxParamPropChoiceOrder, and a
+                 StrChoice (string-valued) param.
 
-The directory include contains the file ofxUtilities.H which contains some code 
-shared by all the examples.
+DrawSuite, ColourSpace and ChoiceParams were ported from the upstream OpenFX
+repository (AcademySoftwareFoundation/openfx).
+
+The directory include contains the file ofxUtilities.H which contains some code
+shared by all the examples, and ofxuFont5x7.H, a small bitmap font.
 
 cheers
 

@@ -2,8 +2,11 @@
 # Also built by Examples/Makefile.
 set(PLUGINS
 	Basic
+	ChoiceParams
+	ColourSpace
 	Custom
 	DepthConverter
+	DrawSuite
 	Invert
 	OpenGL
 	Overlay

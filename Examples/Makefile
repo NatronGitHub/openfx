@@ -1,4 +1,4 @@
-SUBDIRS = Basic Custom DepthConverter Invert OpenGL Overlay Rectangle Test
+SUBDIRS = Basic ChoiceParams ColourSpace Custom DepthConverter DrawSuite Invert OpenGL Overlay Rectangle Test
 
 all: subdirs
 
