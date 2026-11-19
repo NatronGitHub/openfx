@@ -40,6 +40,12 @@ Natron-specific extensions, among them:
   OFX 1.6 ``kOfxInteractPropKeyModifiers``; with the Support library, call
   ``OFX::ImageEffect::getKeyModifiers()``, which tracks the modifier keys on
   hosts without the extension;
+- drop shadows on DrawSuite elements (``kNatronOfxInteractPropDrawSuiteShadows``,
+  in the inArgs of the draw action, 0 if absent): drawn by the host's
+  DrawSuite implementation, and by the Support library's DrawSuite-to-OpenGL
+  emulation in V1 draws (``OFXS_SUPPORT_HAS_DRAWSUITE_SHADOWS``); plug-ins
+  never draw shadows with DrawSuite calls, and OpenGL drawing code keeps its
+  own;
 - dynamic choice parameters (``kNatronOfxParamHostPropSupportsDynamicChoices``,
   ``kOfxParamPropChoiceEnum`` on Choice parameters, cascading menus);
 - markdown descriptions (``kNatronOfxPropDescriptionIsMarkdown``);
@@ -179,6 +185,18 @@ plug-ins never draw with DrawSuite calls. The self-test
 ``Support/tests/DrawSuiteOpenGLTest.cpp`` (CMake target
 ``drawsuite-opengl-test``) checks its OpenGL calls with a fake OpenGL
 table.
+
+For HostSupport hosts, ``HostSupport/include/ofxhDrawSuiteOpenGL.h``
+(optional, header-only) has ``OFX::Host::Interact::OpenGLDrawSuite``: the
+DrawSuite state of one draw action and the OpenGL table, as a member of the
+host's interact instance, which forwards its DrawSuite hooks to it and calls
+``beginDraw(pixelScale, screenPixelRatio, shadows)`` at the start of each
+draw action. A host derives from it to use its own standard colours
+(``getColour()``), its own font (``measureText()`` and ``renderText()``,
+which get the left end of the baseline computed by ``alignText()``) or its
+own primitive renderer (``renderPrimitive()``); it draws the shadow pass of
+every element. ``Interact::Instance::drawSuiteShadows()`` (false by default)
+sets ``kNatronOfxInteractPropDrawSuiteShadows`` in the draw action's inArgs.
 
 The Support library also falls back on hosts that implement only OFX 1.4: one
 view, named "Main", without the plane suite V2; ``Clip::fetchImagePlane()``
