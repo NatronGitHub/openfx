@@ -31,6 +31,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef OFX_INTERACT_H
 #define OFX_INTERACT_H
 
+#include "ofxCore.h"
+#include "ofxInteract.h" // OfxInteractHandle, OfxInteractSuiteV1
+#include "ofxhPropertySuite.h" // Property::Set, Property::GetHook
 #include "ofxOld.h" // old plugins may rely on deprecated properties being present
 #include "ofxDrawSuite.h" // OFX 1.5 DrawSuite
 #ifdef OFX_EXTENSIONS_NATRON

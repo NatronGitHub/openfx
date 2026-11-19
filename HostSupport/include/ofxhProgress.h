@@ -31,6 +31,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef _ofxhProgress_h_
 #define _ofxhProgress_h_
 
+#include <string>
+
+#include "ofxCore.h" // OfxStatus (ofxProgress.h does not include it)
 #include "ofxProgress.h"
 
 namespace OFX {
