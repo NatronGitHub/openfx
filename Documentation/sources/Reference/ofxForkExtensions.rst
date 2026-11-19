@@ -43,9 +43,10 @@ Natron-specific extensions, among them:
 - drop shadows on DrawSuite elements (``kNatronOfxInteractPropDrawSuiteShadows``,
   in the inArgs of the draw action, 0 if absent): drawn by the host's
   DrawSuite implementation, and by the Support library's DrawSuite-to-OpenGL
-  emulation in V1 draws (``OFXS_SUPPORT_HAS_DRAWSUITE_SHADOWS``); plug-ins
-  never draw shadows with DrawSuite calls, and OpenGL drawing code keeps its
-  own;
+  emulation in V1 draws (``OFXS_SUPPORT_HAS_DRAWSUITE_SHADOWS``), for the
+  lines, ellipse outlines and text, not the filled rectangles and polygons;
+  plug-ins never draw shadows with DrawSuite calls (nor their own shadow loop
+  around ``getDrawContext()`` calls), and OpenGL drawing code keeps its own;
 - dynamic choice parameters (``kNatronOfxParamHostPropSupportsDynamicChoices``,
   ``kOfxParamPropChoiceEnum`` on Choice parameters, cascading menus);
 - markdown descriptions (``kNatronOfxPropDescriptionIsMarkdown``);
@@ -195,7 +196,9 @@ draw action. A host derives from it to use its own standard colours
 (``getColour()``), its own font (``measureText()`` and ``renderText()``,
 which get the left end of the baseline computed by ``alignText()``) or its
 own primitive renderer (``renderPrimitive()``); it draws the shadow pass of
-every element. ``Interact::Instance::drawSuiteShadows()`` (false by default)
+the lines, ellipse outlines and text, in the host's background colour. A
+``renderText()`` that returns ``kOfxStatReplyDefault`` (a view that can't
+render text) makes it fall back to the built-in font. ``Interact::Instance::drawSuiteShadows()`` (false by default)
 sets ``kNatronOfxInteractPropDrawSuiteShadows`` in the draw action's inArgs.
 
 The Support library also falls back on hosts that implement only OFX 1.4: one
