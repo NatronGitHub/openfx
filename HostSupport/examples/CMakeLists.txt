@@ -19,6 +19,16 @@ add_executable(propsetDump
 	hostDemoParamInstance.cpp)
 target_link_libraries(propsetDump PRIVATE OfxHost)
 
+# the param, progress and timeline suites reject NULL and descriptor handles
+# (run by .github/scripts/hostdemo-checks.sh)
+add_executable(suiteHandleChecks
+	suiteHandleChecks.cpp
+	hostDemoClipInstance.cpp
+	hostDemoEffectInstance.cpp
+	hostDemoHostDescriptor.cpp
+	hostDemoParamInstance.cpp)
+target_link_libraries(suiteHandleChecks PRIVATE OfxHost)
+
 if(OFX_INSTALL) # (OFF under add_subdirectory(openfx))
 	install(TARGETS hostDemo cacheDemo propsetDump RUNTIME DESTINATION bin)
 endif()
