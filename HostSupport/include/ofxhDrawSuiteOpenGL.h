@@ -249,9 +249,10 @@ namespace OFX {
         /// Draw utf8 in the host's font, in state().colour, the left end of its baseline at
         /// baselineLeft (canonical coordinates), with the metrics that measureText() returned.
         /// Only called if measureText() returned true; drawText() handles the alignment and the
-        /// shadows. Return kOfxStatReplyDefault, without drawing, if this view can't render text
-        /// (e.g. Natron's CustomParamInteract, whose OverlaySupport has no way to say so in
-        /// advance): drawText() then draws with the built-in font instead. Return it
+        /// shadows. A host that knows in advance that a view can't render text returns false from
+        /// measureText(), and both passes use the built-in font. Otherwise, return
+        /// kOfxStatReplyDefault, without drawing, if this view can't render text: drawText()
+        /// then draws with the built-in font instead. Return it
         /// consistently for a given view within a draw, otherwise the shadow and the text are
         /// drawn with different fonts. The default draws the
         /// built-in font there (kOfxStatFailed without an OpenGL table).
