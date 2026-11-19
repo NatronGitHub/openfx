@@ -23,7 +23,9 @@ if(CMAKE_HOST_APPLE AND NOT CMAKE_TOOLCHAIN_FILE AND (NOT CMAKE_SYSTEM_NAME OR C
   set(CMAKE_OSX_DEPLOYMENT_TARGET 14.0 CACHE STRING "Minimum macOS version")
 endif()
 option(OFX_SUPPORTS_CUDARENDER "Build examples with support for CUDA GPU rendering" OFF)
-if(APPLE)
+# macOS has no CUDA. APPLE is only set by project(), so test the host (and that the build is not a
+# cross build to another system, as above).
+if(CMAKE_HOST_APPLE AND (NOT CMAKE_SYSTEM_NAME OR CMAKE_SYSTEM_NAME STREQUAL "Darwin"))
   set(OFX_SUPPORTS_CUDARENDER OFF CACHE BOOL "" FORCE)
 endif()
 if(OFX_SUPPORTS_CUDARENDER)
