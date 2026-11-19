@@ -47,7 +47,6 @@ namespace MyHost {
     /// the OFX 1.4 host properties, fetchSuite() returns only the OFX 1.4 suites, and OfxSetHost
     /// is not called. Call it before the plug-in scan.
     void restrictToOFX14();
-    bool isOFX14() const { return _ofx14; }
 
     /// the base class suites, or only the OFX 1.4 ones with restrictToOFX14()
     virtual const void *fetchSuite(const char *suiteName, int suiteVersion);

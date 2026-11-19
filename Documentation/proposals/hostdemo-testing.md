@@ -1,6 +1,6 @@
 # hostDemo as a plug-in test host, and a Python test wrapper (`ofxhost`)
 
-Status: implemented ([#109](https://github.com/NatronGitHub/openfx/issues/109): #111, #117–#120, #122, #123, #126, #128, #132), except steps 6 (host profiles, `--host`) and 7 (readers and writers, #135, closed unmerged), dropped when hostDemo was frozen. hostDemo is now frozen: new host features go to the Python sample hosts on HostSupport bindings ([#136](https://github.com/NatronGitHub/openfx/issues/136)). This document is the design as it was proposed; the code, `hostDemo --help` and `HostSupport/examples/python/README.md` are the reference. It doesn't change the OFX API.
+Status: implemented ([#109](https://github.com/NatronGitHub/openfx/issues/109): #111, #117–#120, #122, #123, #126, #128, #132), except steps 6 (host profiles, `--host`) and 7 (readers and writers, #135, closed unmerged), dropped when hostDemo was frozen. hostDemo is now frozen: new host features go to the Python sample hosts on HostSupport bindings ([#136](https://github.com/NatronGitHub/openfx/issues/136)). The one exception, approved by the user on 2026-11-19, is `--ofx14` ([#170](https://github.com/NatronGitHub/openfx/pull/170)), an OFX 1.4-only host profile: it is kept as the only CI check of the rule that every plug-in works in OFX 1.4 hosts, until the Python bindings exist. This document is the design as it was proposed; the code, `hostDemo --help` and `HostSupport/examples/python/README.md` are the reference. It doesn't change the OFX API.
 
 ## Goal
 

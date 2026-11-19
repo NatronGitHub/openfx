@@ -118,8 +118,9 @@ namespace MyHost
   // reference (Documentation/ofxPropertiesByObject.xml), which adds kOfxPropType, kOfxPropName,
   // kOfxPropLabel, kOfxImageEffectPropSupportedContexts, kOfxImageEffectPropRenderQualityDraft and
   // kOfxImageEffectHostPropNativeOrigin. Everything else is an OFX 1.5+ or extension property
-  // (in upstream's headers, "introduced: 1.5" or "@version added in 1.5"): StrChoice, Bytes, CPU,
-  // OpenCL, CUDA and Metal render support, colour management, the Natron and Nuke host extensions.
+  // (upstream's headers mark the OFX 1.5 ones as introduced or added in version 1.5): StrChoice,
+  // Bytes, CPU, OpenCL, CUDA and Metal render support, colour management, the Natron and Nuke
+  // host extensions.
   static const char* const kOFX14HostProps[] = {
     kOfxPropAPIVersion, kOfxPropType, kOfxPropName, kOfxPropLabel, kOfxPropVersion,
     kOfxPropVersionLabel, kOfxPropHostOSHandle,

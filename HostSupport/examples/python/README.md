@@ -99,7 +99,9 @@ the tests when hostDemo isn't built.
   the colour management or Natron properties, gives kOfxStatErrUnknown), fetchSuite gives only
   the OFX 1.4 suites (no DrawSuite, OpenCL program suite, plane or Vegas suites),
   OfxSetHost is not called, paramDefine of a StrChoice or Bytes param returns
-  kOfxStatErrUnknown, and one view is rendered. The report's `host.profile` is "ofx14" (else
+  kOfxStatErrUnknown, and one view is rendered: even in stereo (Nuke/Vegas extension) builds,
+  the output files have no l/r suffix (`<prefix>.<t>`), and the keys of `RenderResult.outputs`
+  are plain times, not `(t, "l"|"r")`. The report's `host.profile` is "ofx14" (else
   "default"). It uses its own plug-in cache file, hostDemoPluginCache-ofx14.xml. In Python:
   `extra_args=["--ofx14"]`.
 - Times, scale and window: `--frames t0,t1,...` (default 0,1; any distinct finite times,
