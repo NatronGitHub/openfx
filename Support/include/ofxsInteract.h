@@ -30,7 +30,7 @@
     on a DrawSuite host, the V1 entry is registered next to the V2 one only if hasOpenGLDraw is
     true. In a V1 draw, drawContext is NULL even if the host passed a draw context, and
     getDrawContext() uses OpenGL if a context is current, else draws nothing (never the host's
-    DrawSuite). DrawArgs::getHostDrawContext() was removed. */
+    DrawSuite). */
 #define OFXS_SUPPORT_HAS_OVERLAY_HAS_OPENGL_DRAW 1
 /*
 OFX Support Library, a library that skins the OFX plug-in API with C++ classes.
@@ -118,7 +118,9 @@ namespace OFX {
      nothing.
    - DrawArgs not made by the Support library's dispatcher (e.g. built by the plug-in from a
      property set): the DrawSuite if the inArgs have a draw context, else OpenGL if an OpenGL
-     context is current, else a context that draws nothing.
+     context is current, else a context that draws nothing. This is the one exception to the
+     rules above: such DrawArgs don't know whether the draw is V1 or V2, so they may use the
+     DrawSuite in a V1 draw. Use the DrawArgs that draw() gets.
    DrawArgs::drawContext is the host's DrawSuite context in a V2 draw (NULL if it passed none),
    and NULL in every V1 draw.
 

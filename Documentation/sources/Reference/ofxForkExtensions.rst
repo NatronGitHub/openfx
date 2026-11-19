@@ -112,9 +112,11 @@ shared with other Support versions can test it:
   host's DrawSuite; in a V1 draw, with an OpenGL emulation of the DrawSuite
   (``Support/Library/ofxsDrawContextOpenGL.cpp``). So the same ``draw()``
   works on DrawSuite hosts and on OFX 1.4 hosts.
-- ``OFXS_SUPPORT_HAS_OVERLAY_INTERACT_V1_ENTRY``: a descriptor class
-  registered with ``setOverlayInteractDescriptorV2()`` has a separate
-  ``kOfxImageEffectPluginPropOverlayInteractV1`` entry.
+- ``OFXS_SUPPORT_HAS_OVERLAY_INTERACT_V1_ENTRY``: a descriptor class has a
+  separate ``kOfxImageEffectPluginPropOverlayInteractV1`` entry. On a
+  DrawSuite host, ``setOverlayInteractDescriptorV2()`` registers it next to
+  V2 only with ``hasOpenGLDraw`` (see below), and
+  ``setOverlayInteractDescriptor()`` registers it instead of the main entry.
   ``DrawArgs::calledViaOverlayInteractV2()`` says which entry the host called.
   The spec doesn't say which entry a host uses when both are set; HostSupport
   uses V2 when it has the DrawSuite.

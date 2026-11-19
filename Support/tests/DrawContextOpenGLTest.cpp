@@ -403,6 +403,27 @@ public:
   static OfxPluginEntryPoint *mainEntryV1() { return &OFX::InteractMainEntry<TestOverlayDescriptor>::overlayInteractMainEntryV1; }
 };
 
+// a parameter interact (always V1)
+class TestParamInteract : public OFX::ParamInteract {
+public:
+  TestParamInteract(OfxInteractHandle h, OFX::ImageEffect *effect, const std::string &) : OFX::ParamInteract(h, effect) {}
+  virtual bool draw(const OFX::DrawArgs &args)
+  {
+    gDrawRecord.drawn = true;
+    gDrawRecord.hasDrawContext = (args.drawContext != NULL);
+    gDrawRecord.calledViaV2 = args.calledViaOverlayInteractV2();
+    gDrawRecord.usesDrawSuite = args.getDrawContext().usesDrawSuite();
+    gDrawRecord.usesOpenGL = args.getDrawContext().usesOpenGL();
+    gDrawRecord.glCurrent = args.isOpenGLContextCurrent();
+    return true;
+  }
+};
+
+class TestParamInteractDescriptor : public OFX::DefaultParamInteractDescriptor<TestParamInteractDescriptor, TestParamInteract> {
+public:
+  static OfxPluginEntryPoint *mainEntry() { return &OFX::InteractMainEntry<TestParamInteractDescriptor>::overlayInteractMainEntry; }
+};
+
 // a descriptor class with its own main entry (not an InteractMainEntry<DESC> one)
 static OfxStatus customOverlayEntry(const char *, const void *, OfxPropertySetHandle, OfxPropertySetHandle) { return kOfxStatReplyDefault; }
 class CustomEntryOverlayDescriptor : public OFX::EffectOverlayDescriptor {
@@ -422,7 +443,7 @@ static void testSetOverlayInteractDescriptorV2()
 {
   using namespace OFX;
   using namespace OFX::Private;
-  static int descHandles[6];
+  static int descHandles[9];
   const bool savedOverlays = gHostDescription.supportsOverlays;
   const bool savedDrawSuite = gHostDescription.supportsDrawSuite;
   gHostDescription.supportsOverlays = true;
@@ -467,7 +488,8 @@ static void testSetOverlayInteractDescriptorV2()
     CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV2) == (void *)customOverlayEntry);
     CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV1) == NULL);
   }
-  // DrawSuite host that refuses the V2 property: V1 = the main entry
+  // DrawSuite host that refuses the V2 property: V1 = the V1 sibling entry (as
+  // setOverlayInteractDescriptor() on a DrawSuite host)
   clearOverlayInteractRegistrations();
   gRefuseOverlayInteractV2 = true;
   {
@@ -475,10 +497,40 @@ static void testSetOverlayInteractDescriptorV2()
     ImageEffectDescriptor desc((OfxImageEffectHandle)props);
     CHECK(!desc.setOverlayInteractDescriptorV2(new TestOverlayDescriptor));
     CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV2) == NULL);
-    CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV1) == (void *)TestOverlayDescriptor::mainEntry());
+    CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV1) == (void *)TestOverlayDescriptor::mainEntryV1());
     CHECK(!isOverlayInteractV2(TestOverlayDescriptor::mainEntry()));
   }
   gRefuseOverlayInteractV2 = false;
+  // DrawSuite host, setOverlayInteractDescriptor(): V1 = the V1 sibling entry; with a descriptor
+  // without a sibling, the main entry
+  clearOverlayInteractRegistrations();
+  {
+    OfxPropertySetHandle props = (OfxPropertySetHandle)&descHandles[6];
+    ImageEffectDescriptor desc((OfxImageEffectHandle)props);
+    desc.setOverlayInteractDescriptor(new TestOverlayDescriptor);
+    CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV2) == NULL);
+    CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV1) == (void *)TestOverlayDescriptor::mainEntryV1());
+    CHECK(!isOverlayInteractV2(TestOverlayDescriptor::mainEntry()));
+    CHECK(!isOverlayInteractV2(TestOverlayDescriptor::mainEntryV1()));
+  }
+  {
+    OfxPropertySetHandle props = (OfxPropertySetHandle)&descHandles[7];
+    ImageEffectDescriptor desc((OfxImageEffectHandle)props);
+    desc.setOverlayInteractDescriptor(new CustomEntryOverlayDescriptor);
+    CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV1) == (void *)customOverlayEntry);
+  }
+  // host without overlays: nothing registered, and false
+  clearOverlayInteractRegistrations();
+  gHostDescription.supportsOverlays = false;
+  {
+    OfxPropertySetHandle props = (OfxPropertySetHandle)&descHandles[8];
+    ImageEffectDescriptor desc((OfxImageEffectHandle)props);
+    CHECK(!desc.setOverlayInteractDescriptorV2(new TestOverlayDescriptor, true));
+    CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV2) == NULL);
+    CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV1) == NULL);
+    CHECK(!isOverlayInteractV2(TestOverlayDescriptor::mainEntry()));
+  }
+  gHostDescription.supportsOverlays = true;
   // host without the DrawSuite (e.g. OFX 1.4), the compatibility layer: V1 = the main entry, as
   // before, with or without hasOpenGLDraw
   gHostDescription.supportsDrawSuite = false;
@@ -562,6 +614,64 @@ static void testDispatchPerEntry()
     CHECK(!r.hasDrawContext && !r.calledViaV2 && !r.usesDrawSuite && !r.usesOpenGL);
     CGLSetCurrentContext(current);
 #endif
+  }
+  // DrawSuite host, the default flag: V2 only, and its draws use the DrawSuite
+  clearOverlayInteractRegistrations();
+  {
+    static int descHandleDefault = 0;
+    ImageEffectDescriptor desc((OfxImageEffectHandle)&descHandleDefault);
+    CHECK(desc.setOverlayInteractDescriptorV2(new TestOverlayDescriptor));
+    OfxPluginEntryPoint *e2 = (OfxPluginEntryPoint *)pointerProp((OfxPropertySetHandle)&descHandleDefault, kOfxImageEffectPluginPropOverlayInteractV2);
+    CHECK(e2 == TestOverlayDescriptor::mainEntry());
+    CHECK(pointerProp((OfxPropertySetHandle)&descHandleDefault, kOfxImageEffectPluginPropOverlayInteractV1) == NULL);
+    if (e2) {
+      DrawRecord r = drawThrough(e2, true);
+      CHECK(r.hasDrawContext && r.calledViaV2 && r.usesDrawSuite && !r.usesOpenGL);
+    }
+  }
+  // DrawSuite host, setOverlayInteractDescriptor(): the V1 sibling entry, V1 draws (only OpenGL,
+  // no draw context, even if the host passes one)
+  clearOverlayInteractRegistrations();
+  {
+    static int descHandleV1 = 0;
+    ImageEffectDescriptor desc((OfxImageEffectHandle)&descHandleV1);
+    desc.setOverlayInteractDescriptor(new TestOverlayDescriptor);
+    OfxPluginEntryPoint *e1 = (OfxPluginEntryPoint *)pointerProp((OfxPropertySetHandle)&descHandleV1, kOfxImageEffectPluginPropOverlayInteractV1);
+    CHECK(e1 == TestOverlayDescriptor::mainEntryV1());
+    if (e1) {
+      DrawRecord r = drawThrough(e1, true);
+      CHECK(!r.hasDrawContext && !r.calledViaV2 && !r.usesDrawSuite && r.usesOpenGL == gGLCurrent);
+    }
+  }
+  // DrawSuite host, the same descriptor class registered both with setOverlayInteractDescriptor()
+  // (one effect) and setOverlayInteractDescriptorV2() (another effect): the V1 entry draws only
+  // with OpenGL, the V2 entry only with the DrawSuite
+  clearOverlayInteractRegistrations();
+  {
+    static int descHandleA = 0;
+    static int descHandleB = 0;
+    ImageEffectDescriptor descA((OfxImageEffectHandle)&descHandleA);
+    descA.setOverlayInteractDescriptor(new TestOverlayDescriptor);
+    ImageEffectDescriptor descB((OfxImageEffectHandle)&descHandleB);
+    CHECK(descB.setOverlayInteractDescriptorV2(new TestOverlayDescriptor));
+    OfxPluginEntryPoint *e1 = (OfxPluginEntryPoint *)pointerProp((OfxPropertySetHandle)&descHandleA, kOfxImageEffectPluginPropOverlayInteractV1);
+    OfxPluginEntryPoint *e2 = (OfxPluginEntryPoint *)pointerProp((OfxPropertySetHandle)&descHandleB, kOfxImageEffectPluginPropOverlayInteractV2);
+    CHECK(e1 == TestOverlayDescriptor::mainEntryV1() && e2 == TestOverlayDescriptor::mainEntry());
+    CHECK(isOverlayInteractV2(TestOverlayDescriptor::mainEntry()));
+    if (e1 && e2) {
+      DrawRecord r = drawThrough(e1, true);
+      CHECK(!r.hasDrawContext && !r.calledViaV2 && !r.usesDrawSuite && r.usesOpenGL == gGLCurrent);
+      r = drawThrough(e2, true);
+      CHECK(r.hasDrawContext && r.calledViaV2 && r.usesDrawSuite && !r.usesOpenGL);
+    }
+  }
+  // a parameter interact, with a host draw context: V1 (only OpenGL, no draw context)
+  clearOverlayInteractRegistrations();
+  {
+    TestParamInteractDescriptor d; // (the descriptor of the main entry is a static of its own)
+    (void)d;
+    DrawRecord r = drawThrough(TestParamInteractDescriptor::mainEntry(), true);
+    CHECK(!r.hasDrawContext && !r.calledViaV2 && !r.usesDrawSuite && r.usesOpenGL == gGLCurrent);
   }
   // the same main entry registered as V1 (host without the DrawSuite, the compatibility
   // layer): only OpenGL, and the host's draw context (if any) is dropped

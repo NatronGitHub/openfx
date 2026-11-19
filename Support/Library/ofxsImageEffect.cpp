@@ -1259,8 +1259,20 @@ namespace OFX {
   {
     _overlayDescriptor.reset(desc);
     if(OFX::gHostDescription.supportsOverlays && desc->getMainEntry()) {
-      _effectProps.propSetPointer(kOfxImageEffectPluginPropOverlayInteractV1, (void*)desc->getMainEntry());
-      OFX::Private::setOverlayInteractV1(desc->getMainEntry());
+      // On a DrawSuite host, register the V1 sibling entry of the descriptor class
+      // (InteractMainEntry<DESC>::overlayInteractMainEntryV1) if it has one, so that the main
+      // entry is only ever V2 there: a descriptor class also registered with
+      // setOverlayInteractDescriptorV2() then still draws with OpenGL through V1 and with the
+      // DrawSuite through V2. Without the DrawSuite, the main entry (V2 is never registered).
+      OfxPluginEntryPoint *entry = desc->getMainEntry();
+      if (OFX::gHostDescription.supportsDrawSuite) {
+        OfxPluginEntryPoint *mainEntryV1 = OFX::Private::getOverlayInteractV1Sibling(entry);
+        if (mainEntryV1) {
+          entry = mainEntryV1;
+        }
+      }
+      _effectProps.propSetPointer(kOfxImageEffectPluginPropOverlayInteractV1, (void*)entry);
+      OFX::Private::setOverlayInteractV1(entry);
     }
   }
 
@@ -1274,8 +1286,9 @@ namespace OFX {
       return false;
     }
     if(!OFX::gHostDescription.supportsOverlays || !desc->getMainEntry()) {
+      // nothing registered
       _overlayDescriptor.reset(desc);
-      return true;
+      return false;
     }
     // record V2 only if the host accepted the property; if it refused it, register as V1
     OfxStatus stat = kOfxStatFailed;

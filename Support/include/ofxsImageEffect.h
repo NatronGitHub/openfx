@@ -978,7 +978,12 @@ namespace OFX {
     const std::map<std::string, std::string>& getClipFrameViewsPropNames() const { return _clipFrameViewsPropNames; }
 #endif
       
-    /** @brief override this to create an interact for the effect */
+    /** @brief register an overlay that draws with OpenGL (kOfxImageEffectPluginPropOverlayInteractV1)
+
+     Its draws are V1 draws: DrawArgs::drawContext is NULL, and getDrawContext() uses OpenGL (see
+     OFX::DrawContext). On a DrawSuite host, the registered entry is the V1 sibling of the
+     descriptor class (InteractMainEntry<DESC>::overlayInteractMainEntryV1) if it has one, so
+     that its main entry stays free for V2; else, and without the DrawSuite, the main entry. */
     virtual void setOverlayInteractDescriptor(EffectOverlayDescriptor* desc);
 
     /** @brief register an overlay that draws with the OFX 1.5 DrawSuite (kOfxImageEffectPluginPropOverlayInteractV2)
@@ -1010,18 +1015,23 @@ namespace OFX {
        DrawSuite calls to OpenGL (Support/Library/ofxsDrawContextOpenGL.cpp). So a plug-in that
        draws only through getDrawContext() works on every host.
      - If the host has the DrawSuite but refuses the V2 property, the overlay is registered as
-       V1 only, with a warning: it then draws with OpenGL.
+       V1 only (as setOverlayInteractDescriptor()), with a warning: it then draws with OpenGL.
 
-     The registration is recorded per overlay main entry (desc->getMainEntry(), i.e. per
-     descriptor class): don't register the same descriptor class with both
-     setOverlayInteractDescriptor() and setOverlayInteractDescriptorV2(). If it is, V2 wins (both
-     draw with the DrawSuite), and a warning is logged (also printed to std::cerr in DEBUG
-     builds). A plug-in that sets kOfxImageEffectPluginPropOverlayInteractV2 itself bypasses this
-     record: getDrawContext() then treats its overlay as V1 (OpenGL).
+     The registration is recorded per entry point. On a DrawSuite host,
+     setOverlayInteractDescriptor() registers the V1 sibling entry, so a descriptor class
+     registered both ways keeps V1 draws OpenGL and V2 draws DrawSuite. (Only a descriptor
+     without a V1 sibling, registered both ways, has its main entry recorded as V1 and V2: V2
+     wins, and a warning is logged, also printed to std::cerr in DEBUG builds.)
+
+     Setting kOfxImageEffectPluginPropOverlayInteractV2 directly (not through this function) is
+     not supported: that main entry is not recorded as V2, so its draws are treated as V1
+     draws (drawContext is NULL, getDrawContext() uses OpenGL), even when the host calls it as
+     V2. Use setOverlayInteractDescriptorV2().
 
      hasOpenGLDraw: OFXS_SUPPORT_HAS_OVERLAY_HAS_OPENGL_DRAW.
 
-     Returns true if registered as V2.
+     Returns true if registered as V2; false if registered as V1, or if nothing was registered
+     (the host doesn't support overlays, or desc has no main entry).
      */
     bool setOverlayInteractDescriptorV2(EffectOverlayDescriptor* desc, bool hasOpenGLDraw = false);
 

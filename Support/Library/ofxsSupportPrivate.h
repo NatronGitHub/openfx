@@ -168,14 +168,18 @@ namespace OFX {
     };
 
     /** @brief The registry of the overlay registrations (ofxsImageEffect.cpp).
-        Record that the overlay with that main entry is registered as
-        kOfxImageEffectPluginPropOverlayInteractV1 (ImageEffectDescriptor::setOverlayInteractDescriptor) */
+        Record that the overlay with that entry point is registered as
+        kOfxImageEffectPluginPropOverlayInteractV1 (ImageEffectDescriptor::setOverlayInteractDescriptor:
+        on a DrawSuite host, the V1 sibling entry if the descriptor class has one, else the main
+        entry; setOverlayInteractDescriptorV2(desc, true): the V1 sibling entry) */
     void setOverlayInteractV1(OfxPluginEntryPoint *mainEntry);
 
     /** @brief Record that the overlay with that main entry is registered as
         kOfxImageEffectPluginPropOverlayInteractV2 (ImageEffectDescriptor::setOverlayInteractDescriptorV2).
-        If it is also registered as V1, V2 wins (isOverlayInteractV2() is true), and a warning is
-        logged once (and printed to std::cerr in DEBUG builds). */
+        If the same entry is also registered as V1, V2 wins (isOverlayInteractV2() is true), and a
+        warning is logged once (and printed to std::cerr in DEBUG builds). That only happens for a
+        descriptor class without a V1 sibling entry: on a DrawSuite host,
+        setOverlayInteractDescriptor() registers the sibling, so the main entry is only V2. */
     void setOverlayInteractV2(OfxPluginEntryPoint *mainEntry);
 
     /** @brief true if the overlay with that main entry was registered as V2 */
