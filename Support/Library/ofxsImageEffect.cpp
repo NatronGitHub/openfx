@@ -4762,6 +4762,10 @@ namespace OFX {
 
       if(gLoadCount==0)
       {
+        // the host description is fetched again at the next kOfxActionLoad (the binary may stay
+        // in memory after it is unloaded, e.g. on macOS an image with thread-local variables)
+        OFX::gHostDescription = OFX::ImageEffectHostDescription();
+        OFX::gHostDescriptionHasInit = false;
         // force these to null
         gEffectSuite = 0;
         gPropSuite = 0;
