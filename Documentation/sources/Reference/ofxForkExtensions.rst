@@ -93,3 +93,57 @@ TuttleOFX (``include/tuttle/``, ``OFX_EXTENSIONS_TUTTLE``)
 Reader/writer properties of the TuttleOFX host
 (``kTuttleOfxImageEffectPropSupportedExtensions``,
 ``kTuttleOfxImageEffectPropEvaluation``).
+
+C++ Support library additions
+-----------------------------
+
+The fork's Support library (``Support/``) has a few additions that are not in
+upstream's. Each one has a feature macro in ``ofxsInteract.h``, so that code
+shared with other Support versions can test it:
+
+- ``OFXS_SUPPORT_HAS_DRAWCONTEXT``: the C++ API of the OFX 1.5 DrawSuite
+  (``OFX::DrawContext``, ``DrawArgs::drawContext`` and
+  ``ImageEffectDescriptor::setOverlayInteractDescriptorV2()``). Test this
+  macro, not ``kOfxDrawSuite``, which only says that ``ofxDrawSuite.h`` exists.
+- ``OFXS_SUPPORT_HAS_DRAWCONTEXT_OPENGL``: ``DrawArgs::getDrawContext()``, and
+  ``DrawContext::usesDrawSuite()``, ``usesOpenGL()`` and ``canDraw()``. A
+  plug-in registers its overlay with ``setOverlayInteractDescriptorV2()`` and
+  draws only through ``getDrawContext()``. Through the V2 entry, it draws with
+  the host's DrawSuite: "If this is called via
+  kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite"
+  (``kOfxInteractActionDraw``). Through a V1 entry, it draws with an OpenGL
+  emulation of the DrawSuite (``Support/Library/ofxsDrawContextOpenGL.cpp``).
+  So the same ``draw()`` works on DrawSuite hosts and on OFX 1.4 hosts.
+- ``OFXS_SUPPORT_HAS_OVERLAY_INTERACT_V1_ENTRY``: on hosts with the DrawSuite,
+  ``setOverlayInteractDescriptorV2()`` also registers a separate OpenGL
+  ``kOfxImageEffectPluginPropOverlayInteractV1`` entry for the same descriptor
+  class. ``DrawArgs::calledViaOverlayInteractV2()`` says which entry the host
+  called. In the draws through the V1 entry, ``DrawArgs::drawContext`` is
+  NULL. The spec doesn't say which entry a host uses when both are set;
+  HostSupport uses V2 when it has the DrawSuite.
+- ``OFXS_SUPPORT_HAS_OPENGL_CONTEXT_CHECK``: ``getDrawContext()`` uses OpenGL
+  only if an OpenGL context is current, else the host's draw context if it
+  passed one, else it draws nothing. ``DrawArgs::isOpenGLContextCurrent()``
+  makes the same check, and ``DrawArgs::getHostDrawContext()`` returns the
+  draw context that the host passed, also in V1-entry draws. Plug-ins with
+  their own drawing code branch on these, or on
+  ``calledViaOverlayInteractV2()``, not on ``drawContext == NULL``.
+
+The OpenGL backend loads the OpenGL functions it uses at run time, so neither
+the Support library nor the plug-ins need OpenGL at link time (the
+Makefiles weak-link it on macOS). It uses the OpenGL headers at compile time.
+Without them, CMake compiles ``ofxsDrawContextOpenGL.cpp`` with
+``OFXS_DRAWCONTEXT_NO_OPENGL`` (also with
+``OFX_SUPPORT_DRAWCONTEXT_OPENGL=OFF``); Makefile builds pass
+``-DOFXS_DRAWCONTEXT_NO_OPENGL``. ``getDrawContext()`` then draws nothing on V1
+overlays. The comments of ``ofxsInteract.h`` and
+``ofxsImageEffect.h`` are the reference.
+
+The Support library also falls back on hosts that implement only OFX 1.4: one
+view, named "Main", without the plane suite V2; ``Clip::fetchImagePlane()``
+through the V1 plane suite or ``fetchImage()``; the colour plane as the render
+plane when the host sets no ``kOfxImageEffectPropRenderPlanes`` (with
+``OFX_EXTENSIONS_NUKE``). ``hostDemo --ofx14`` emulates such a host for the
+tests. In debug builds, the property validation doesn't report the properties
+that a host may lack: the host-optional ones, and the ones newer than the
+host's ``kOfxPropAPIVersion``.

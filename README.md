@@ -33,8 +33,14 @@ work unchanged:
 - string-valued choice params (StrChoice), ChoiceOrder, Bytes params and InterpType;
 - the effect properties Obsolete, CPURenderSupported, ThumbnailRender and DisplayTimeOffset;
 - CUDA (and CUDA streams), Metal (buffers and textures) and OpenCL (buffers, images and the program suite) render properties;
-- DrawSuite and OverlayInteractV2;
-- colour management (styles, clip colourspaces, GetOutputColourspace).
+- DrawSuite and OverlayInteractV2. With the Support library, `DrawArgs::getDrawContext()` gives one overlay `draw()` for
+  DrawSuite hosts and OpenGL hosts, and `setOverlayInteractDescriptorV2()` also registers an OpenGL V1 entry;
+- colour management (styles, clip colourspaces, GetOutputColourspace);
+- the optional `OfxSetHost` entry point, which HostSupport calls before `OfxGetNumberOfPlugins`.
+
+Plug-ins must keep working in hosts that implement only OFX 1.4. The Support library falls back when the host
+lacks an OFX 1.5 or extension suite (views, image planes, render planes), and `hostDemo --ofx14` emulates such a
+host for the tests.
 
 The gaps found when these features were merged (read-only properties, the Win-arm64ec and Linux arch bundle
 folders, the NoSpatialAwareness render argument, and a property-set audit) are fixed ([#76](https://github.com/NatronGitHub/openfx/issues/76)–[#79](https://github.com/NatronGitHub/openfx/issues/79), closed). The host
@@ -65,7 +71,10 @@ make -C Support/Library        # libOfxSupport.a
 make -C HostSupport            # libofxHost.a (needs expat: pkg-config, or EXPAT_INCLUDE=<dir>)
 make -C Support/Plugins        # sample plug-ins; CONFIG=debug|release|relwithdebinfo
 make -C HostSupport/examples   # hostDemo, cacheDemo
+make -C Examples               # raw C-API examples; HAVE_METAL=0|1 (macOS, default 1), HAVE_OPENCL=1, HAVE_CUDA=1 (Linux)
 ```
+On Linux and FreeBSD, the plug-in Makefiles link with `-Wl,-z,defs` (`NO_UNDEFINED_FLAG`) and put the system
+libraries (`SYSLIBS`) last. On macOS they target 14.0 unless `MACOSX_DEPLOYMENT_TARGET` is set.
 
 With CMake:
 ```sh
@@ -74,8 +83,8 @@ cmake --build build
 cmake --install build --prefix /path/to/prefix   # provides find_package(openfx): openfx::Api, openfx::Support, openfx::HostSupport
 ```
 Main options:
-- `OFX_EXTENSIONS_NATRON`, `_NUKE`, `_VEGAS`, `_TUTTLE` (ON) and `_RESOLVE` (OFF): enable the extensions in the Support and HostSupport code. They are PUBLIC compile definitions that change class layouts, so they must match between the libraries and the plug-in or host built with them (the extension headers are always installed);
-- `OFX_SUPPORTS_OPENGLRENDER` (ON), `_OPENCLRENDER` and `_CUDARENDER` (OFF): GPU rendering in the libraries and the examples (OpenCL needs the OpenCLHeaders and OpenCLICDLoader packages; CUDA is off on macOS);
+- `OFX_EXTENSIONS_NATRON`, `_NUKE`, `_VEGAS`, `_TUTTLE` (ON) and `_RESOLVE` (OFF): enable the extensions in the Support and HostSupport code. They are PUBLIC compile definitions that change class layouts, so they must match between the libraries and the plug-in or host built with them (the extension headers are always installed). `_NATRON` needs `_NUKE`;
+- `OFX_SUPPORTS_OPENGLRENDER` (ON), `_OPENCLRENDER` and `_CUDARENDER` (OFF): GPU rendering in the libraries and the examples (OpenCL needs the OpenCLHeaders and OpenCLICDLoader packages, except on macOS; CUDA is off on macOS);
 - `OFX_SUPPORTS_MULTITHREAD`, `_DIALOG`, `_PARAMETRIC` and `_PARAMETRIC_V2` (OFF): HostSupport features, only for a host that implements them (they add pure virtual functions, and PARAMETRIC needs the host's `ofxhParametricParam.h`);
 - `OFX_BUILD_HOSTSUPPORT`: build HostSupport, on by default at top level;
 - `BUILD_EXAMPLE_PLUGINS` and `BUILD_EXAMPLE_HOSTS`: the example plug-ins and hosts;
@@ -83,10 +92,29 @@ Main options:
 - `OFX_PLUGIN_NO_UNDEFINED` (ON): link the plug-ins with `-z defs` on Linux and FreeBSD, so an undefined symbol fails the link; turn it off for clang sanitizer builds, or use clang's `-shared-libsan` (gcc links its shared sanitizer runtime by default, so it works with `-z defs`). The Makefiles do the same, unless `NO_UNDEFINED_FLAG=` is passed;
 - `OFX_OPTFLAG`: extra optimization flags of the release configurations, after CMake's (empty: CMake's defaults; ignored with MSVC);
 - `CMAKE_OSX_DEPLOYMENT_TARGET`: 14.0 by default at top level (VFX Reference Platform CY2027), unless the `MACOSX_DEPLOYMENT_TARGET` environment variable is set; the plug-in Makefiles (`Makefile.master`) use the same default (the HostSupport and hostDemo Makefiles don't set one). A toolchain file (e.g. conan's `os.version`) sets its own. Plug-in projects set it before `project()`, and `cmake/OpenFX.cmake` warns if it is empty or newer than 14.0;
-- `OFX_DEPLOY_BUNDLES` (for plug-in projects, macOS only, by design): make the installed bundles self-contained with `ofx_deploy_bundle()`; on Linux and Windows, plug-ins use system libraries.
+- `OFX_SUPPORT_DRAWCONTEXT_OPENGL` (ON): compile the OpenGL backend of `DrawArgs::getDrawContext()` (`Support/Library/ofxsDrawContextOpenGL.cpp`). Neither openfx::Support nor the plug-ins link OpenGL: the backend loads it at run time. Without the OpenGL headers, CMake compiles it with `OFXS_DRAWCONTEXT_NO_OPENGL` (also when OFF); Makefile builds pass `-DOFXS_DRAWCONTEXT_NO_OPENGL`;
+- `BUILD_EXAMPLE_MULTIPLYGPU` (ON) and `OFX_EXAMPLE_GPUGAIN_METAL` (ON on macOS): the GPU samples of `Support/Plugins`;
+- `OFX_DEPLOY_BUNDLES` (for plug-in projects, macOS only, by design): make the installed bundles self-contained with `ofx_deploy_bundle()`. On Linux and Windows, the installers bundle the third-party libraries (on Linux, in `<bundle>/Libraries`, found through the `$ORIGIN/../../Libraries` rpath), and the system libraries are never bundled.
+
+`OFX_LINUX_CHECK_BUNDLE` (set by `cmake/OpenFX.cmake`) is the path of `linuxCheckBundle.sh`, which checks installed Linux
+bundles against the EL9 baseline (no bundled system library, `$ORIGIN` rpaths only unless listed in `OFX_ABI_RPATH_ALLOW`,
+symbol versions at most EL9's): see `Documentation/proposals/cmake-plugins.md`.
 
 Plug-in projects use `add_ofx_plugin()` and the other helpers of `cmake/OpenFX.cmake`, with openfx as a subdirectory or as an installed package: see [Documentation/proposals/cmake-plugins.md](Documentation/proposals/cmake-plugins.md).
+Each plug-in's install rules are in a component named after its target: `cmake --install <build> --component <target>` installs one bundle.
 A conan recipe (`conanfile.py`, with `test_package/`) is also provided.
+
+### Examples
+
+`Examples/` has the raw C-API examples, including the OFX 1.5 DrawSuite, ColourSpace and ChoiceParams examples and the
+Cuda, OpenCL and Metal GPU examples (see `Examples/README.txt`). `Support/Plugins/` has the Support library samples,
+with their pytest tests in `Support/Plugins/tests`. GPU paths are built only where the toolkit is available.
+
+### CI
+
+`.github/workflows/build.yml` runs one build per OS for each pull request (Linux, Windows, then macOS, which isn't
+required for merging); `extended.yml` builds the other variants nightly. Docs-only changes run no CI. See the release
+notes for the checks.
 
 Documentation: `cd Documentation && ./build.sh` (see `Documentation/README.md` for the prerequisites).
 
