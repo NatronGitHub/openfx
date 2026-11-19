@@ -51,11 +51,13 @@
   Shadows (kNatronOfxInteractPropDrawSuiteShadows, ofxNatron.h): beginDraw(..., shadows) sets
   State::shadows. Then drawPrimitive() (the lines, strips, loops and the ellipse outline; not the
   filled Rectangle and Polygon, see OFX::DrawSuiteOpenGL::hasShadow()) and drawText() draw each
-  element twice: first offset by one screen pixel right and down (shadowOffset(); 2 device
-  pixels on HiDPI screens, whereas the OpenGL shadows of the SupportExt and Natron overlays are 1
-  device pixel), in shadowColour() (getColour() of kOfxStandardColourOverlayBackground, so the
-  host's background colour, unlike Support's V1 emulation, which can't query the host and uses
-  the core's black; with the current colour's alpha), then normally. OpenGLDrawSuite makes the two passes for every element, with
+  element twice: first offset by shadowOffset() (by default one screen pixel right and down: 2
+  device pixels on HiDPI screens, whereas the OpenGL shadows of the SupportExt and Natron
+  overlays are 1 device pixel; a host can override it), in shadowColour() (by default
+  getColour() of kOfxStandardColourOverlayBackground, so the host's background colour, unlike
+  Support's V1 emulation, which can't query the host and uses the core's black; with the
+  current colour's alpha; a host can override it), then normally. Support's V1 emulation keeps
+  the 1-screen-pixel offset. OpenGLDrawSuite makes the two passes for every element, with
   the built-in font or the host's: renderPrimitive() and renderText() (and the built-in font)
   are called once per pass, with state().colour the colour of the pass and state().shadows
   false, so they draw one pass only. Plug-ins never draw shadows with DrawSuite calls.
@@ -144,7 +146,7 @@ namespace OFX {
           }
           PassState pass(_state);
           if ( pass.shadows && OFX::DrawSuiteOpenGL::hasShadow(primitive) ) {
-            const OfxPointD o = OFX::DrawSuiteOpenGL::shadowOffset(_state);
+            const OfxPointD o = shadowOffset();
             std::vector<OfxPointD> shadow(points, points + pointCount);
             for (size_t i = 0; i < shadow.size(); ++i) {
               shadow[i].x += o.x;
@@ -162,9 +164,14 @@ namespace OFX {
 
         /// OfxDrawSuiteV1::drawText: kOfxStatErrValue for NULL text or pos, kOfxStatOK for "".
         /// If measureText() returns false, the built-in font (OFX::DrawSuiteOpenGL::drawText());
-        /// else renderText() at OFX::DrawSuiteOpenGL::alignText() of the metrics, and the
-        /// built-in font if renderText() returns kOfxStatReplyDefault (for both passes if it does
-        /// so in the shadow pass). Twice with shadows: first offset, in the shadow colour.
+        /// else renderText() at OFX::DrawSuiteOpenGL::alignText() of the metrics. Twice with
+        /// shadows: first offset (shadowOffset()), in shadowColour(), then the text.
+        /// The font is decided once per call, by the first renderText() call (the shadow pass
+        /// with shadows, else the text): if it returns kOfxStatReplyDefault, both passes use the
+        /// built-in font, so the shadow and the text never get different fonts and the shadow
+        /// is still drawn first (under the text). A renderText() that draws the shadow and then
+        /// declines the text breaks its contract (see renderText()): the text is then drawn
+        /// with the built-in font.
         OfxStatus drawText(const char *utf8, const OfxPointD *pos, int alignment)
         {
           if (!utf8 || !pos) {
@@ -183,7 +190,7 @@ namespace OFX {
           const OfxPointD baselineLeft = hostFont ? OFX::DrawSuiteOpenGL::alignText(*pos, alignment, m, _state.pixelScale) : *pos;
           PassState pass(_state);
           if (pass.shadows) {
-            const OfxPointD o = OFX::DrawSuiteOpenGL::shadowOffset(_state);
+            const OfxPointD o = shadowOffset();
             _state.colour = shadowColour();
             OfxStatus sst = kOfxStatReplyDefault;
             if (hostFont) {
@@ -259,9 +266,12 @@ namespace OFX {
           return kOfxStatOK;
         }
 
-        /// the shadow colour: getColour(kOfxStandardColourOverlayBackground) (black if it
-        /// fails), with the alpha of the current colour
-        OfxRGBAColourF shadowColour() const
+        /// The colour of the shadow passes. The default is
+        /// getColour(kOfxStandardColourOverlayBackground) (black if it fails), with the alpha of
+        /// the current colour (state().colour). A host whose background colour is not a good
+        /// shadow colour (e.g. the grey of its viewer background) can return black instead; keep
+        /// the current alpha.
+        virtual OfxRGBAColourF shadowColour() const
         {
           OfxRGBAColourF c;
           if (getColour(kOfxStandardColourOverlayBackground, &c) != kOfxStatOK) {
@@ -269,6 +279,16 @@ namespace OFX {
           }
           c.a = _state.colour.a;
           return c;
+        }
+
+        /// The offset of the shadow passes, in canonical coordinates. The default is one screen
+        /// pixel right and down, (+pixelScale.x, -pixelScale.y), as Support's DrawSuite-to-OpenGL
+        /// emulation (OFX::DrawSuiteOpenGL::shadowOffset()). A host whose own OpenGL overlays
+        /// offset their shadows by one device pixel (Natron, SupportExt) can return
+        /// (+pixelScale.x / screenPixelRatio, -pixelScale.y / screenPixelRatio) from state().
+        virtual OfxPointD shadowOffset() const
+        {
+          return OFX::DrawSuiteOpenGL::shadowOffset(_state);
         }
 
       private:

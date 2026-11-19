@@ -196,7 +196,8 @@ draw action. A host derives from it to use its own standard colours
 (``getColour()``), its own font (``measureText()`` and ``renderText()``,
 which get the left end of the baseline computed by ``alignText()``) or its
 own primitive renderer (``renderPrimitive()``); it draws the shadow pass of
-the lines, ellipse outlines and text, in the host's background colour. A
+the lines, ellipse outlines and text, in the host's background colour
+(``shadowColour()`` and ``shadowOffset()`` can be overridden). A
 ``renderText()`` that returns ``kOfxStatReplyDefault`` (a view that can't
 render text) makes it fall back to the built-in font. ``Interact::Instance::drawSuiteShadows()`` (false by default)
 sets ``kNatronOfxInteractPropDrawSuiteShadows`` in the draw action's inArgs.

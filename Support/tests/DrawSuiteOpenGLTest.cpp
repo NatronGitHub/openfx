@@ -774,6 +774,26 @@ protected:
   }
 };
 
+// a host that overrides the shadow colour (black, not its grey background) and the offset
+// (one device pixel, as Natron's own OpenGL overlays)
+class DevicePixelShadowDrawSuite : public HostDrawSuite {
+public:
+  explicit DevicePixelShadowDrawSuite(const GLFunctions *gl) : HostDrawSuite(gl) {}
+protected:
+  virtual OfxRGBAColourF shadowColour() const
+  {
+    OfxRGBAColourF c = { 0.f, 0.f, 0.f, state().colour.a };
+    return c;
+  }
+  virtual OfxPointD shadowOffset() const
+  {
+    OfxPointD o;
+    o.x = state().pixelScale.x / state().screenPixelRatio;
+    o.y = -state().pixelScale.y / state().screenPixelRatio;
+    return o;
+  }
+};
+
 static void testHostHelper()
 {
   using OFX::Host::Interact::OpenGLDrawSuite;
@@ -978,6 +998,17 @@ static void testHostHelper()
       CHECK(x0 == 100. - 11. * 2.); // right-aligned with the built-in metrics (11 pixels)
     }
     host.replyDefault = false;
+    // without shadows, a declined text: the built-in font
+    host.beginDraw(pt(2., 3.), 1., false);
+    host.setColour(&col);
+    host.replyDefault = true;
+    host.texts.clear();
+    gCalls.clear();
+    CHECK(host.drawText("AB", &pos, 0) == kOfxStatOK);
+    CHECK(host.texts.size() == 1 && blocks().size() == 1);
+    host.replyDefault = false;
+    host.beginDraw(pt(2., 3.), 1., true);
+    host.setColour(&col);
     // off: one pass
     host.recordPrimitives = true;
     host.beginDraw(pt(2., 3.), 1., false);
@@ -986,6 +1017,38 @@ static void testHostHelper()
     host.hostFont = true;
     CHECK(host.drawPrimitive(kOfxDrawPrimitiveLines, line, 2) == kOfxStatOK && host.primitives.size() == 1);
     CHECK(host.drawText("AB", &pos, 0) == kOfxStatOK && host.texts.size() == 1);
+  }
+
+  // overridden shadowColour() and shadowOffset(): black, one device pixel (ratio 2)
+  {
+    DevicePixelShadowDrawSuite host(&gl);
+    host.beginDraw(pt(2., 3.), 2., true);
+    const OfxRGBAColourF col = { 0.2f, 0.4f, 0.6f, 0.5f };
+    host.setColour(&col);
+    CHECK(host.drawText("AB", &pos, 0) == kOfxStatOK);
+    CHECK(host.texts.size() == 2);
+    if (host.texts.size() == 2) {
+      const HostDrawSuite::TextCall &sh = host.texts[0], &t = host.texts[1];
+      CHECK(near(sh.baselineLeft.x, t.baselineLeft.x + 1.) && near(sh.baselineLeft.y, t.baselineLeft.y - 1.5));
+      CHECK(sh.colour.r == 0.f && sh.colour.b == 0.f && sh.colour.a == 0.5f);
+    }
+    host.recordPrimitives = true;
+    CHECK(host.drawPrimitive(kOfxDrawPrimitiveLines, line, 2) == kOfxStatOK);
+    CHECK(host.primitives.size() == 2);
+    if (host.primitives.size() == 2) {
+      CHECK(host.primitives[0].points[1].x == 11. && host.primitives[0].points[1].y == 3.5);
+      CHECK(host.primitives[0].colour.b == 0.f && host.primitives[0].colour.a == 0.5f);
+    }
+    // the built-in font: the same overrides
+    host.hostFont = false;
+    gCalls.clear();
+    CHECK(host.drawText("AB", &pos, 0) == kOfxStatOK);
+    const std::vector<Block> b = blocks();
+    CHECK(b.size() == 2);
+    if (b.size() == 2) {
+      CHECK(b[0].colour[2] == 0. && b[0].colour[3] == 0.5);
+      CHECK(near(b[0].vertices[0].x, b[1].vertices[0].x + 1.) && near(b[0].vertices[0].y, b[1].vertices[0].y - 1.5));
+    }
   }
 }
 
