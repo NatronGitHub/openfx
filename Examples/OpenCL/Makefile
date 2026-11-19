@@ -1,7 +1,8 @@
 PLUGINOBJECTS = oclplugin.o
 PLUGINNAME = oclplugin
 PATHTOROOT = ..
-OPENCL_HOME ?= /usr
+# the OpenCL SDK: MSYS2's prefix on MinGW (MINGW_PREFIX, set by the MSYS2 shells), else /usr
+OPENCL_HOME ?= $(if $(MINGW_PREFIX),$(MINGW_PREFIX),/usr)
 # OpenCL headers and library (the OpenCL framework on macOS)
 CXXFLAGS_ADD = -I$(OPENCL_HOME)/include
 LDFLAGS_ADD = $(OPENCL_LIBS)

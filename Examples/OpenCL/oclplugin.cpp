@@ -75,12 +75,6 @@ OfxMultiThreadSuiteV1 *gThreadHost = 0;
 OfxMessageSuiteV1     *gMessageSuite = 0;
 OfxInteractSuiteV1    *gInteractHost = 0;
 
-// What the host supports (from the host descriptor, in the load action). ofxGPURender.h: "Host
-// may support just OpenCL Images, just OpenCL Buffers, or both". An OFX 1.4 host has neither
-// property: it always passes CPU images.
-static bool gHostSupportsOpenCLBuffers = false; // kOfxImageEffectPropOpenCLRenderSupported
-static bool gHostSupportsOpenCLImages = false;  // kOfxImageEffectPropOpenCLSupported
-
 #define DPRINT(args) print_dbg args
 static void print_dbg(const char *fmt, ...)
 {
@@ -112,15 +106,6 @@ static MyInstanceData *
 getMyInstanceData( OfxImageEffectHandle effect)
 {
   return (MyInstanceData *) ofxuGetEffectInstanceData(effect);
-}
-
-// is a string property of the host descriptor "true"? (false if the host doesn't know it)
-static bool
-hostPropertyIsTrue(const char *name)
-{
-  const char *value = NULL;
-  return (gPropHost->propGetString(gHost->host, name, 0, &value) == kOfxStatOK &&
-          value && strcmp(value, "true") == 0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -176,7 +161,8 @@ static const char *kKernelSourceImages =
 // is about the host's objects: these are the plug-in's own. Failed builds are not cached (they
 // are retried at the next render).
 // gKernelMutex (an OFX mutex) protects the map, and the kernels: a cl_kernel is not thread-safe
-// between clSetKernelArg and clEnqueueNDRangeKernel, so the lock is held through both.
+// between clSetKernelArg and clEnqueueNDRangeKernel, so the lock is held through both
+// (releaseKernels is called at unload, when no render runs).
 typedef std::map<std::pair<cl_context, const char *>, cl_kernel> KernelMap;
 static KernelMap gKernels;
 static OfxMutexHandle gKernelMutex = 0;
@@ -278,30 +264,20 @@ runKernel(cl_command_queue queue, const char *source, const char *name, int widt
 static OfxStatus
 onLoad(void)
 {
-  // fetch the host suites, and record the host's GPU render support
+  // fetch the host suites, and make the mutex of the kernel cache
   OfxStatus stat = ofxuFetchHostSuites();
   if(stat != kOfxStatOK)
     return stat;
-  stat = gThreadHost->mutexCreate(&gKernelMutex, 0);
-  if(stat != kOfxStatOK)
-    return stat;
-
-  // ofxGPURender.h: "If a host supports OpenCL rendering then it flags with the string property
-  // kOfxImageEffectPropOpenCLSupported (Images) and/or kOfxImageEffectPropOpenCLRenderSupported
-  // (Buffers) on its descriptor property set."
-  gHostSupportsOpenCLBuffers = hostPropertyIsTrue(kOfxImageEffectPropOpenCLRenderSupported);
-  gHostSupportsOpenCLImages = hostPropertyIsTrue(kOfxImageEffectPropOpenCLSupported);
-  DPRINT(("oclplugin: host OpenCL buffers support %d, OpenCL images support %d\n",
-          (int)gHostSupportsOpenCLBuffers, (int)gHostSupportsOpenCLImages));
-  return kOfxStatOK;
+  return gThreadHost->mutexCreate(&gKernelMutex, 0);
 }
 
 /** @brief Called before unload */
 static OfxStatus
 onUnLoad(void)
 {
+  // no render action runs during the unload action: no lock
   releaseKernels();
-  if(gThreadHost)
+  if(gThreadHost && gKernelMutex)
     gThreadHost->mutexDestroy(gKernelMutex);
   gKernelMutex = 0;
   return kOfxStatOK;
@@ -463,9 +439,8 @@ fetchImage(OfxImageClipHandle clip, OfxTime time, Image &img)
   const char *components = NULL;
   gPropHost->propGetString(img.props, kOfxImageEffectPropComponents, 0, &components);
   img.data = ofxuGetImageData(img.props);
-  // only set by an OFX 1.5 host that supports OpenCL images (else the image doesn't have it)
-  if(gHostSupportsOpenCLImages &&
-     gPropHost->propGetPointer(img.props, kOfxImageEffectPropOpenCLImage, 0, &img.clImage) != kOfxStatOK)
+  // only set by an OFX 1.5 host that passes OpenCL images (else the image doesn't have it)
+  if(gPropHost->propGetPointer(img.props, kOfxImageEffectPropOpenCLImage, 0, &img.clImage) != kOfxStatOK)
     img.clImage = NULL;
   img.bounds = ofxuGetImageBounds(img.props);
   img.rowBytes = ofxuGetImageRowBytes(img.props);
@@ -540,6 +515,45 @@ deviceLayout(const Image &img, const OfxRectI &window, int &offset, int &rowFloa
   return true;
 }
 
+// Does an OpenCL image cover the width x height window at (x0, y0), with a format that the kernel
+// reads or writes (read_imagef and write_imagef convert float, half float and normalized integer
+// RGBA)? The host's image is checked, rather than trusted to have the size of its bounds.
+static bool
+clImageCovers(cl_mem image, int x0, int y0, int width, int height)
+{
+  size_t w = 0, h = 0;
+  cl_image_format format;
+  if(clGetImageInfo(image, CL_IMAGE_WIDTH, sizeof(w), &w, NULL) != CL_SUCCESS ||
+     clGetImageInfo(image, CL_IMAGE_HEIGHT, sizeof(h), &h, NULL) != CL_SUCCESS ||
+     clGetImageInfo(image, CL_IMAGE_FORMAT, sizeof(format), &format, NULL) != CL_SUCCESS)
+    return false;
+  if(x0 < 0 || y0 < 0 || (size_t)x0 + (size_t)width > w || (size_t)y0 + (size_t)height > h)
+    return false;
+  if(format.image_channel_order != CL_RGBA && format.image_channel_order != CL_BGRA)
+    return false;
+  switch(format.image_channel_data_type) {
+  case CL_FLOAT:
+  case CL_HALF_FLOAT:
+  case CL_UNORM_INT8:
+  case CL_UNORM_INT16:
+    return true;
+  default:
+    return false;
+  }
+}
+
+// Does an OpenCL buffer hold the float RGBA pixels of the width x height window that the kernel
+// reads or writes (from deviceLayout's offset and row length, in floats)?
+static bool
+clBufferHolds(cl_mem buffer, int offset, int rowFloats, int width, int height)
+{
+  size_t size = 0;
+  if(clGetMemObjectInfo(buffer, CL_MEM_SIZE, sizeof(size), &size, NULL) != CL_SUCCESS)
+    return false;
+  const size_t end = (size_t)offset + (size_t)(height - 1) * (size_t)rowFloats + (size_t)width * 4;
+  return end * sizeof(float) <= size;
+}
+
 // OpenCL render, on the host's command queue, with the host's buffers or images: no context,
 // queue, buffer or copy of the plug-in's own. Images it can't process (a missing source, other
 // layouts) fail with kOfxStatGPURenderFailed, as OpenCL errors do (kOfxStatGPUOutOfMemory if
@@ -567,6 +581,8 @@ renderOpenCL(void *queue, const OfxRectI &window, const Image &src, const Image 
     cl_mem output = (cl_mem) dst.clImage;
     int inX = window.x1 - sb.x1, inY = window.y1 - sb.y1;
     int outX = window.x1 - db.x1, outY = window.y1 - db.y1;
+    if(!clImageCovers(input, inX, inY, width, height) || !clImageCovers(output, outX, outY, width, height))
+      return kOfxStatGPURenderFailed;
     const KernelArg args[] = {
       { sizeof(int), &width }, { sizeof(int), &height },
       { sizeof(float), &gain[0] }, { sizeof(float), &gain[1] }, { sizeof(float), &gain[2] },
@@ -583,6 +599,8 @@ renderOpenCL(void *queue, const OfxRectI &window, const Image &src, const Image 
     return kOfxStatGPURenderFailed;
   cl_mem input = (cl_mem) src.data;
   cl_mem output = (cl_mem) dst.data;
+  if(!clBufferHolds(input, srcOffset, srcRow, width, height) || !clBufferHolds(output, dstOffset, dstRow, width, height))
+    return kOfxStatGPURenderFailed;
   const KernelArg args[] = {
     { sizeof(int), &width }, { sizeof(int), &height },
     { sizeof(float), &gain[0] }, { sizeof(float), &gain[1] }, { sizeof(float), &gain[2] },
@@ -608,10 +626,11 @@ static OfxStatus render( OfxImageEffectHandle  instance,
 
   // ofxGPURender.h, kOfxImageEffectPropOpenCLEnabled: "If this property is set to 0, then it
   // must not attempt to use OpenCL while rendering. If this property is set to 1, then it must use
-  // OpenCL buffers or images while rendering." An OFX 1.4 host doesn't set it: CPU memory.
+  // OpenCL buffers or images while rendering." It is read whatever the host descriptor says, so
+  // that the images are never taken for CPU memory when the host passes OpenCL objects. An OFX
+  // 1.4 host doesn't set it: CPU memory.
   int openCLEnabled = 0;
-  if((gHostSupportsOpenCLBuffers || gHostSupportsOpenCLImages) &&
-     gPropHost->propGetInt(inArgs, kOfxImageEffectPropOpenCLEnabled, 0, &openCLEnabled) != kOfxStatOK)
+  if(gPropHost->propGetInt(inArgs, kOfxImageEffectPropOpenCLEnabled, 0, &openCLEnabled) != kOfxStatOK)
     openCLEnabled = 0;
 
   // kOfxImageEffectPropOpenCLCommandQueue: "the command queue to be used for OpenCL rendering

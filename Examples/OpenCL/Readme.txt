@@ -23,12 +23,11 @@ host and plug-in support both, it is up to the host which it uses."
 An OFX 1.4 host doesn't know these properties: their status is ignored, and the
 plug-in renders on the CPU there.
 
-In the load action, it reads the same two properties on the host descriptor.
-
 Render
 ------
-If the host supports OpenCL render, the plug-in reads kOfxImageEffectPropOpenCLEnabled
-in the render inArgs: "If this property is set to 0, then it must not attempt to
+The plug-in reads kOfxImageEffectPropOpenCLEnabled in the render inArgs (0 if
+it is missing, as on an OFX 1.4 host; it is read whatever the host descriptor
+says, so that OpenCL objects are never taken for CPU memory): "If this property is set to 0, then it must not attempt to
 use OpenCL while rendering. If this property is set to 1, then it must use
 OpenCL buffers or images while rendering."
 
@@ -49,13 +48,21 @@ plug-in uses images if the source or output image has it, else buffers.
 The kernels are built on first use for each OpenCL context, found from the
 queue with CL_QUEUE_CONTEXT: "The host may support multiple OpenCL devices.
 Therefore the plug-in should keep a separate set of kernels per OpenCL content
-(e.g., using a map)." They are kept until the unload action. A cl_kernel is not
+(e.g., using a map)." They are kept until the unload action, and so are the
+contexts: a kernel keeps a reference to its program, which keeps one to its
+context, so a context that the host releases stays alive until the plug-in is
+unloaded (and its address can't be reused by a new context). A cl_kernel is not
 thread-safe, so an OFX mutex is held from clSetKernelArg to
 clEnqueueNDRangeKernel. The kernels use OpenCL 1.1 only ("Effects should target
 OpenCL 1.1 API and OpenCL C kernel language support").
 
+The host's images are checked with clGetImageInfo (their width and height cover
+the window; RGBA or BGRA, with float, half float or normalized integer
+channels), and its buffers with clGetMemObjectInfo(CL_MEM_SIZE).
+
 If it can't process the images (no source image, not float RGBA, an image that
-doesn't cover the render window, negative row bytes), or OpenCL fails, the
+doesn't cover the render window, negative row bytes, a buffer or image too
+small, another image format), or OpenCL fails, the
 render returns kOfxStatGPURenderFailed (kOfxStatGPUOutOfMemory if OpenCL is out
 of resources): "If a call using OpenCL rendering fails, the host may re-attempt
 using CPU buffers instead".
