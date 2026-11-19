@@ -1,4 +1,4 @@
-CXXFLAGS = -I../../include
+CXXFLAGS = -I../../include -I../include
 OPTIMIZER = -g
 
 oclplugin.ofx : oclplugin.o

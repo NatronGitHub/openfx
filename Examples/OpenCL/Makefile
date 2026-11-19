@@ -2,7 +2,8 @@ PLUGINOBJECTS = oclplugin.o
 PLUGINNAME = oclplugin
 PATHTOROOT = ..
 OPENCL_HOME ?= /usr
-CXXFLAGS_ADD = -DOFX_EXTENSIONS_RESOLVE -I$(OPENCL_HOME)/include
+# OpenCL headers and library (the OpenCL framework on macOS)
+CXXFLAGS_ADD = -I$(OPENCL_HOME)/include
 LDFLAGS_ADD = $(OPENCL_LIBS)
 
 include ../Makefile.master
