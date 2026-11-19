@@ -608,7 +608,26 @@ static void testShadows()
   State s = makeState(2., 3., 1., true);
   const OfxRGBAColourF col = { 0.2f, 0.4f, 0.6f, 0.5f };
   setColour(s, &col);
-  CHECK(shadowOffset(s).x == 2. && shadowOffset(s).y == -3.);
+  CHECK(shadowOffset(s).x == 2. && shadowOffset(s).y == -3.); // one device pixel at ratio 1
+  {
+    // ratio 2: one device pixel is half a screen pixel
+    State s2 = makeState(2., 3., 2., true);
+    CHECK(shadowOffset(s2).x == 1. && shadowOffset(s2).y == -1.5);
+    const OfxPointD l[2] = { pt(0., 0.), pt(10., 5.) };
+    gCalls.clear();
+    CHECK(drawPrimitive(gl, s2, kOfxDrawPrimitiveLines, l, 2) == kOfxStatOK);
+    const std::vector<Block> b2 = blocks();
+    CHECK(b2.size() == 2 && b2[0].vertices.size() == 2 && b2[0].vertices[1].x == 11. && b2[0].vertices[1].y == 3.5);
+    gCalls.clear();
+    const OfxPointD tp = pt(10., 20.);
+    CHECK(drawText(gl, s2, "A", &tp, 0) == kOfxStatOK);
+    const std::vector<Block> b3 = blocks();
+    CHECK(b3.size() == 2 && !b3[0].vertices.empty() &&
+          near(b3[0].vertices[0].x, b3[1].vertices[0].x + 1.) && near(b3[0].vertices[0].y, b3[1].vertices[0].y - 1.5));
+    // a ratio over 64 is sanitised to 64
+    State s3 = makeState(64., 64., 1000., true);
+    CHECK(shadowOffset(s3).x == 1. && shadowOffset(s3).y == -1.);
+  }
   const OfxPointD p[4] = { pt(0., 0.), pt(10., 5.), pt(3., 8.), pt(-1., 2.) };
   const OfxDrawPrimitive prims[] = { kOfxDrawPrimitiveLines, kOfxDrawPrimitiveLineStrip, kOfxDrawPrimitiveLineLoop,
                                      kOfxDrawPrimitivePolygon, kOfxDrawPrimitiveRectangle, kOfxDrawPrimitiveEllipse };

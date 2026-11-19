@@ -56,8 +56,9 @@
   - standardColour: fixed colours, close to the Natron and SupportExt OpenGL overlays.
 
   Shadows: if State::shadows is true, drawPrimitive() and drawText() first draw the same element
-  offset by one screen pixel (+1, -1 in screen pixels, i.e. (+pixelScale.x, -pixelScale.y) in
-  canonical coordinates: right and down), in the standard background colour
+  offset by one device pixel right and down (shadowOffset(): (+pixelScale.x / screenPixelRatio,
+  -pixelScale.y / screenPixelRatio) in canonical coordinates, as the OpenGL shadows of the
+  Natron and SupportExt overlays), in the standard background colour
   (kOfxStandardColourOverlayBackground) with the current colour's alpha, then the element. Off by
   default. Plug-ins never draw shadows with DrawSuite calls: the shadows are for hosts (a host
   setting) and for Support's DrawSuite-to-OpenGL compatibility layer (see
@@ -568,13 +569,15 @@ namespace OFX {
       return c;
     }
 
-    /** @brief The offset of the shadows, in canonical coordinates: one screen pixel right and
-        down (+1, -1 screen pixels) */
+    /** @brief The offset of the shadows, in canonical coordinates: one device pixel right and
+        down, (+pixelScale.x / screenPixelRatio, -pixelScale.y / screenPixelRatio) with the
+        state's sanitised values (a screen pixel at ratio 1, half a screen pixel at ratio 2), as
+        the OpenGL shadows of the Natron and SupportExt overlays */
     inline OfxPointD shadowOffset(const State &state)
     {
       OfxPointD o;
-      o.x = state.pixelScale.x;
-      o.y = -state.pixelScale.y;
+      o.x = state.pixelScale.x / state.screenPixelRatio;
+      o.y = -state.pixelScale.y / state.screenPixelRatio;
       return o;
     }
 
