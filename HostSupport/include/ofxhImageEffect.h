@@ -143,7 +143,12 @@ namespace OFX {
         /// one draws (ofxInteract.h, kOfxInteractActionDraw: "If this is called via
         /// kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite. If this is
         /// called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL.").
-        /// Only meaningful if supportsDrawSuite() is true. Default: false (V2 when both are set).
+        /// The ofxInteracts.rst sentence "If the plugin requests OverlayInteractV2 and the host
+        /// supports it, then the plugin *must* do all drawing with the DrawSuite" is about how
+        /// the V2 entry draws when the host calls it, not about which entry the host picks.
+        /// Only meaningful if supportsDrawSuite() is true. It must return the same value for
+        /// the whole session (the choice is made when an overlay descriptor is described).
+        /// Default: false (V2 when both are set).
         virtual bool preferOverlayInteractV1() const;
 
 #ifdef OFX_SUPPORTS_MULTITHREAD
@@ -287,10 +292,10 @@ namespace OFX {
         ///
         /// This is the kOfxImageEffectPluginPropOverlayInteractV2 entry if the plug-in set
         /// one and the host supports the DrawSuite (Host::supportsDrawSuite()), unless the
-        /// plug-in also set a V1 entry and the host prefers it (Host::preferOverlayInteractV1()),
-        /// else the kOfxImageEffectPluginPropOverlayInteractV1 entry (OFX 1.5: "If the plugin requests
-        /// OverlayInteractV2 and the host supports it, then the plugin *must* do all drawing
-        /// with the DrawSuite, not OpenGL").
+        /// plug-in also set a V1 entry and the host prefers it (Host::preferOverlayInteractV1());
+        /// else the kOfxImageEffectPluginPropOverlayInteractV1 entry. When the V2 entry is
+        /// called, "the plugin *must* do all drawing with the DrawSuite, not OpenGL"
+        /// (Documentation/sources/Reference/ofxInteracts.rst).
         OfxPluginEntryPoint *getOverlayInteractMainEntry() const;
 
         /// the kOfxImageEffectPluginPropOverlayInteractV1 entry (OpenGL drawing), or NULL
