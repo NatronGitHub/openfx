@@ -80,15 +80,19 @@ namespace OFX {
 
 namespace OFX {
   namespace Host {
-    // kOfxHostSupportHostPointer (ofxhHost.h) stores away our private pointer to our host descriptor
+    // kOfxHostSupportHostPointer (ofxhHost.h) stores away our private pointer to our host descriptor.
+    // The image effect host properties are all read only ("Write Access: host", propset_ImageEffectHost
+    // in Documentation/sources/Reference/ofxPropertySetsGenerated.rst). The
+    // property suite never lets a plug-in write kOfxHostSupportHostPointer, whatever the
+    // read-only policy: fetchSuite() dereferences it for every plug-in.
     static const Property::PropSpec hostStuffs[] = {
-      { kOfxPropAPIVersion, Property::eInt, 0, false, "" },
-      { kOfxPropType, Property::eString, 1, false, kOfxTypeImageEffectHost },
-      { kOfxPropName, Property::eString, 1, false, "UNKNOWN" },
-      { kOfxPropLabel, Property::eString, 1, false, "UNKNOWN" },
-      { kOfxPropVersion, Property::eInt, 0, false, "0" },
-      { kOfxPropVersionLabel, Property::eString, 1, false, "" },
-      { kOfxHostSupportHostPointer,    Property::ePointer,    0,    false,    NULL },
+      { kOfxPropAPIVersion, Property::eInt, 0, true, "" },
+      { kOfxPropType, Property::eString, 1, true, kOfxTypeImageEffectHost },
+      { kOfxPropName, Property::eString, 1, true, "UNKNOWN" },
+      { kOfxPropLabel, Property::eString, 1, true, "UNKNOWN" },
+      { kOfxPropVersion, Property::eInt, 0, true, "0" },
+      { kOfxPropVersionLabel, Property::eString, 1, true, "" },
+      { kOfxHostSupportHostPointer,    Property::ePointer,    0,    true,    NULL },
       Property::propSpecEnd
     };    
 

@@ -33,6 +33,7 @@
 
 // ofx host
 #include "ofxhBinary.h"
+#include "ofxhHost.h" // kOfxHostSupportHostPointer
 #include "ofxhPropertySuite.h"
 #include "ofxhUtilities.h"
 
@@ -232,6 +233,11 @@ namespace OFX {
       {
         if (!prop->getPluginReadOnly()) {
           return false;
+        }
+        // HostSupport's private pointer to the Host is not a spec property, so there is no old
+        // plug-in to stay compatible with: never let a plug-in overwrite it.
+        if (prop->getName() == kOfxHostSupportHostPointer) {
+          return true;
         }
         switch (gPluginReadOnlyPolicy) {
         case ePluginReadOnlyIgnore:
