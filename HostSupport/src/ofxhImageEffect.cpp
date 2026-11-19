@@ -298,7 +298,11 @@ namespace OFX {
 
       bool Base::isOverlayInteractV2() const
       {
-        return gImageEffectHost && gImageEffectHost->supportsDrawSuite() && getOverlayInteractV2MainEntry() != NULL;
+        if (!gImageEffectHost || !gImageEffectHost->supportsDrawSuite() || getOverlayInteractV2MainEntry() == NULL) {
+          return false;
+        }
+        // both entries: the host's choice (Host::preferOverlayInteractV1())
+        return !(gImageEffectHost->preferOverlayInteractV1() && getOverlayInteractV1MainEntry() != NULL);
       }
 
       /// does the effect support images of differing sizes
@@ -4806,6 +4810,11 @@ namespace OFX {
       }
 
       bool Host::supportsDrawSuite() const
+      {
+        return false;
+      }
+
+      bool Host::preferOverlayInteractV1() const
       {
         return false;
       }

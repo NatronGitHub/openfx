@@ -1002,7 +1002,8 @@ namespace OFX {
      the plugin requests OverlayInteractV2 and the host supports it, then the plugin *must* do
      all drawing with the DrawSuite, not OpenGL" (ofxInteracts.rst). HostSupport
      (getOverlayInteractMainEntry()) chooses the V2 entry when the host has the DrawSuite, the
-     V1 entry otherwise; that is HostSupport's choice, not a spec rule. There is no way to
+     V1 entry otherwise, unless the host prefers V1 (Host::preferOverlayInteractV1(), e.g.
+     Natron, which draws overlays with OpenGL); that is HostSupport's choice, not a spec rule. There is no way to
      detect a host that has the DrawSuite but no OpenGL, which is why V2 is always registered
      when the DrawSuite exists. In the draw actions called through
      that V1 entry, DrawArgs::drawContext is NULL (even if the host passed a draw context),

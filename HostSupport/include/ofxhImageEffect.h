@@ -134,6 +134,26 @@ namespace OFX {
         /// kOfxImageEffectPluginPropOverlayInteractV2 are used. Default: false.
         virtual bool supportsDrawSuite() const;
 
+        /// Override this and return true if the host draws overlays with OpenGL (it makes an
+        /// OpenGL context current around kOfxInteractActionDraw) and prefers that to the
+        /// DrawSuite. Then, when a plug-in sets both kOfxImageEffectPluginPropOverlayInteractV1
+        /// and kOfxImageEffectPluginPropOverlayInteractV2, the V1 (OpenGL) entry is used, since
+        /// OpenGL can draw more than the DrawSuite; plug-ins that only set V2 still get V2. The
+        /// spec does not say which entry a host calls when both are set; it only says how each
+        /// one draws (ofxInteract.h, kOfxInteractActionDraw: "If this is called via
+        /// kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite. If this is
+        /// called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL.").
+        /// The ofxInteracts.rst sentence "If the plugin requests OverlayInteractV2 and the host
+        /// supports it, then the plugin *must* do all drawing with the DrawSuite" is about how
+        /// the V2 entry draws when the host calls it, not about which entry the host picks.
+        /// A host that returns true must make an OpenGL context current around every V1 draw
+        /// (the kOfxInteractActionDraw precondition "the openGL context for this interact has
+        /// been set"): plug-ins with their own V1 drawing code call OpenGL there.
+        /// Only meaningful if supportsDrawSuite() is true. It must return the same value for
+        /// the whole session (the choice is made when an overlay descriptor is described).
+        /// Default: false (V2 when both are set).
+        virtual bool preferOverlayInteractV1() const;
+
 #ifdef OFX_SUPPORTS_MULTITHREAD
         // these functions must be implemented if the host supports OfxMultiThreadSuiteV1
         // all the following functions are described in ofxMultiThread.h
@@ -274,10 +294,11 @@ namespace OFX {
         /// get the overlay interact main entry if it exists.
         ///
         /// This is the kOfxImageEffectPluginPropOverlayInteractV2 entry if the plug-in set
-        /// one and the host supports the DrawSuite (Host::supportsDrawSuite()), else the
-        /// kOfxImageEffectPluginPropOverlayInteractV1 entry (OFX 1.5: "If the plugin requests
-        /// OverlayInteractV2 and the host supports it, then the plugin *must* do all drawing
-        /// with the DrawSuite, not OpenGL").
+        /// one and the host supports the DrawSuite (Host::supportsDrawSuite()), unless the
+        /// plug-in also set a V1 entry and the host prefers it (Host::preferOverlayInteractV1());
+        /// else the kOfxImageEffectPluginPropOverlayInteractV1 entry. When the V2 entry is
+        /// called, "the plugin *must* do all drawing with the DrawSuite, not OpenGL"
+        /// (Documentation/sources/Reference/ofxInteracts.rst).
         OfxPluginEntryPoint *getOverlayInteractMainEntry() const;
 
         /// the kOfxImageEffectPluginPropOverlayInteractV1 entry (OpenGL drawing), or NULL
