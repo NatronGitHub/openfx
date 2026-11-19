@@ -195,6 +195,8 @@ namespace OFX {
       static void setOverlayRegistration(DrawArgs &args, OverlayRegistrationEnum r) { args._overlayRegistration = (int)r; }
       static OverlayRegistrationEnum getOverlayRegistration(const DrawArgs &args) { return (OverlayRegistrationEnum)args._overlayRegistration; }
       static const DrawContext &drawSuiteContext(const DrawArgs &args) { return args._drawContextStorage; }
+      // a V1 draw: forget the host's draw context (drawContext becomes NULL)
+      static void clearDrawSuiteContext(DrawArgs &args) { args._drawContextStorage = DrawContext(); args.drawContext = NULL; }
       // the context that getDrawContext() returns for V1 overlays: getDrawContext() sets its
       // backend (the only change made through a const DrawArgs)
       static DrawContext &openGLContext(const DrawArgs &args) { return args._openGLDrawContext; }

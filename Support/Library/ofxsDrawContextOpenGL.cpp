@@ -44,11 +44,10 @@
   plug-in-private OSMesa). OpenGL is current if any of them returns a context; if none can be
   loaded, it isn't. The list of these functions is looked up again as long as it is empty (the
   host may load libEGL or libGLX later).
-  Without a current OpenGL context, getDrawContext() uses the host's draw context if it passed one
-  (DrawSuite through V1 is allowed: "Some existing plugins may use DrawSuite via
-  kOfxImageEffectPluginPropOverlayInteractV1 if it's supported by the host, but this is
-  discouraged"), else it returns a context that draws nothing (canDraw() is false, every function
-  returns false).
+  Without a current OpenGL context, getDrawContext() returns a context that draws nothing
+  (canDraw() is false, every function returns false). It never uses the host's DrawSuite in a V1
+  draw, even if the host passed a draw context: V1 draws use only OpenGL, V2 draws only the
+  DrawSuite.
 
   Define OFXS_DRAWCONTEXT_NO_OPENGL to build without OpenGL (no OpenGL header, no OpenGL call):
   getDrawContext() then returns a context that draws nothing for the V1 overlays.
@@ -846,7 +845,7 @@ namespace OFX {
       return drawSuite;
     case Private::eOverlayRegistrationV1:
       // "If this is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use
-      // OpenGL": OpenGL, even if the host passed a draw context (parameter interacts too)
+      // OpenGL": only OpenGL, even if the host passed a draw context (parameter interacts too)
       break;
     case Private::eOverlayRegistrationUnknown:
     default:
@@ -864,12 +863,8 @@ namespace OFX {
       Private::DrawArgsAccess::setOpenGLBackend(openGL, backend);
       return openGL;
     }
-    // No OpenGL context: the host's DrawSuite context if it passed one ("Some existing plugins
-    // may use DrawSuite via kOfxImageEffectPluginPropOverlayInteractV1 if it's supported by the
-    // host, but this is discouraged"), else a context that draws nothing
-    if ( drawSuite.usesDrawSuite() ) {
-      return drawSuite;
-    }
+    // No OpenGL context: a context that draws nothing. Never the host's DrawSuite in a V1 draw
+    // (V1 draws use only OpenGL, V2 draws only the DrawSuite)
     Private::DrawArgsAccess::setOpenGLBackend(openGL, NULL);
     return openGL;
   }

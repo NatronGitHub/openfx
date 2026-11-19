@@ -10,23 +10,28 @@
 */
 #define OFXS_SUPPORT_HAS_DRAWCONTEXT 1
 /** @brief Feature macro: defined when this Support library has OFX::DrawArgs::getDrawContext(),
-    the DrawContext that draws with the DrawSuite on V2 overlays and, on V1 overlays, with OpenGL
-    if an OpenGL context is current (see OFXS_SUPPORT_HAS_OPENGL_CONTEXT_CHECK)
+    the DrawContext that draws with the DrawSuite in V2 draws and with OpenGL in V1 draws
     (Support/Library/ofxsDrawContextOpenGL.cpp), and DrawContext::usesDrawSuite()/usesOpenGL(). */
 #define OFXS_SUPPORT_HAS_DRAWCONTEXT_OPENGL 1
-/** @brief Feature macro: defined when ImageEffectDescriptor::setOverlayInteractDescriptorV2()
-    also registers an OpenGL kOfxImageEffectPluginPropOverlayInteractV1 entry on DrawSuite hosts
+/** @brief Feature macro: defined when a descriptor class registered with
+    ImageEffectDescriptor::setOverlayInteractDescriptorV2() has a distinct V1 entry point
     (InteractMainEntry<DESC>::overlayInteractMainEntryV1), DrawArgs::drawContext is NULL in the
-    draw actions called through that V1 entry (getDrawContext() there uses OpenGL if an OpenGL
-    context is current, else the host's draw context if it passed one, else draws nothing), and
-    DrawArgs::calledViaOverlayInteractV2() exists. */
+    V1 draws, and DrawArgs::calledViaOverlayInteractV2() exists. Since
+    OFXS_SUPPORT_HAS_OVERLAY_HAS_OPENGL_DRAW, the V1 entry is only registered if the plug-in asks
+    for it (hasOpenGLDraw). */
 #define OFXS_SUPPORT_HAS_OVERLAY_INTERACT_V1_ENTRY 1
 /** @brief Feature macro: defined when getDrawContext() checks at run time that an OpenGL context
-    is current before using OpenGL, and DrawArgs::isOpenGLContextCurrent() (that check) and
-    DrawArgs::getHostDrawContext() (the host's kOfxInteractPropDrawContext, even where
-    DrawArgs::drawContext hides it) exist, for the plug-ins that draw through the raw
-    OfxDrawSuiteV1 handle or with their own OpenGL code (e.g. SupportExt's OverlayDraw). */
+    is current before using OpenGL, and DrawArgs::isOpenGLContextCurrent() (that check) exists,
+    for the plug-ins that draw with their own OpenGL code in V1 draws. */
 #define OFXS_SUPPORT_HAS_OPENGL_CONTEXT_CHECK 1
+/** @brief Feature macro: defined when the Support library applies the overlay drawing rules of
+    the spec strictly (V1 draws use only OpenGL, V2 draws only the DrawSuite; see OFX::DrawContext)
+    and ImageEffectDescriptor::setOverlayInteractDescriptorV2() has the hasOpenGLDraw argument:
+    on a DrawSuite host, the V1 entry is registered next to the V2 one only if hasOpenGLDraw is
+    true. In a V1 draw, drawContext is NULL even if the host passed a draw context, and
+    getDrawContext() uses OpenGL if a context is current, else draws nothing (never the host's
+    DrawSuite). DrawArgs::getHostDrawContext() was removed. */
+#define OFXS_SUPPORT_HAS_OVERLAY_HAS_OPENGL_DRAW 1
 /*
 OFX Support Library, a library that skins the OFX plug-in API with C++ classes.
 Copyright (C) 2004-2005 The Open Effects Association Ltd
@@ -94,54 +99,39 @@ namespace OFX {
   /** @brief Draws an overlay with the OFX 1.5 DrawSuite (OfxDrawSuiteV1), or with an OpenGL
    emulation of the DrawSuite.
 
-   There are two ways to get one in an overlay's draw():
+   The Support library applies the spec strictly (ofxInteract.h, kOfxInteractActionDraw: "If
+   this is called via kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite. If
+   this is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL."):
+   - a V2 draw (the kOfxImageEffectPluginPropOverlayInteractV2 entry of an overlay for which
+     ImageEffectDescriptor::setOverlayInteractDescriptorV2() returned true) uses only the
+     DrawSuite, never OpenGL: the host may have no OpenGL context at all.
+   - a V1 draw (an overlay registered with setOverlayInteractDescriptor(), with
+     setOverlayInteractDescriptorV2() on a host without the DrawSuite, the V1 entry that
+     setOverlayInteractDescriptorV2(desc, true) also registers on a DrawSuite host, and every
+     parameter interact) uses only OpenGL, never the DrawSuite, even if the host passed a draw
+     context (HostSupport does).
 
-   - DrawArgs::getDrawContext() (recommended): always valid. Its backend follows how the overlay
-     was registered, as the spec requires (ofxInteract.h, kOfxInteractActionDraw: "If this is
-     called via kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite. If this
-     is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL."):
-     - overlay called through its kOfxImageEffectPluginPropOverlayInteractV2 entry
-       (ImageEffectDescriptor::setOverlayInteractDescriptorV2() returned true; not if the
-       plug-in set kOfxImageEffectPluginPropOverlayInteractV2 itself): the host's DrawSuite
-       (usesDrawSuite()). If the host passed no kOfxInteractPropDrawContext, nothing is drawn
-       and the functions return false: OpenGL must not be used, the host may not even have an
-       OpenGL context.
-     - overlay called through a kOfxImageEffectPluginPropOverlayInteractV1 entry
-       (setOverlayInteractDescriptor(), setOverlayInteractDescriptorV2() on a host without the
-       DrawSuite, or the OpenGL V1 entry that setOverlayInteractDescriptorV2() registers next to
-       the V2 one on a DrawSuite host), and parameter interacts: OpenGL (usesOpenGL()), even if
-       the host also passed a DrawSuite context. But if no OpenGL context is current (or OpenGL
-       can't be loaded): the host's DrawSuite context if it passed one ("Some existing plugins
-       may use DrawSuite via kOfxImageEffectPluginPropOverlayInteractV1 if it's supported by the
-       host, but this is discouraged"), else a context that draws nothing.
-     - DrawArgs not made by the Support library's dispatcher (e.g. built by the plug-in from a
-       property set): the DrawSuite if the inArgs have a draw context, else OpenGL if an OpenGL
-       context is current, else a context that draws nothing.
-     So a plug-in writes a single draw() for all hosts: register the overlay with
-     setOverlayInteractDescriptorV2(), and do all the drawing through getDrawContext(), with no
-     direct OpenGL call. Do provide that DrawSuite drawing: a host with the DrawSuite may have
-     no OpenGL at all (kOfxImageEffectPropSupportsOverlays: "the host will allow a plugin to
-     draw a GUI over the output image", nothing about OpenGL), and the Support library only
-     uses OpenGL when the host called a V1 entry and an OpenGL context is current.
-     Plug-ins with their own V1 drawing code must branch on getDrawContext() (usesOpenGL()),
-     on isOpenGLContextCurrent() or on calledViaOverlayInteractV2(), not on drawContext == NULL:
-     drawContext is NULL in every V1-entry draw, with or without a current OpenGL context, so
-     only these get the protection against OpenGL calls without a context.
-   - DrawArgs::drawContext: the host's DrawSuite context, or NULL if the host passed none
-     (unchanged since OFXS_SUPPORT_HAS_DRAWCONTEXT, for the code that tests it and draws with
-     OpenGL when it is NULL, such as SupportExt's OverlayDraw). It is also NULL in the draw
-     actions called through the OpenGL V1 entry of an overlay registered with
-     setOverlayInteractDescriptorV2() (OFXS_SUPPORT_HAS_OVERLAY_INTERACT_V1_ENTRY), which must
-     draw with OpenGL.
+   DrawArgs::getDrawContext() (always valid) follows these rules:
+   - V2 draw: the host's DrawSuite (usesDrawSuite()). If the host passed no
+     kOfxInteractPropDrawContext, a context that draws nothing.
+   - V1 draw: OpenGL (usesOpenGL()) if an OpenGL context is current, else a context that draws
+     nothing.
+   - DrawArgs not made by the Support library's dispatcher (e.g. built by the plug-in from a
+     property set): the DrawSuite if the inArgs have a draw context, else OpenGL if an OpenGL
+     context is current, else a context that draws nothing.
+   DrawArgs::drawContext is the host's DrawSuite context in a V2 draw (NULL if it passed none),
+   and NULL in every V1 draw.
 
-   The only OpenGL guarantee for an overlay is the precondition of kOfxInteractActionDraw, "the
-   openGL context for this interact has been set". It is unconditional in the spec, but hosts
-   that call V2 overlays with the DrawSuite may have no OpenGL and don't honour it in practice.
-   So the Support library uses OpenGL only inside a draw action that is not a V2 one (a V1
-   entry, a parameter interact, or DrawArgs not made by the dispatcher without a draw context),
-   and only if an OpenGL context is actually current (checked at run time: legacy OpenGL calls
-   without a current context usually crash); plug-ins must not use OpenGL in the other actions,
-   or in the V2 draw actions. kOfxInteractPropBitDepth,
+   The only compatibility layer: a plug-in that draws only with the DrawSuite, on a host that
+   only has V1 and OpenGL (no DrawSuite, e.g. an OFX 1.4 host). There setOverlayInteractDescriptorV2()
+   registers V1, and getDrawContext() converts the DrawSuite calls to OpenGL. So a plug-in that
+   registers with setOverlayInteractDescriptorV2(desc) and draws only through getDrawContext(),
+   with no OpenGL call, works on every host. A plug-in that also has its own OpenGL drawing
+   code keeps it, registers with setOverlayInteractDescriptorV2(desc, true), and in draw() uses
+   OpenGL only if !calledViaOverlayInteractV2() (and isOpenGLContextCurrent()), not if
+   drawContext == NULL.
+
+   Plug-ins must not use OpenGL outside V1 draws. kOfxInteractPropBitDepth,
    kOfxInteractPropHasAlpha, kOfxInteractPropPenViewportPosition (Interact::getBitDepth(),
    hasAlpha(), PenArgs::penViewportPosition) and interactSwapBuffers are defined in OpenGL terms:
    don't rely on them when drawing with the DrawSuite.
@@ -283,35 +273,26 @@ namespace OFX {
     DrawArgs(const DrawArgs &other);
     DrawArgs &operator=(const DrawArgs &other);
 
-    /** @brief OFX 1.5 DrawSuite context for this draw action, or NULL if the host doesn't
-        provide the DrawSuite. An overlay registered with
-        ImageEffectDescriptor::setOverlayInteractDescriptorV2() gets a non-NULL context
-        (and MUST draw with it, not OpenGL) whenever the host supports it and calls its
-        kOfxImageEffectPluginPropOverlayInteractV2 entry. It is NULL when the host calls the
-        OpenGL kOfxImageEffectPluginPropOverlayInteractV1 entry that
-        setOverlayInteractDescriptorV2() also registers on DrawSuite hosts ("If this is called
-        via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL"), even if
-        the host passed a draw context (see getHostDrawContext()). NULL does not mean that
-        OpenGL can be used: see isOpenGLContextCurrent().
-        See also getDrawContext(), which on V1 overlays uses OpenGL if an OpenGL context is
-        current, else the host's draw context if it passed one, else draws nothing. */
+    /** @brief The host's OFX 1.5 DrawSuite context (kOfxInteractPropDrawContext) in a V2 draw,
+        which MUST draw with it ("If this is called via kOfxImageEffectPluginPropOverlayInteractV2,
+        drawing MUST use DrawSuite"); NULL if the host passed none. NULL in every V1 draw ("If
+        this is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use
+        OpenGL"), even if the host passed a draw context. NULL does not mean that OpenGL can be
+        used: see calledViaOverlayInteractV2() and isOpenGLContextCurrent(). See OFX::DrawContext. */
     const DrawContext *drawContext;
 
-    /** @brief The context to draw this overlay with, on any host: the DrawSuite for an
-        overlay called through its V2 entry, OpenGL for an overlay called through a V1 entry
-        if an OpenGL context is current (else the host's draw context if any, else a context
-        that draws nothing; see DrawContext). Never NULL. Defined in ofxsDrawContextOpenGL.cpp. */
+    /** @brief The context to draw this overlay with: the DrawSuite in a V2 draw, OpenGL in a V1
+        draw if an OpenGL context is current, else a context that draws nothing (see
+        OFX::DrawContext). Never NULL. Defined in ofxsDrawContextOpenGL.cpp. */
     const DrawContext &getDrawContext() const;
 
-    /** @brief true if the Support library's dispatcher made these args for a draw action
-        called through the kOfxImageEffectPluginPropOverlayInteractV2 entry of an overlay
-        registered with ImageEffectDescriptor::setOverlayInteractDescriptorV2() ("drawing MUST
-        use DrawSuite": getDrawContext() then uses the DrawSuite); false for the calls through a
-        kOfxImageEffectPluginPropOverlayInteractV1 entry (drawing SHOULD use OpenGL), for
-        parameter interacts, and for DrawArgs not made by the dispatcher. An interact whose
-        descriptor class is registered with setOverlayInteractDescriptorV2() may be created
-        through either entry: test this (or getDrawContext()) in draw(), not the host's
-        DrawSuite support. Defined in ofxsInteract.cpp
+    /** @brief true if the Support library's dispatcher made these args for a V2 draw: a draw
+        action called through the kOfxImageEffectPluginPropOverlayInteractV2 entry of an overlay
+        registered with ImageEffectDescriptor::setOverlayInteractDescriptorV2() (drawing MUST use
+        the DrawSuite); false in V1 draws (drawing uses only OpenGL), parameter interacts, and
+        DrawArgs not made by the dispatcher. An interact registered with
+        setOverlayInteractDescriptorV2(desc, true) may be created through either entry: test this
+        in draw(), not the host's DrawSuite support. Defined in ofxsInteract.cpp
         (OFXS_SUPPORT_HAS_OVERLAY_INTERACT_V1_ENTRY). */
     bool calledViaOverlayInteractV2() const;
 
@@ -320,23 +301,12 @@ namespace OFX {
         CGLGetCurrentContext, glXGetCurrentContext or eglGetCurrentContext (and, on ELF systems,
         OSMesaGetCurrentContext from the library of the gl* functions), loaded at run time
         like the OpenGL functions; false if none can be loaded). Evaluated at each call. Legacy
-        OpenGL calls without a current context usually crash (macOS), and a DrawSuite host may
-        have no OpenGL: a plug-in that draws with its own OpenGL code in a V1 draw should test
-        this first, and else use getHostDrawContext() if it is not NULL ("Some existing plugins
-        may use DrawSuite via kOfxImageEffectPluginPropOverlayInteractV1 if it's supported by
-        the host, but this is discouraged"), else draw nothing. It may load OpenGL (see
-        DrawContext): only call it in draw actions. Defined in ofxsDrawContextOpenGL.cpp
-        (false if it was compiled with OFXS_DRAWCONTEXT_NO_OPENGL);
+        OpenGL calls without a current context usually crash (macOS): a plug-in that draws with
+        its own OpenGL code in a V1 draw should test this first, and draw nothing if it is
+        false. It may load OpenGL (see DrawContext): only call it in draw actions. Defined in
+        ofxsDrawContextOpenGL.cpp (false if it was compiled with OFXS_DRAWCONTEXT_NO_OPENGL);
         OFXS_SUPPORT_HAS_OPENGL_CONTEXT_CHECK. */
     bool isOpenGLContextCurrent() const;
-
-    /** @brief The draw context that the host passed in kOfxInteractPropDrawContext, or NULL if
-        it passed none (or the plug-in has no DrawSuite). Unlike drawContext, it is not hidden
-        in the draw actions called through the OpenGL V1 entry of an overlay registered with
-        setOverlayInteractDescriptorV2(), for the fallback described in
-        isOpenGLContextCurrent(). Through a V2 entry it is drawContext->getHandle(). Defined in
-        ofxsInteract.cpp; OFXS_SUPPORT_HAS_OPENGL_CONTEXT_CHECK. */
-    OfxDrawContextHandle getHostDrawContext() const;
 
 #ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
     OfxPointD       viewportSize;      /**< @brief The openGL viewport size for the instance */
@@ -807,10 +777,10 @@ namespace OFX {
       InteractDescriptor& desc);
 
     /** @brief The main entry of the OpenGL kOfxImageEffectPluginPropOverlayInteractV1 entry
-        point that ImageEffectDescriptor::setOverlayInteractDescriptorV2() registers next to
-        the V2 one on DrawSuite hosts: as interactMainEntry(), but the draw actions are V1 ones
-        (DrawArgs::drawContext is NULL; getDrawContext() uses OpenGL if an OpenGL context is
-        current, else the host's draw context if it passed one, else draws nothing) */
+        point that ImageEffectDescriptor::setOverlayInteractDescriptorV2(desc, true) registers
+        next to the V2 one on DrawSuite hosts: as interactMainEntry(), but the draw actions are
+        V1 ones (DrawArgs::drawContext is NULL; getDrawContext() uses OpenGL if an OpenGL
+        context is current, else draws nothing) */
     OfxStatus interactMainEntryOpenGL(const char		*actionRaw,
       const void		*handleRaw,
       OfxPropertySetHandle	 inArgsRaw,
@@ -828,7 +798,7 @@ namespace OFX {
       overlayInteractMainEntry is the entry point that DESC::getMainEntry() returns (and that
       setOverlayInteractDescriptor() and setOverlayInteractDescriptorV2() register).
       overlayInteractMainEntryV1 is a second entry point for the same DESC, which
-      setOverlayInteractDescriptorV2() registers as the OpenGL
+      setOverlayInteractDescriptorV2(desc, true) registers as the OpenGL
       kOfxImageEffectPluginPropOverlayInteractV1 entry on DrawSuite hosts: the two entry points
       are distinct, so the dispatcher knows which one the host called. The constructor records
       the pair (no data member: the layout of the descriptor classes is unchanged). */

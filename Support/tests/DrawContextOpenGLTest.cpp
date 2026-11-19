@@ -12,18 +12,18 @@
   - which backend getDrawContext() picks, for the overlay registrations (V1, V2, unknown) with and
     without a host draw context, with a fake property suite and a fake DrawSuite;
   - the registry of the overlay registrations (setOverlayInteractV1/V2, isOverlayInteractV2);
-  - ImageEffectDescriptor::setOverlayInteractDescriptorV2(): on a DrawSuite host, the V2 entry
-    and the distinct OpenGL V1 entry (InteractMainEntry<DESC>::overlayInteractMainEntryV1) are
-    both registered; V1 only on the other hosts and when the host refuses the V2 property;
-  - the interact dispatcher, through these two entries: the V2 entry draws with the DrawSuite,
-    the V1 entry with OpenGL and DrawArgs::drawContext == NULL even if the host passed a draw
-    context;
-  - without a current OpenGL context (the CGL context made non-current), no OpenGL: the host's
-    draw context if it passed one, else nothing;
+  - ImageEffectDescriptor::setOverlayInteractDescriptorV2(): on a DrawSuite host, V2 only, or (with
+    hasOpenGLDraw) the V2 entry and the distinct OpenGL V1 entry
+    (InteractMainEntry<DESC>::overlayInteractMainEntryV1); V1 only on the other hosts and when the
+    host refuses the V2 property;
+  - the interact dispatcher, through these two entries: V2 draws use only the DrawSuite, V1 draws
+    only OpenGL, with DrawArgs::drawContext == NULL even if the host passed a draw context;
+  - without a current OpenGL context (the CGL context made non-current), no OpenGL and no
+    DrawSuite in V1 draws: nothing is drawn;
   - the OpenGL backend: primitives, "over" compositing, line width and stipple, text size and
     alignment, the error statuses, and that the OpenGL state is restored.
 
-  - DrawArgs::isOpenGLContextCurrent() and DrawArgs::getHostDrawContext().
+  - DrawArgs::isOpenGLContextCurrent().
 
   Built with -DBUILD_EXAMPLE_PLUGINS=ON, except on Windows (target drawcontext-opengl-test). Prints
   one line per failed check, and exits with 0 if all passed.
@@ -177,13 +177,13 @@ static OfxDrawSuiteV1 gFakeDrawSuite = { dsGetColour, dsSetColour, dsSetLineWidt
 static bool gGLCurrent = false;
 
 // what getDrawContext() gives where it may use OpenGL (V1, unknown without a draw context):
-// OpenGL if a context is current, else the host's draw context if it passed one, else nothing
-static bool isOpenGLOrFallback(const OFX::DrawContext &dc, bool hostContext)
+// OpenGL if a context is current, else nothing (never the DrawSuite)
+static bool isOpenGLOrNothing(const OFX::DrawContext &dc)
 {
   if (gGLCurrent) {
     return dc.usesOpenGL();
   }
-  return hostContext ? dc.usesDrawSuite() : !dc.canDraw();
+  return !dc.canDraw() && !dc.usesDrawSuite();
 }
 
 #ifdef OFXS_TEST_GL_CONTEXT
@@ -296,11 +296,10 @@ static void testBackendSelection()
   {
     DrawArgs args((PropertySet(inArgs)));
     CHECK(args.drawContext == NULL);
-    CHECK(args.getHostDrawContext() == NULL);
     // unknown registration (DrawArgs not made by the dispatcher): OpenGL
-    CHECK(isOpenGLOrFallback(args.getDrawContext(), false));
+    CHECK(isOpenGLOrNothing(args.getDrawContext()));
     DrawArgsAccess::setOverlayRegistration(args, eOverlayRegistrationV1);
-    CHECK(isOpenGLOrFallback(args.getDrawContext(), false));
+    CHECK(isOpenGLOrNothing(args.getDrawContext()));
     CHECK(args.isOpenGLContextCurrent() == gGLCurrent);
     // V2 without a draw context: nothing (never OpenGL)
     DrawArgsAccess::setOverlayRegistration(args, eOverlayRegistrationV2);
@@ -312,24 +311,30 @@ static void testBackendSelection()
   {
     DrawArgs args((PropertySet(inArgs)));
     CHECK(args.drawContext != NULL && args.drawContext->usesDrawSuite()); // unchanged meaning
-    CHECK(args.getHostDrawContext() == (OfxDrawContextHandle)&dummyHandle);
-    CHECK(args.drawContext->getHandle() == args.getHostDrawContext());
+    CHECK(args.drawContext->getHandle() == (OfxDrawContextHandle)&dummyHandle);
     CHECK(args.getDrawContext().usesDrawSuite());                         // unknown: DrawSuite
     DrawArgsAccess::setOverlayRegistration(args, eOverlayRegistrationV2);
     CHECK(args.getDrawContext().usesDrawSuite());
     gDrawSuiteCalls = 0;
     CHECK(args.getDrawContext().setColour(1.f, 0.f, 0.f));
     CHECK(gDrawSuiteCalls == 1);
-    // V1: OpenGL, even with a draw context; drawContext still points to the DrawSuite context
+    // copies keep the draw context
+    {
+      DrawArgs copy(args);
+      CHECK(copy.drawContext != NULL && copy.drawContext->usesDrawSuite());
+      CHECK(copy.drawContext != args.drawContext);
+      CHECK(copy.getDrawContext().usesDrawSuite());
+    }
+    // V1: only OpenGL, even with a draw context (never the DrawSuite)
     DrawArgsAccess::setOverlayRegistration(args, eOverlayRegistrationV1);
-    CHECK(isOpenGLOrFallback(args.getDrawContext(), true));
-    CHECK(args.drawContext != NULL && args.drawContext->usesDrawSuite());
-    // copies keep it
+    CHECK(isOpenGLOrNothing(args.getDrawContext()));
+    // as the dispatcher makes V1 draw args: no draw context
+    DrawArgsAccess::clearDrawSuiteContext(args);
+    CHECK(args.drawContext == NULL);
+    CHECK(isOpenGLOrNothing(args.getDrawContext()));
     DrawArgs copy(args);
-    CHECK(copy.drawContext == NULL || copy.drawContext->usesDrawSuite());
-    CHECK(copy.drawContext != args.drawContext);
-    CHECK(isOpenGLOrFallback(copy.getDrawContext(), true));
-    CHECK(copy.getHostDrawContext() == (OfxDrawContextHandle)&dummyHandle);
+    CHECK(copy.drawContext == NULL);
+    CHECK(isOpenGLOrNothing(copy.getDrawContext()));
   }
   gFakeDrawContextHandle = NULL;
   // a default DrawContext draws nothing
@@ -367,7 +372,6 @@ struct DrawRecord {
   bool calledViaV2;         // DrawArgs::calledViaOverlayInteractV2()
   bool usesDrawSuite;       // getDrawContext().usesDrawSuite()
   bool usesOpenGL;          // getDrawContext().usesOpenGL()
-  bool hasHostDrawContext;  // DrawArgs::getHostDrawContext() != NULL
   bool glCurrent;           // DrawArgs::isOpenGLContextCurrent()
 };
 static DrawRecord gDrawRecord;
@@ -388,7 +392,6 @@ public:
     gDrawRecord.calledViaV2 = args.calledViaOverlayInteractV2();
     gDrawRecord.usesDrawSuite = args.getDrawContext().usesDrawSuite();
     gDrawRecord.usesOpenGL = args.getDrawContext().usesOpenGL();
-    gDrawRecord.hasHostDrawContext = (args.getHostDrawContext() != NULL);
     gDrawRecord.glCurrent = args.isOpenGLContextCurrent();
     return true;
   }
@@ -419,7 +422,7 @@ static void testSetOverlayInteractDescriptorV2()
 {
   using namespace OFX;
   using namespace OFX::Private;
-  static int descHandles[4];
+  static int descHandles[6];
   const bool savedOverlays = gHostDescription.supportsOverlays;
   const bool savedDrawSuite = gHostDescription.supportsDrawSuite;
   gHostDescription.supportsOverlays = true;
@@ -435,22 +438,32 @@ static void testSetOverlayInteractDescriptorV2()
   CHECK(getOverlayInteractV1Sibling(customOverlayEntry) == NULL);
   CHECK(getOverlayInteractV1Sibling(NULL) == NULL);
 
-  // DrawSuite host: V2 = the main entry, V1 = the OpenGL entry
+  // DrawSuite host, DrawSuite drawing only: V2 = the main entry, no V1 entry
   gHostDescription.supportsDrawSuite = true;
   {
     OfxPropertySetHandle props = (OfxPropertySetHandle)&descHandles[0];
     ImageEffectDescriptor desc((OfxImageEffectHandle)props);
     CHECK(desc.setOverlayInteractDescriptorV2(new TestOverlayDescriptor));
     CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV2) == (void *)TestOverlayDescriptor::mainEntry());
+    CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV1) == NULL);
+    CHECK(isOverlayInteractV2(TestOverlayDescriptor::mainEntry()));
+  }
+  // DrawSuite host, hasOpenGLDraw: V2 = the main entry, V1 = the OpenGL entry
+  clearOverlayInteractRegistrations();
+  {
+    OfxPropertySetHandle props = (OfxPropertySetHandle)&descHandles[4];
+    ImageEffectDescriptor desc((OfxImageEffectHandle)props);
+    CHECK(desc.setOverlayInteractDescriptorV2(new TestOverlayDescriptor, true));
+    CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV2) == (void *)TestOverlayDescriptor::mainEntry());
     CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV1) == (void *)TestOverlayDescriptor::mainEntryV1());
     CHECK(isOverlayInteractV2(TestOverlayDescriptor::mainEntry()));
     CHECK(!isOverlayInteractV2(TestOverlayDescriptor::mainEntryV1()));
   }
-  // DrawSuite host, a descriptor with its own main entry: V2 only
+  // DrawSuite host, a descriptor with its own main entry: V2 only, even with hasOpenGLDraw
   {
     OfxPropertySetHandle props = (OfxPropertySetHandle)&descHandles[1];
     ImageEffectDescriptor desc((OfxImageEffectHandle)props);
-    CHECK(desc.setOverlayInteractDescriptorV2(new CustomEntryOverlayDescriptor));
+    CHECK(desc.setOverlayInteractDescriptorV2(new CustomEntryOverlayDescriptor, true));
     CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV2) == (void *)customOverlayEntry);
     CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV1) == NULL);
   }
@@ -466,12 +479,13 @@ static void testSetOverlayInteractDescriptorV2()
     CHECK(!isOverlayInteractV2(TestOverlayDescriptor::mainEntry()));
   }
   gRefuseOverlayInteractV2 = false;
-  // host without the DrawSuite (e.g. OFX 1.4): V1 = the main entry, as before
+  // host without the DrawSuite (e.g. OFX 1.4), the compatibility layer: V1 = the main entry, as
+  // before, with or without hasOpenGLDraw
   gHostDescription.supportsDrawSuite = false;
-  {
-    OfxPropertySetHandle props = (OfxPropertySetHandle)&descHandles[3];
+  for (int hasOpenGLDraw = 0; hasOpenGLDraw < 2; ++hasOpenGLDraw) {
+    OfxPropertySetHandle props = (OfxPropertySetHandle)&descHandles[3 + 2 * hasOpenGLDraw];
     ImageEffectDescriptor desc((OfxImageEffectHandle)props);
-    CHECK(!desc.setOverlayInteractDescriptorV2(new TestOverlayDescriptor));
+    CHECK(!desc.setOverlayInteractDescriptorV2(new TestOverlayDescriptor, hasOpenGLDraw != 0));
     CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV2) == NULL);
     CHECK(pointerProp(props, kOfxImageEffectPluginPropOverlayInteractV1) == (void *)TestOverlayDescriptor::mainEntry());
     CHECK(!isOverlayInteractV2(TestOverlayDescriptor::mainEntry()));
@@ -491,7 +505,7 @@ static DrawRecord drawThrough(OfxPluginEntryPoint *entry, bool withDrawContext)
   OfxPropertySetHandle interactProps = (OfxPropertySetHandle)&interactHandle;
   gStringProps[PropKey(effectProps, kOfxImageEffectPropContext)] = kOfxImageEffectContextFilter;
   gPointerProps[PropKey(interactProps, kOfxPropEffectInstance)] = &effectHandle;
-  DrawRecord none = { false, false, false, false, false, false, false };
+  DrawRecord none = { false, false, false, false, false, false };
   gDrawRecord = none;
   TestEffect *effect = new TestEffect((OfxImageEffectHandle)&effectHandle);
   CHECK(entry(kOfxActionCreateInstance, &interactHandle, NULL, NULL) == kOfxStatOK);
@@ -518,7 +532,7 @@ static void testDispatchPerEntry()
   clearOverlayInteractRegistrations();
   {
     ImageEffectDescriptor desc((OfxImageEffectHandle)&descHandle);
-    CHECK(desc.setOverlayInteractDescriptorV2(new TestOverlayDescriptor));
+    CHECK(desc.setOverlayInteractDescriptorV2(new TestOverlayDescriptor, true));
   }
   OfxPluginEntryPoint *v2 = (OfxPluginEntryPoint *)pointerProp((OfxPropertySetHandle)&descHandle, kOfxImageEffectPluginPropOverlayInteractV2);
   OfxPluginEntryPoint *v1 = (OfxPluginEntryPoint *)pointerProp((OfxPropertySetHandle)&descHandle, kOfxImageEffectPluginPropOverlayInteractV1);
@@ -529,33 +543,33 @@ static void testDispatchPerEntry()
     CHECK(r.hasDrawContext && r.calledViaV2 && r.usesDrawSuite && !r.usesOpenGL);
     r = drawThrough(v2, false); // no host context: nothing, never OpenGL
     CHECK(!r.hasDrawContext && r.calledViaV2 && !r.usesDrawSuite && !r.usesOpenGL);
-    // the V1 entry: "drawing SHOULD use OpenGL", even if the host passes a draw context
-    // (without a current OpenGL context: the host's draw context, or nothing)
+    // the V1 entry: "drawing SHOULD use OpenGL": only OpenGL, even if the host passes a draw
+    // context (without a current OpenGL context: nothing)
     r = drawThrough(v1, true);
-    CHECK(!r.hasDrawContext && !r.calledViaV2 && r.hasHostDrawContext && r.glCurrent == gGLCurrent);
-    CHECK(gGLCurrent ? (r.usesOpenGL && !r.usesDrawSuite) : (r.usesDrawSuite && !r.usesOpenGL));
+    CHECK(!r.hasDrawContext && !r.calledViaV2 && !r.usesDrawSuite && r.glCurrent == gGLCurrent);
+    CHECK(r.usesOpenGL == gGLCurrent);
     r = drawThrough(v1, false);
-    CHECK(!r.hasDrawContext && !r.calledViaV2 && !r.hasHostDrawContext && !r.usesDrawSuite);
+    CHECK(!r.hasDrawContext && !r.calledViaV2 && !r.usesDrawSuite);
     CHECK(r.usesOpenGL == gGLCurrent);
 #ifdef OFXS_TEST_GL_CONTEXT
-    // the V1 entry without a current OpenGL context (a DrawSuite host without OpenGL): the
-    // host's draw context if it passes one (drawContext stays NULL), else nothing; never OpenGL
+    // the V1 entry without a current OpenGL context (a DrawSuite host without OpenGL): nothing,
+    // even if the host passes a draw context; never OpenGL
     CGLContextObj current = CGLGetCurrentContext();
     CGLSetCurrentContext(NULL);
     r = drawThrough(v1, true);
-    CHECK(!r.hasDrawContext && !r.calledViaV2 && r.usesDrawSuite && !r.usesOpenGL);
+    CHECK(!r.hasDrawContext && !r.calledViaV2 && !r.usesDrawSuite && !r.usesOpenGL);
     r = drawThrough(v1, false);
     CHECK(!r.hasDrawContext && !r.calledViaV2 && !r.usesDrawSuite && !r.usesOpenGL);
     CGLSetCurrentContext(current);
 #endif
   }
-  // the same main entry registered as V1 (host without the DrawSuite): OpenGL, and the host's
-  // draw context (if any) is not hidden (unchanged)
+  // the same main entry registered as V1 (host without the DrawSuite, the compatibility
+  // layer): only OpenGL, and the host's draw context (if any) is dropped
   clearOverlayInteractRegistrations();
   setOverlayInteractV1(TestOverlayDescriptor::mainEntry());
   {
     DrawRecord r = drawThrough(TestOverlayDescriptor::mainEntry(), true);
-    CHECK(r.hasDrawContext && !r.calledViaV2 && r.usesOpenGL == gGLCurrent);
+    CHECK(!r.hasDrawContext && !r.calledViaV2 && !r.usesDrawSuite && r.usesOpenGL == gGLCurrent);
   }
   clearOverlayInteractRegistrations();
   gHostDescription.supportsOverlays = savedOverlays;
@@ -586,15 +600,16 @@ static void testNoCurrentContext()
     OfxPointD pts[2] = { { 0., 0. }, { 1., 1. } };
     CHECK(!args.getDrawContext().draw(kOfxDrawPrimitiveRectangle, pts, 2));
   }
-  // with a host draw context: V1 uses it (DrawSuite via V1, "discouraged" but allowed)
+  // with a host draw context: V1 never uses it (V1 draws use only OpenGL): nothing
   gFakeDrawContextHandle = &dummyHandle;
   {
     DrawArgs args((PropertySet(inArgs)));
     DrawArgsAccess::setOverlayRegistration(args, eOverlayRegistrationV1);
-    CHECK(args.getDrawContext().usesDrawSuite());
+    CHECK(!args.getDrawContext().usesDrawSuite());
+    CHECK(!args.getDrawContext().canDraw());
     gDrawSuiteCalls = 0;
-    CHECK(args.getDrawContext().setColour(1.f, 0.f, 0.f));
-    CHECK(gDrawSuiteCalls == 1);
+    CHECK(!args.getDrawContext().setColour(1.f, 0.f, 0.f));
+    CHECK(gDrawSuiteCalls == 0);
   }
   gFakeDrawContextHandle = NULL;
   CGLSetCurrentContext(current);
