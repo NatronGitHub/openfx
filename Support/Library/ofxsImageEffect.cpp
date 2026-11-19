@@ -2504,8 +2504,16 @@ namespace OFX {
     }
 #  endif
     if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane) {
-      // a host without the plane suite V2 (e.g. OFX 1.4) has a single view: use the V1 suite,
-      // which itself falls back to fetchImage() for the colour plane
+      // without the plane suite V2, view 0 (the only view of a host without views, e.g. OFX 1.4)
+      // comes from the V1 suite, which itself falls back to fetchImage() for the colour plane; another
+      // view of the colour plane comes from the Vegas stereoscopic suite, if any: never return view 0
+      // for another view
+      if (view != 0) {
+        if (std::string(plane) == kFnOfxImagePlaneColour) {
+          return fetchStereoscopicImage(t, view); // the Vegas stereoscopic suite, or an exception
+        }
+        throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite"V2");
+      }
       return fetchImagePlane(t, plane);
     }
     OfxPropertySetHandle imageHandle;
@@ -2552,8 +2560,26 @@ namespace OFX {
     }
 #  endif
     if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane) {
-      // a host without the plane suite V2 (e.g. OFX 1.4) has a single view: use the V1 suite,
-      // which itself falls back to fetchImage() for the colour plane
+      // without the plane suite V2, view 0 (the only view of a host without views, e.g. OFX 1.4)
+      // comes from the V1 suite, which itself falls back to fetchImage() for the colour plane; another
+      // view of the colour plane comes from the Vegas stereoscopic suite, if any: never return view 0
+      // for another view
+      if (view != 0) {
+#ifdef OFX_EXTENSIONS_VEGAS
+        if (std::string(plane) == kFnOfxImagePlaneColour && OFX::Private::gVegasStereoscopicImageSuite &&
+            OFX::Private::gVegasStereoscopicImageSuite->clipGetStereoscopicImage) {
+          OfxPropertySetHandle imageHandle;
+          OfxRectD region = bounds; // the suite takes a non-const pointer
+          OfxStatus stat = OFX::Private::gVegasStereoscopicImageSuite->clipGetStereoscopicImage(_clipHandle, t, view, &region, &imageHandle);
+          if (stat == kOfxStatFailed) {
+            return NULL; // not an error, fetched images out of range/region, assume black and transparent
+          }
+          throwSuiteStatusException(stat);
+          return newImageOrRelease(imageHandle);
+        }
+#endif
+        throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite"V2");
+      }
       return fetchImagePlane(t, plane, bounds);
     }
     OfxPropertySetHandle imageHandle;
