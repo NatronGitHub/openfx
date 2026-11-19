@@ -892,8 +892,10 @@ namespace OFX {
     {
       PropertyDescription(kOfxParamPropDefault,              OFX::eDouble, 3, eDescFinished),
       PropertyDescription(kOfxParamPropAnimates,             OFX::eInt,    1, eDescDefault, 1, eDescFinished),
-      PropertyDescription(kOfxParamPropMin,                  OFX::eDouble, 3, eDescDefault, 0., 0., 0., eDescFinished),
-      PropertyDescription(kOfxParamPropMax,                  OFX::eDouble, 3, eDescDefault, 1., 1., 1., eDescFinished),
+      // no default check on Min/Max: the generic default is "the largest possible value corresponding to the
+      // parameter type" (hosts use -DBL_MAX/DBL_MAX, e.g. HostSupport); only the display range is 0..1
+      PropertyDescription(kOfxParamPropMin,                  OFX::eDouble, 3, eDescFinished),
+      PropertyDescription(kOfxParamPropMax,                  OFX::eDouble, 3, eDescFinished),
       PropertyDescription(kOfxParamPropDisplayMin,           OFX::eDouble, 3, eDescDefault, 0., 0., 0., eDescFinished),
       PropertyDescription(kOfxParamPropDisplayMax,           OFX::eDouble, 3, eDescDefault, 1., 1., 1., eDescFinished),
       PropertyDescription(kOfxParamPropDimensionLabel,       OFX::eString, 3, eDescDefault, "r", "g", "b", eDescFinished),
@@ -904,8 +906,9 @@ namespace OFX {
     {
       PropertyDescription(kOfxParamPropDefault,              OFX::eDouble, 4, eDescFinished),
       PropertyDescription(kOfxParamPropAnimates,             OFX::eInt,    1, eDescDefault, 1, eDescFinished),
-      PropertyDescription(kOfxParamPropMin,                  OFX::eDouble, 4, eDescDefault, 0., 0., 0., 0., eDescFinished),
-      PropertyDescription(kOfxParamPropMax,                  OFX::eDouble, 4, eDescDefault, 1., 1., 1., 1., eDescFinished),
+      // no default check on Min/Max, as for RGB colour params
+      PropertyDescription(kOfxParamPropMin,                  OFX::eDouble, 4, eDescFinished),
+      PropertyDescription(kOfxParamPropMax,                  OFX::eDouble, 4, eDescFinished),
       PropertyDescription(kOfxParamPropDisplayMin,           OFX::eDouble, 4, eDescDefault, 0., 0., 0., 0., eDescFinished),
       PropertyDescription(kOfxParamPropDisplayMax,           OFX::eDouble, 4, eDescDefault, 1., 1., 1., 1., eDescFinished),
       PropertyDescription(kOfxParamPropDimensionLabel,       OFX::eString, 4, eDescDefault, "r", "g", "b", "a", eDescFinished),
@@ -1098,8 +1101,8 @@ namespace OFX {
       mPropDescriptionArg(gRGBColourParamProps),
       NULLPTR);
 
-    /** @brief Property set for RGB colour params */
-    static PropertySetDescription gRGBAParamPropSet("RGB Colour parameter",
+    /** @brief Property set for RGBA colour params */
+    static PropertySetDescription gRGBAParamPropSet("RGBA Colour parameter",
       mPropDescriptionArg(gBasicParamProps),
       mPropDescriptionArg(gInteractOverideParamProps),
       mPropDescriptionArg(gValueHolderParamProps),
