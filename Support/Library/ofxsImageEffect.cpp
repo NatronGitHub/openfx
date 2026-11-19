@@ -2572,6 +2572,11 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_VEGAS
       if (std::string(plane) == kFnOfxImagePlaneColour && OFX::Private::gVegasStereoscopicImageSuite &&
           OFX::Private::gVegasStereoscopicImageSuite->clipGetStereoscopicImage) {
+        // the output clip's image is the one being rendered, the view being rendered: fetchImage()
+        // gives it, and ofxSonyVegas.h doesn't say the stereoscopic suite works on output clips
+        if (_clipName == kOfxImageEffectOutputClipName) {
+          return fetchImage(t);
+        }
         // every view, view 0 included: on a stereoscopic Vegas host, fetchImage() returns the
         // view being rendered, not view 0
         return fetchStereoscopicImage(t, view);
@@ -2639,6 +2644,10 @@ namespace OFX {
         // view being rendered, not view 0
         if (std::string(plane) == kFnOfxImagePlaneColour && OFX::Private::gVegasStereoscopicImageSuite &&
             OFX::Private::gVegasStereoscopicImageSuite->clipGetStereoscopicImage) {
+          // the output clip's image is the one being rendered (see the overload above)
+          if (_clipName == kOfxImageEffectOutputClipName) {
+            return fetchImage(t, bounds);
+          }
           OfxPropertySetHandle imageHandle;
           OfxRectD region = bounds; // the suite takes a non-const pointer
           OfxStatus stat = OFX::Private::gVegasStereoscopicImageSuite->clipGetStereoscopicImage(_clipHandle, t, view, &region, &imageHandle);
