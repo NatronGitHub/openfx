@@ -106,14 +106,14 @@ namespace OFX {
   }
 
   // a failure worth an ERROR in the log: any failure of a required call (throwOnFailure), and
-  // for optional calls (throwOnFailure=false) only real failures: a property the host doesn't
-  // know (e.g. newer than the host's OFX version, or host_optional), or an index beyond its
-  // dimension, is expected
+  // for optional calls (throwOnFailure=false) every failure but a property the host doesn't know
+  // (e.g. newer than the host's OFX version, or host_optional; kOfxStatErrUnsupported is not a
+  // property suite status, but some hosts return it). kOfxStatErrBadIndex stays an error: it is
+  // also what an off-by-one index gives; read the dimension first when it may be short
   static inline bool logPropertyFailure(OfxStatus stat, bool throwOnFailure)
   {
     return stat != kOfxStatOK &&
-           (throwOnFailure ||
-            (stat != kOfxStatErrUnknown && stat != kOfxStatErrUnsupported && stat != kOfxStatErrBadIndex));
+           (throwOnFailure || (stat != kOfxStatErrUnknown && stat != kOfxStatErrUnsupported));
   }
 
   /** @brief, returns the dimension of the given property from this property set */

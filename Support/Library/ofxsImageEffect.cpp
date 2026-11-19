@@ -4457,17 +4457,21 @@ namespace OFX {
         PropertySet hostProps(host->host);
 
         // and get some properties
-        gHostDescription.APIVersionMajor            = hostProps.propGetInt(kOfxPropAPIVersion, 0, false); // OFX 1.2
+        // kOfxPropAPIVersion and kOfxPropVersion (OFX 1.2) may be absent or shorter than read here:
+        // read only the indices the host has, so that an index past the end stays a logged error
+        const int apiVersionDim = hostProps.propGetDimension(kOfxPropAPIVersion, false);
+        const int versionDim = hostProps.propGetDimension(kOfxPropVersion, false);
+        gHostDescription.APIVersionMajor            = apiVersionDim > 0 ? hostProps.propGetInt(kOfxPropAPIVersion, 0, false) : 0; // OFX 1.2
         if (gHostDescription.APIVersionMajor == 0) {
           // assume OFX 1.0
           gHostDescription.APIVersionMajor = 1;
         }
-        gHostDescription.APIVersionMinor            = hostProps.propGetInt(kOfxPropAPIVersion, 1, false); // OFX 1.2
+        gHostDescription.APIVersionMinor            = apiVersionDim > 1 ? hostProps.propGetInt(kOfxPropAPIVersion, 1, false) : 0; // OFX 1.2
         gHostDescription.hostName                   = hostProps.propGetString(kOfxPropName);
         gHostDescription.hostLabel                  = hostProps.propGetString(kOfxPropLabel);
-        gHostDescription.versionMajor               = hostProps.propGetInt(kOfxPropVersion, 0, false); // OFX 1.2
-        gHostDescription.versionMinor               = hostProps.propGetInt(kOfxPropVersion, 1, false); // OFX 1.2
-        gHostDescription.versionMicro               = hostProps.propGetInt(kOfxPropVersion, 2, false); // OFX 1.2
+        gHostDescription.versionMajor               = versionDim > 0 ? hostProps.propGetInt(kOfxPropVersion, 0, false) : 0; // OFX 1.2
+        gHostDescription.versionMinor               = versionDim > 1 ? hostProps.propGetInt(kOfxPropVersion, 1, false) : 0; // OFX 1.2
+        gHostDescription.versionMicro               = versionDim > 2 ? hostProps.propGetInt(kOfxPropVersion, 2, false) : 0; // OFX 1.2
         gHostDescription.versionLabel               = hostProps.propGetString(kOfxPropVersionLabel, false); // OFX 1.2
         gHostDescription.hostIsBackground           = hostProps.propGetInt(kOfxImageEffectHostPropIsBackground) != 0;
         gHostDescription.supportsOverlays           = hostProps.propGetInt(kOfxImageEffectPropSupportsOverlays) != 0;
