@@ -291,7 +291,8 @@ namespace OFX {
     }
 
 
-    /** @brief A list of properties that all hosts must have, and will be validated against. None of these has a default, but they must exist. */
+    /** @brief A list of properties that all hosts must have, and will be validated against. None of these has a default, but they must exist.
+        Only OFX 1.4 properties: the plug-ins must also work in OFX 1.4 hosts. */
     static PropertyDescription gHostProps[ ] =
     {
       // single dimensional string properties
@@ -312,7 +313,8 @@ namespace OFX {
       PropertyDescription(kOfxParamHostPropSupportsStringAnimation,      OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxParamHostPropSupportsCustomInteract,       OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxParamHostPropSupportsChoiceAnimation,      OFX::eInt, 1, eDescFinished),
-      PropertyDescription(kOfxParamHostPropSupportsStrChoiceAnimation,   OFX::eInt, 1, eDescFinished),
+      // not kOfxParamHostPropSupportsStrChoiceAnimation: it is an OFX 1.5 property, which OFX 1.4
+      // hosts don't have (this list has only properties that every host has)
       PropertyDescription(kOfxParamHostPropSupportsBooleanAnimation,     OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxParamHostPropSupportsCustomAnimation,      OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxParamHostPropMaxParameters,                OFX::eInt, 1, eDescFinished),

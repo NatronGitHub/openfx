@@ -764,6 +764,8 @@ static void usage(const char* prog)
     "  -s button[@t]      press a push button (instanceChanged, at time t)\n"
     "  --report file.json write a JSON report of the run (even if it failed)\n"
     "  --describe file.json  describe the plug-in as JSON (no instance, no render)\n"
+    "  --ofx14            be an OFX 1.4 host: only the OFX 1.4 host properties and suites,\n"
+    "                     no OfxSetHost, no StrChoice or Bytes params, one view\n"
     "  --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH\n"
     "  --no-cache         don't read or write hostDemoPluginCache.xml\n"
     "  --quiet            print only the plug-in's messages on stdout\n"
@@ -1278,7 +1280,7 @@ static int run(int argc, char **argv)
   std::string describePath; ///< --describe
   bool useStdPaths = true;
   bool useCache = true;
-  const std::string cachePath = "hostDemoPluginCache.xml";
+  bool ofx14 = false;          ///< --ofx14
   bool quiet = false;
   bool allowUnwritten = false;
   OutputFormat format = eFormatPPM;
@@ -1305,6 +1307,8 @@ static int run(int argc, char **argv)
       allowUnwritten = true;
     } else if (arg == "--query") {
       query = true;
+    } else if (arg == "--ofx14") {
+      ofx14 = true;
     } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
                arg == "-d" || arg == "-i" || arg == "--format" ||
                arg == "--report" || arg == "--describe" ||
@@ -1458,12 +1462,17 @@ static int run(int argc, char **argv)
   OFX::Host::PluginCache::useStdOFXPluginsLocation(useStdPaths);
 
   // set the version label in the global cache
-  OFX::Host::PluginCache::getPluginCache()->setCacheVersion("hostDemoV1");
+  // (the plug-ins may describe themselves differently to an OFX 1.4 host: another cache)
+  OFX::Host::PluginCache::getPluginCache()->setCacheVersion(ofx14 ? "hostDemoV1-ofx14" : "hostDemoV1");
+  const std::string cachePath = ofx14 ? "hostDemoPluginCache-ofx14.xml" : "hostDemoPluginCache.xml";
 
   // create our derived image effect host which provides
   // a factory to make plugin instances and acts
   // as a description of the host application
   MyHost::Host myHost;
+  if (ofx14) {
+    myHost.restrictToOFX14();
+  }
 
   // make an image effect plugin cache. This is what knows about
   // all the plugins.
@@ -1514,7 +1523,7 @@ static int run(int argc, char **argv)
   {
     Json& host = report["host"] = Json::object();
     host["name"] = myHost.getProperties().getStringProperty(kOfxPropName);
-    host["profile"] = "default"; // --host (Part A, PR 4)
+    host["profile"] = ofx14 ? "ofx14" : "default";
   }
   report["depth"] = inputDepth;
   {
@@ -1785,12 +1794,14 @@ static int run(int argc, char **argv)
         tname.precision(12);
         tname << t;
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
-        // render a stereoscopic frame: left and right views
-        for (int view = 0; ret == 0 && view < 2; ++view) {
+        // render a stereoscopic frame: left and right views (one view with --ofx14: views are
+        // an extension)
+        const int nViews = ofx14 ? 1 : 2;
+        for (int view = 0; ret == 0 && view < nViews; ++view) {
           std::ostringstream ss;
-          ss << outputPrefix << "." << tname.str() << (view == 0 ? "l" : "r");
+          ss << outputPrefix << "." << tname.str() << (nViews == 1 ? "" : view == 0 ? "l" : "r");
           Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-          if (!renderFrame(myInstance, outputClip, t, view, 2, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, r)) {
+          if (!renderFrame(myInstance, outputClip, t, view, nViews, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, r)) {
             ret = 1;
           }
         }

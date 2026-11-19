@@ -369,3 +369,84 @@ assert [x["params"]["keysDouble"] for x in r["renders"]] == [2, 3]
 fails hostdemo-keynoanim.log "doesn't animate" -p net.sf.openfx.GenericTestPlugin -s animateDbl@1=2
 fails hostdemo-keytime.log "invalid key time" -s supportsTiles@x=1
 fails hostdemo-nobutton.log "invalid parameter assignment" -s supportsTiles
+
+# OFX 1.4 hosts: every plug-in must keep working in a host that implements only OFX 1.4. hostDemo
+# --ofx14 has only the OFX 1.4 host properties (a plug-in reading another one gets
+# kOfxStatErrUnknown) and suites (no DrawSuite, OpenCL program, plane or Vegas suites), doesn't
+# call OfxSetHost, refuses StrChoice and Bytes params (kOfxStatErrUnknown) and renders one view.
+# The ColourSpace example (CMake builds only) reads the OFX 1.5 colour management style and the
+# StrChoice support, and logs that the host has neither.
+if grep -q "^Plug-in:io.aswf.openfx.example.ColourspacePluginCore$" cachedemo.log; then
+  OFX_COLOURSPACE_EXAMPLE_VERBOSE=1 run hostdemo-ofx14-colour.log --ofx14 -p io.aswf.openfx.example.ColourspacePluginCore --describe ofx14-colour.json
+  grep -q "host does not support colour management (err=ErrUnknown)" hostdemo-ofx14-colour.log &&
+    grep -q "host does not support StrChoice params" hostdemo-ofx14-colour.log ||
+    { echo "--ofx14: the ColourSpace example found OFX 1.5 host properties"; cat hostdemo-ofx14-colour.log; exit 1; }
+  echo "--ofx14: no OFX 1.5 host properties: OK"
+fi
+# Every plug-in that cacheDemo loaded is described (by the default host), then rendered at t=0 in
+# the filter context (else the general one) by the default host and by the OFX 1.4 host. Both
+# hosts must give the same results: render status and crc32 of the output, except for the
+# plug-ins in $differs, whose OFX 1.4 fallback changes the output (ChoiceParams-support: no
+# StrChoice param, blue scale 1). A plug-in with no context to render is described by both hosts
+# instead. All must succeed, except the plug-ins in $needs_more, which need a feature hostDemo
+# doesn't have and fail in both hosts: an overlay host (the Overlay and Custom examples: describe
+# fails), OpenGL (the OpenGL example: render fails), the effect's identity (the DrawSuite
+# example's render writes nothing: it relies on isIdentity), an output clip in the filter context
+# (the Test example).
+needs_more=" uk.co.thefoundry.BasicOverlayPlugin uk.co.thefoundry.CustomParamPlugin com.genarts:OpenGLSamplePlugin uk.co.thefoundry.BasicDrawSuitePlugin net.sf.openfx:PropertyTestPlugin "
+differs=" org.openeffects.support.choiceParamsPlugin "
+# sweep_render MODE ID CONTEXT [ARGS...]: render, writing sweep-MODE.log and sweep-MODE.json
+sweep_render() { local mode=$1 id=$2 ctx=$3; shift 3; rm -f "sweep-$mode.json"
+  hostdemo "$@" -p "$id" -c "$ctx" --frames 0 -o "Sweep-$mode" --report "sweep-$mode.json" >> "sweep-$mode.log" 2>&1; }
+# sweep_json FILE...: one line per file: for a describe, the number of contexts that work and the
+# context to render (filter, else general, else -); for a report, the host profile and the crc32
+# of the first render's output (- if none). A missing or unreadable file gives "-".
+sweep_json() { python3 -I -c 'import json, sys
+for path in sys.argv[1:]:
+    try:
+        with open(path) as f:
+            r = json.load(f)
+        if r["schema"] == "hostDemo.describe":
+            ok = [k for k, v in r["contexts"].items() if v["ok"]]
+            print(len(ok), "filter" if "OfxImageEffectContextFilter" in ok else "general" if "OfxImageEffectContextGeneral" in ok else "-")
+        else:
+            o = r["renders"][0]["output"] if r["renders"] else None
+            print(r["host"]["profile"], o["crc32"] if o else "-")
+    except Exception:
+        print("- -")' "$@"; }
+start=$SECONDS
+nplugins=0
+for id in $(sed -n 's/^Plug-in://p' cachedemo.log | sort -u); do
+  rm -f sweep-default.log sweep-ofx14.log sweep-describe.json sweep-describe14.json
+  ds=0; hostdemo -p "$id" --describe sweep-describe.json > sweep-default.log 2>&1 || ds=$?
+  set -- $(sweep_json sweep-describe.json); nctx=$1 ctx=$2
+  if [ "$ctx" = - ]; then
+    # nothing to render: the OFX 1.4 host must describe it the same way
+    ds14=0; hostdemo --ofx14 -p "$id" --describe sweep-describe14.json > sweep-ofx14.log 2>&1 || ds14=$?
+    default="describe=$ds contexts=$nctx"
+    ofx14="describe=$ds14 contexts=$(sweep_json sweep-describe14.json | cut -d' ' -f1)"
+  else
+    rs=0; sweep_render default "$id" "$ctx" || rs=$?
+    rs14=0; sweep_render ofx14 "$id" "$ctx" --ofx14 || rs14=$?
+    { read -r p crc; read -r p14 crc14; } < <(sweep_json sweep-default.json sweep-ofx14.json)
+    case "$differs" in *" $id "*) crc14=$crc ;; esac  # the documented fallback output
+    [ "$rs14" != 0 ] || [ "$p14" = ofx14 ] || rs14="0 (profile $p14)"
+    default="describe=$ds contexts=$nctx render=$rs crc32=$crc"
+    ofx14="describe=$ds contexts=$nctx render=$rs14 crc32=$crc14"
+  fi
+  case "$needs_more" in *" $id "*) known=1 ;; *) known=0 ;; esac
+  if [ "$ofx14" != "$default" ]; then
+    echo "--ofx14: $id: $ofx14 in the OFX 1.4 host, $default in the default host"
+    echo "--- default host:"; cat sweep-default.log; echo "--- OFX 1.4 host:"; cat sweep-ofx14.log; exit 1
+  fi
+  works=0; case "$default" in "describe=0 contexts="[1-9]*" render=0 crc32="[0-9a-f]*) works=1 ;; esac
+  if [ $known = 0 ] && [ $works = 0 ]; then
+    echo "--ofx14: $id: $default"; cat sweep-default.log; exit 1
+  fi
+  if [ $known = 1 ] && [ $works = 1 ]; then
+    echo "--ofx14: NOTICE: $id now works in hostDemo: remove it from needs_more in $0"
+  fi
+  echo "--ofx14: $id: $ofx14$([ $known = 1 ] && [ $works = 0 ] && echo " (needs a feature hostDemo doesn't have, in both hosts)")"
+  nplugins=$((nplugins + 1))
+done
+echo "--ofx14: $nplugins plug-ins work in the OFX 1.4 host as in the default host ($((SECONDS - start)) s)"

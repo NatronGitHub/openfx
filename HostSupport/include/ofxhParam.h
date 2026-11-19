@@ -45,7 +45,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 /** @brief HostSupport-private host descriptor property (int X 1, default 0): set it to 1 when
  the host's newParam() creates a Param::BytesInstance subclass for kOfxParamTypeBytes params.
- While it is 0, paramDefine() returns kOfxStatErrUnsupported for Bytes params. The OFX standard
+ While it is 0, paramDefine() returns kOfxStatErrUnsupported for Bytes params (kOfxStatErrUnknown if
+ the host removed the property, as an OFX 1.4 host that doesn't know the type). The OFX standard
  defines no host property for Bytes params: plug-ins find out from the paramDefine() status.
  */
 #define kOfxHostSupportHostPropSupportsBytes "sf.openfx.net.OfxHostSupportHostPropSupportsBytes"

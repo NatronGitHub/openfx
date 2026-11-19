@@ -80,9 +80,7 @@ namespace OFX {
 
 namespace OFX {
   namespace Host {
-    /// our own internal property for storing away our private pointer to our host descriptor
-#define kOfxHostSupportHostPointer "sf.openfx.net.OfxHostSupportHostPointer"
-
+    // kOfxHostSupportHostPointer (ofxhHost.h) stores away our private pointer to our host descriptor
     static const Property::PropSpec hostStuffs[] = {
       { kOfxPropAPIVersion, Property::eInt, 0, false, "" },
       { kOfxPropType, Property::eString, 1, false, kOfxTypeImageEffectHost },
