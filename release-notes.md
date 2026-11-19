@@ -47,6 +47,25 @@ are in `release-notes-next.md`):
 - Support fixes: #133 (messages passed as a `"%s"` argument of the message suite, so a `%` in a message is no longer interpreted by the host), #137 (data race at plug-in unload), #142 (`OFX::Log` thread-safe with C++11: per-thread indent; the line lock only in DEBUG builds), #144 (per-thread property logging switch, `OFXS_THREAD_LOCAL`)
 - #130: `ofxNatron.h` extension 7: flags of the selection-rectangle state parameter (documentation only)
 
+Merged on 2026-11-18 (#145–#156):
+
+- Build:
+  - #149, #155: the Makefiles (`Support/Plugins/Makefile.master`, `Examples/Makefile.master`) pass `MACOSX_DEPLOYMENT_TARGET` as `-mmacosx-version-min` when it is set (from the environment or as a make variable), instead of always the SDK's version; a whitespace-only value is ignored (#155). Since #160 the default is 14.0 instead of the SDK's version.
+  - #150: `OFX_EXTENSIONS_NATRON` without `OFX_EXTENSIONS_NUKE` never built: the Natron code in Support and HostSupport uses the Nuke extensions. It now stops early, with an `#error` in `ofxsCore.h` and `ofxhHost.h`, and a FATAL_ERROR at CMake configure.
+  - #154: the CMake error for a missing expat says that building without HostSupport (`-DOFX_BUILD_HOSTSUPPORT=OFF`) also needs `-DBUILD_EXAMPLE_HOSTS=OFF`.
+  - #155: each plug-in's install rules in `cmake/OpenFX.cmake` (binary, Info.plist, resources, signing, macOS deployment) are in a component named after its target, so `cmake --install <build> --component <target>` installs one bundle. A plain `cmake --install` installs them all, as before.
+- HostSupport:
+  - #151: `OFX::IsNaN()` and `OFX::IsInfinite()` (`ofxhUtilities.h`) work with `-ffast-math`, and hostDemo no longer uses NaN as an "unset" value; listed under Fixes in `release-notes-next.md`. hostDemo's curves also refuse non-finite key times and values, and non-finite integration bounds, with `kOfxStatErrValue`.
+  - #153: parameter descriptors declare the OFX 1.2 properties `kOfxParamPropHasHostOverlayHandle` (read-only for plug-ins) and `kOfxParamPropUseHostOverlayHandle` (writable), both int, default 0, so plug-ins that set `UseHostOverlayHandle` no longer get `kOfxStatErrUnknown`.
+- Support:
+  - #152: `OFX::IsNaN()` and `OFX::IsInfinite()` (`ofxsCore.h`) work with `-ffast-math`, with a new inline helper `OFX::DoubleWords()`, and a few NaN-producing operations are guarded (the Natron `getTransform()` fallback, the Gamma, Dot, Invert and PropTester samples); listed under Fixes in `release-notes-next.md`. In debug builds with `-ffast-math`, the `assert(!OFX::IsNaN(...))` of the consumers now really fire on NaN input.
+  - #156: the internal plug-in UID is `<id>@<major>.<minor>`. It was `id + major + minor`, so ("foo", 1, 23) and ("foo", 12, 3) collided, and the second factory replaced the first. A binary that declares the same identifier and version twice gets an error log (and an assert in debug builds). The UID is never sent to the host.
+- Docs and CI:
+  - #145: the generated property reference pages are regenerated (15 missing properties, among them the key modifier and selection rectangle properties of `ofxNatron.h`), and the Linux CI job fails if `scripts/gen-props-doc.py` changes them.
+  - #146: status refresh of the README, the interact cursor pages, `hostdemo-testing.md` and `ofxForkExtensions.rst`.
+  - #147: these release notes for the PRs since #84.
+  - #148: the README build badge shows master's status.
+
 Merged on 2026-11-18 and 2026-11-19 (#157–#173):
 
 - Build:
@@ -89,6 +108,8 @@ Behaviour changes in the fork since the 1.5 port:
 - **NoSpatialAwareness renders** (#92): hosts get a new virtual, `ImageEffect::Instance::isNoSpatialAwarenessRender()` (default false). A host overrides it to send `"true"`; until then plug-ins see false.
 - **Support messages** (#133): `sendMessage` and `setPersistentMessage` pass the message as a `"%s"` argument, so a plug-in that escaped `%` as `%%` now shows `%%`: stop escaping. `OFX::Log::print`, `warning` and `error` now have printf format attributes, so a plug-in that passes a non-literal format gets `-Wformat-security`, an error under `-Werror=format-security`: pass `"%s", msg`.
 - **Descriptor setters** (#92, #101): `setNoSpatialAwareness()` and the GPU `setSupports*Render()` / `setSupportsCudaStream()` no longer throw on hosts that don't know the property.
+- **Natron extensions need the Nuke ones** (#150): `OFX_EXTENSIONS_NATRON` without `OFX_EXTENSIONS_NUKE` is an error. All the consumers define both.
+- **Host overlay handles** (#153): hosts that derive from HostSupport get `kOfxParamPropHasHostOverlayHandle` and `kOfxParamPropUseHostOverlayHandle` on every parameter but groups and pages. A host that declares them itself with `addProperties()` (Natron) is unaffected: that is a no-op for an existing property.
 - **Undefined symbols fail the link** (#157, #161): a Linux or FreeBSD plug-in repository that is under-linked today now fails to link. Typical causes: a static library linked without its own dependencies (OSMesa, LLVM with an old `llvm-config`, a static FFTW, OCIO through `pkg-config` without `--static`), or `-lstdc++fs` with GCC 8. Add the missing libraries. Consumers no longer need to add `-ldl` or `-lGL` after their static libraries. A Makefile that filters `-lGL` out of `LINKFLAGS` must also filter `SYSLIBS` (`SYSLIBS := $(filter-out -lGL,$(SYSLIBS))`).
 - **macOS 14.0** (#160): plug-in repositories set `CMAKE_OSX_DEPLOYMENT_TARGET` to 14.0 before `project()`, or on the command line. A build that exports `MACOSX_DEPLOYMENT_TARGET` overrides the Makefiles' default, so it must export 14.0 (Natron's `tools/jenkins/common.sh` exported the build machine's version).
 - **Linux bundle check** (#159, #163): run `linuxCheckBundle.sh` (`OFX_LINUX_CHECK_BUNDLE` in CMake) on the installed bundles, in CI and in the installers after the libraries are bundled. Absolute rpath entries are reported: from CMake's `INSTALL_RPATH_USE_LINK_PATH` (set by `add_ofx_plugin`) when building against an SDK prefix, from `add_ofx_plugin(RPATH)` or `OFX_PLUGIN_RPATH`, and from Makefile `-Wl,-rpath,<libdir>` flags. List them in `OFX_ABI_RPATH_ALLOW` for CI, or rewrite them at install time (e.g. `patchelf --set-rpath`). CI builds against the distribution's libraries pass `--no-needed`. CMake's `OpenGL::GL` links `libOpenGL.so.0`, which gives a warning; the Makefiles link `libGL.so.1`.

@@ -83,7 +83,7 @@ cmake --build build
 cmake --install build --prefix /path/to/prefix   # provides find_package(openfx): openfx::Api, openfx::Support, openfx::HostSupport
 ```
 Main options:
-- `OFX_EXTENSIONS_NATRON`, `_NUKE`, `_VEGAS`, `_TUTTLE` (ON) and `_RESOLVE` (OFF): enable the extensions in the Support and HostSupport code. They are PUBLIC compile definitions that change class layouts, so they must match between the libraries and the plug-in or host built with them (the extension headers are always installed);
+- `OFX_EXTENSIONS_NATRON`, `_NUKE`, `_VEGAS`, `_TUTTLE` (ON) and `_RESOLVE` (OFF): enable the extensions in the Support and HostSupport code. They are PUBLIC compile definitions that change class layouts, so they must match between the libraries and the plug-in or host built with them (the extension headers are always installed). `_NATRON` needs `_NUKE`;
 - `OFX_SUPPORTS_OPENGLRENDER` (ON), `_OPENCLRENDER` and `_CUDARENDER` (OFF): GPU rendering in the libraries and the examples (OpenCL needs the OpenCLHeaders and OpenCLICDLoader packages, except on macOS; CUDA is off on macOS);
 - `OFX_SUPPORTS_MULTITHREAD`, `_DIALOG`, `_PARAMETRIC` and `_PARAMETRIC_V2` (OFF): HostSupport features, only for a host that implements them (they add pure virtual functions, and PARAMETRIC needs the host's `ofxhParametricParam.h`);
 - `OFX_BUILD_HOSTSUPPORT`: build HostSupport, on by default at top level;
@@ -102,6 +102,7 @@ VFX Reference Platform CY2027): no bundled system library, the other libraries b
 symbol versions at most EL9's. Run it in the plug-in repositories' CI and in the installers.
 
 Plug-in projects use `add_ofx_plugin()` and the other helpers of `cmake/OpenFX.cmake`, with openfx as a subdirectory or as an installed package: see [Documentation/proposals/cmake-plugins.md](Documentation/proposals/cmake-plugins.md).
+Each plug-in's install rules are in a component named after its target: `cmake --install <build> --component <target>` installs one bundle.
 A conan recipe (`conanfile.py`, with `test_package/`) is also provided.
 
 ### Examples
