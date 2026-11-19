@@ -561,6 +561,15 @@ namespace OFX {
         _props[prop->getName()] = prop;
       }
 
+      void Set::removeProperty(const std::string &name)
+      {
+        PropertyMap::iterator t = _props.find(name);
+        if (t != _props.end()) {
+          delete t->second;
+          _props.erase(t);
+        }
+      }
+
       /// empty ctor
       Set::Set()
         : _magic(kMagic)

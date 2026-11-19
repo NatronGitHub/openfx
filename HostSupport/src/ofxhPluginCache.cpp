@@ -352,8 +352,9 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
     // indicate it has nothing to do here, it's not for this Host and it should be skipped
     // silently": the binary is then valid, with no plug-ins (cached as such, and scanned again if
     // it changes), and unloaded.
-    OfxSetHostFunc setHost = (OfxSetHostFunc) _binary->findSymbol("OfxSetHost");
     OFX::Host::Host* host = cache ? cache->getScanHost() : NULL;
+    // an OFX 1.4 host (Host::supportsOfxSetHost() false) doesn't look for OfxSetHost
+    OfxSetHostFunc setHost = (host && !host->supportsOfxSetHost()) ? NULL : (OfxSetHostFunc) _binary->findSymbol("OfxSetHost");
     _setHostFailed = false;
     if (setHost && _getNumberOfPlugins && _getPluginFunc) {
       if (host) {
@@ -446,7 +447,7 @@ PluginHandle::PluginHandle(Plugin *p, OFX::Host::Host *host)
   // OFX 1.5: OfxSetHost is called once per load of the binary, before OfxGetPlugin; a failure means
   // that its plug-ins are not for this host (the handle then has no OfxPlugin)
   if (freshLoad && getPlug) {
-    OfxSetHostFunc setHostFunc = (OfxSetHostFunc) _b->_binary->findSymbol("OfxSetHost");
+    OfxSetHostFunc setHostFunc = host->supportsOfxSetHost() ? (OfxSetHostFunc) _b->_binary->findSymbol("OfxSetHost") : NULL;
     if (setHostFunc) {
       host->loadingBinary(_b->getFilePath());
       _b->_setHostFailed = ((*setHostFunc)(host->getHandle()) == kOfxStatFailed);

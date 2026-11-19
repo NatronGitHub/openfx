@@ -2250,13 +2250,19 @@ namespace OFX {
         // is known but unsupported". This is checked here rather than in the virtual
         // SetDescriptor::paramDefine(), because host overrides of the latter (e.g.
         // Natron's) don't expect it to return NULL for a known type.
+        // A host without the property at all is a host from before the type (an OFX 1.4 host,
+        // e.g. hostDemo --ofx14) that doesn't know it: "kOfxStatErrUnknown - if the type is
+        // unknown".
         if (paramType && std::string(paramType) == kOfxParamTypeStrChoice &&
             !(ImageEffect::gImageEffectHost &&
               ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxParamHostPropSupportsStrChoice) != 0)) {
+          const OfxStatus st = (ImageEffect::gImageEffectHost &&
+                                !ImageEffect::gImageEffectHost->getProperties().fetchProperty(kOfxParamHostPropSupportsStrChoice)) ?
+                               kOfxStatErrUnknown : kOfxStatErrUnsupported;
 #         ifdef OFX_DEBUG_PARAMETERS
-          std::cout << ' ' << StatStr(kOfxStatErrUnsupported) << std::endl;
+          std::cout << ' ' << StatStr(st) << std::endl;
 #         endif
-          return kOfxStatErrUnsupported;
+          return st;
         }
 
         // Same for Bytes params (OFX 1.5). The standard has no host property for them:
@@ -2265,10 +2271,13 @@ namespace OFX {
         if (paramType && std::string(paramType) == kOfxParamTypeBytes &&
             !(ImageEffect::gImageEffectHost &&
               ImageEffect::gImageEffectHost->getProperties().getIntProperty(kOfxHostSupportHostPropSupportsBytes) != 0)) {
+          const OfxStatus st = (ImageEffect::gImageEffectHost &&
+                                !ImageEffect::gImageEffectHost->getProperties().fetchProperty(kOfxHostSupportHostPropSupportsBytes)) ?
+                               kOfxStatErrUnknown : kOfxStatErrUnsupported;
 #         ifdef OFX_DEBUG_PARAMETERS
-          std::cout << ' ' << StatStr(kOfxStatErrUnsupported) << std::endl;
+          std::cout << ' ' << StatStr(st) << std::endl;
 #         endif
-          return kOfxStatErrUnsupported;
+          return st;
         }
 
         Descriptor *desc = paramSetDescriptor->paramDefine(paramType, name);

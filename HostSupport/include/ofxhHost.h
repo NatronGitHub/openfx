@@ -55,6 +55,9 @@ namespace OFX {
       class Descriptor;
     }
     
+    /// our own internal property on the host descriptor, holding a pointer to the Host object
+#define kOfxHostSupportHostPointer "sf.openfx.net.OfxHostSupportHostPointer"
+
     /// Base class for all objects passed to a plugin by the 'setHost' function 
     /// passed back by any plug-in.
     class Host {
@@ -80,6 +83,11 @@ namespace OFX {
       /// any of its plug-ins is known: a host whose properties (e.g. kOfxPropName) depend on the
       /// plug-in can set them for this binary here. The default does nothing.
       virtual void loadingBinary(const std::string& /*filePath*/) {}
+
+      /// Whether the plug-in cache calls the OfxSetHost of the binaries (OFX 1.5) before their
+      /// OfxGetPlugin. Return false to behave as an OFX 1.4 host, which only passes the host to
+      /// OfxPlugin::setHost. The default is true.
+      virtual bool supportsOfxSetHost() const { return true; }
       
       /// get the C API handle that is passed across the API to represent this host
       OfxHost *getHandle();
