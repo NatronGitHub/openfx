@@ -41,6 +41,7 @@ England
 #include <cstring> // for strlen
 #include <sstream> // stringstream
 #include <set>
+#include <utility> // pair
 #include <vector>
 #if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
 #define OFXS_IMAGEEFFECT_CXX11 1
@@ -1181,7 +1182,46 @@ namespace OFX {
 #endif
         }
       }
+
+      // the OpenGL V1 entry point of each InteractMainEntry<DESC> main entry (V2 entry, V1 entry)
+      // (never cleared: they are functions of this binary)
+      typedef std::pair<OfxPluginEntryPoint *, OfxPluginEntryPoint *> OverlayEntrySibling;
+      std::vector<OverlayEntrySibling> &overlayEntrySiblings()
+      {
+        static std::vector<OverlayEntrySibling> *siblings = new std::vector<OverlayEntrySibling>;
+        return *siblings;
+      }
     } // namespace
+
+    void setOverlayInteractV1Sibling(OfxPluginEntryPoint *mainEntry, OfxPluginEntryPoint *mainEntryV1)
+    {
+      if (!mainEntry || !mainEntryV1) {
+        return;
+      }
+      OverlayEntriesLock lock;
+      std::vector<OverlayEntrySibling> &siblings = overlayEntrySiblings();
+      for (size_t i = 0; i < siblings.size(); ++i) {
+        if (siblings[i].first == mainEntry) {
+          return; // (every descriptor object of the class calls this)
+        }
+      }
+      siblings.push_back( OverlayEntrySibling(mainEntry, mainEntryV1) );
+    }
+
+    OfxPluginEntryPoint *getOverlayInteractV1Sibling(OfxPluginEntryPoint *mainEntry)
+    {
+      if (!mainEntry) {
+        return NULL;
+      }
+      OverlayEntriesLock lock;
+      const std::vector<OverlayEntrySibling> &siblings = overlayEntrySiblings();
+      for (size_t i = 0; i < siblings.size(); ++i) {
+        if (siblings[i].first == mainEntry) {
+          return siblings[i].second;
+        }
+      }
+      return NULL;
+    }
 
     void setOverlayInteractV1(OfxPluginEntryPoint *mainEntry)
     {
@@ -1243,7 +1283,13 @@ namespace OFX {
                                                       0, (void*)desc->getMainEntry());
     }
     if (stat != kOfxStatOK) {
-      static const char msg[] = "The host refused kOfxImageEffectPluginPropOverlayInteractV2: the overlay is registered as V1";
+      // A host that refuses V2 presumably calls V1 overlays, so register V1. But
+      // kOfxImageEffectPropSupportsOverlays is not tied to OpenGL ("the host will allow a plugin
+      // to draw a GUI over the output image"): on a DrawSuite host without OpenGL, this overlay
+      // can never draw.
+      static const char msg[] = "The host supports the DrawSuite but refused kOfxImageEffectPluginPropOverlayInteractV2: "
+                                "the overlay is registered as OverlayInteractV1 only, and draws with OpenGL. "
+                                "If the host has no OpenGL, this overlay cannot draw.";
       OFX::Log::warning(true, "%s", msg);
 #ifdef DEBUG
       static bool printed = false; // (Log only writes when its log file is open)
@@ -1258,6 +1304,21 @@ namespace OFX {
     _overlayDescriptor.reset(desc);
     // DrawArgs::getDrawContext() then uses the DrawSuite, never OpenGL, for this overlay
     OFX::Private::setOverlayInteractV2(desc->getMainEntry());
+    // Also register the OpenGL V1 entry of the same descriptor class, for the hosts that
+    // call kOfxImageEffectPluginPropOverlayInteractV1 ("If this is called via
+    // kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL"): it is a
+    // distinct entry point (InteractMainEntry<DESC>::overlayInteractMainEntryV1), so the
+    // dispatcher knows that the host called it, and its draw actions use OpenGL. There is none
+    // if the descriptor's main entry is not an InteractMainEntry<DESC> one: then V2 only.
+    OfxPluginEntryPoint *mainEntryV1 = OFX::Private::getOverlayInteractV1Sibling(desc->getMainEntry());
+    if (mainEntryV1 && mainEntryV1 != desc->getMainEntry()) {
+      stat = OFX::Private::gPropSuite->propSetPointer(_effectProps.propSetHandle(), kOfxImageEffectPluginPropOverlayInteractV1,
+                                                      0, (void*)mainEntryV1);
+      if (stat == kOfxStatOK) {
+        // a distinct entry: no V1 + V2 warning
+        OFX::Private::setOverlayInteractV1(mainEntryV1);
+      }
+    }
     return true;
   }
 

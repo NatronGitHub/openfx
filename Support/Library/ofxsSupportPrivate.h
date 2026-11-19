@@ -181,6 +181,12 @@ namespace OFX {
     /** @brief true if the overlay with that main entry was registered as V2 */
     bool isOverlayInteractV2(OfxPluginEntryPoint *mainEntry);
 
+    /** @brief The OpenGL V1 entry point (InteractMainEntry<DESC>::overlayInteractMainEntryV1)
+        of the descriptor class whose main entry is mainEntry, or NULL if it has none (its
+        main entry is not an InteractMainEntry<DESC> one). Recorded by
+        setOverlayInteractV1Sibling() (ofxsInteract.h), never cleared. */
+    OfxPluginEntryPoint *getOverlayInteractV1Sibling(OfxPluginEntryPoint *mainEntry);
+
     /** @brief Forget all the registrations (at the last kOfxActionUnload) */
     void clearOverlayInteractRegistrations();
 
@@ -227,8 +233,22 @@ namespace OFX {
     };
 
     /** @brief The OpenGL backend (ofxsDrawContextOpenGL.cpp), NULL if it was compiled with
-        OFXS_DRAWCONTEXT_NO_OPENGL */
+        OFXS_DRAWCONTEXT_NO_OPENGL or if the OpenGL functions can't be loaded at run time. The
+        first call loads them (no OpenGL context is needed for that): only call it in the draw
+        actions that may use OpenGL (V1 entries, parameter interacts, DrawArgs not made by the
+        dispatcher without a draw context), so that the other plug-ins never load OpenGL. Its
+        functions must only be used if openGLContextIsCurrent(). */
     const DrawContextBackend *openGLDrawContextBackend();
+
+    /** @brief true if an OpenGL context is current on this thread (wglGetCurrentContext,
+        CGLGetCurrentContext, glXGetCurrentContext, eglGetCurrentContext, or on ELF systems
+        OSMesaGetCurrentContext from the library of the gl* functions, loaded at run time); false if none is, if OpenGL can't be
+        loaded, or if no such function can be loaded. Call it after openGLDrawContextBackend(). */
+    bool openGLContextIsCurrent();
+
+    /** @brief The number of functions openGLContextIsCurrent() uses (for the self-test): 0 if
+        OpenGL can't be loaded, or if no such function was found */
+    int openGLCurrentContextFunctionCount();
   }
 
   /** @brief The validation code has its own namespace */
