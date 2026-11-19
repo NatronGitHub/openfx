@@ -153,7 +153,9 @@ namespace OFX {
 
    The OpenGL backend (Support/Library/ofxsDrawContextOpenGL.cpp) emulates the DrawSuite with
    OpenGL 1.x compatibility-profile calls, and saves and restores all the OpenGL state it
-   changes (glPushAttrib/glPopAttrib around each draw() and drawText()):
+   changes (glPushAttrib/glPopAttrib around each draw() and drawText()). Its drawing code is
+   the OpenGL DrawSuite core, include/ofxDrawSuiteOpenGL.h (OFX::DrawSuiteOpenGL), which hosts
+   can use too:
    - its state (colour, line width, stipple) starts as opaque white, width 0, solid, for each
      draw action. Set the colour before drawing.
    - setColour: "over" compositing (GL_BLEND with GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA).
@@ -165,8 +167,9 @@ namespace OFX {
      dash 8 on 8 off, alt dash 8 off 8 on, dot dash 2 on 3 off 8 on 3 off.
    - draw: Lines needs an even point count (as HostSupport's DrawSuite), Rectangle and Ellipse
      exactly 2 points, Polygon at least 3, the strips and loops at least 2.
-   - Ellipse: a line loop, tessellated so that it is within 1/4 pixel of the ellipse.
-   - getColour: fixed colours (see the table in ofxsDrawContextOpenGL.cpp), close to what the
+   - Ellipse: a line loop, tessellated so that it is within 1/4 screen pixel of the ellipse
+     (OFX::DrawSuiteOpenGL::ellipseSegmentCount(): 8 to 4096 vertices).
+   - getColour: fixed colours (OFX::DrawSuiteOpenGL::standardColour()), close to what the
      Natron and SupportExt OpenGL overlays use.
    - drawText: a built-in 5x7 pixel font (printable ASCII; other characters are drawn as '?',
      control characters are skipped), one font pixel per screen pixel (the text has a constant
@@ -174,8 +177,8 @@ namespace OFX {
    The OpenGL backend is not compiled if OFXS_DRAWCONTEXT_NO_OPENGL is defined when compiling
    ofxsDrawContextOpenGL.cpp (for plug-in binaries built without OpenGL): getDrawContext() on a
    V1 overlay then draws nothing (canDraw() is false). Plug-ins that call getDrawContext() must
-   compile and link ofxsDrawContextOpenGL.cpp, which needs the OpenGL headers but doesn't link
-   OpenGL: it loads the OpenGL 1.1 functions at run time, at the first getDrawContext() that may
+   compile and link ofxsDrawContextOpenGL.cpp, which needs no OpenGL header (the core declares
+   the OpenGL types and constants it uses) and doesn't link OpenGL: it loads the OpenGL 1.1 functions at run time, at the first getDrawContext() that may
    use OpenGL (a draw action called through a V1 entry, a parameter interact's draw action, or
    DrawArgs not made by the dispatcher without a draw context), with dlopen/dlsym of libGL.so.1,
    of the OpenGL framework on macOS, GetProcAddress on opengl32.dll on Windows (-ldl on Linux
@@ -183,7 +186,7 @@ namespace OFX {
    OpenGL can't be loaded, getDrawContext() behaves as without a current OpenGL context (above).
    From libOfxSupport.a (CMake's openfx::Support), plug-ins that don't call it don't link it;
    Support/Plugins/Makefile.master's SUPPORTOBJECTS are plain object files, so every plug-in built
-   with it links ofxsDrawContextOpenGL.o and needs the OpenGL headers.
+   with it links ofxsDrawContextOpenGL.o.
    The legacy project files (Support/Support.xcodeproj, the .vcproj and .dsp files) are not
    maintained and don't list ofxsDrawContextOpenGL.cpp.
    */
