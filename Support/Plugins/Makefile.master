@@ -96,6 +96,11 @@ $(OBJECTPATH)/%.o : %.cu
 	@mkdir -p $(OBJECTPATH)
 	$(AM_V_NVCC)$(NVCC) -c $(CUFLAGS) $< -o $@
 
+# Objective-C++ (e.g. a Metal kernel on macOS), compiled with the C++ compiler and flags
+$(OBJECTPATH)/%.o : %.mm
+	@mkdir -p $(OBJECTPATH)
+	$(AM_V_CXX)$(CXX) -x objective-c++ -c $(CXXFLAGS) $< -o $@
+
 SUPPORTOBJECTS ?= \
 ofxsMultiThread.o \
 ofxsInteract.o \

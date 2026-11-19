@@ -626,6 +626,9 @@ namespace OFX {
         void setDimensionLabels(const std::string &x,
                                 const std::string &y);
 
+        /** @brief set kOfxParamPropUseHostOverlayHandle (upstream OpenFX's name for ParamDescriptor::setUseHostNativeOverlayHandle) */
+        void setUseHostOverlayHandle(bool v) { setUseHostNativeOverlayHandle(v); }
+
         /** @brief set the default value, default is 0 */
         void setDefault(double x, double y);
 
