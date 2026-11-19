@@ -32,6 +32,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define OFX_MEMORY_H
 
 #include <memory>
+#include <cstddef> // size_t
+
+#include "ofxImageEffect.h" // OfxImageMemoryHandle
 
 namespace OFX {
 
