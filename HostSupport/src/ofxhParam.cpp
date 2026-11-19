@@ -2989,16 +2989,20 @@ namespace OFX {
       static OfxStatus paramEditBeginImpl(OfxParamSetHandle paramSet, const char *name)
       {
 #       ifdef OFX_DEBUG_PARAMETERS
-        std::cout << "OFX: paramEditBegin - " << paramSet << ' ' << name << " ...";
+        std::cout << "OFX: paramEditBegin - " << paramSet << ' ' << (name ? name : "(null)") << " ...";
 #       endif
-        SetInstance *setInstance = reinterpret_cast<SetInstance*>(paramSet);
+        // the handle is a BaseSet (getParamSetHandle()); a descriptor's set (in describe) has no
+        // undo/redo: "kOfxStatErrBadHandle - if the instance handle was invalid"
+        BaseSet *baseSet = reinterpret_cast<BaseSet*>(paramSet);
+        SetInstance *setInstance = baseSet ? dynamic_cast<SetInstance*>(baseSet) : NULL;
         if(!setInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
           return kOfxStatErrBadHandle;
         }
-        OfxStatus stat = setInstance->editBegin(std::string(name));
+        // name is the "label to attach to any undo/redo string": a NULL name is an empty one
+        OfxStatus stat = setInstance->editBegin(name ? std::string(name) : std::string());
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << ' ' << StatStr(stat) << std::endl;
 #       endif
@@ -3024,7 +3028,9 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramEditEnd - " << paramSet << " ...";
 #       endif
-        SetInstance *setInstance = reinterpret_cast<SetInstance*>(paramSet);
+        // see paramEditBeginImpl()
+        BaseSet *baseSet = reinterpret_cast<BaseSet*>(paramSet);
+        SetInstance *setInstance = baseSet ? dynamic_cast<SetInstance*>(baseSet) : NULL;
         if(!setInstance) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
