@@ -44,6 +44,8 @@ England
 #endif
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "ofxsImageEffect.h"
 
 class ColourInteract : public OFX::ParamInteract
@@ -267,9 +269,22 @@ class PropTesterPluginFactory : public OFX::PluginFactoryHelper<PropTesterPlugin
 {
 public:
   PropTesterPluginFactory():OFX::PluginFactoryHelper<PropTesterPluginFactory>("net.sf.openfx.propertyTester", 1, 0){}
+  virtual void load() { trace("OfxActionLoad"); }
+  virtual void unload() { trace("OfxActionUnload"); }
   virtual void describe(OFX::ImageEffectDescriptor &desc);
   virtual void describeInContext(OFX::ImageEffectDescriptor &desc, OFX::ContextEnum context);
   virtual OFX::ImageEffect* createInstance(OfxImageEffectHandle handle, OFX::ContextEnum context);
+
+  /// With OFX_PROPTESTER_TRACE=1, print the load, describe and unload actions on stderr, for the
+  /// host checks (e.g. that a host doesn't send kOfxActionLoad twice while the binary is loaded)
+  static void trace(const char *action)
+  {
+    const char *env = getenv("OFX_PROPTESTER_TRACE");
+    if (env && strcmp(env, "1") == 0) {
+      fprintf(stderr, "propTester: %s\n", action);
+      fflush(stderr);
+    }
+  }
 };
 
 static PropTesterPluginFactory p;
@@ -277,6 +292,7 @@ mRegisterPluginFactoryInstance(p)
 
 void PropTesterPluginFactory::describe(OFX::ImageEffectDescriptor &desc) 
 {
+  trace("OfxActionDescribe");
   // basic labels
   desc.setLabels("Prop Tester", "Prop Tester", "Property Tester");
   desc.setPluginGrouping("OFX Test");

@@ -104,6 +104,11 @@ the tests when hostDemo isn't built.
   are plain times, not `(t, "l"|"r")`. The report's `host.profile` is "ofx14" (else
   "default"). It uses its own plug-in cache file, hostDemoPluginCache-ofx14.xml. In Python:
   `extra_args=["--ofx14"]`.
+- The environment variable `OFX_HOSTDEMO_KEEP_LOADED=1` makes hostDemo keep the plug-ins that
+  the scan found loaded (`Host::keepPluginsLoadedAfterScan()`): they get one kOfxActionLoad and
+  kOfxActionDescribe, and kOfxActionUnload at exit. By default (as in a run that uses the plug-in
+  cache), the scan sends kOfxActionLoad, kOfxActionDescribe and kOfxActionUnload, unloads the
+  binary, and the first use of the plug-in loads it again.
 - Times, scale and window: `--frames t0,t1,...` (default 0,1; any distinct finite times,
   fractional too, distinct to 12 significant digits) renders each time, in the given order, into
   `<prefix>.<t>[l|r]` (12 significant digits). begin/endSequenceRender declare a sequential render
