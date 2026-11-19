@@ -49,7 +49,17 @@ static id<MTLComputePipelineState> GetPipelineState(id<MTLDevice> device)
 
     NSError* err = nil;
     MTLCompileOptions* options = [MTLCompileOptions new];
-    options.fastMathEnabled = YES;
+#if defined(__MAC_15_0) && (__MAC_OS_X_VERSION_MAX_ALLOWED >= __MAC_15_0)
+    // fastMathEnabled is deprecated in macOS 15, which has mathMode
+    if (@available(macOS 15.0, *))
+    {
+        options.mathMode = MTLMathModeFast;
+    }
+    else
+#endif
+    {
+        options.fastMathEnabled = YES; // macOS 14 (and older SDKs): mathMode doesn't exist
+    }
     id<MTLLibrary> metalLibrary = [device newLibraryWithSource:@(kernelSource) options:options error:&err];
     [options release];
     if (!metalLibrary)
@@ -77,9 +87,13 @@ static id<MTLComputePipelineState> GetPipelineState(id<MTLDevice> device)
     return pipelineState;
 }
 
-// returns 0, or non-zero if the kernel couldn't be built or encoded
+// returns 0 (success) or 1 (the kernel couldn't be built or encoded), see GPUGain.cpp
 int RunMetalKernel(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const float* p_Input, float* p_Output)
 {
+    if ((p_Width <= 0) || (p_Height <= 0))
+    {
+        return 0; // nothing to do
+    }
     @autoreleasepool
     {
         id<MTLCommandQueue> queue = static_cast<id<MTLCommandQueue> >(p_CmdQ);

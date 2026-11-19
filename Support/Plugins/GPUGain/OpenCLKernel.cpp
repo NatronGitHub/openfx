@@ -147,10 +147,16 @@ private:
 };
 #endif
 
-// One kernel per command queue and kernel source (required for multi-GPU systems). A cl_kernel
-// isn't thread-safe between clSetKernelArg and clEnqueueNDRangeKernel, so RunKernel holds the
-// lock through both. Failed builds are not cached (they are retried at the next render).
-typedef std::map<std::pair<cl_command_queue, const char*>, cl_kernel> KernelMap;
+// One kernel per OpenCL context and kernel source. ofxGPURender.h: "the plug-in should keep a
+// separate set of kernels per OpenCL context (e.g., using a map). The OpenCL context can be found
+// from the command queue using clGetCommandQueueInfo with CL_QUEUE_CONTEXT."
+// The spec also says "Do not retain OpenCL objects without a matching release within the render
+// action": the cached kernels are created by the plug-in (not retained host objects) and kept for
+// the life of the plug-in, as in upstream's sample; the context is only used as a key (not
+// retained), and the program is released once the kernel is created.
+// A cl_kernel isn't thread-safe between clSetKernelArg and clEnqueueNDRangeKernel, so RunKernel
+// holds the lock through both. Failed builds are not cached (they are retried at the next render).
+typedef std::map<std::pair<cl_context, const char*>, cl_kernel> KernelMap;
 
 Locker& GetLocker()
 {
@@ -165,24 +171,18 @@ KernelMap& GetKernelMap()
 }
 
 // call with the lock held; returns NULL on failure
-cl_kernel GetKernel(cl_command_queue p_CmdQ, const char* p_Source, const char* p_Name)
+cl_kernel GetKernel(cl_context p_Context, const char* p_Source, const char* p_Name)
 {
     KernelMap& kernels = GetKernelMap();
-    const KernelMap::key_type key(p_CmdQ, p_Source);
+    const KernelMap::key_type key(p_Context, p_Source);
     KernelMap::const_iterator it = kernels.find(key);
     if (it != kernels.end())
     {
         return it->second;
     }
 
-    cl_context clContext = NULL;
-    if (CheckError(clGetCommandQueueInfo(p_CmdQ, CL_QUEUE_CONTEXT, sizeof(cl_context), &clContext, NULL),
-                   "Unable to get the context") != CL_SUCCESS)
-    {
-        return NULL;
-    }
     cl_int error = CL_SUCCESS;
-    cl_program program = clCreateProgramWithSource(clContext, 1, &p_Source, NULL, &error);
+    cl_program program = clCreateProgramWithSource(p_Context, 1, &p_Source, NULL, &error);
     if (CheckError(error, "Unable to create program") != CL_SUCCESS)
     {
         return NULL;
@@ -206,44 +206,73 @@ cl_kernel GetKernel(cl_command_queue p_CmdQ, const char* p_Source, const char* p
     return kernel;
 }
 
-// returns CL_SUCCESS or an OpenCL error. p_Input and p_Output are cl_mem (buffers or images)
-cl_int RunKernel(const char* p_Source, const char* p_Name,
-                 void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output)
+// the status of an OpenCL error: 0 (success), 1 (failed), 2 (out of memory), see GPUGain.cpp
+int KernelStatus(cl_int p_Error)
 {
+    switch (p_Error)
+    {
+    case CL_SUCCESS:
+        return 0;
+    case CL_OUT_OF_RESOURCES:
+    case CL_OUT_OF_HOST_MEMORY:
+    case CL_MEM_OBJECT_ALLOCATION_FAILURE:
+        return 2;
+    default:
+        return 1;
+    }
+}
+
+// returns 0, 1 or 2 (see KernelStatus). p_Input and p_Output are cl_mem (buffers or images)
+int RunKernel(const char* p_Source, const char* p_Name,
+              void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output)
+{
+    if ((p_Width <= 0) || (p_Height <= 0))
+    {
+        return 0; // nothing to do (and a zero global work size is an error)
+    }
     cl_command_queue cmdQ = static_cast<cl_command_queue>(p_CmdQ);
     if (!cmdQ)
     {
-        return CL_INVALID_COMMAND_QUEUE;
+        return 1;
+    }
+    cl_context context = NULL;
+    if (CheckError(clGetCommandQueueInfo(cmdQ, CL_QUEUE_CONTEXT, sizeof(cl_context), &context, NULL),
+                   "Unable to get the context") != CL_SUCCESS || !context)
+    {
+        return 1;
     }
     cl_mem input = static_cast<cl_mem>(const_cast<void*>(p_Input));
     cl_mem output = static_cast<cl_mem>(p_Output);
 
     AutoLock lock(GetLocker());
 
-    cl_kernel kernel = GetKernel(cmdQ, p_Source, p_Name);
+    cl_kernel kernel = GetKernel(context, p_Source, p_Name);
     if (!kernel)
     {
-        return CL_INVALID_KERNEL;
+        return 1;
     }
 
-    cl_uint count = 0;
-    cl_int error = clSetKernelArg(kernel, count++, sizeof(int), &p_Width);
-    error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Height);
-    error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[0]);
-    error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[1]);
-    error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[2]);
-    error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Gain[3]);
-    error |= clSetKernelArg(kernel, count++, sizeof(cl_mem), &input);
-    error |= clSetKernelArg(kernel, count++, sizeof(cl_mem), &output);
-    if (CheckError(error, "Unable to set kernel arguments") != CL_SUCCESS)
+    struct Arg { size_t size; const void* value; };
+    const Arg args[] = {
+        { sizeof(int), &p_Width }, { sizeof(int), &p_Height },
+        { sizeof(float), &p_Gain[0] }, { sizeof(float), &p_Gain[1] },
+        { sizeof(float), &p_Gain[2] }, { sizeof(float), &p_Gain[3] },
+        { sizeof(cl_mem), &input }, { sizeof(cl_mem), &output },
+    };
+    for (cl_uint i = 0; i < sizeof(args) / sizeof(args[0]); ++i)
     {
-        return error;
+        const cl_int error = CheckError(clSetKernelArg(kernel, i, args[i].size, args[i].value),
+                                        "Unable to set a kernel argument");
+        if (error != CL_SUCCESS)
+        {
+            return KernelStatus(error);
+        }
     }
 
     // one work item per pixel; the implementation chooses the work-group size
     const size_t globalWorkSize[2] = { (size_t)p_Width, (size_t)p_Height };
-    return CheckError(clEnqueueNDRangeKernel(cmdQ, kernel, 2, NULL, globalWorkSize, NULL, 0, NULL, NULL),
-                      "Unable to enqueue the kernel");
+    return KernelStatus(CheckError(clEnqueueNDRangeKernel(cmdQ, kernel, 2, NULL, globalWorkSize, NULL, 0, NULL, NULL),
+                                   "Unable to enqueue the kernel"));
 }
 
 } // namespace

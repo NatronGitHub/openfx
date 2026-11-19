@@ -17,9 +17,23 @@ __global__ void GainAdjustKernel(int p_Width, int p_Height, float p_GainR, float
    }
 }
 
-// returns 0 (cudaSuccess), or the CUDA error of the launch or of the synchronisation
+// the status of a CUDA error: 0 (success), 1 (failed), 2 (out of memory), see GPUGain.cpp
+static int KernelStatus(cudaError_t p_Error)
+{
+    if (p_Error == cudaSuccess)
+    {
+        return 0;
+    }
+    return (p_Error == cudaErrorMemoryAllocation) ? 2 : 1;
+}
+
+// returns 0 (success), 1 (failed) or 2 (out of memory)
 int RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Gain, const float* p_Input, float* p_Output)
 {
+    if ((p_Width <= 0) || (p_Height <= 0))
+    {
+        return 0; // nothing to do (and an empty grid is a launch error)
+    }
     dim3 threads(128, 1, 1);
     dim3 blocks(((p_Width + threads.x - 1) / threads.x), p_Height, 1);
     cudaStream_t stream = static_cast<cudaStream_t>(p_Stream);
@@ -28,7 +42,7 @@ int RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Gain
     cudaError_t error = cudaGetLastError();
     if (error != cudaSuccess)
     {
-        return (int)error;
+        return KernelStatus(error);
     }
 
     // kOfxImageEffectPropCudaStream (ofxGPURender.h): "If not set: the plug-in SHOULD ensure
@@ -38,5 +52,5 @@ int RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Gain
     {
         error = cudaStreamSynchronize(0);
     }
-    return (int)error;
+    return KernelStatus(error);
 }
