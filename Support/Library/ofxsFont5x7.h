@@ -17,7 +17,8 @@
 namespace OFX {
   namespace Private {
 
-    enum { kFontGlyphWidth = 5, kFontGlyphHeight = 7, kFontCellWidth = 6, kFontCellHeight = 8 };
+    // int constants, not an unnamed enum: C++20 deprecates arithmetic between an enum and a double
+    static const int kFontGlyphWidth = 5, kFontGlyphHeight = 7, kFontCellWidth = 6, kFontCellHeight = 8;
 
     // the glyphs of the printable ASCII characters, kFont5x7[c - 0x20]
     static const unsigned char kFont5x7[95][5] = {
