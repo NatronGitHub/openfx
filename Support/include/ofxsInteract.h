@@ -13,6 +13,11 @@
     the DrawContext that draws with the DrawSuite on V2 overlays and with OpenGL on V1 overlays
     (Support/Library/ofxsDrawContextOpenGL.cpp), and DrawContext::usesDrawSuite()/usesOpenGL(). */
 #define OFXS_SUPPORT_HAS_DRAWCONTEXT_OPENGL 1
+/** @brief Feature macro: defined when ImageEffectDescriptor::setOverlayInteractDescriptorV2()
+    also registers an OpenGL kOfxImageEffectPluginPropOverlayInteractV1 entry on DrawSuite hosts
+    (InteractMainEntry<DESC>::overlayInteractMainEntryV1), DrawArgs::drawContext is NULL in the
+    draw actions called through that V1 entry, and DrawArgs::calledViaOverlayInteractV2() exists. */
+#define OFXS_SUPPORT_HAS_OVERLAY_INTERACT_V1_ENTRY 1
 /*
 OFX Support Library, a library that skins the OFX plug-in API with C++ classes.
 Copyright (C) 2004-2005 The Open Effects Association Ltd
@@ -86,22 +91,39 @@ namespace OFX {
      was registered, as the spec requires (ofxInteract.h, kOfxInteractActionDraw: "If this is
      called via kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite. If this
      is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL."):
-     - overlay registered as V2 (ImageEffectDescriptor::setOverlayInteractDescriptorV2() returned
-       true; not if the plug-in set kOfxImageEffectPluginPropOverlayInteractV2 itself): the
-       host's DrawSuite (usesDrawSuite()). If the host passed no kOfxInteractPropDrawContext,
-       nothing is drawn and the functions return false: OpenGL must not be used, the host may
-       not even have an OpenGL context.
-     - overlay registered as V1 (setOverlayInteractDescriptor(), or
-       setOverlayInteractDescriptorV2() on a host without the DrawSuite): OpenGL (usesOpenGL()),
-       even if the host also passed a DrawSuite context.
+     - overlay called through its kOfxImageEffectPluginPropOverlayInteractV2 entry
+       (ImageEffectDescriptor::setOverlayInteractDescriptorV2() returned true; not if the
+       plug-in set kOfxImageEffectPluginPropOverlayInteractV2 itself): the host's DrawSuite
+       (usesDrawSuite()). If the host passed no kOfxInteractPropDrawContext, nothing is drawn
+       and the functions return false: OpenGL must not be used, the host may not even have an
+       OpenGL context.
+     - overlay called through a kOfxImageEffectPluginPropOverlayInteractV1 entry
+       (setOverlayInteractDescriptor(), setOverlayInteractDescriptorV2() on a host without the
+       DrawSuite, or the OpenGL V1 entry that setOverlayInteractDescriptorV2() registers next to
+       the V2 one on a DrawSuite host): OpenGL (usesOpenGL()), even if the host also passed a
+       DrawSuite context.
      - DrawArgs not made by the Support library's dispatcher (e.g. built by the plug-in from a
        property set): the DrawSuite if the inArgs have a draw context, else OpenGL.
      So a plug-in writes a single draw() for all hosts: register the overlay with
      setOverlayInteractDescriptorV2(), and do all the drawing through getDrawContext(), with no
-     direct OpenGL call.
+     direct OpenGL call. Do provide that DrawSuite drawing: a host with the DrawSuite may have
+     no OpenGL at all (kOfxImageEffectPropSupportsOverlays: "the host will allow a plugin to
+     draw a GUI over the output image", nothing about OpenGL), and the Support library only
+     uses OpenGL when the host called a V1 entry.
    - DrawArgs::drawContext: the host's DrawSuite context, or NULL if the host passed none
      (unchanged since OFXS_SUPPORT_HAS_DRAWCONTEXT, for the code that tests it and draws with
-     OpenGL when it is NULL, such as SupportExt's OverlayDraw).
+     OpenGL when it is NULL, such as SupportExt's OverlayDraw). It is also NULL in the draw
+     actions called through the OpenGL V1 entry of an overlay registered with
+     setOverlayInteractDescriptorV2() (OFXS_SUPPORT_HAS_OVERLAY_INTERACT_V1_ENTRY), which must
+     draw with OpenGL.
+
+   The only OpenGL guarantee for an overlay is the precondition of kOfxInteractActionDraw, "the
+   openGL context for this interact has been set", which is the V1 text: the Support library
+   uses OpenGL only inside a draw action called through a V1 entry, and plug-ins must not use it
+   in the other actions, or in the V2 draw actions. kOfxInteractPropBitDepth,
+   kOfxInteractPropHasAlpha, kOfxInteractPropPenViewportPosition (Interact::getBitDepth(),
+   hasAlpha(), PenArgs::penViewportPosition) and interactSwapBuffers are defined in OpenGL terms:
+   don't rely on them when drawing with the DrawSuite.
 
    A DrawContext is only valid during the draw action it was passed to (the OpenGL backend
    draws into the current OpenGL context). The functions never throw: they return false where
@@ -109,7 +131,10 @@ namespace OFX {
    that is not valid for the primitive, or no text; kOfxStatFailed).
 
    Coordinates are canonical, as for OpenGL overlays ("The GL_PROJECTION matrix will be set up
-   so that it maps openGL coordinates to canonical image coordinates", ofxInteracts.rst):
+   so that it maps openGL coordinates to canonical image coordinates", ofxInteracts.rst). The
+   spec doesn't give the DrawSuite's coordinate system; canonical is implied (the upstream
+   DrawSuite example draws at canonical parameter positions, sized with the pixel scale), and
+   this library assumes it:
    DrawArgs::pixelScale is the size of a screen pixel in canonical coordinates. The OpenGL
    backend uses the current OpenGL matrices, which the host sets up that way.
 
@@ -234,14 +259,31 @@ namespace OFX {
     /** @brief OFX 1.5 DrawSuite context for this draw action, or NULL if the host doesn't
         provide the DrawSuite. An overlay registered with
         ImageEffectDescriptor::setOverlayInteractDescriptorV2() gets a non-NULL context
-        (and MUST draw with it, not OpenGL) whenever the host supports it.
+        (and MUST draw with it, not OpenGL) whenever the host supports it and calls its
+        kOfxImageEffectPluginPropOverlayInteractV2 entry. It is NULL when the host calls the
+        OpenGL kOfxImageEffectPluginPropOverlayInteractV1 entry that
+        setOverlayInteractDescriptorV2() also registers on DrawSuite hosts ("If this is called
+        via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL"), even if
+        the host passed a draw context.
         See also getDrawContext(), which falls back to OpenGL for V1 overlays. */
     const DrawContext *drawContext;
 
     /** @brief The context to draw this overlay with, on any host: the DrawSuite for an
-        overlay registered as V2, OpenGL for an overlay registered as V1 (see DrawContext).
-        Never NULL. Defined in ofxsDrawContextOpenGL.cpp. */
+        overlay called through its V2 entry, OpenGL for an overlay called through a V1 entry
+        (see DrawContext). Never NULL. Defined in ofxsDrawContextOpenGL.cpp. */
     const DrawContext &getDrawContext() const;
+
+    /** @brief true if the Support library's dispatcher made these args for a draw action
+        called through the kOfxImageEffectPluginPropOverlayInteractV2 entry of an overlay
+        registered with ImageEffectDescriptor::setOverlayInteractDescriptorV2() ("drawing MUST
+        use DrawSuite": getDrawContext() then uses the DrawSuite); false for the calls through a
+        kOfxImageEffectPluginPropOverlayInteractV1 entry (drawing SHOULD use OpenGL), for
+        parameter interacts, and for DrawArgs not made by the dispatcher. An interact whose
+        descriptor class is registered with setOverlayInteractDescriptorV2() may be created
+        through either entry: test this (or getDrawContext()) in draw(), not the host's
+        DrawSuite support. Defined in ofxsInteract.cpp
+        (OFXS_SUPPORT_HAS_OVERLAY_INTERACT_V1_ENTRY). */
+    bool calledViaOverlayInteractV2() const;
 
 #ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
     OfxPointD       viewportSize;      /**< @brief The openGL viewport size for the instance */
@@ -710,16 +752,58 @@ namespace OFX {
       OfxPropertySetHandle	 inArgsRaw,
       OfxPropertySetHandle	 outArgsRaw,
       InteractDescriptor& desc);
+
+    /** @brief The main entry of the OpenGL kOfxImageEffectPluginPropOverlayInteractV1 entry
+        point that ImageEffectDescriptor::setOverlayInteractDescriptorV2() registers next to
+        the V2 one on DrawSuite hosts: as interactMainEntry(), but the draw actions use OpenGL
+        (DrawArgs::drawContext is NULL, getDrawContext() uses OpenGL) */
+    OfxStatus interactMainEntryOpenGL(const char		*actionRaw,
+      const void		*handleRaw,
+      OfxPropertySetHandle	 inArgsRaw,
+      OfxPropertySetHandle	 outArgsRaw,
+      InteractDescriptor& desc);
+
+    /** @brief Record that mainEntry has an OpenGL V1 sibling, mainEntryV1 (ofxsImageEffect.cpp).
+        Called by the InteractMainEntry<DESC> constructor, i.e. when a descriptor is made,
+        before ImageEffectDescriptor::setOverlayInteractDescriptorV2() looks it up. */
+    void setOverlayInteractV1Sibling(OfxPluginEntryPoint *mainEntry, OfxPluginEntryPoint *mainEntryV1);
   }
 
+  /** @brief The main entry points of the interact descriptor class DESC
+
+      overlayInteractMainEntry is the entry point that DESC::getMainEntry() returns (and that
+      setOverlayInteractDescriptor() and setOverlayInteractDescriptorV2() register).
+      overlayInteractMainEntryV1 is a second entry point for the same DESC, which
+      setOverlayInteractDescriptorV2() registers as the OpenGL
+      kOfxImageEffectPluginPropOverlayInteractV1 entry on DrawSuite hosts: the two entry points
+      are distinct, so the dispatcher knows which one the host called. The constructor records
+      the pair (no data member: the layout of the descriptor classes is unchanged). */
   template<class DESC>
   class InteractMainEntry
   {
   protected:
+    InteractMainEntry()
+    {
+      OFX::Private::setOverlayInteractV1Sibling(&InteractMainEntry<DESC>::overlayInteractMainEntry,
+                                                &InteractMainEntry<DESC>::overlayInteractMainEntryV1);
+    }
+
     static OfxStatus overlayInteractMainEntry(const char *action, const void* handle, OfxPropertySetHandle in, OfxPropertySetHandle out)
     {
+      return OFX::Private::interactMainEntry(action, handle, in, out, descriptor());
+    }
+
+    static OfxStatus overlayInteractMainEntryV1(const char *action, const void* handle, OfxPropertySetHandle in, OfxPropertySetHandle out)
+    {
+      return OFX::Private::interactMainEntryOpenGL(action, handle, in, out, descriptor());
+    }
+
+  private:
+    // the descriptor that both entry points use (describe, createInstance)
+    static DESC &descriptor()
+    {
       static DESC desc;
-      return OFX::Private::interactMainEntry(action, handle, in, out, desc);
+      return desc;
     }
   };
 

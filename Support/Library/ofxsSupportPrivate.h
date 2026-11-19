@@ -181,6 +181,12 @@ namespace OFX {
     /** @brief true if the overlay with that main entry was registered as V2 */
     bool isOverlayInteractV2(OfxPluginEntryPoint *mainEntry);
 
+    /** @brief The OpenGL V1 entry point (InteractMainEntry<DESC>::overlayInteractMainEntryV1)
+        of the descriptor class whose main entry is mainEntry, or NULL if it has none (its
+        main entry is not an InteractMainEntry<DESC> one). Recorded by
+        setOverlayInteractV1Sibling() (ofxsInteract.h), never cleared. */
+    OfxPluginEntryPoint *getOverlayInteractV1Sibling(OfxPluginEntryPoint *mainEntry);
+
     /** @brief Forget all the registrations (at the last kOfxActionUnload) */
     void clearOverlayInteractRegistrations();
 

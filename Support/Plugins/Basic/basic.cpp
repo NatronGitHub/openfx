@@ -492,7 +492,8 @@ BasicPlugin::changedClip(const OFX::InstanceChangedArgs &/*args*/, const std::st
 // It draws only through args.getDrawContext(), with no OpenGL call, and is registered with
 // setOverlayInteractDescriptorV2() (see describe()): the same code then draws with the OFX 1.5
 // DrawSuite on hosts that have it (the overlay is registered as OverlayInteractV2, which MUST
-// draw with the DrawSuite), and with OpenGL on the others (OverlayInteractV1).
+// draw with the DrawSuite), and with OpenGL on the others (OverlayInteractV1). On DrawSuite
+// hosts it is also registered as OverlayInteractV1, through which it draws with OpenGL.
 bool BasicInteract::draw(const OFX::DrawArgs &args)
 {
   const OFX::DrawContext &dc = args.getDrawContext();

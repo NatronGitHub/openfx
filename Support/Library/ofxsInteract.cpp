@@ -554,6 +554,11 @@ namespace OFX {
   }
 
 
+  bool DrawArgs::calledViaOverlayInteractV2() const
+  {
+    return _overlayRegistration == Private::eOverlayRegistrationV2;
+  }
+
   /** @brief ctor */
   PenArgs::PenArgs(const PropertySet &props)
     : InteractArgs(props)
@@ -679,7 +684,8 @@ namespace OFX {
       OfxInteractHandle      handle,
       PropertySet              inArgs,
       PropertySet              /*outArgs*/,
-      OverlayRegistrationEnum  registration)
+      OverlayRegistrationEnum  registration,
+      bool                     hideDrawContext)
     {
       OfxStatus stat = kOfxStatReplyDefault;
 
@@ -731,6 +737,13 @@ namespace OFX {
 #endif
         // the backend of drawArgs.getDrawContext()
         DrawArgsAccess::setOverlayRegistration(drawArgs, registration);
+        if (hideDrawContext) {
+          // the OpenGL V1 entry of an overlay registered with setOverlayInteractDescriptorV2():
+          // "If this is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD
+          // use OpenGL". Its draw() tests drawContext to choose the DrawSuite (e.g. SupportExt's
+          // OverlayDraw), so hide the host's context (HostSupport passes one to every overlay).
+          drawArgs.drawContext = NULL;
+        }
         if(interact->draw(drawArgs))
           stat = kOfxStatOK;
       }
@@ -809,12 +822,19 @@ namespace OFX {
       return stat;
     }
 
-    /** @brief The main entry for image effect overlays */
-    OfxStatus interactMainEntry(const char             *actionRaw,
+    /** @brief Which entry point of a descriptor class the host called */
+    enum InteractEntryEnum {
+      eInteractEntryMain,  // DESC::getMainEntry(): V1 or V2, as registered
+      eInteractEntryOpenGL // InteractMainEntry<DESC>::overlayInteractMainEntryV1: always V1
+    };
+
+    static
+    OfxStatus interactMainEntryImpl(const char             *actionRaw,
       const void             *handleRaw,
       OfxPropertySetHandle    inArgsRaw,
       OfxPropertySetHandle    outArgsRaw,
-      InteractDescriptor& desc)
+      InteractDescriptor& desc,
+      InteractEntryEnum entry)
     {
       OFX::Log::print("********************************************************************************");
       OFX::Log::print("START overlayInteractMainEntry (%s)", actionRaw);
@@ -860,12 +880,17 @@ namespace OFX {
           // and all was well
           stat = kOfxStatOK;
         }
+        else if (entry == eInteractEntryOpenGL) {
+          // the OpenGL V1 entry that setOverlayInteractDescriptorV2() registers next to the V2
+          // one: V1, and no DrawSuite context
+          stat = interactMainEntry(action, handle, inArgs, outArgs, eOverlayRegistrationV1, true);
+        }
         else {
           // V2 if this main entry was registered as kOfxImageEffectPluginPropOverlayInteractV2
           // (V1 for the other overlays and for parameter interacts)
           const OverlayRegistrationEnum registration =
             isOverlayInteractV2(desc.getMainEntry()) ? eOverlayRegistrationV2 : eOverlayRegistrationV1;
-          stat = interactMainEntry(action, handle, inArgs, outArgs, registration);
+          stat = interactMainEntry(action, handle, inArgs, outArgs, registration, false);
         }
 
       }
@@ -877,6 +902,27 @@ namespace OFX {
       OFX::Log::outdent();
       OFX::Log::print("STOP overlayInteractMainEntry (%s)", actionRaw);
       return stat;
+    }
+
+    /** @brief The main entry for image effect overlays */
+    OfxStatus interactMainEntry(const char             *actionRaw,
+      const void             *handleRaw,
+      OfxPropertySetHandle    inArgsRaw,
+      OfxPropertySetHandle    outArgsRaw,
+      InteractDescriptor& desc)
+    {
+      return interactMainEntryImpl(actionRaw, handleRaw, inArgsRaw, outArgsRaw, desc, eInteractEntryMain);
+    }
+
+    /** @brief The OpenGL kOfxImageEffectPluginPropOverlayInteractV1 entry of an overlay
+        registered with setOverlayInteractDescriptorV2() */
+    OfxStatus interactMainEntryOpenGL(const char             *actionRaw,
+      const void             *handleRaw,
+      OfxPropertySetHandle    inArgsRaw,
+      OfxPropertySetHandle    outArgsRaw,
+      InteractDescriptor& desc)
+    {
+      return interactMainEntryImpl(actionRaw, handleRaw, inArgsRaw, outArgsRaw, desc, eInteractEntryOpenGL);
     }
 
   } // end namespace private
