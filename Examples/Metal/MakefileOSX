@@ -2,7 +2,7 @@ CXXFLAGS = -I../../include -I../include
 OPTIMIZER = -g
 
 metal.ofx : metal.o kernel.o
-	$(CXX) -bundle metal.o kernel.o -o metal.ofx -framework Metal -framework Foundation -framework QuartzCore
+	$(CXX) -bundle metal.o kernel.o -o metal.ofx -framework Metal -framework Foundation
 	mkdir -p metal.ofx.bundle/Contents/MacOS/
 	cp metal.ofx metal.ofx.bundle/Contents/MacOS/
 

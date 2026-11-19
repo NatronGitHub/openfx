@@ -61,12 +61,9 @@ OfxMultiThreadSuiteV1 *gThreadHost = 0;
 OfxMessageSuiteV1     *gMessageSuite = 0;
 OfxInteractSuiteV1    *gInteractHost = 0;
 
-// what the host supports (from the host descriptor, in the load action). An OFX 1.4 host
-// doesn't have the property: it always passes CPU images.
-static bool gHostSupportsMetalRender = false;
-
 // kernel.mm: the Metal compute pipelines, one per MTLDevice, built on first use and released at
-// unload. gKernelMutex (an OFX mutex) protects them: hold it when calling these.
+// unload. gKernelMutex (an OFX mutex) protects them: renders hold it when calling RunMetalKernel
+// (ReleaseMetalKernels is called at unload, when no render runs).
 // RunMetalKernel encodes the kernel on p_CmdQ (an id<MTLCommandQueue>) and commits it, without
 // waiting; the images are id<MTLBuffer>. Returns 0 (success) or 1 (failed).
 extern int RunMetalKernel(void *p_CmdQ, int p_Width, int p_Height, const float *p_Gain,
@@ -108,41 +105,24 @@ getMyInstanceData( OfxImageEffectHandle effect)
   return (MyInstanceData *) ofxuGetEffectInstanceData(effect);
 }
 
-// is a string property of the host descriptor "true"? (false if the host doesn't know it)
-static bool
-hostPropertyIsTrue(const char *name)
-{
-  const char *value = NULL;
-  return (gPropHost->propGetString(gHost->host, name, 0, &value) == kOfxStatOK &&
-          value && strcmp(value, "true") == 0);
-}
-
 /** @brief Called at load */
 static OfxStatus
 onLoad(void)
 {
-  // fetch the host suites, and record the host's GPU render support
+  // fetch the host suites, and make the mutex of the kernel cache
   OfxStatus stat = ofxuFetchHostSuites();
   if(stat != kOfxStatOK)
     return stat;
-
-  stat = gThreadHost->mutexCreate(&gKernelMutex, 0);
-  if(stat != kOfxStatOK)
-    return stat;
-
-  // ofxGPURender.h, kOfxImageEffectPropMetalRenderSupported: "true" - "the host or plug-in can
-  // support Metal buffer render"
-  gHostSupportsMetalRender = hostPropertyIsTrue(kOfxImageEffectPropMetalRenderSupported);
-  DPRINT(("metal: host Metal buffer render support %d\n", (int)gHostSupportsMetalRender));
-  return kOfxStatOK;
+  return gThreadHost->mutexCreate(&gKernelMutex, 0);
 }
 
 /** @brief Called before unload */
 static OfxStatus
 onUnLoad(void)
 {
+  // no render action runs during the unload action: no lock
   ReleaseMetalKernels();
-  if(gThreadHost)
+  if(gThreadHost && gKernelMutex)
     gThreadHost->mutexDestroy(gKernelMutex);
   gKernelMutex = 0;
   return kOfxStatOK;
@@ -412,11 +392,22 @@ static OfxStatus render( OfxImageEffectHandle  instance,
   // ofxGPURender.h, kOfxImageEffectPropMetalEnabled: "1 indicates that the kOfxImagePropData of
   // each image of each clip is a Metal id<MTLBuffer>", 0 that it "is a CPU memory pointer, unless
   // kOfxImageEffectPropMetalTextureEnabled is 1" (Metal textures, which this plug-in doesn't
-  // declare: kOfxImageEffectPropMetalTextureSupported). An OFX 1.4 host doesn't set it: CPU memory.
+  // declare: kOfxImageEffectPropMetalTextureSupported). It is read whatever the host descriptor
+  // says, so that the images are never taken for CPU memory when the host passes Metal buffers.
+  // An OFX 1.4 host doesn't set it: CPU memory.
   int metalEnabled = 0;
-  if(gHostSupportsMetalRender &&
-     gPropHost->propGetInt(inArgs, kOfxImageEffectPropMetalEnabled, 0, &metalEnabled) != kOfxStatOK)
+  if(gPropHost->propGetInt(inArgs, kOfxImageEffectPropMetalEnabled, 0, &metalEnabled) != kOfxStatOK)
     metalEnabled = 0;
+
+  // kOfxImageEffectPropMetalTextureEnabled: "1 indicates that kOfxImagePropData of each image of
+  // each clip is a Metal id<MTLTexture>". The host "MUST set at most one of the two enabled
+  // properties, and only for a path that both host and plug-in declared as supported", so it
+  // shouldn't happen here; if it does, the plug-in can't read the images: let the host render on
+  // the CPU.
+  int metalTextureEnabled = 0;
+  if(gPropHost->propGetInt(inArgs, kOfxImageEffectPropMetalTextureEnabled, 0, &metalTextureEnabled) == kOfxStatOK &&
+     metalTextureEnabled)
+    return kOfxStatGPURenderFailed;
 
   // kOfxImageEffectPropMetalCommandQueue: "the command queue to be used for Metal rendering
   // (id<MTLCommandQueue>)"; "The plug-in SHOULD ensure that its render action enqueues any
@@ -548,7 +539,7 @@ describe(OfxImageEffectHandle  effect)
 
   // set some labels and the group it belongs to
   gPropHost->propSetString(effectProps, kOfxPropLabel, 0, "Simple Gain (Metal)");
-  gPropHost->propSetString(effectProps, kOfxImageEffectPluginPropGrouping, 0, "Resolve Simple Gain");
+  gPropHost->propSetString(effectProps, kOfxImageEffectPluginPropGrouping, 0, "OFX Example (GPU)");
 
   // define the contexts we can be used in
   gPropHost->propSetString(effectProps, kOfxImageEffectPropSupportedContexts, 0, kOfxImageEffectContextFilter);

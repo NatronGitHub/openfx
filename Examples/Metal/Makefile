@@ -2,6 +2,6 @@
 PLUGINOBJECTS = metal.o kernel.o
 PLUGINNAME = metal
 PATHTOROOT = ..
-LDFLAGS_ADD = -framework Metal -framework Foundation -framework QuartzCore
+LDFLAGS_ADD = -framework Metal -framework Foundation
 
 include ../Makefile.master

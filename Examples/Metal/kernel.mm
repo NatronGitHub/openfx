@@ -48,7 +48,8 @@ static const char *kKernelSource =
 "}\n";
 
 // One compute pipeline per Metal device: a pipeline state belongs to the device that built it,
-// and the host may use several devices (or queues of a device). Kept until ReleaseMetalKernels.
+// and the host may use several devices (or queues of a device). Kept until ReleaseMetalKernels,
+// with the device (the key), which is retained so that its address can't be reused meanwhile.
 // The caller holds a lock (gKernelMutex in metal.cpp).
 typedef std::map<id<MTLDevice>, id<MTLComputePipelineState> > PipelineMap;
 static PipelineMap gPipelines;
@@ -86,7 +87,8 @@ static id<MTLComputePipelineState> GetPipeline(id<MTLDevice> device)
         fprintf(stderr, "metal: failed to make the Metal pipeline, %s\n", err ? err.localizedDescription.UTF8String : "");
         return nil;
     }
-    gPipelines[device] = pipeline; // retained (new...), released by ReleaseMetalKernels
+    // both retained (pipeline: new...), released by ReleaseMetalKernels
+    gPipelines[[device retain]] = pipeline;
     return pipeline;
 }
 
@@ -95,6 +97,7 @@ void ReleaseMetalKernels(void)
     for (PipelineMap::iterator it = gPipelines.begin(); it != gPipelines.end(); ++it)
     {
         [it->second release];
+        [it->first release];
     }
     gPipelines.clear();
 }

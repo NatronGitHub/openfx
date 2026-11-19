@@ -9,7 +9,7 @@ HAVE_CUDA ?= 0
 ifeq ($(shell uname -s),Darwin)
 HAVE_METAL ?= 1
 else
-HAVE_METAL = 0
+override HAVE_METAL = 0
 endif
 ifeq ($(HAVE_METAL),1)
 SUBDIRS += Metal

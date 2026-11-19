@@ -8,7 +8,7 @@ properties of OFX 1.5, in include/ofxGPURender.h.
 metal.cpp is the plug-in (plain C++), kernel.mm the Metal kernel and its
 encoding (Objective-C++ with manual reference counting, compiled by the C++
 compiler: Makefile.master's %.mm rule, or CMake on macOS). It links with the
-Metal, Foundation and QuartzCore frameworks. Built by default on macOS by
+Metal and Foundation frameworks. Built by default on macOS by
 Examples/Makefile (HAVE_METAL=0 to skip it) and by CMake.
 
 Describe
@@ -21,12 +21,11 @@ Metal). It doesn't declare Metal textures (kOfxImageEffectPropMetalTextureSuppor
 An OFX 1.4 host doesn't know the property: its status is ignored, and the
 plug-in renders on the CPU there.
 
-In the load action, it reads the same property on the host descriptor.
-
 Render
 ------
-If the host supports Metal buffer render, the plug-in reads
-kOfxImageEffectPropMetalEnabled in the render inArgs: "1 indicates that the
+The plug-in reads kOfxImageEffectPropMetalEnabled in the render inArgs (0 if it
+is missing, as on an OFX 1.4 host; it is read whatever the host descriptor
+says, so that Metal buffers are never taken for CPU memory): "1 indicates that the
 kOfxImagePropData of each image of each clip is a Metal id<MTLBuffer>", 0 that
 it "is a CPU memory pointer".
 
@@ -41,12 +40,15 @@ from the image bounds and row bytes, and checks that the buffers are large
 enough.
 
 The compute pipeline is built from the kernel source on first use for each
-MTLDevice (queue.device) and kept until the unload action, under an OFX mutex.
+MTLDevice (queue.device) and kept until the unload action, under an OFX mutex,
+with the device, which is retained until then.
 kernel.mm uses manual retain/release (it doesn't build with -fobjc-arc), and an
 @autoreleasepool for the command buffer and encoder.
 
-If it can't process the images (no source image, not float RGBA, an image that
-doesn't cover the render window, negative row bytes, a buffer too small), or
+If kOfxImageEffectPropMetalTextureEnabled is 1 (Metal textures, which the host
+"MUST" not pass to a plug-in that doesn't declare them), or it can't process
+the images (no source image, not float RGBA, an image that doesn't cover the
+render window, negative row bytes, a buffer too small), or
 Metal fails, the render returns kOfxStatGPURenderFailed, so that the host can
 render on the CPU (ofxGPURender.h: "the host should retry the render with
 OpenGL rendering disabled").
