@@ -92,14 +92,13 @@ Main options:
 - `OFX_PLUGIN_NO_UNDEFINED` (ON): link the plug-ins with `-z defs` on Linux and FreeBSD, so an undefined symbol fails the link; turn it off for clang sanitizer builds, or use clang's `-shared-libsan` (gcc links its shared sanitizer runtime by default, so it works with `-z defs`). The Makefiles do the same, unless `NO_UNDEFINED_FLAG=` is passed;
 - `OFX_OPTFLAG`: extra optimization flags of the release configurations, after CMake's (empty: CMake's defaults; ignored with MSVC);
 - `CMAKE_OSX_DEPLOYMENT_TARGET`: 14.0 by default at top level (VFX Reference Platform CY2027), unless the `MACOSX_DEPLOYMENT_TARGET` environment variable is set; the plug-in Makefiles (`Makefile.master`) use the same default (the HostSupport and hostDemo Makefiles don't set one). A toolchain file (e.g. conan's `os.version`) sets its own. Plug-in projects set it before `project()`, and `cmake/OpenFX.cmake` warns if it is empty or newer than 14.0;
-- `OFX_SUPPORT_DRAWCONTEXT_OPENGL` (ON): compile the OpenGL backend of `DrawArgs::getDrawContext()` (`Support/Library/ofxsDrawContextOpenGL.cpp`). It needs the OpenGL headers, but neither openfx::Support nor the plug-ins link OpenGL: the backend loads it at run time;
+- `OFX_SUPPORT_DRAWCONTEXT_OPENGL` (ON): compile the OpenGL backend of `DrawArgs::getDrawContext()` (`Support/Library/ofxsDrawContextOpenGL.cpp`). Neither openfx::Support nor the plug-ins link OpenGL: the backend loads it at run time. Without the OpenGL headers, CMake compiles it with `OFXS_DRAWCONTEXT_NO_OPENGL` (also when OFF); Makefile builds pass `-DOFXS_DRAWCONTEXT_NO_OPENGL`;
 - `BUILD_EXAMPLE_MULTIPLYGPU` (ON) and `OFX_EXAMPLE_GPUGAIN_METAL` (ON on macOS): the GPU samples of `Support/Plugins`;
 - `OFX_DEPLOY_BUNDLES` (for plug-in projects, macOS only, by design): make the installed bundles self-contained with `ofx_deploy_bundle()`. On Linux and Windows, the installers bundle the third-party libraries (on Linux, in `<bundle>/Libraries`, found through the `$ORIGIN/../../Libraries` rpath), and the system libraries are never bundled.
 
-`cmake/OpenFX.cmake` also sets `OFX_LINUX_CHECK_BUNDLE`, the path of `linuxCheckBundle.sh` (`Support/include/`, or next to
-`OpenFX.cmake` when installed). It checks installed Linux bundles against the release baseline, EL9 (Rocky Linux 9,
-VFX Reference Platform CY2027): no bundled system library, the other libraries bundled, `$ORIGIN` rpaths only, and
-symbol versions at most EL9's. Run it in the plug-in repositories' CI and in the installers.
+`OFX_LINUX_CHECK_BUNDLE` (set by `cmake/OpenFX.cmake`) is the path of `linuxCheckBundle.sh`, which checks installed Linux
+bundles against the EL9 baseline (no bundled system library, `$ORIGIN` rpaths only unless listed in `OFX_ABI_RPATH_ALLOW`,
+symbol versions at most EL9's): see `Documentation/proposals/cmake-plugins.md`.
 
 Plug-in projects use `add_ofx_plugin()` and the other helpers of `cmake/OpenFX.cmake`, with openfx as a subdirectory or as an installed package: see [Documentation/proposals/cmake-plugins.md](Documentation/proposals/cmake-plugins.md).
 Each plug-in's install rules are in a component named after its target: `cmake --install <build> --component <target>` installs one bundle.
@@ -107,27 +106,15 @@ A conan recipe (`conanfile.py`, with `test_package/`) is also provided.
 
 ### Examples
 
-- `Examples/` (raw C API): Basic, ChoiceParams, ColourSpace, Custom, DepthConverter, DrawSuite, Invert, OpenGL,
-  Overlay, Rectangle and Test, plus the GPU render examples Cuda, OpenCL and Metal (`ofxGPURender.h`, each with a CPU
-  fallback). ChoiceParams, ColourSpace and DrawSuite come from upstream. See `Examples/README.txt`.
-- `Support/Plugins/` (Support library): Basic, ChoiceParams, Field, Generator, GPUGain, Invert, MultiBundle,
-  MultiplyGPU, Retimer, Tester and Transition. GPUGain renders on the CPU, or with Metal, CUDA or OpenCL; MultiplyGPU
-  with CUDA or OpenCL. `Support/Plugins/tests` has their pytest tests, also run in the OFX 1.4 host (`test_ofx14.py`).
-
-The GPU paths are built only where the toolkit is available: Metal on macOS, OpenCL with `OFX_SUPPORTS_OPENCLRENDER`
-(Makefiles: `HAVE_OPENCL=1`), CUDA with `OFX_SUPPORTS_CUDARENDER` (Makefiles: `HAVE_CUDA=1`). hostDemo has no GPU
-queue, so the tests only check the CPU paths.
+`Examples/` has the raw C-API examples, including the OFX 1.5 DrawSuite, ColourSpace and ChoiceParams examples and the
+Cuda, OpenCL and Metal GPU examples (see `Examples/README.txt`). `Support/Plugins/` has the Support library samples,
+with their pytest tests in `Support/Plugins/tests`. GPU paths are built only where the toolkit is available.
 
 ### CI
 
-`.github/workflows/build.yml` runs one build per OS for each pull request: Linux (CMake, plus the header,
-property-metadata and generated-file checks, the hostDemo checks and the Python tests), Windows (MSYS2, CMake) and,
-once both have passed, macOS (CMake, MacPorts; not required for merging). The tests include the Support self-test
-`drawcontext-opengl-test` (Linux, macOS), `linuxCheckBundle.sh` on the installed examples and on a plug-in project
-(Linux), and a render of every sample plug-in in hostDemo's default and OFX 1.4 hosts, whose outputs must match
-(except the Support ChoiceParams sample, whose 1.4 fallback has no StrChoice param).
-`.github/workflows/extended.yml` builds the other variants (the Makefiles, other C++ standards, MSVC, debug builds)
-nightly and on demand, with macOS. Changes to `Documentation/` and `*.md` files run no CI.
+`.github/workflows/build.yml` runs one build per OS for each pull request (Linux, Windows, then macOS, which isn't
+required for merging); `extended.yml` builds the other variants nightly. Docs-only changes run no CI. See the release
+notes for the checks.
 
 Documentation: `cd Documentation && ./build.sh` (see `Documentation/README.md` for the prerequisites).
 

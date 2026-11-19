@@ -130,11 +130,13 @@ shared with other Support versions can test it:
   ``calledViaOverlayInteractV2()``, not on ``drawContext == NULL``.
 
 The OpenGL backend loads the OpenGL functions it uses at run time, so neither
-the Support library nor the plug-ins need OpenGL at link time. It needs the
-OpenGL headers at compile time; without them, compile
-``ofxsDrawContextOpenGL.cpp`` with ``OFXS_DRAWCONTEXT_NO_OPENGL`` (CMake option
-``OFX_SUPPORT_DRAWCONTEXT_OPENGL=OFF``), and ``getDrawContext()`` then draws
-nothing on V1 overlays. The comments of ``ofxsInteract.h`` and
+the Support library nor the plug-ins need OpenGL at link time (the
+Makefiles weak-link it on macOS). It uses the OpenGL headers at compile time.
+Without them, CMake compiles ``ofxsDrawContextOpenGL.cpp`` with
+``OFXS_DRAWCONTEXT_NO_OPENGL`` (also with
+``OFX_SUPPORT_DRAWCONTEXT_OPENGL=OFF``); Makefile builds pass
+``-DOFXS_DRAWCONTEXT_NO_OPENGL``. ``getDrawContext()`` then draws nothing on V1
+overlays. The comments of ``ofxsInteract.h`` and
 ``ofxsImageEffect.h`` are the reference.
 
 The Support library also falls back on hosts that implement only OFX 1.4: one

@@ -101,7 +101,7 @@ Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-u
 - MinGW: `_USE_MATH_DEFINES` and `__USE_MINGW_ANSI_STDIO=1`;
 - MSVC: `/Zc:__cplusplus`.
 
-**openfx::Support:** static, PIC, built with `OFX_CXX_STANDARD`, with `Support/Plugins/include` on its include path (as in the Makefiles), and openfx::Api PUBLIC. It links `CMAKE_DL_LIBS`, not OpenGL: the OpenGL backend of `DrawArgs::getDrawContext()` (`ofxsDrawContextOpenGL.cpp`, #165, #171) loads OpenGL at run time, and only the plug-ins that call it pull that object from the static library. `OFX_SUPPORT_DRAWCONTEXT_OPENGL=OFF` compiles it without the OpenGL headers. Hidden visibility comes with openfx#124 (upstream #278); the export lists already restrict the exports. G'MIC uses the raw C API, so it links openfx::Api only.
+**openfx::Support:** static, PIC, built with `OFX_CXX_STANDARD`, with `Support/Plugins/include` on its include path (as in the Makefiles), and openfx::Api PUBLIC. It links `CMAKE_DL_LIBS`, not OpenGL: the OpenGL backend of `DrawArgs::getDrawContext()` (`ofxsDrawContextOpenGL.cpp`, #165, #171) loads OpenGL at run time, and only the plug-ins that call `getDrawContext()` or `isOpenGLContextCurrent()` (e.g. through SupportExt's `OverlayDraw`) pull that object from the static library. Without the OpenGL headers, CMake compiles it with `OFXS_DRAWCONTEXT_NO_OPENGL` (also with `OFX_SUPPORT_DRAWCONTEXT_OPENGL=OFF`). Hidden visibility comes with openfx#124 (upstream #278); the export lists already restrict the exports. G'MIC uses the raw C API, so it links openfx::Api only.
 
 ## How openfx tests it
 
