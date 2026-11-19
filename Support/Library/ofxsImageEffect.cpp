@@ -832,16 +832,16 @@ namespace OFX {
       break;
 #ifdef OFX_EXTENSIONS_NUKE
     case ePixelComponentMotionVectors :
-      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kFnOfxImageComponentMotionVectors, n);
+      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kFnOfxImageComponentMotionVectors, n, false); // an extension: a host may refuse it (e.g. OFX 1.4)
       break;
 
     case ePixelComponentStereoDisparity :
-      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kFnOfxImageComponentStereoDisparity, n);
+      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kFnOfxImageComponentStereoDisparity, n, false); // an extension: a host may refuse it (e.g. OFX 1.4)
       break;
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
     case ePixelComponentXY:
-      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kNatronOfxImageComponentXY, n);
+      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kNatronOfxImageComponentXY, n, false); // an extension: a host may refuse it (e.g. OFX 1.4)
       break;
 #endif
     case ePixelComponentCustom :
@@ -853,7 +853,8 @@ namespace OFX {
   void ClipDescriptor::addSupportedComponent(const std::string &comp)
   {
     int n = _clipProps.propGetDimension(kOfxImageEffectPropSupportedComponents);
-    _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, comp, n);
+    // custom or extension components (e.g. Nuke/Natron planes): a host may refuse them (e.g. OFX 1.4)
+    _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, comp, n, false);
 
   }
 
