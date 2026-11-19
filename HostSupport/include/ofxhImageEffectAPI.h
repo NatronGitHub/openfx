@@ -69,7 +69,14 @@ namespace OFX {
 
         /// OfxSetHost refused this host, or kOfxActionLoad or kOfxActionDescribe failed:
         /// "no further actions will be passed to the plug-in", so getPluginHandle() doesn't try again
+        /// while the binary stays loaded (same PluginBinary::getLoadGeneration())
         bool _loadFailed;
+        int _failedLoadGeneration;
+
+        /// record a failure of getPluginHandle(), release the handle, return NULL
+        PluginHandle *loadFailed();
+
+        friend class PluginCache; // loadFromPlugin() calls unload()
 
         void addContextInternal(const std::string &context) const;
 
@@ -108,11 +115,19 @@ namespace OFX {
 
         const std::set<std::string>& getContexts() const;
 
-        /// Load the plug-in, if it isn't yet: kOfxActionLoad, then kOfxActionDescribe on the base
-        /// descriptor, which is first reset to its initial state (it may hold the values read from
-        /// the plug-in cache). This is done once: the handle keeps the binary loaded until the
-        /// plug-in is deleted, which sends kOfxActionUnload. Returns NULL if OfxSetHost, Load or
-        /// Describe failed (and then always NULL).
+        /// Load the plug-in, if it isn't yet: load the binary if needed (with its OfxSetHost), then
+        /// kOfxActionLoad, then kOfxActionDescribe on the base descriptor, which is first reset in
+        /// place to its initial state (it may hold the values read from the plug-in cache, or
+        /// described during a previous load). The handle keeps the binary loaded until
+        /// kOfxActionUnload: when the plug-in is deleted, or after the scan (see
+        /// Host::keepPluginsLoadedAfterScan()). Returns NULL if OfxSetHost, Load or Describe failed
+        /// (Load and Describe failures are logged on std::cerr, after a failed Describe the plug-in
+        /// gets kOfxActionUnload), and then NULL again while the binary stays loaded. Once the
+        /// binary was unloaded, the next call loads it and tries again: e.g. a Describe that
+        /// returned kOfxStatErrMemory ("describe may be called again after a memory purge").
+        ///
+        /// Not thread-safe: the host must serialize getPluginHandle(), getContext() and
+        /// createInstance() for a plug-in, and not call them during the scan.
         PluginHandle *getPluginHandle();
 
         /// this is called to make an instance of the effect
@@ -120,6 +135,8 @@ namespace OFX {
         ImageEffect::Instance* createInstance(const std::string &context, void *clientDataPtr);
 
       private:
+        /// if the plug-in is loaded: kOfxActionUnload, then release the handle (which may unload the
+        /// binary) and the context descriptors of this load
         void unload();
       };
 

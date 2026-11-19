@@ -94,6 +94,13 @@ namespace OFX {
         /// Function called as each plugin binary is found and loaded from disk
         /// or when it is unloaded.
         ///
+        /// The scan of a plug-in (ImageEffect::PluginCache::loadFromPlugin()) calls it with
+        /// loading=true before it sends kOfxActionLoad and kOfxActionDescribe (and by default
+        /// kOfxActionUnload, see Host::keepPluginsLoadedAfterScan()) to the plug-in, so a host can
+        /// tell which plug-in it is describing. It is called with loading=false when the plug-in is
+        /// deleted (PluginCache::clearPluginCache()). It is not called when the first use of a
+        /// plug-in (ImageEffectPlugin::getPluginHandle()) loads it.
+        ///
         /// Use this in any dialogue etc... showing progress
         /// \arg loading - whether this plugin is loading or unloading
         /// \arg id - the plugin ID

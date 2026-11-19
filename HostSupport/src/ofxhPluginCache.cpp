@@ -328,18 +328,19 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
   if (isInvalid()) {
     return;
   }
-  bool tookSessionRef = false; // the reference taken below, released if OfxSetHost refuses
-
   if (_binary) {
     _fileModificationTime = _binary->getTime();
     _fileSize = _binary->getSize();
     
-    // Take a reference to load the binary only once per session. It will
-    // eventually be unloaded in the destructor (see below).
-    // This avoid lots of useless calls to dlopen()/dlclose().
+    // Take a reference to keep the binary loaded during its scan: the plug-in cache releases it
+    // after the scan (releaseScanReference()), else the destructor does. While a PluginHandle
+    // holds the binary, it stays loaded (Host::keepPluginsLoadedAfterScan()).
     if (!_binary->isLoaded()) {
       _binary->ref();
-      tookSessionRef = true;
+      if (_binary->isLoaded()) {
+        ++_loadGeneration;
+      }
+      _scanRef = true;
     }
   }
 
@@ -364,9 +365,7 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
           _plugins.clear();
           _getNumberOfPlugins = 0; // they would point into the unloaded binary
           _getPluginFunc = 0;
-          if (tookSessionRef) {
-            _binary->unref(); // the session reference taken above: the binary is unloaded
-          }
+          releaseScanReference(); // the reference taken above: the binary is unloaded
           return;
         }
       } else {
@@ -417,13 +416,19 @@ PluginBinary::~PluginBinary() {
     delete *i;
     i++;
   }
-  // release the last reference to the binary, which should unload it
-  // if this reference was taken by loadPluginInfo().
-  if (_binary) {
-    if (_binary->isLoaded()) {
-      _binary->unref();
-    }
-    assert(!_binary->isLoaded());
+  // the plug-ins released their handles: release the reference taken by loadPluginInfo(), if the
+  // scan didn't, which unloads the binary
+  releaseScanReference();
+  assert(!_binary || !_binary->isLoaded());
+}
+
+void PluginBinary::releaseScanReference() {
+  if (_binary && _scanRef) {
+    _scanRef = false;
+    // they point into the binary, which may be loaded at another address next time
+    _getNumberOfPlugins = 0;
+    _getPluginFunc = 0;
+    _binary->unref();
   }
 }
 
@@ -435,6 +440,9 @@ PluginHandle::PluginHandle(Plugin *p, OFX::Host::Host *host)
   const bool freshLoad = _b->_binary && !_b->_binary->isLoaded();
   if (_b->_binary) {
     _b->_binary->ref();
+    if (freshLoad && _b->_binary->isLoaded()) {
+      ++_b->_loadGeneration;
+    }
   }
   _op = 0;
   OfxPlugin* (*getPlug)(int) = 0;
@@ -697,6 +705,8 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
             const APICache::PluginAPICacheI &api = plug->getApiHandler();
             api.loadFromPlugin(plug);
           }
+          // unload the binary, unless its plug-ins hold it (Host::keepPluginsLoadedAfterScan())
+          pb->releaseScanReference();
         } else {
 #ifdef CACHE_DEBUG
           printf("found cached binary %s\n", binpath.c_str());
@@ -820,6 +830,11 @@ void PluginCache::scanPluginFiles()
           std::cerr << "ignoring plugin " << plug->getIdentifier() <<
             " as unsupported (" << reason << ")" << std::endl;
         }
+      }
+
+      if (binChanged) {
+        // the binary was scanned: unload it, unless its plug-ins hold it (Host::keepPluginsLoadedAfterScan())
+        pb->releaseScanReference();
       }
       
       i++;

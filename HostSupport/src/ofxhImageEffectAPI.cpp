@@ -71,6 +71,7 @@ namespace OFX {
         , _madeKnownContexts(false)
         , _pluginHandle()
         , _loadFailed(false)
+        , _failedLoadGeneration(0)
       {
         _baseDescriptor = gImageEffectHost->makeDescriptor(this);
       }
@@ -90,6 +91,7 @@ namespace OFX {
         , _madeKnownContexts(false)
         , _pluginHandle()
         , _loadFailed(false)
+        , _failedLoadGeneration(0)
       {        
         _baseDescriptor = gImageEffectHost->makeDescriptor(this);
       }
@@ -100,11 +102,12 @@ namespace OFX {
 
       ImageEffectPlugin::~ImageEffectPlugin()
       {
+        // first: the descriptor handles are valid "until the end of the kOfxActionUnload action"
+        unload();
         for(std::map<std::string, Descriptor *>::iterator it =  _contexts.begin(); it != _contexts.end(); ++it) {
           delete it->second;
         }
         _contexts.clear();
-        unload();
         delete _baseDescriptor;
       }
 
@@ -204,79 +207,100 @@ namespace OFX {
         // ofxCore.h: kOfxActionLoad "will not be called again while the binary containing the
         // plug-in remains loaded", and kOfxActionDescribe "will not be called again, unless it fails
         // and returns one of the error codes where the host is allowed to attempt the action
-        // again". The handle, kept until the plug-in is deleted, keeps the binary loaded: the plug-in
-        // gets Load and Describe once, and kOfxActionUnload in unload(). After a failure, "no
-        // further actions will be passed to the plug-in".
-        if(!_pluginHandle.get() && !_loadFailed) {
-          _pluginHandle.reset(new OFX::Host::PluginHandle(this, _pc.getHost())); 
-          
-          OfxPlugin *op = _pluginHandle->getOfxPlugin();
-          
-          if (!op) {
-            // OfxSetHost refused this host, or the binary no longer has this plug-in
-            _pluginHandle.reset(NULL);
-            _loadFailed = true;
-            return 0;
+        // again". The handle keeps the binary loaded, until unload(), which sends kOfxActionUnload:
+        // the plug-in gets Load and Describe once per load of the binary. After a failure, "no
+        // further actions will be passed to the plug-in" while the binary stays loaded; once it was
+        // unloaded, the next call loads it again and tries again (e.g. after kOfxStatErrMemory).
+        if (_pluginHandle.get()) {
+          return _pluginHandle.get();
+        }
+        PluginBinary *binary = getBinary();
+        if (_loadFailed && binary->isLoaded() && binary->getLoadGeneration() == _failedLoadGeneration) {
+          return 0;
+        }
+        _loadFailed = false;
+
+        _pluginHandle.reset(new OFX::Host::PluginHandle(this, _pc.getHost())); 
+        
+        OfxPlugin *op = _pluginHandle->getOfxPlugin();
+        
+        if (!op) {
+          // OfxSetHost refused this host (silently: "it's not for this Host and it should be
+          // skipped silently"), or the binary could not be loaded or no longer has this plug-in
+          if (!binary->setHostFailed()) {
+            std::cerr << "OFX: " << getIdentifier() << ": cannot get the plug-in from " << binary->getFilePath() << std::endl;
           }
+          return loadFailed();
+        }
 
-          OfxStatus stat;
-          try {
-#           ifdef OFX_DEBUG_ACTIONS
-              std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionLoad<<"()"<<std::endl;
-#           endif
-            stat = op->mainEntry(kOfxActionLoad, 0, 0, 0);
-#           ifdef OFX_DEBUG_ACTIONS
-              std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionLoad<<"()->"<<StatStr(stat)<<std::endl;
-#           endif
-          } CatchAllSetStatus(stat, gImageEffectHost, op, kOfxActionLoad);
+        OfxStatus stat;
+        try {
+#         ifdef OFX_DEBUG_ACTIONS
+            std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionLoad<<"()"<<std::endl;
+#         endif
+          stat = op->mainEntry(kOfxActionLoad, 0, 0, 0);
+#         ifdef OFX_DEBUG_ACTIONS
+            std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionLoad<<"()->"<<StatStr(stat)<<std::endl;
+#         endif
+        } CatchAllSetStatus(stat, gImageEffectHost, op, kOfxActionLoad);
 
-          if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
-            _pluginHandle.reset(NULL);
-            _loadFailed = true;
-            return 0;
-          }
+        if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+          std::cerr << "OFX: " << getIdentifier() << ": " << kOfxActionLoad << " failed (" << StatStr(stat) << ")" << std::endl;
+          return loadFailed();
+        }
 
-          // The base descriptor may hold the values read from the plug-in cache (the binary was
-          // not loaded when it was read): Describe must start from the initial state of a
-          // descriptor, or the values that the plug-in appends (kOfxImageEffectPropSupportedContexts,
-          // kOfxImageEffectPropSupportedPixelDepths...) would be duplicated. It is reset in place,
-          // because the plug-in "is at liberty to cache the handle away for future reference until
-          // the plug-in is unloaded", and the host may hold references to getDescriptor().
-          // Properties that a fresh descriptor doesn't have (read from an older cache) are kept.
-          Property::Set &props = getDescriptor().getProps();
-          Property::Set cachedProps(props); // restored if Describe fails
+        // The base descriptor may hold the values read from the plug-in cache, or described during
+        // a previous load of the binary: Describe must start from the initial state of a
+        // descriptor, or the values that the plug-in appends (kOfxImageEffectPropSupportedContexts,
+        // kOfxImageEffectPropSupportedPixelDepths...) would be duplicated. It is reset in place,
+        // because the plug-in "is at liberty to cache the handle away for future reference until
+        // the plug-in is unloaded", and the host may hold references to getDescriptor().
+        // Properties that a fresh descriptor doesn't have (read from an older cache) are kept.
+        Property::Set &props = getDescriptor().getProps();
+        auto_ptr<Property::Set> previousProps; // restored if Describe fails
+        try {
+          previousProps.reset(new Property::Set(props));
           {
             auto_ptr<ImageEffect::Descriptor> fresh(gImageEffectHost->makeDescriptor(this));
             copyPropertySetValues(props, fresh->getProps());
           }
+#         ifdef OFX_DEBUG_ACTIONS
+            std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionDescribe<<"()"<<std::endl;
+#         endif
+          stat = op->mainEntry(kOfxActionDescribe, getDescriptor().getHandle(), 0, 0);
+#         ifdef OFX_DEBUG_ACTIONS
+            std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionDescribe<<"()->"<<StatStr(stat)<<std::endl;
+#         endif
+        } CatchAllSetStatus(stat, gImageEffectHost, op, kOfxActionDescribe);
 
-          try {
-#           ifdef OFX_DEBUG_ACTIONS
-              std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionDescribe<<"()"<<std::endl;
-#           endif
-            stat = op->mainEntry(kOfxActionDescribe, getDescriptor().getHandle(), 0, 0);
-#           ifdef OFX_DEBUG_ACTIONS
-              std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionDescribe<<"()->"<<StatStr(stat)<<std::endl;
-#           endif
-          } CatchAllSetStatus(stat, gImageEffectHost, op, kOfxActionDescribe);
-
-          if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
-            copyPropertySetValues(props, cachedProps);
-            // kOfxActionLoad succeeded, so the plug-in may have allocated global
-            // resources: it must get kOfxActionUnload before being dropped.
-            // ("kOfxStatErrMissingHostFeature, in which the plugin will be unloaded and ignored")
-            OfxStatus unloadStat;
+        if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
+          std::cerr << "OFX: " << getIdentifier() << ": " << kOfxActionDescribe << " failed (" << StatStr(stat) << ")" << std::endl;
+          if (previousProps.get()) {
             try {
-              unloadStat = op->mainEntry(kOfxActionUnload, 0, 0, 0);
-            } CatchAllSetStatus(unloadStat, gImageEffectHost, op, kOfxActionUnload);
-            (void)unloadStat;
-            _pluginHandle.reset(NULL);
-            _loadFailed = true;
-            return 0;
+              copyPropertySetValues(props, *previousProps);
+            } catch (...) {
+            }
           }
+          // kOfxActionLoad succeeded, so the plug-in may have allocated global
+          // resources: it must get kOfxActionUnload before being dropped.
+          // ("kOfxStatErrMissingHostFeature, in which the plugin will be unloaded and ignored")
+          OfxStatus unloadStat;
+          try {
+            unloadStat = op->mainEntry(kOfxActionUnload, 0, 0, 0);
+          } CatchAllSetStatus(unloadStat, gImageEffectHost, op, kOfxActionUnload);
+          (void)unloadStat;
+          return loadFailed();
         }
 
         return _pluginHandle.get();
+      }
+
+      PluginHandle *ImageEffectPlugin::loadFailed()
+      {
+        _loadFailed = true;
+        _failedLoadGeneration = getBinary()->getLoadGeneration();
+        _pluginHandle.reset(NULL); // may unload the binary
+        return 0;
       }
 
       Descriptor *ImageEffectPlugin::getContext(const std::string &context) 
@@ -360,6 +384,9 @@ namespace OFX {
 
       void ImageEffectPlugin::unload() {
         if (_pluginHandle.get()) {
+          // kOfxActionUnload: "No other actions will be called", until the binary is loaded again.
+          // The context descriptors of this load are dropped: the next load describes the plug-in
+          // and its contexts again (the plug-in may have cached their handles).
           OfxStatus stat;
           try {
 #           ifdef OFX_DEBUG_ACTIONS
@@ -373,6 +400,11 @@ namespace OFX {
 #           endif
           } CatchAllSetStatus(stat, gImageEffectHost, (*_pluginHandle), kOfxActionUnload);
           (void)stat;
+          _pluginHandle.reset(NULL); // may unload the binary
+          for (std::map<std::string, Descriptor *>::iterator it = _contexts.begin(); it != _contexts.end(); ++it) {
+            delete it->second;
+          }
+          _contexts.clear();
         }
       }
 
@@ -483,14 +515,14 @@ namespace OFX {
           return;
         }
 
-        // kOfxActionLoad, then kOfxActionDescribe, once: the plug-in keeps the handle, so these are
-        // not sent again while the binary stays loaded, and it gets kOfxActionUnload when it is
-        // deleted (ofxCore.h: Load "will not be called again while the binary containing the
-        // plug-in remains loaded"). This used to send Load, Describe and Unload here, then Load and
-        // Describe again on the same descriptor at the first getPluginHandle(), with the binary
-        // still loaded.
+        // kOfxActionLoad, then kOfxActionDescribe (getPluginHandle() logs a failure), inside
+        // loadingStatus(true, ...) above. By default, kOfxActionUnload follows, and the plug-in
+        // cache unloads the binary after the scan of its plug-ins: the first use of the plug-in
+        // loads it again. With Host::keepPluginsLoadedAfterScan(), the plug-in keeps its handle, and
+        // the binary stays loaded until the plug-in is deleted (kOfxActionUnload). Either way,
+        // ofxCore.h: Load "will not be called again while the binary containing the plug-in
+        // remains loaded".
         if (!p->getPluginHandle()) {
-          std::cerr << "load or describe failed on plugin " << op->getIdentifier() << std::endl;
           return;
         }
 
@@ -502,6 +534,11 @@ namespace OFX {
         for (int j=0;j<size;j++) {
           std::string context = eProps.getStringProperty(kOfxImageEffectPropSupportedContexts, j);
           p->addContext(context);
+        }
+
+        // a statically linked plug-in can't be unloaded: it keeps its handle
+        if (!_host->keepPluginsLoadedAfterScan() && !p->getBinary()->isStaticallyLinkedPlugin()) {
+          p->unload();
         }
       }
 

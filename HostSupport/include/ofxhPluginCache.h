@@ -245,6 +245,8 @@ namespace OFX {
       bool _binaryChanged;            ///< whether the timestamp/filesize in this cache is different from that in the actual binary
       bool _binaryInvalid;            ///< whether we could open and stat the binary or not
       bool _setHostFailed;            ///< OfxSetHost returned kOfxStatFailed at the last load of the binary
+      bool _scanRef;                  ///< loadPluginInfo() holds a reference to _binary, see releaseScanReference()
+      int _loadGeneration;            ///< incremented each time _binary is loaded (dlopen)
 
     public :
 
@@ -261,6 +263,8 @@ namespace OFX {
         , _binaryChanged(false)
         , _binaryInvalid(false)
         , _setHostFailed(false)
+        , _scanRef(false)
+        , _loadGeneration(0)
       {
         if (isInvalid()) {
           _binaryInvalid = true;
@@ -283,6 +287,8 @@ namespace OFX {
         , _binaryChanged(false)
         , _binaryInvalid(false)
         , _setHostFailed(false)
+        , _scanRef(false)
+        , _loadGeneration(0)
       {
         if (_binary->isInvalid()) {
           _binaryInvalid = true;
@@ -309,6 +315,8 @@ namespace OFX {
       , _binaryChanged(true)
       , _binaryInvalid(false)
       , _setHostFailed(false)
+      , _scanRef(false)
+      , _loadGeneration(0)
       {
         _binaryInvalid = !Binary::getFileModTimeAndSize(hostAppBinFilePath, _fileModificationTime, _fileSize);
         if (cachedHostAppBinFilePath && cachedFileModificationTime && cachedFileSize) {
@@ -354,6 +362,20 @@ namespace OFX {
       bool isLoaded() const {
         return _binary ? _binary->isLoaded() : true;
       }
+
+      /// incremented each time the binary is loaded (a statically linked binary is always loaded)
+      int getLoadGeneration() const {
+        return _loadGeneration;
+      }
+
+      /// whether OfxSetHost returned kOfxStatFailed at the last load of the binary
+      bool setHostFailed() const {
+        return _setHostFailed;
+      }
+
+      /// Release the reference to the binary that loadPluginInfo() took, so that it is unloaded once
+      /// no PluginHandle holds it. Called by the plug-in cache after the scan of the binary.
+      void releaseScanReference();
         
       bool isInvalid() const {
         return _binaryInvalid;

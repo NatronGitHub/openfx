@@ -90,6 +90,20 @@ namespace OFX {
       /// in OfxSetHost and describe: a host whose answer changes (e.g. with a command-line option)
       /// must also change its plug-in cache version (PluginCache::setCacheVersion()) or file.
       virtual bool supportsOfxSetHost() const { return true; }
+
+      /// Whether the plug-ins found by the scan of the plug-in files (PluginCache::scanPluginFiles(),
+      /// for a binary that is not in the plug-in cache or has changed) stay loaded until the plug-in
+      /// cache is deleted (PluginCache::clearPluginCache()). By default (false), each plug-in of the
+      /// binary gets kOfxActionLoad, kOfxActionDescribe and kOfxActionUnload, and the binary is
+      /// unloaded after the scan: the first use of a plug-in (ImageEffect::ImageEffectPlugin::
+      /// getPluginHandle(), e.g. from createInstance()) loads it again, as for a plug-in known from
+      /// the cache (OfxSetHost, kOfxActionLoad, kOfxActionDescribe). Return true to keep each
+      /// scanned plug-in loaded instead (one kOfxActionLoad and kOfxActionDescribe, and
+      /// kOfxActionUnload when the plug-in cache is deleted): this avoids loading the binaries
+      /// twice, but keeps every scanned plug-in in memory. Statically linked plug-ins are never
+      /// unloaded. Used by the image effect API (ImageEffect::PluginCache), with the host passed to
+      /// its constructor.
+      virtual bool keepPluginsLoadedAfterScan() const { return false; }
       
       /// get the C API handle that is passed across the API to represent this host
       OfxHost *getHandle();
