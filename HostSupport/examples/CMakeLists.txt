@@ -30,5 +30,5 @@ add_executable(suiteHandleChecks
 target_link_libraries(suiteHandleChecks PRIVATE OfxHost)
 
 if(OFX_INSTALL) # (OFF under add_subdirectory(openfx))
-	install(TARGETS hostDemo cacheDemo propsetDump RUNTIME DESTINATION bin)
+	install(TARGETS hostDemo cacheDemo propsetDump suiteHandleChecks RUNTIME DESTINATION bin)
 endif()
