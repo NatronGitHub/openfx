@@ -287,7 +287,9 @@ namespace OFX {
     /** @brief Enum used in the varargs list of the PropertyDescription constructor  */
     enum DescriptionTag {
       eDescDefault,  /** @brief following values are the default to check against */
-      eDescFinished  /** @brief we have finished the description */
+      eDescFinished, /** @brief we have finished the description */
+      eDescIntroduced, /** @brief followed by two ints, the OFX version (major, minor) that introduced the property in this property set (default: 1, 0) */
+      eDescHostOptional /** @brief the host may legitimately not have this property in this property set (OFX "host_optional"), e.g. a host extension */
     };
 
     /** @brief  class to describe properties, check their default and set their values */
@@ -306,6 +308,13 @@ namespace OFX {
       /** @brief The default value that this property should have. Empty implies no default (eg: a host name has no default). */
       std::vector<ValueHolder> _defaultValue; 
 
+      /** @brief OFX version that introduced the property in this property set: hosts of an older OFX version may lack it */
+      int _introducedMajor;
+      int _introducedMinor;
+
+      /** @brief the host may lack this property, whatever its OFX version */
+      bool _hostOptional;
+
     public :
       /** @brief var args constructor that is use to describe properties */
       PropertyDescription(const char *name, OFX::PropertyTypeEnum ilk, int dimension, ...);
@@ -315,6 +324,9 @@ namespace OFX {
 
       /** @brief See if the property exists in the containing property set and has the correct dimension */
       void validate(bool checkDefaults, PropertySet &propSet);
+
+      /** @brief Must the host have this property? Not if it is host optional, or newer than the host's OFX version (kOfxPropAPIVersion) */
+      bool isRequiredByHost() const;
     };
 
     /** @brief Describes a set of properties */
@@ -354,7 +366,7 @@ namespace OFX {
 
     /** @brief Validates the effect descriptor properties */
     void
-      validatePluginDescriptorProperties(PropertySet props);
+      validatePluginDescriptorProperties(PropertySet props, bool checkDefaults = true);
 
     /** @brief Validates the effect instance properties */
     void

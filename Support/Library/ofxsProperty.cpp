@@ -95,7 +95,7 @@ namespace OFX {
     assert(_propHandle != 0);
     int dimension = 0;
     OfxStatus stat = gPropSuite->propGetDimension(_propHandle, property, &dimension);
-    Log::error(stat != kOfxStatOK && stat != kOfxStatErrUnknown, "Failed on fetching dimension for property %s, host returned status %s.", property, mapStatusToString(stat));
+    Log::error(stat != kOfxStatOK && stat != kOfxStatErrUnknown && stat != kOfxStatErrUnsupported, "Failed on fetching dimension for property %s, host returned status %s.", property, mapStatusToString(stat));
     if(throwOnFailure && stat != kOfxStatErrUnknown && stat != kOfxStatErrUnsupported)
       throwPropertyException(stat, property); 
 
@@ -103,6 +103,17 @@ namespace OFX {
       Log::print("Fetched dimension of property %s, returned status %s.",  property, mapStatusToString(stat));
 
     return stat == kOfxStatOK;
+  }
+
+  // a failure worth an ERROR in the log: any failure of a required call (throwOnFailure), and
+  // for optional calls (throwOnFailure=false) every failure but a property the host doesn't know
+  // (e.g. newer than the host's OFX version, or host_optional; kOfxStatErrUnsupported is not a
+  // property suite status, but some hosts return it). kOfxStatErrBadIndex stays an error: it is
+  // also what an off-by-one index gives; read the dimension first when it may be short
+  static inline bool logPropertyFailure(OfxStatus stat, bool throwOnFailure)
+  {
+    return stat != kOfxStatOK &&
+           (throwOnFailure || (stat != kOfxStatErrUnknown && stat != kOfxStatErrUnsupported));
   }
 
   /** @brief, returns the dimension of the given property from this property set */
@@ -114,7 +125,7 @@ namespace OFX {
     assert(_propHandle != 0);
     int dimension = 0;
     OfxStatus stat = gPropSuite->propGetDimension(_propHandle, property, &dimension);
-    Log::error(stat != kOfxStatOK, "Failed on fetching dimension for property %s, host returned status %s.", property, mapStatusToString(stat));
+    Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on fetching dimension for property %s, host returned status %s.", property, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property); 
 
@@ -146,7 +157,7 @@ namespace OFX {
   {
     assert(_propHandle != 0);
     OfxStatus stat = gPropSuite->propSetPointer(_propHandle, property, idx, value);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on setting pointer property %s[%d] to %p, host returned status %s;", 
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on setting pointer property %s[%d] to %p, host returned status %s;", 
       property, idx, value, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property);  
@@ -162,7 +173,7 @@ namespace OFX {
   {
     assert(_propHandle != 0);
     OfxStatus stat = gPropSuite->propSetString(_propHandle, property, idx, value.c_str());
-    OFX::Log::error(stat != kOfxStatOK, "Failed on setting string property %s[%d] to %s, host returned status %s;", 
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on setting string property %s[%d] to %s, host returned status %s;", 
       property, idx, value.c_str(), mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property); 
@@ -178,7 +189,7 @@ namespace OFX {
   {
     assert(_propHandle != 0);
     OfxStatus stat = gPropSuite->propSetDouble(_propHandle, property, idx, value);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on setting double property %s[%d] to %lf, host returned status %s;", 
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on setting double property %s[%d] to %lf, host returned status %s;", 
       property, idx, value, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property); 
@@ -194,7 +205,7 @@ namespace OFX {
   {
     assert(_propHandle != 0);
     OfxStatus stat = gPropSuite->propSetInt(_propHandle, property, idx, value);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on setting int property %s[%d] to %d, host returned status %s (%d);", 
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on setting int property %s[%d] to %d, host returned status %s (%d);", 
       property, idx, value, mapStatusToString(stat), stat);
     if(throwOnFailure)
       throwPropertyException(stat, property); 
@@ -213,7 +224,7 @@ namespace OFX {
       data[i] = values[i].c_str();
     }
     OfxStatus stat = gPropSuite->propSetStringN(_propHandle, property, (int)data.size(), data.empty() ? NULL : &data[0]);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on setting string property %s[0..%d], host returned status %s;",
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on setting string property %s[0..%d], host returned status %s;",
                     property, (int)values.size()-1, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property);
@@ -238,7 +249,7 @@ namespace OFX {
   {
     assert(_propHandle != 0);
     OfxStatus stat = gPropSuite->propSetDoubleN(_propHandle, property, count, values);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on setting double property %s[0..%d], host returned status %s;",
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on setting double property %s[0..%d], host returned status %s;",
       property, count-1, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property); 
@@ -262,7 +273,7 @@ namespace OFX {
     assert(_propHandle != 0);
 
     OfxStatus stat = gPropSuite->propSetIntN(_propHandle, property, count, values);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on setting int property %s[0..%d], host returned status %s;",
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on setting int property %s[0..%d], host returned status %s;",
                     property, count-1, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property);
@@ -280,7 +291,7 @@ namespace OFX {
     assert(_propHandle != 0);
     void *value = 0;
     OfxStatus stat = gPropSuite->propGetPointer(_propHandle, property, idx, &value);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on getting pointer property %s[%d], host returned status %s;", 
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on getting pointer property %s[%d], host returned status %s;", 
       property, idx, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property); 
@@ -299,7 +310,7 @@ namespace OFX {
     assert(_propHandle != 0);
     const char *value = NULL;
     OfxStatus stat = gPropSuite->propGetString(_propHandle, property, idx, &value);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on getting string property %s[%d], host returned status %s;", 
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on getting string property %s[%d], host returned status %s;", 
       property, idx, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property);
@@ -317,7 +328,7 @@ namespace OFX {
     assert(_propHandle != 0);
     double value = 0;
     OfxStatus stat = gPropSuite->propGetDouble(_propHandle, property, idx, &value);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on getting double property %s[%d], host returned status %s;", 
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on getting double property %s[%d], host returned status %s;", 
       property, idx, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property); 
@@ -335,7 +346,7 @@ namespace OFX {
     assert(_propHandle != 0);
     int value = 0;
     OfxStatus stat = gPropSuite->propGetInt(_propHandle, property, idx, &value);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on getting int property %s[%d], host returned status %s;", 
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on getting int property %s[%d], host returned status %s;", 
       property, idx, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property); 
@@ -356,7 +367,7 @@ namespace OFX {
     }
     std::vector<const char*> rawValue(dimension, (char*)0);
     OfxStatus stat = gPropSuite->propGetStringN(_propHandle, property, dimension, &rawValue.front());
-    OFX::Log::error(stat != kOfxStatOK, "Failed on getting string property %s, host returned status %s;",
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on getting string property %s, host returned status %s;",
                       property, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property);
@@ -395,7 +406,7 @@ namespace OFX {
   {
     assert(_propHandle != 0);
     OfxStatus stat = gPropSuite->propGetDoubleN(_propHandle, property, count, values);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on getting double property %s, host returned status %s;",
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on getting double property %s, host returned status %s;",
                     property, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property);
@@ -442,7 +453,7 @@ namespace OFX {
   {
     assert(_propHandle != 0);
     OfxStatus stat = gPropSuite->propGetIntN(_propHandle, property, count, values);
-    OFX::Log::error(stat != kOfxStatOK, "Failed on getting int property %s, host returned status %s;",
+    OFX::Log::error(logPropertyFailure(stat, throwOnFailure), "Failed on getting int property %s, host returned status %s;",
                     property, mapStatusToString(stat));
     if(throwOnFailure)
       throwPropertyException(stat, property);

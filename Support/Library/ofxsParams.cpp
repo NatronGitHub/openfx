@@ -3328,6 +3328,11 @@ namespace OFX {
   {
   }
 
+  StringParam::StringParam(const ParamSet *paramSet, const std::string &name, ParamTypeEnum type, OfxParamHandle handle)
+    : ValueParam(paramSet, name, type, handle)
+  {
+  }
+
   /** @brief set the default value */
   void StringParam::setDefault(const std::string &v)
   {
@@ -3710,9 +3715,8 @@ namespace OFX {
 
   /** @brief hidden constructor */
   StrChoiceParam::StrChoiceParam(const ParamSet* p_ParamSet, const std::string& p_Name, OfxParamHandle p_Handle)
-      : StringParam(p_ParamSet, p_Name, p_Handle)
+      : StringParam(p_ParamSet, p_Name, eStrChoiceParam, p_Handle) // validated as a StrChoice param, not as a String param
   {
-      _paramType = eStrChoiceParam;
   }
 
   /** @brief how many options do we have */

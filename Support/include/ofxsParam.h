@@ -1949,6 +1949,9 @@ namespace OFX {
         /** @brief hidden constructor */
         StringParam(const ParamSet *paramSet, const std::string &name, OfxParamHandle handle);
 
+        /** @brief hidden constructor, for the derived StrChoiceParam */
+        StringParam(const ParamSet *paramSet, const std::string &name, ParamTypeEnum type, OfxParamHandle handle);
+
         friend class ParamSet;
 
     public :
