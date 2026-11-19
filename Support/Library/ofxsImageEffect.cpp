@@ -837,16 +837,16 @@ namespace OFX {
       break;
 #ifdef OFX_EXTENSIONS_NUKE
     case ePixelComponentMotionVectors :
-      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kFnOfxImageComponentMotionVectors, n);
+      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kFnOfxImageComponentMotionVectors, n, false); // an extension: a host may refuse it (e.g. OFX 1.4)
       break;
 
     case ePixelComponentStereoDisparity :
-      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kFnOfxImageComponentStereoDisparity, n);
+      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kFnOfxImageComponentStereoDisparity, n, false); // an extension: a host may refuse it (e.g. OFX 1.4)
       break;
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
     case ePixelComponentXY:
-      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kNatronOfxImageComponentXY, n);
+      _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, kNatronOfxImageComponentXY, n, false); // an extension: a host may refuse it (e.g. OFX 1.4)
       break;
 #endif
     case ePixelComponentCustom :
@@ -858,7 +858,8 @@ namespace OFX {
   void ClipDescriptor::addSupportedComponent(const std::string &comp)
   {
     int n = _clipProps.propGetDimension(kOfxImageEffectPropSupportedComponents);
-    _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, comp, n);
+    // custom or extension components (e.g. Nuke/Natron planes): a host may refuse them (e.g. OFX 1.4)
+    _clipProps.propSetString(kOfxImageEffectPropSupportedComponents, comp, n, false);
 
   }
 
@@ -1312,23 +1313,26 @@ namespace OFX {
   /** @brief Add a pixel depth to those supported */
   void ImageEffectDescriptor::addSupportedOpenGLBitDepth(BitDepthEnum v)
   {
-    int n = _effectProps.propGetDimension(kOfxOpenGLPropPixelDepth);
+    if (!gHostDescription.supportsOpenGLRender) {
+      return; // the host has no OpenGL render suite (e.g. OFX 1.4)
+    }
+    int n = _effectProps.propGetDimension(kOfxOpenGLPropPixelDepth, false);
     switch(v) 
     {
     case eBitDepthNone :
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthNone  , n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthNone  , n, false);
       break;
     case eBitDepthUByte :
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthByte  , n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthByte  , n, false);
       break;
     case eBitDepthUShort :
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthShort  , n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthShort  , n, false);
       break;
     case eBitDepthHalf :
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthHalf  , n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthHalf  , n, false);
       break;
     case eBitDepthFloat :
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthFloat  , n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, kOfxBitDepthFloat  , n, false);
       break;
     default:
       break;
@@ -1616,10 +1620,15 @@ namespace OFX {
   }
 
   void ImageEffectDescriptor::addOpenGLBitDepth(BitDepthEnum v) {
-    int n = _effectProps.propGetDimension(kOfxImageEffectPropSupportedPixelDepths);
+    if (!gHostDescription.supportsOpenGLRender) {
+      return; // the host has no OpenGL render suite (e.g. OFX 1.4)
+    }
+    // append to kOfxOpenGLPropPixelDepth (the index was the dimension of
+    // kOfxImageEffectPropSupportedPixelDepths)
+    int n = _effectProps.propGetDimension(kOfxOpenGLPropPixelDepth, false);
     std::string value = mapBitDepthEnumToStr(v);
     if (!value.empty()) {
-      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, value, n);
+      _effectProps.propSetString(kOfxOpenGLPropPixelDepth, value, n, false);
     }
   }
 #endif
@@ -2475,7 +2484,7 @@ namespace OFX {
       throwSuiteStatusException(kOfxStatErrValue);
     }
 #  endif
-    if (!OFX::Private::gImageEffectPlaneSuiteV2) {
+    if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetRegionOfDefinition) {
       return getRegionOfDefinition(t);
     }
     OfxRectD bounds;
@@ -2495,7 +2504,9 @@ namespace OFX {
     }
 #  endif
     if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane) {
-      throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite"V2");
+      // a host without the plane suite V2 (e.g. OFX 1.4) has a single view: use the V1 suite,
+      // which itself falls back to fetchImage() for the colour plane
+      return fetchImagePlane(t, plane);
     }
     OfxPropertySetHandle imageHandle;
     OfxStatus stat = OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane(_clipHandle, t, view, plane, NULL, &imageHandle);
@@ -2541,7 +2552,9 @@ namespace OFX {
     }
 #  endif
     if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->clipGetImagePlane) {
-      throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite"V2");
+      // a host without the plane suite V2 (e.g. OFX 1.4) has a single view: use the V1 suite,
+      // which itself falls back to fetchImage() for the colour plane
+      return fetchImagePlane(t, plane, bounds);
     }
     OfxPropertySetHandle imageHandle;
 
@@ -2616,6 +2629,9 @@ namespace OFX {
     else
 #endif
     {
+      if (view == 0) {
+        return fetchImage(t); // a host without views (e.g. OFX 1.4) has the main view only
+      }
 #if defined(OFX_EXTENSIONS_VEGAS) && defined(OFX_EXTENSIONS_NUKE)
       throwHostMissingSuiteException(kFnOfxImageEffectPlaneSuite "V2 & " kOfxVegasStereoscopicImageEffectSuite);
 #else
@@ -3848,7 +3864,11 @@ namespace OFX {
     
   std::string ImageEffect::getViewName(int viewIndex) const
   {
-      const char* viewName;
+      if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->getViewName) {
+        // a host without the plane suite V2 (e.g. OFX 1.4) has a single view
+        return viewIndex == 0 ? std::string("Main") : std::string();
+      }
+      const char* viewName = NULL;
       OfxStatus stat = OFX::Private::gImageEffectPlaneSuiteV2->getViewName(_effectHandle, viewIndex, &viewName);
       if(stat == kOfxStatFailed || !viewName) {
           return std::string();
@@ -3859,7 +3879,10 @@ namespace OFX {
     
   int ImageEffect::getViewCount() const
   {
-      int viewCount;
+      if (!OFX::Private::gImageEffectPlaneSuiteV2 || !OFX::Private::gImageEffectPlaneSuiteV2->getViewCount) {
+        return 1; // a host without the plane suite V2 (e.g. OFX 1.4) has a single view
+      }
+      int viewCount = 0;
       OfxStatus stat = OFX::Private::gImageEffectPlaneSuiteV2->getViewCount(_effectHandle, &viewCount);
       if(stat == kOfxStatFailed) {
           return 0;
@@ -4844,6 +4867,10 @@ namespace OFX {
       int numPlanes = inArgs.propGetDimension(kOfxImageEffectPropRenderPlanes, false);
       for (int i = 0; i < numPlanes; ++i) {
         args.planes.push_back(inArgs.propGetString(kOfxImageEffectPropRenderPlanes, i, false));
+      }
+      if (args.planes.empty()) {
+        // a host without the multi-plane extension (e.g. OFX 1.4) renders the colour plane
+        args.planes.push_back(kFnOfxImagePlaneColour);
       }
 #endif
 
