@@ -985,10 +985,25 @@ namespace OFX {
 
      If the host supports the DrawSuite (getImageEffectHostDescription()->supportsDrawSuite),
      the overlay is registered as OverlayInteractV2, and its draw() gets a non-NULL
-     DrawArgs::drawContext, which it MUST use instead of OpenGL ("If this is called via
+     DrawArgs::drawContext if the host passes one (kOfxInteractPropDrawContext), which it MUST
+     use instead of OpenGL ("If this is called via
      kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite").
      Otherwise it is registered as OverlayInteractV1 (same as setOverlayInteractDescriptor()),
      DrawArgs::drawContext is NULL, and draw() must use OpenGL.
+
+     The simplest way to support both: draw only through DrawArgs::getDrawContext(), which
+     uses the DrawSuite for the overlays registered as V2 and OpenGL for the others (see
+     OFX::DrawContext), and make no OpenGL call.
+
+     The registration is recorded per overlay main entry (desc->getMainEntry(), i.e. per
+     descriptor class): don't register the same descriptor class with both
+     setOverlayInteractDescriptor() and setOverlayInteractDescriptorV2(). If it is, V2 wins:
+     both overlays draw with the DrawSuite (never OpenGL, which a V2 host may not have), and a
+     warning is logged (also printed to std::cerr in DEBUG builds). A plug-in that sets
+     kOfxImageEffectPluginPropOverlayInteractV2 itself bypasses this record: getDrawContext()
+     then treats its overlay as V1 (OpenGL).
+     If the host refuses the V2 property, the overlay is registered as V1 (with the same kind of
+     warning).
 
      Returns true if registered as V2.
      */

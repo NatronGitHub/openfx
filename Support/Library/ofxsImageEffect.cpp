@@ -41,6 +41,11 @@ England
 #include <cstring> // for strlen
 #include <sstream> // stringstream
 #include <set>
+#include <vector>
+#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
+#define OFXS_IMAGEEFFECT_CXX11 1
+#include <mutex>
+#endif
 #ifdef DEBUG
 #include <iostream>
 #endif
@@ -1094,11 +1099,128 @@ namespace OFX {
     }
   }
 
+  namespace Private {
+
+    // The registry of the overlay main entries registered as kOfxImageEffectPluginPropOverlayInteractV1
+    // and V2, for DrawArgs::getDrawContext() (ofxsDrawContextOpenGL.cpp), read by the interact
+    // dispatcher (ofxsInteract.cpp). It is in this file, not in ofxsInteract.cpp, because
+    // ImageEffectDescriptor writes it, and some plug-ins link without ofxsInteract.o (e.g. the
+    // openfx-misc CImg plug-ins, whose SUPPORTOBJECTS have no ofxsInteract.o).
+    // Written during describe and cleared at the last kOfxActionUnload; read by the interact
+    // actions. A host may describe one plug-in of a binary while another one draws its overlay,
+    // so the accesses are serialized with a mutex in C++11 (the Support sources are also
+    // C++98-compatible: then there is no lock, and the host must not describe a plug-in while an
+    // overlay of the same binary handles an action).
+    namespace {
+      struct OverlayEntryRecord {
+        OfxPluginEntryPoint *mainEntry;
+        bool v1;
+        bool v2;
+        bool warned; // the V1 + V2 warning was given
+      };
+
+      // heap-allocated and never deleted, so that they are still usable if a host unloads the
+      // plug-ins from its exit-time destructors, after the static objects of this binary
+      std::vector<OverlayEntryRecord> &overlayEntries()
+      {
+        static std::vector<OverlayEntryRecord> *entries = new std::vector<OverlayEntryRecord>;
+        return *entries;
+      }
+
+#ifdef OFXS_IMAGEEFFECT_CXX11
+      std::mutex &overlayEntriesMutex()
+      {
+        static std::mutex *m = new std::mutex;
+        return *m;
+      }
+      struct OverlayEntriesLock {
+        OverlayEntriesLock() { overlayEntriesMutex().lock(); }
+        ~OverlayEntriesLock() { overlayEntriesMutex().unlock(); }
+      };
+#else
+      struct OverlayEntriesLock {
+        OverlayEntriesLock() {}
+      };
+#endif
+
+      void recordOverlayInteract(OfxPluginEntryPoint *mainEntry, bool v2)
+      {
+        if (!mainEntry) {
+          return;
+        }
+        OverlayEntriesLock lock;
+        std::vector<OverlayEntryRecord> &entries = overlayEntries();
+        OverlayEntryRecord *rec = NULL;
+        for (size_t i = 0; i < entries.size(); ++i) {
+          if (entries[i].mainEntry == mainEntry) {
+            rec = &entries[i];
+            break;
+          }
+        }
+        if (!rec) {
+          OverlayEntryRecord r = { mainEntry, false, false, false };
+          entries.push_back(r);
+          rec = &entries.back();
+        }
+        (v2 ? rec->v2 : rec->v1) = true;
+        if (rec->v1 && rec->v2 && !rec->warned) {
+          // e.g. a descriptor template shared by an overlay registered with
+          // setOverlayInteractDescriptor() and one registered with setOverlayInteractDescriptorV2():
+          // both draw with the DrawSuite (V2 wins, so that no V2 overlay draws with OpenGL).
+          // A warning, not an assert: this runs in the host's describe action, and a debug
+          // build must not abort the host's plug-in scan.
+          rec->warned = true;
+          static const char msg[] = "An overlay interact main entry (descriptor class) is registered both as "
+                                    "OverlayInteractV1 and as OverlayInteractV2: DrawArgs::getDrawContext() "
+                                    "uses the DrawSuite for both. Use a separate descriptor class for each.";
+          OFX::Log::warning(true, "%s", msg);
+#ifdef DEBUG
+          // (Log only writes when its log file is open)
+          std::cerr << "OFX Support warning: " << msg << std::endl;
+#endif
+        }
+      }
+    } // namespace
+
+    void setOverlayInteractV1(OfxPluginEntryPoint *mainEntry)
+    {
+      recordOverlayInteract(mainEntry, false);
+    }
+
+    void setOverlayInteractV2(OfxPluginEntryPoint *mainEntry)
+    {
+      recordOverlayInteract(mainEntry, true);
+    }
+
+    bool isOverlayInteractV2(OfxPluginEntryPoint *mainEntry)
+    {
+      if (!mainEntry) {
+        return false;
+      }
+      OverlayEntriesLock lock;
+      const std::vector<OverlayEntryRecord> &entries = overlayEntries();
+      for (size_t i = 0; i < entries.size(); ++i) {
+        if (entries[i].mainEntry == mainEntry) {
+          return entries[i].v2;
+        }
+      }
+      return false;
+    }
+
+    void clearOverlayInteractRegistrations()
+    {
+      OverlayEntriesLock lock;
+      overlayEntries().clear();
+    }
+  } // namespace Private
+
   void ImageEffectDescriptor::setOverlayInteractDescriptor(EffectOverlayDescriptor* desc)
   {
     _overlayDescriptor.reset(desc);
-    if(OFX::gHostDescription.supportsOverlays && desc->getMainEntry())
+    if(OFX::gHostDescription.supportsOverlays && desc->getMainEntry()) {
       _effectProps.propSetPointer(kOfxImageEffectPluginPropOverlayInteractV1, (void*)desc->getMainEntry());
+      OFX::Private::setOverlayInteractV1(desc->getMainEntry());
+    }
   }
 
   bool ImageEffectDescriptor::setOverlayInteractDescriptorV2(EffectOverlayDescriptor* desc)
@@ -1109,9 +1231,32 @@ namespace OFX {
       setOverlayInteractDescriptor(desc);
       return false;
     }
+    if(!OFX::gHostDescription.supportsOverlays || !desc->getMainEntry()) {
+      _overlayDescriptor.reset(desc);
+      return true;
+    }
+    // record V2 only if the host accepted the property; if it refused it, register as V1
+    OfxStatus stat = kOfxStatFailed;
+    if (OFX::Private::gPropSuite && _effectProps.propSetHandle()) {
+      stat = OFX::Private::gPropSuite->propSetPointer(_effectProps.propSetHandle(), kOfxImageEffectPluginPropOverlayInteractV2,
+                                                      0, (void*)desc->getMainEntry());
+    }
+    if (stat != kOfxStatOK) {
+      static const char msg[] = "The host refused kOfxImageEffectPluginPropOverlayInteractV2: the overlay is registered as V1";
+      OFX::Log::warning(true, "%s", msg);
+#ifdef DEBUG
+      static bool printed = false; // (Log only writes when its log file is open)
+      if (!printed) {
+        printed = true;
+        std::cerr << "OFX Support warning: " << msg << std::endl;
+      }
+#endif
+      setOverlayInteractDescriptor(desc);
+      return false;
+    }
     _overlayDescriptor.reset(desc);
-    if(OFX::gHostDescription.supportsOverlays && desc->getMainEntry())
-      _effectProps.propSetPointer(kOfxImageEffectPluginPropOverlayInteractV2, (void*)desc->getMainEntry(), false);
+    // DrawArgs::getDrawContext() then uses the DrawSuite, never OpenGL, for this overlay
+    OFX::Private::setOverlayInteractV2(desc->getMainEntry());
     return true;
   }
 
@@ -4497,6 +4642,8 @@ namespace OFX {
         gMessageSuiteV2 = 0;
         gInteractSuite = 0;
         gDrawSuite = 0;
+        // the overlay registrations (the plug-ins are described again after the next load)
+        clearOverlayInteractRegistrations();
         gParametricParameterSuite = 0;
         gOpenCLProgramSuite = 0;
 #ifdef OFX_EXTENSIONS_NUKE

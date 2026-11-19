@@ -99,6 +99,7 @@ $(OBJECTPATH)/%.o : %.cu
 SUPPORTOBJECTS ?= \
 ofxsMultiThread.o \
 ofxsInteract.o \
+ofxsDrawContextOpenGL.o \
 ofxsProperty.o \
 ofxsLog.o \
 ofxsCore.o \

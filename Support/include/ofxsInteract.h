@@ -9,6 +9,10 @@
     ofxDrawSuite.h is available, and upstream's Support library defines it without this API.
 */
 #define OFXS_SUPPORT_HAS_DRAWCONTEXT 1
+/** @brief Feature macro: defined when this Support library has OFX::DrawArgs::getDrawContext(),
+    the DrawContext that draws with the DrawSuite on V2 overlays and with OpenGL on V1 overlays
+    (Support/Library/ofxsDrawContextOpenGL.cpp), and DrawContext::usesDrawSuite()/usesOpenGL(). */
+#define OFXS_SUPPORT_HAS_DRAWCONTEXT_OPENGL 1
 /*
 OFX Support Library, a library that skins the OFX plug-in API with C++ classes.
 Copyright (C) 2004-2005 The Open Effects Association Ltd
@@ -68,20 +72,95 @@ namespace OFX {
   /** @brief forward declaration */
   class ImageEffect;
 
-  /** @brief Wraps the OFX 1.5 DrawSuite (OfxDrawSuiteV1) for an overlay's draw action.
+  namespace Private {
+    class DrawContextBackend; // ofxsSupportPrivate.h
+    struct DrawArgsAccess;    // ofxsSupportPrivate.h
+  }
 
-   Obtained from DrawArgs::drawContext, which is NULL if the host lacks the DrawSuite.
-   Only valid during the draw action it was passed to. Coordinates are canonical, as for
-   OpenGL overlays. The functions return false (and never throw) if the host reports a
-   failure; see include/ofxDrawSuite.h for the semantics.
+  /** @brief Draws an overlay with the OFX 1.5 DrawSuite (OfxDrawSuiteV1), or with an OpenGL
+   emulation of the DrawSuite.
+
+   There are two ways to get one in an overlay's draw():
+
+   - DrawArgs::getDrawContext() (recommended): always valid. Its backend follows how the overlay
+     was registered, as the spec requires (ofxInteract.h, kOfxInteractActionDraw: "If this is
+     called via kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite. If this
+     is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing SHOULD use OpenGL."):
+     - overlay registered as V2 (ImageEffectDescriptor::setOverlayInteractDescriptorV2() returned
+       true; not if the plug-in set kOfxImageEffectPluginPropOverlayInteractV2 itself): the
+       host's DrawSuite (usesDrawSuite()). If the host passed no kOfxInteractPropDrawContext,
+       nothing is drawn and the functions return false: OpenGL must not be used, the host may
+       not even have an OpenGL context.
+     - overlay registered as V1 (setOverlayInteractDescriptor(), or
+       setOverlayInteractDescriptorV2() on a host without the DrawSuite): OpenGL (usesOpenGL()),
+       even if the host also passed a DrawSuite context.
+     - DrawArgs not made by the Support library's dispatcher (e.g. built by the plug-in from a
+       property set): the DrawSuite if the inArgs have a draw context, else OpenGL.
+     So a plug-in writes a single draw() for all hosts: register the overlay with
+     setOverlayInteractDescriptorV2(), and do all the drawing through getDrawContext(), with no
+     direct OpenGL call.
+   - DrawArgs::drawContext: the host's DrawSuite context, or NULL if the host passed none
+     (unchanged since OFXS_SUPPORT_HAS_DRAWCONTEXT, for the code that tests it and draws with
+     OpenGL when it is NULL, such as SupportExt's OverlayDraw).
+
+   A DrawContext is only valid during the draw action it was passed to (the OpenGL backend
+   draws into the current OpenGL context). The functions never throw: they return false where
+   the DrawSuite would return an error (kOfxStatErrValue for an invalid enum, a point count
+   that is not valid for the primitive, or no text; kOfxStatFailed).
+
+   Coordinates are canonical, as for OpenGL overlays ("The GL_PROJECTION matrix will be set up
+   so that it maps openGL coordinates to canonical image coordinates", ofxInteracts.rst):
+   DrawArgs::pixelScale is the size of a screen pixel in canonical coordinates. The OpenGL
+   backend uses the current OpenGL matrices, which the host sets up that way.
+
+   The OpenGL backend (Support/Library/ofxsDrawContextOpenGL.cpp) emulates the DrawSuite with
+   OpenGL 1.x compatibility-profile calls, and saves and restores all the OpenGL state it
+   changes (glPushAttrib/glPopAttrib around each draw() and drawText()):
+   - its state (colour, line width, stipple) starts as opaque white, width 0, solid, for each
+     draw action. Set the colour before drawing.
+   - setColour: "over" compositing (GL_BLEND with GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA).
+   - setLineWidth: in screen pixels, multiplied by the host's screen pixel ratio
+     (kOfxInteractPropScreenPixelRatio, Natron extension, 1 if absent), since "The host should
+     adjust for screen density". Width 0 is an aliased single-pixel line, any other width a
+     smooth (GL_LINE_SMOOTH) line.
+   - setLineStipple: GL_LINE_STIPPLE, with the patterns (in screen pixels): dot 2 on 2 off,
+     dash 8 on 8 off, alt dash 8 off 8 on, dot dash 2 on 3 off 8 on 3 off.
+   - draw: Lines needs an even point count (as HostSupport's DrawSuite), Rectangle and Ellipse
+     exactly 2 points, Polygon at least 3, the strips and loops at least 2.
+   - Ellipse: a line loop, tessellated so that it is within 1/4 pixel of the ellipse.
+   - getColour: fixed colours (see the table in ofxsDrawContextOpenGL.cpp), close to what the
+     Natron and SupportExt OpenGL overlays use.
+   - drawText: a built-in 5x7 pixel font (printable ASCII; other characters are drawn as '?',
+     control characters are skipped), one font pixel per screen pixel (the text has a constant
+     size on screen), 6 pixels per character, 7 pixels above the baseline and 1 below.
+   The OpenGL backend is not compiled if OFXS_DRAWCONTEXT_NO_OPENGL is defined when compiling
+   ofxsDrawContextOpenGL.cpp (for plug-in binaries built without OpenGL): getDrawContext() on a
+   V1 overlay then draws nothing (canDraw() is false). Plug-ins that call getDrawContext() must
+   compile and link ofxsDrawContextOpenGL.cpp, and link OpenGL (as every OpenGL overlay does).
+   From libOfxSupport.a (CMake's openfx::Support), plug-ins that don't call it link neither;
+   Support/Plugins/Makefile.master's SUPPORTOBJECTS are plain object files, so every plug-in built
+   with it links ofxsDrawContextOpenGL.o and needs the OpenGL headers (it already links OpenGL).
+   The legacy project files (Support/Support.xcodeproj, the .vcproj and .dsp files) are not
+   maintained and don't list ofxsDrawContextOpenGL.cpp.
    */
   class DrawContext {
   public:
-    DrawContext() : _handle(0) {}
-    explicit DrawContext(OfxDrawContextHandle handle) : _handle(handle) {}
+    /** @brief a context that draws nothing */
+    DrawContext();
+    /** @brief a context that draws with the host's DrawSuite (draws nothing if handle is NULL) */
+    explicit DrawContext(OfxDrawContextHandle handle);
 
-    /** @brief the C handle (kOfxInteractPropDrawContext) */
+    /** @brief the C handle (kOfxInteractPropDrawContext), NULL with the OpenGL backend */
     OfxDrawContextHandle getHandle() const { return _handle; }
+
+    /** @brief true if this context draws with the host's DrawSuite */
+    bool usesDrawSuite() const { return _handle != 0; }
+
+    /** @brief true if this context draws with OpenGL (overlay registered as V1) */
+    bool usesOpenGL() const { return _handle == 0 && _openGL != 0; }
+
+    /** @brief false if this context draws nothing (every function then returns false) */
+    bool canDraw() const { return usesDrawSuite() || usesOpenGL(); }
 
     /** @brief get one of the host's standard overlay colours */
     bool getColour(OfxStandardColour stdColour, OfxRGBAColourF &colour) const;
@@ -103,7 +182,17 @@ namespace OFX {
     bool drawText(const std::string &text, const OfxPointD &pos, int alignment = kOfxDrawTextAlignmentLeft | kOfxDrawTextAlignmentBaseline) const;
 
   private:
+    friend class Private::DrawContextBackend;
+    friend struct Private::DrawArgsAccess;
+
     OfxDrawContextHandle _handle;
+    const Private::DrawContextBackend *_openGL; // the OpenGL backend, NULL if none
+    // for the OpenGL backend: the draw action's arguments, and the emulated DrawSuite state
+    OfxPointD _pixelScale;
+    double _screenPixelRatio;
+    mutable OfxRGBAColourF _colour;
+    mutable float _lineWidth;
+    mutable OfxDrawLineStipplePattern _lineStipple;
   };
 
   /// all image effect interacts have these argumens
@@ -145,8 +234,14 @@ namespace OFX {
     /** @brief OFX 1.5 DrawSuite context for this draw action, or NULL if the host doesn't
         provide the DrawSuite. An overlay registered with
         ImageEffectDescriptor::setOverlayInteractDescriptorV2() gets a non-NULL context
-        (and MUST draw with it, not OpenGL) whenever the host supports it. */
+        (and MUST draw with it, not OpenGL) whenever the host supports it.
+        See also getDrawContext(), which falls back to OpenGL for V1 overlays. */
     const DrawContext *drawContext;
+
+    /** @brief The context to draw this overlay with, on any host: the DrawSuite for an
+        overlay registered as V2, OpenGL for an overlay registered as V1 (see DrawContext).
+        Never NULL. Defined in ofxsDrawContextOpenGL.cpp. */
+    const DrawContext &getDrawContext() const;
 
 #ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
     OfxPointD       viewportSize;      /**< @brief The openGL viewport size for the instance */
@@ -155,7 +250,10 @@ namespace OFX {
     OfxRGBColourD   backGroundColour;  /**< @brief The current background colour, ignore the A */
 
   private:
+    friend struct Private::DrawArgsAccess;
     DrawContext     _drawContextStorage; // drawContext points here when valid
+    mutable DrawContext _openGLDrawContext; // getDrawContext() for V1 overlays (it sets the backend)
+    int             _overlayRegistration; // Private::eOverlayRegistration*, set by the dispatcher
   };
 
   /** @brief POD  to pass arguments into OFX::Interact pen actions */

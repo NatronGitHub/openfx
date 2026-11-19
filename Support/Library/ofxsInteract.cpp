@@ -399,18 +399,51 @@ namespace OFX {
   }
 
   ////////////////////////////////////////////////////////////////////////////////
-  // DrawContext: wraps the OFX 1.5 DrawSuite
+  // DrawContext: wraps the OFX 1.5 DrawSuite, or the OpenGL backend (Private::DrawContextBackend,
+  // ofxsDrawContextOpenGL.cpp, only called through virtual functions so that this file has no
+  // reference to it)
+
+  static void initDrawContextState(OfxRGBAColourF &colour, float &lineWidth, OfxDrawLineStipplePattern &lineStipple)
+  {
+    colour.r = colour.g = colour.b = colour.a = 1.f;
+    lineWidth = 0.f;
+    lineStipple = kOfxDrawLineStipplePatternSolid;
+  }
+
+  DrawContext::DrawContext()
+    : _handle(0)
+    , _openGL(0)
+    , _screenPixelRatio(1.)
+  {
+    _pixelScale.x = _pixelScale.y = 1.;
+    initDrawContextState(_colour, _lineWidth, _lineStipple);
+  }
+
+  DrawContext::DrawContext(OfxDrawContextHandle handle)
+    : _handle(handle)
+    , _openGL(0)
+    , _screenPixelRatio(1.)
+  {
+    _pixelScale.x = _pixelScale.y = 1.;
+    initDrawContextState(_colour, _lineWidth, _lineStipple);
+  }
 
   bool DrawContext::getColour(OfxStandardColour stdColour, OfxRGBAColourF &colour) const
   {
-    return _handle && OFX::Private::gDrawSuite &&
-           OFX::Private::gDrawSuite->getColour(_handle, stdColour, &colour) == kOfxStatOK;
+    if (_handle) {
+      return OFX::Private::gDrawSuite &&
+             OFX::Private::gDrawSuite->getColour(_handle, stdColour, &colour) == kOfxStatOK;
+    }
+    return _openGL && _openGL->getColour(*this, stdColour, &colour) == kOfxStatOK;
   }
 
   bool DrawContext::setColour(const OfxRGBAColourF &colour) const
   {
-    return _handle && OFX::Private::gDrawSuite &&
-           OFX::Private::gDrawSuite->setColour(_handle, &colour) == kOfxStatOK;
+    if (_handle) {
+      return OFX::Private::gDrawSuite &&
+             OFX::Private::gDrawSuite->setColour(_handle, &colour) == kOfxStatOK;
+    }
+    return _openGL && _openGL->setColour(*this, &colour) == kOfxStatOK;
   }
 
   bool DrawContext::setColour(float r, float g, float b, float a) const
@@ -422,32 +455,45 @@ namespace OFX {
 
   bool DrawContext::setLineWidth(float width) const
   {
-    return _handle && OFX::Private::gDrawSuite &&
-           OFX::Private::gDrawSuite->setLineWidth(_handle, width) == kOfxStatOK;
+    if (_handle) {
+      return OFX::Private::gDrawSuite &&
+             OFX::Private::gDrawSuite->setLineWidth(_handle, width) == kOfxStatOK;
+    }
+    return _openGL && _openGL->setLineWidth(*this, width) == kOfxStatOK;
   }
 
   bool DrawContext::setLineStipple(OfxDrawLineStipplePattern pattern) const
   {
-    return _handle && OFX::Private::gDrawSuite &&
-           OFX::Private::gDrawSuite->setLineStipple(_handle, pattern) == kOfxStatOK;
+    if (_handle) {
+      return OFX::Private::gDrawSuite &&
+             OFX::Private::gDrawSuite->setLineStipple(_handle, pattern) == kOfxStatOK;
+    }
+    return _openGL && _openGL->setLineStipple(*this, pattern) == kOfxStatOK;
   }
 
   bool DrawContext::draw(OfxDrawPrimitive primitive, const OfxPointD *points, int pointCount) const
   {
-    return _handle && OFX::Private::gDrawSuite &&
-           OFX::Private::gDrawSuite->draw(_handle, primitive, points, pointCount) == kOfxStatOK;
+    if (_handle) {
+      return OFX::Private::gDrawSuite &&
+             OFX::Private::gDrawSuite->draw(_handle, primitive, points, pointCount) == kOfxStatOK;
+    }
+    return _openGL && _openGL->draw(*this, primitive, points, pointCount) == kOfxStatOK;
   }
 
   bool DrawContext::drawText(const std::string &text, const OfxPointD &pos, int alignment) const
   {
-    return _handle && OFX::Private::gDrawSuite &&
-           OFX::Private::gDrawSuite->drawText(_handle, text.c_str(), &pos, alignment) == kOfxStatOK;
+    if (_handle) {
+      return OFX::Private::gDrawSuite &&
+             OFX::Private::gDrawSuite->drawText(_handle, text.c_str(), &pos, alignment) == kOfxStatOK;
+    }
+    return _openGL && _openGL->drawText(*this, text.c_str(), &pos, alignment) == kOfxStatOK;
   }
 
   /** @brief ctor */
   DrawArgs::DrawArgs(const PropertySet &props)
     : InteractArgs(props)
     , drawContext(NULL)
+    , _overlayRegistration(Private::eOverlayRegistrationUnknown)
   {
     // OFX 1.5 DrawSuite: kOfxInteractPropDrawContext in the draw action inArgs
     OfxDrawContextHandle handle = NULL;
@@ -464,6 +510,15 @@ namespace OFX {
 #endif
     backGroundColour = getBackgroundColour(props);
     pixelScale       = getPixelScale(props);
+    // the OpenGL backend's context (its backend is set by getDrawContext())
+    // (kOfxInteractPropScreenPixelRatio, Natron extension: 0 if the host doesn't set it, the
+    // backend then uses 1)
+#ifdef OFX_EXTENSIONS_NATRON
+    const double ratio = screenPixelRatio;
+#else
+    const double ratio = 1.;
+#endif
+    Private::DrawArgsAccess::initOpenGLContext(_openGLDrawContext, pixelScale, ratio);
   }
 
   DrawArgs::DrawArgs(const DrawArgs &other)
@@ -475,6 +530,8 @@ namespace OFX {
     , pixelScale(other.pixelScale)
     , backGroundColour(other.backGroundColour)
     , _drawContextStorage(other._drawContextStorage)
+    , _openGLDrawContext(other._openGLDrawContext)
+    , _overlayRegistration(other._overlayRegistration)
   {
     if (other.drawContext) {
       drawContext = &_drawContextStorage;
@@ -490,6 +547,8 @@ namespace OFX {
     pixelScale = other.pixelScale;
     backGroundColour = other.backGroundColour;
     _drawContextStorage = other._drawContextStorage;
+    _openGLDrawContext = other._openGLDrawContext;
+    _overlayRegistration = other._overlayRegistration;
     drawContext = other.drawContext ? &_drawContextStorage : NULL;
     return *this;
   }
@@ -584,6 +643,7 @@ namespace OFX {
   }
 
   namespace Private {
+
     /** @brief fetches our pointer out of the props on the handle */
     static
     Interact *retrieveInteractPointer(OfxInteractHandle handle)
@@ -618,7 +678,8 @@ namespace OFX {
       interactMainEntry(const std::string     &action,
       OfxInteractHandle      handle,
       PropertySet              inArgs,
-      PropertySet              /*outArgs*/)
+      PropertySet              /*outArgs*/,
+      OverlayRegistrationEnum  registration)
     {
       OfxStatus stat = kOfxStatReplyDefault;
 
@@ -668,6 +729,8 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NATRON
         drawArgs.keyModifiers = keyModifiers;
 #endif
+        // the backend of drawArgs.getDrawContext()
+        DrawArgsAccess::setOverlayRegistration(drawArgs, registration);
         if(interact->draw(drawArgs))
           stat = kOfxStatOK;
       }
@@ -798,7 +861,11 @@ namespace OFX {
           stat = kOfxStatOK;
         }
         else {
-          stat = interactMainEntry(action, handle, inArgs, outArgs);
+          // V2 if this main entry was registered as kOfxImageEffectPluginPropOverlayInteractV2
+          // (V1 for the other overlays and for parameter interacts)
+          const OverlayRegistrationEnum registration =
+            isOverlayInteractV2(desc.getMainEntry()) ? eOverlayRegistrationV2 : eOverlayRegistrationV1;
+          stat = interactMainEntry(action, handle, inArgs, outArgs, registration);
         }
 
       }
