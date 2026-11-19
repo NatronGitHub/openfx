@@ -19,6 +19,12 @@
   glad, Qt's getProcAddress, ...). So it compiles without the OpenGL headers and links no
   OpenGL.
 
+  Visibility: the functions are inline, with external linkage, and ScopedGLState is a class, so
+  every binary that uses this header has its own copy. Plug-ins (and hosts that load plug-ins
+  built with other versions of it) must keep hidden visibility (-fvisibility=hidden, as the
+  Support library, Makefile.master and cmake/OpenFX.cmake do, and the export lists), so that the
+  dynamic linker never binds one binary's copy to another's.
+
   The caller must make an OpenGL context current, with the GL_PROJECTION and GL_MODELVIEW
   matrices of the overlay (canonical coordinates: "The GL_PROJECTION matrix will be set up so
   that it maps openGL coordinates to canonical image coordinates. The GL_MODELVIEW matrix will be
@@ -201,7 +207,11 @@ namespace OFX {
     }
 
     /** @brief Fill gl with resolver ("glBegin", "glEnd", ...: the OpenGL names). Every function is
-        set (NULL if the resolver doesn't find it). Returns isComplete(gl). */
+        set (NULL if the resolver doesn't find it). Returns isComplete(gl).
+        On Windows, wglGetProcAddress returns NULL for the OpenGL 1.1 functions (opengl32.dll
+        exports them, it only returns extension and later-version functions): a resolver must use
+        GetProcAddress on opengl32.dll, or a loader that falls back to it (glad, Qt's
+        QOpenGLContext::getProcAddress). */
     inline bool loadGLFunctions(GLFunctions &gl, GLProcResolver resolver, void *userData)
     {
       bool ok = true;
@@ -279,7 +289,9 @@ namespace OFX {
       return kOfxStatOK;
     }
 
-    /** @brief setColour: kOfxStatErrValue for NULL (as HostSupport's DrawSuite) */
+    /** @brief setColour: kOfxStatErrValue for NULL (as HostSupport's DrawSuite). The spec lists
+        only kOfxStatOK and kOfxStatFailed for setColour: kOfxStatErrValue is deliberate, the
+        behaviour of Support's OpenGL backend and of HostSupport's DrawSuite before this header. */
     inline OfxStatus setColour(State &state, const OfxRGBAColourF *colour)
     {
       if (!colour) {
