@@ -2116,12 +2116,75 @@ namespace OFX {
 
       BytesInstance::BytesInstance(Descriptor& descriptor, Param::SetInstance* instance)
         : Instance(descriptor, instance)
+        , _copyingDefault(false)
       {
+        _bytesDefault.data = NULL;
+        _bytesDefault.length = 0;
         // kOfxParamPropDefault: "pointer to OfxBytes struct of one dimension, or nullptr".
-        // The data belongs to the plug-in, so keep a copy.
-        const OfxBytes *def = (const OfxBytes *)getProperties().getPointerProperty(kOfxParamPropDefault);
-        if (def && def->data && def->length > 0) {
-          _defaultValue.assign(def->data, def->data + def->length);
+        // The property was copied from the descriptor, and points to its copy: point it to ours.
+        try {
+          (void)copyDefault();
+        } catch (const Property::Exception &) {
+          // the property could not be set, and still points to the descriptor's copy
+        }
+      }
+
+      /// copy the OfxBytes that kOfxParamPropDefault points to, and point the property to the copy.
+      /// Returns kOfxStatOK, or kOfxStatErrValue ({NULL, length > 0}, as setV) or kOfxStatErrMemory
+      /// (the copy failed) with a NULL default. Throws Property::Exception(kOfxStatFailed) if the
+      /// property cannot be set. Same rules as the descriptor's copy (Descriptor::BytesDefaultHook).
+      OfxStatus BytesInstance::copyDefault() OFX_EXCEPTION_SPEC
+      {
+        Property::Set &props = getProperties();
+        const OfxBytes *def = (const OfxBytes *)props.getPointerProperty(kOfxParamPropDefault);
+        if (def == &_bytesDefault) {
+          return kOfxStatOK; // already the copy
+        }
+        OfxStatus stat = kOfxStatOK;
+        try {
+          if (def && !def->data && def->length > 0) {
+            stat = kOfxStatErrValue; // no data, but a length: as setV
+          } else if (def && def->data && def->length > 0) {
+            _defaultValue.assign(def->data, def->data + def->length);
+          } else {
+            _defaultValue.clear();
+          }
+        } catch (...) {
+          stat = kOfxStatErrMemory; // e.g. bad_alloc or length_error for a garbage length
+        }
+        if (stat != kOfxStatOK) {
+          // never keep the plug-in's pointer, which may be freed: the default becomes NULL
+          _defaultValue.clear();
+          def = NULL;
+        }
+        _bytesDefault.data = _defaultValue.empty() ? NULL : &_defaultValue[0];
+        _bytesDefault.length = _defaultValue.size();
+        // a NULL default stays NULL ("pointer to OfxBytes struct of one dimension, or nullptr")
+        _copyingDefault = true;
+        try {
+          props.setPointerProperty(kOfxParamPropDefault, def ? (void*)&_bytesDefault : NULL);
+        } catch (...) {
+          _copyingDefault = false;
+          throw Property::Exception(kOfxStatFailed);
+        }
+        _copyingDefault = false;
+        return stat;
+      }
+
+      void BytesInstance::notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC
+      {
+        if (name != kOfxParamPropDefault) {
+          Instance::notify(name, single, num);
+          return;
+        }
+        if (_copyingDefault) {
+          return; // the property is being pointed to the copy: setDefault() is called once, below
+        }
+        // copy first, so that setDefault(), which may be overridden, sees the copy
+        const OfxStatus stat = copyDefault();
+        Instance::notify(name, single, num);
+        if (stat != kOfxStatOK) {
+          throw Property::Exception(stat);
         }
       }
 

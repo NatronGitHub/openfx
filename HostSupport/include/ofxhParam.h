@@ -735,12 +735,27 @@ namespace OFX {
       /// kOfxStatErrUnsupported.
       class BytesInstance : public Instance, public KeyframeParam {
         std::vector<unsigned char> _defaultValue; ///< copy of the default value
+        OfxBytes _bytesDefault;                   ///< what kOfxParamPropDefault points to: _defaultValue, or nothing
+        bool _copyingDefault;                     ///< kOfxParamPropDefault is being pointed to _bytesDefault
         std::vector<unsigned char> _returnValue;  ///< storage for the data returned by getV
+        // not copyable: the default property points to _bytesDefault
+        BytesInstance(const BytesInstance &);
+        BytesInstance &operator=(const BytesInstance &);
+
+        /// copy the OfxBytes that kOfxParamPropDefault points to, and point the property to the copy
+        OfxStatus copyDefault() OFX_EXCEPTION_SPEC;
       public:
         BytesInstance(Descriptor& descriptor, Param::SetInstance* instance = 0);
 
-        /// the default value, copied from kOfxParamPropDefault when the instance was created
+        /// the default value. kOfxParamPropDefault points to the plug-in's OfxBytes, whose data may be
+        /// freed after the call that sets it (e.g. a buffer on the stack), so the instance keeps a copy,
+        /// made when it is created and each time the plug-in sets the property, and the property
+        /// points to the copy (as Descriptor does)
         const std::vector<unsigned char>& getDefault() const { return _defaultValue; }
+
+        /// overridden from Instance: copies the default (see getDefault()), then calls Instance::notify(),
+        /// so setDefault() sees the copy, in getDefault() and in kOfxParamPropDefault
+        virtual void notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC;
 
         // Deriving implementation needs to override these. In set(), the data is only valid
         // during the call: copy it.
