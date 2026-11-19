@@ -1,0 +1,11 @@
+CXXFLAGS = -I../../include -I../include
+OPTIMIZER = -g
+
+metal.ofx : metal.o kernel.o
+	$(CXX) -bundle metal.o kernel.o -o metal.ofx -framework Metal -framework Foundation -framework QuartzCore
+	mkdir -p metal.ofx.bundle/Contents/MacOS/
+	cp metal.ofx metal.ofx.bundle/Contents/MacOS/
+
+kernel.o : kernel.mm
+	$(CXX) $(CXXFLAGS) -x objective-c++ -c kernel.mm -o kernel.o
+
