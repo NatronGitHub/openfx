@@ -973,7 +973,7 @@ namespace OFX {
     throwSuiteStatusException(stat);
     _effectProps.propSetHandle(props);
 
-    OFX::Validation::validatePluginDescriptorProperties(props);
+    // (the descriptor properties are validated by mainEntry: their defaults only in kOfxActionDescribe)
 
     // fetch the param set handle and set it in our ParamSetDescriptor base
     OfxParamSetHandle paramSetHandle;
@@ -5831,8 +5831,9 @@ namespace OFX {
           std::string contextStr = inArgs.propGetString(kOfxImageEffectPropContext);
           ContextEnum context = mapToContextEnum(contextStr);
 
-          // validate the host
-          OFX::Validation::validatePluginDescriptorProperties(fetchEffectProps(handle));
+          // validate the host. Not the defaults: "this may or may not be the same [handle] as passed
+          // to kOfxActionDescribe", where the plug-in set the descriptor properties
+          OFX::Validation::validatePluginDescriptorProperties(fetchEffectProps(handle), false);
 
           // call plugin describe in context
           factory->describeInContext(*desc, context);

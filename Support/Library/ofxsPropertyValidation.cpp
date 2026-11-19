@@ -108,6 +108,9 @@ namespace OFX {
       : _name(name)
       , _dimension(dimension)
       , _ilk(ilk)
+      , _introducedMajor(1)
+      , _introducedMinor(0)
+      , _hostOptional(false)
     {      
       // go through the var args to extract defaults to check against and values to set to
       va_list argp;
@@ -124,6 +127,15 @@ namespace OFX {
           setVectorFromVarArgs(ilk, dimension, argp, _defaultValue);
           break;
 
+        case eDescIntroduced : // the OFX version that introduced the property in this set
+          _introducedMajor = va_arg(argp, int);
+          _introducedMinor = va_arg(argp, int);
+          break;
+
+        case eDescHostOptional : // the host may not have it
+          _hostOptional = true;
+          break;
+
         case eDescFinished : // we are finished
         default :
           going = false;
@@ -135,11 +147,36 @@ namespace OFX {
     }
 
 
+    /** @brief Must the host have this property? */
+    bool
+      PropertyDescription::isRequiredByHost() const
+    {
+      if(_hostOptional)
+        return false;
+      // the host's OFX version, from kOfxPropAPIVersion (OFX 1.2). Without it, the host
+      // is an OFX 1.0 or 1.1 host: take the lowest one, 1.0, so that a 1.1 property is not
+      // required from it
+      int hostMajor = 1;
+      int hostMinor = 0;
+      const ImageEffectHostDescription *hostDesc = getImageEffectHostDescription();
+      if(hostDesc) {
+        hostMajor = hostDesc->APIVersionMajor;
+        hostMinor = hostDesc->APIVersionMinor;
+      }
+      return hostMajor > _introducedMajor || (hostMajor == _introducedMajor && hostMinor >= _introducedMinor);
+    }
+
     /** @brief See if the property exists in the containing property set and has the correct dimension */
     void 
       PropertyDescription::validate(bool checkDefaults,
       PropertySet &propSet)
     {
+      // a property that the host may lack (host optional, or newer than the host's OFX
+      // version) is only validated if the host has it
+      if(!isRequiredByHost() && !propSet.propExists(_name.c_str(), false)) {
+        return;
+      }
+
       // see if it exists by fetching the dimension, 
 
       try {
@@ -291,8 +328,18 @@ namespace OFX {
     }
 
 
-    /** @brief A list of properties that all hosts must have, and will be validated against. None of these has a default, but they must exist.
-        Only OFX 1.4 properties: the plug-ins must also work in OFX 1.4 hosts. */
+    // In all the property set descriptions below, a missing property is an error, except if the
+    // host may lack it (PropertyDescription::isRequiredByHost()):
+    // - eDescHostOptional: "host_optional=true" in the @propset lists of the upstream OFX headers,
+    //   a property removed from the standard, or a host extension property (which no OFX version has)
+    // - eDescIntroduced, major, minor: an OFX version newer than the host's kOfxPropAPIVersion.
+    //   It is the first release tag (OFX_Release_1_0_TAG, 1_1, 1_2_0, 1_3, 1_4, 1.5) whose
+    //   include/ headers define the property, or whose documentation lists it in this property set
+    //   (Documentation/ofxPropertiesByObject.xml, Documentation/apiChanges_1_2_Chapter.xml, the
+    //   "V1.4:" notes of the 1.4 headers, the "since Version 1.5" notes of the 1.5 headers).
+    //   Without eDescIntroduced: OFX 1.0.
+
+    /** @brief A list of properties of the host, that will be validated against. None of these has a default. */
     static PropertyDescription gHostProps[ ] =
     {
       // single dimensional string properties
@@ -313,8 +360,7 @@ namespace OFX {
       PropertyDescription(kOfxParamHostPropSupportsStringAnimation,      OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxParamHostPropSupportsCustomInteract,       OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxParamHostPropSupportsChoiceAnimation,      OFX::eInt, 1, eDescFinished),
-      // not kOfxParamHostPropSupportsStrChoiceAnimation: it is an OFX 1.5 property, which OFX 1.4
-      // hosts don't have (this list has only properties that every host has)
+      PropertyDescription(kOfxParamHostPropSupportsStrChoiceAnimation,   OFX::eInt, 1, eDescIntroduced, 1, 5, eDescHostOptional, eDescFinished),
       PropertyDescription(kOfxParamHostPropSupportsBooleanAnimation,     OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxParamHostPropSupportsCustomAnimation,      OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxParamHostPropMaxParameters,                OFX::eInt, 1, eDescFinished),
@@ -346,11 +392,11 @@ namespace OFX {
 
       // string props with defaults that can be checked against
       PropertyDescription(kOfxPropType,                             OFX::eString, 1, eDescDefault, kOfxTypeImageEffect, eDescFinished),
-      PropertyDescription(kOfxImageEffectPluginRenderThreadSafety,  OFX::eString, 1, eDescDefault, kOfxImageEffectRenderFullySafe, eDescFinished),
+      PropertyDescription(kOfxImageEffectPluginRenderThreadSafety,  OFX::eString, 1, eDescDefault, kOfxImageEffectRenderInstanceSafe, eDescFinished),
 
       // int props with defaults that can be checked against
       PropertyDescription(kOfxImageEffectPluginPropSingleInstance,         OFX::eInt, 1, eDescDefault, 0, eDescFinished),
-      PropertyDescription(kOfxImageEffectPluginPropHostFrameThreading,     OFX::eInt, 1, eDescDefault, 0, eDescFinished),
+      PropertyDescription(kOfxImageEffectPluginPropHostFrameThreading,     OFX::eInt, 1, eDescDefault, 1, eDescFinished),
       PropertyDescription(kOfxImageEffectPropSupportsMultiResolution,      OFX::eInt, 1, eDescDefault, 1, eDescFinished),
       PropertyDescription(kOfxImageEffectInstancePropSequentialRender,     OFX::eInt, 1, eDescDefault, 0, eDescFinished),
       PropertyDescription(kOfxImageEffectPropSupportsTiles,                OFX::eInt, 1, eDescDefault, 1, eDescFinished),
@@ -361,7 +407,7 @@ namespace OFX {
 
       // Pointer props with defaults that can be checked against
       PropertyDescription(kOfxImageEffectPluginPropOverlayInteractV1,      OFX::ePointer, 1, eDescDefault, NULLPTR, eDescFinished),
-      PropertyDescription(kOfxImageEffectPluginPropOverlayInteractV2,      OFX::ePointer, 1, eDescDefault, NULLPTR, eDescFinished),
+      PropertyDescription(kOfxImageEffectPluginPropOverlayInteractV2,      OFX::ePointer, 1, eDescDefault, NULLPTR, eDescIntroduced, 1, 5, eDescFinished),
 
       // string props that have variable dimension, and can't be checked against for defaults
       PropertyDescription(kOfxImageEffectPropSupportedContexts,  OFX::eString, -1, eDescFinished),
@@ -380,12 +426,11 @@ namespace OFX {
       // string props with defaults that can be checked against
       PropertyDescription(kOfxPropType,                                OFX::eString,  1, eDescDefault, kOfxTypeImageEffectInstance, eDescFinished),
 
-      // int props with defaults that can be checked against
-      PropertyDescription(kOfxImageEffectInstancePropSequentialRender, OFX::eInt,     1, eDescDefault, 0, eDescFinished),
-      PropertyDescription(kOfxImageEffectPropSupportsTiles,            OFX::eInt,     1, eDescDefault, 1, eDescFinished),
-
-      // Pointer props with defaults that can be checked against
-      PropertyDescription(kOfxPropInstanceData,                        OFX::ePointer, 1, eDescDefault, NULLPTR, eDescFinished),
+      // int and pointer props without defaults to check against: the instance is validated after
+      // the plug-in set kOfxPropInstanceData, and the host copies the other ones from the descriptor
+      PropertyDescription(kOfxImageEffectInstancePropSequentialRender, OFX::eInt,     1, eDescFinished),
+      PropertyDescription(kOfxImageEffectPropSupportsTiles,            OFX::eInt,     1, eDescIntroduced, 1, 4, eDescFinished),
+      PropertyDescription(kOfxPropInstanceData,                        OFX::ePointer, 1, eDescFinished),
       PropertyDescription(kOfxImageEffectPropPluginHandle,             OFX::ePointer, 1, eDescFinished),
 
       // string props that have no defaults that can be checked against
@@ -567,8 +612,8 @@ namespace OFX {
     static PropertyDescription gTextureInstanceProps[ ] =
     {
       // pointer props
-      PropertyDescription(kOfxImageEffectPropOpenGLTextureIndex, OFX::eInt, 1, eDescFinished),
-      PropertyDescription(kOfxImageEffectPropOpenGLTextureTarget, OFX::eInt, 1, eDescFinished),
+      PropertyDescription(kOfxImageEffectPropOpenGLTextureIndex, OFX::eInt, 1, eDescIntroduced, 1, 3, eDescFinished),
+      PropertyDescription(kOfxImageEffectPropOpenGLTextureTarget, OFX::eInt, 1, eDescIntroduced, 1, 3, eDescFinished),
     };
 
     /** @brief the property set for an image instance */
@@ -599,11 +644,10 @@ namespace OFX {
       PropertyDescription(kOfxImageEffectPropRenderScale,   OFX::eDouble, 2, eDescFinished),
       PropertyDescription(kOfxImageEffectPropRenderWindow,  OFX::eInt,    4, eDescFinished),
       PropertyDescription(kOfxImageEffectPropFieldToRender, OFX::eString, 1, eDescFinished),
-      // The following appeared in OFX 1.2, and are thus not mandatory
-      //PropertyDescription(kOfxImageEffectPropSequentialRenderStatus,  OFX::eInt,    1, eDescFinished),
-      //PropertyDescription(kOfxImageEffectPropInteractiveRenderStatus, OFX::eInt,    1, eDescFinished),
-      // The following appeared in OFX 1.4,  and is thus not mandatory
-      //PropertyDescription(kOfxImageEffectPropRenderQualityDraft, OFX::eInt,    1, eDescFinished),
+      PropertyDescription(kOfxImageEffectPropSequentialRenderStatus,  OFX::eInt,    1, eDescIntroduced, 1, 2, eDescFinished),
+      PropertyDescription(kOfxImageEffectPropInteractiveRenderStatus, OFX::eInt,    1, eDescIntroduced, 1, 2, eDescFinished),
+      // "If an host does not support that property a value of 0 is assumed."
+      PropertyDescription(kOfxImageEffectPropRenderQualityDraft,      OFX::eInt,    1, eDescIntroduced, 1, 4, eDescHostOptional, eDescFinished),
     };
 
     /** @brief kOfxImageEffectActionRender property set */
@@ -618,9 +662,8 @@ namespace OFX {
       PropertyDescription(kOfxImageEffectPropFrameStep,   OFX::eDouble, 1, eDescFinished),
       PropertyDescription(kOfxImageEffectPropRenderScale, OFX::eDouble, 2, eDescFinished),
       PropertyDescription(kOfxPropIsInteractive,          OFX::eInt, 1, eDescFinished),
-      // The following appeared in OFX 1.2, and are thus not mandatory
-      //PropertyDescription(kOfxImageEffectPropSequentialRenderStatus,  OFX::eInt,    1, eDescFinished),
-      //PropertyDescription(kOfxImageEffectPropInteractiveRenderStatus, OFX::eInt,    1, eDescFinished),
+      PropertyDescription(kOfxImageEffectPropSequentialRenderStatus,  OFX::eInt,    1, eDescIntroduced, 1, 2, eDescFinished),
+      PropertyDescription(kOfxImageEffectPropInteractiveRenderStatus, OFX::eInt,    1, eDescIntroduced, 1, 2, eDescFinished),
     };
 
     /** @brief kOfxImageEffectActionBeginSequenceRender property set */
@@ -635,9 +678,8 @@ namespace OFX {
       PropertyDescription(kOfxImageEffectPropFrameStep,   OFX::eDouble, 1, eDescFinished),
       PropertyDescription(kOfxImageEffectPropRenderScale, OFX::eDouble, 2, eDescFinished),
       PropertyDescription(kOfxPropIsInteractive,          OFX::eInt, 1, eDescFinished),
-      // The following appeared in OFX 1.2, and are thus not mandatory
-      //PropertyDescription(kOfxImageEffectPropSequentialRenderStatus,  OFX::eInt,    1, eDescFinished),
-      //PropertyDescription(kOfxImageEffectPropInteractiveRenderStatus, OFX::eInt,    1, eDescFinished),
+      PropertyDescription(kOfxImageEffectPropSequentialRenderStatus,  OFX::eInt,    1, eDescIntroduced, 1, 2, eDescFinished),
+      PropertyDescription(kOfxImageEffectPropInteractiveRenderStatus, OFX::eInt,    1, eDescIntroduced, 1, 2, eDescFinished),
     };
 
     /** @brief kOfxImageEffectActionEndSequenceRender property set */
@@ -815,7 +857,7 @@ namespace OFX {
       PropertyDescription(kOfxParamPropPersistent,                OFX::eInt,    1, eDescDefault, 1, eDescFinished),
       PropertyDescription(kOfxParamPropEvaluateOnChange,          OFX::eInt,    1, eDescDefault, 1, eDescFinished),
 #    ifdef kOfxParamPropPluginMayWrite
-      PropertyDescription(kOfxParamPropPluginMayWrite,            OFX::eInt,    1, eDescDefault, 0, eDescFinished), // removed in OFX 1.4
+      PropertyDescription(kOfxParamPropPluginMayWrite,            OFX::eInt,    1, eDescDefault, 0, eDescHostOptional, eDescFinished), // removed in OFX 1.4
 #    endif
       PropertyDescription(kOfxParamPropCacheInvalidation,         OFX::eString, 1, eDescDefault, kOfxParamInvalidateValueChange, eDescFinished),
       PropertyDescription(kOfxParamPropCanUndo,                   OFX::eInt,    1, eDescDefault, 1, eDescFinished),
@@ -890,7 +932,7 @@ namespace OFX {
     {
       PropertyDescription(kOfxParamPropDefault,              OFX::eString,  1, eDescFinished),
       PropertyDescription(kOfxParamPropAnimates,             OFX::eInt,     1, eDescDefault, 0, eDescFinished),
-      PropertyDescription(kOfxParamPropChoiceEnum,           OFX::eString, -1, eDescFinished),
+      PropertyDescription(kOfxParamPropChoiceEnum,           OFX::eString, -1, eDescIntroduced, 1, 5, eDescFinished),
       PropertyDescription(kOfxParamPropChoiceOption,         OFX::eString, -1, eDescFinished),
     };
 
@@ -975,7 +1017,7 @@ namespace OFX {
     /** @brief properties for a group param */
     static PropertyDescription gGroupParamProps[ ] =
     {
-      PropertyDescription(kOfxParamPropGroupOpen,           OFX::eInt, 1, eDescFinished),
+      PropertyDescription(kOfxParamPropGroupOpen,           OFX::eInt, 1, eDescIntroduced, 1, 2, eDescFinished),
     };
 
     /** @brief properties for a page param */
@@ -989,10 +1031,10 @@ namespace OFX {
     {
       PropertyDescription(kOfxParamPropAnimates,                     OFX::eInt,     1, eDescDefault, 1, eDescFinished),
       PropertyDescription(kOfxParamPropCanUndo,                      OFX::eInt,     1, eDescDefault, 1, eDescFinished),
-      PropertyDescription(kOfxParamPropParametricDimension,          OFX::eInt,     1, eDescDefault, 1, eDescFinished),
-      PropertyDescription(kOfxParamPropParametricUIColour,           OFX::eDouble, -1, eDescFinished),
-      PropertyDescription(kOfxParamPropParametricInteractBackground, OFX::ePointer, 1, eDescDefault, NULLPTR, eDescFinished),
-      PropertyDescription(kOfxParamPropParametricRange,              OFX::eDouble,  2, eDescDefault, 0.0, 1.0, eDescFinished),
+      PropertyDescription(kOfxParamPropParametricDimension,          OFX::eInt,     1, eDescDefault, 1, eDescIntroduced, 1, 2, eDescFinished),
+      PropertyDescription(kOfxParamPropParametricUIColour,           OFX::eDouble, -1, eDescIntroduced, 1, 2, eDescFinished),
+      PropertyDescription(kOfxParamPropParametricInteractBackground, OFX::ePointer, 1, eDescDefault, NULLPTR, eDescIntroduced, 1, 2, eDescFinished),
+      PropertyDescription(kOfxParamPropParametricRange,              OFX::eDouble,  2, eDescDefault, 0.0, 1.0, eDescIntroduced, 1, 2, eDescFinished),
     };
 
     /** @brief Property set for 1D ints */
@@ -1152,12 +1194,13 @@ namespace OFX {
 
     /** @brief Validates the effect descriptor properties */
     void
-      validatePluginDescriptorProperties(PropertySet props)
+      validatePluginDescriptorProperties(PropertySet props, bool checkDefaults)
     {
 #ifdef kOfxsDisableValidation
     (void)props;
+    (void)checkDefaults;
 #else
-      gPluginDescriptorPropSet.validate(props);
+      gPluginDescriptorPropSet.validate(props, checkDefaults);
 #endif
     }
 
@@ -1388,45 +1431,12 @@ namespace OFX {
     void
       initialise(void)
     {
-#ifndef kOfxsDisableValidation
-      static bool beenInitialised = false;
-      if(!beenInitialised && getImageEffectHostDescription()) {
-        beenInitialised = true;
-
-        // create new property descriptions depending on certain host states
-        PropertyDescription *desc;
-
-        // do custom params animate ?
-        desc = new PropertyDescription(kOfxParamPropAnimates, OFX::eInt, 1,
-          eDescDefault, int(getImageEffectHostDescription()->supportsCustomAnimation),
-          eDescFinished);
-        gCustomParamPropSet.addProperty(desc, true);
-
-        // do strings animate ?
-        desc = new PropertyDescription(kOfxParamPropAnimates, OFX::eInt, 1,
-          eDescDefault, int(getImageEffectHostDescription()->supportsStringAnimation),
-          eDescFinished);
-        gStringParamPropSet.addProperty(desc, true);
-
-        // do choice params animate      
-        desc = new PropertyDescription(kOfxParamPropAnimates, OFX::eInt, 1,
-          eDescDefault, int(getImageEffectHostDescription()->supportsChoiceAnimation),
-          eDescFinished);
-        gChoiceParamPropSet.addProperty(desc, true);
-
-        // do string choice params animate
-        desc = new PropertyDescription(kOfxParamPropAnimates, OFX::eInt, 1,
-          eDescDefault, int(getImageEffectHostDescription()->supportsStrChoiceAnimation),
-          eDescFinished);
-        gStrChoiceParamPropSet.addProperty(desc, true);
-
-        // do boolean params animate
-        desc = new PropertyDescription(kOfxParamPropAnimates, OFX::eInt, 1,
-          eDescDefault, int(getImageEffectHostDescription()->supportsBooleanAnimation),
-          eDescFinished);
-        gBooleanParamPropSet.addProperty(desc, true);
-      }
-#endif
+      // Nothing to do. It used to add, to the String, Custom, Choice, StrChoice and Boolean
+      // parameter sets, a kOfxParamPropAnimates default equal to the host's
+      // kOfxParamHostPropSupports*Animation. But the spec says (Parameters, "Parameter
+      // Animation"): "The following may animate, depending on the host. Properties exist on the
+      // host to check this. If the host does support animation on them, then they do *not*
+      // animate by default.": the default is 0, as in their static property descriptions.
     }
   }
 }
