@@ -49,10 +49,13 @@
     (OFX::DrawSuiteOpenGL::drawPrimitive()).
 
   Shadows (kNatronOfxInteractPropDrawSuiteShadows, ofxNatron.h): beginDraw(..., shadows) sets
-  State::shadows. Then drawPrimitive() and drawText() draw each element twice: first offset by
-  one screen pixel right and down (shadowOffset()), in shadowColour() (getColour() of
-  kOfxStandardColourOverlayBackground, so the host's background colour, with the current
-  colour's alpha), then normally. OpenGLDrawSuite makes the two passes for every element, with
+  State::shadows. Then drawPrimitive() (the lines, strips, loops and the ellipse outline; not the
+  filled Rectangle and Polygon, see OFX::DrawSuiteOpenGL::hasShadow()) and drawText() draw each
+  element twice: first offset by one screen pixel right and down (shadowOffset(); 2 device
+  pixels on HiDPI screens, whereas the OpenGL shadows of the SupportExt and Natron overlays are 1
+  device pixel), in shadowColour() (getColour() of kOfxStandardColourOverlayBackground, so the
+  host's background colour, unlike Support's V1 emulation, which can't query the host and uses
+  the core's black; with the current colour's alpha), then normally. OpenGLDrawSuite makes the two passes for every element, with
   the built-in font or the host's: renderPrimitive() and renderText() (and the built-in font)
   are called once per pass, with state().colour the colour of the pass and state().shadows
   false, so they draw one pass only. Plug-ins never draw shadows with DrawSuite calls.
@@ -140,7 +143,7 @@ namespace OFX {
             return st;
           }
           PassState pass(_state);
-          if (pass.shadows) {
+          if ( pass.shadows && OFX::DrawSuiteOpenGL::hasShadow(primitive) ) {
             const OfxPointD o = OFX::DrawSuiteOpenGL::shadowOffset(_state);
             std::vector<OfxPointD> shadow(points, points + pointCount);
             for (size_t i = 0; i < shadow.size(); ++i) {
@@ -159,8 +162,9 @@ namespace OFX {
 
         /// OfxDrawSuiteV1::drawText: kOfxStatErrValue for NULL text or pos, kOfxStatOK for "".
         /// If measureText() returns false, the built-in font (OFX::DrawSuiteOpenGL::drawText());
-        /// else renderText() at OFX::DrawSuiteOpenGL::alignText() of the metrics. Twice with
-        /// shadows: first offset, in the shadow colour.
+        /// else renderText() at OFX::DrawSuiteOpenGL::alignText() of the metrics, and the
+        /// built-in font if renderText() returns kOfxStatReplyDefault (for both passes if it does
+        /// so in the shadow pass). Twice with shadows: first offset, in the shadow colour.
         OfxStatus drawText(const char *utf8, const OfxPointD *pos, int alignment)
         {
           if (!utf8 || !pos) {
@@ -171,29 +175,55 @@ namespace OFX {
           }
           TextMetrics m;
           m.width = m.ascent = m.descent = 0.;
-          const bool hostFont = measureText(utf8, m);
-          if ( !hostFont && !(_gl && OFX::DrawSuiteOpenGL::isComplete(*_gl)) ) {
+          bool hostFont = measureText(utf8, m);
+          const bool builtinOK = _gl && OFX::DrawSuiteOpenGL::isComplete(*_gl);
+          if (!hostFont && !builtinOK) {
             return kOfxStatFailed;
           }
           const OfxPointD baselineLeft = hostFont ? OFX::DrawSuiteOpenGL::alignText(*pos, alignment, m, _state.pixelScale) : *pos;
           PassState pass(_state);
           if (pass.shadows) {
             const OfxPointD o = OFX::DrawSuiteOpenGL::shadowOffset(_state);
-            OfxPointD s;
-            s.x = baselineLeft.x + o.x;
-            s.y = baselineLeft.y + o.y;
             _state.colour = shadowColour();
-            const OfxStatus sst = hostFont ? renderText(utf8, s, m) : OFX::DrawSuiteOpenGL::drawText(*_gl, _state, utf8, &s, alignment);
+            OfxStatus sst = kOfxStatReplyDefault;
+            if (hostFont) {
+              OfxPointD s;
+              s.x = baselineLeft.x + o.x;
+              s.y = baselineLeft.y + o.y;
+              sst = renderText(utf8, s, m);
+              if (sst == kOfxStatReplyDefault) {
+                hostFont = false; // the host can't render this text: the built-in font, both passes
+              }
+            }
+            if (!hostFont) {
+              if (!builtinOK) {
+                return kOfxStatFailed;
+              }
+              OfxPointD s;
+              s.x = pos->x + o.x;
+              s.y = pos->y + o.y;
+              sst = OFX::DrawSuiteOpenGL::drawText(*_gl, _state, utf8, &s, alignment);
+            }
             _state.colour = pass.colour;
             if (sst != kOfxStatOK) {
               return sst;
             }
           }
-          return hostFont ? renderText(utf8, baselineLeft, m) : OFX::DrawSuiteOpenGL::drawText(*_gl, _state, utf8, pos, alignment);
+          if (hostFont) {
+            const OfxStatus st = renderText(utf8, baselineLeft, m);
+            if (st != kOfxStatReplyDefault) {
+              return st;
+            }
+          }
+          if (!builtinOK) {
+            return kOfxStatFailed;
+          }
+          return OFX::DrawSuiteOpenGL::drawText(*_gl, _state, utf8, pos, alignment);
         }
 
       protected:
-        /// Draw a valid primitive with state(), shadows included. The default is the core
+        /// Draw a valid primitive with state(), one pass (state().shadows is false during the
+        /// call: drawPrimitive() makes the shadow pass). The default is the core
         /// (OFX::DrawSuiteOpenGL::drawPrimitive()); kOfxStatFailed without an OpenGL table.
         virtual OfxStatus renderPrimitive(OfxDrawPrimitive primitive, const OfxPointD *points, int pointCount)
         {
@@ -213,8 +243,10 @@ namespace OFX {
         /// Draw utf8 in the host's font, in state().colour, the left end of its baseline at
         /// baselineLeft (canonical coordinates), with the metrics that measureText() returned.
         /// Only called if measureText() returned true; drawText() handles the alignment and the
-        /// shadows. The default draws the built-in font there (kOfxStatFailed without an
-        /// OpenGL table).
+        /// shadows. Return kOfxStatReplyDefault, without drawing, if this view can't render text
+        /// (e.g. Natron's CustomParamInteract, whose OverlaySupport has no way to say so in
+        /// advance): drawText() then draws with the built-in font instead. The default draws the
+        /// built-in font there (kOfxStatFailed without an OpenGL table).
         virtual OfxStatus renderText(const char *utf8, const OfxPointD &baselineLeft, const TextMetrics & /*metrics*/)
         {
           if ( !_gl || !OFX::DrawSuiteOpenGL::isComplete(*_gl) ) {

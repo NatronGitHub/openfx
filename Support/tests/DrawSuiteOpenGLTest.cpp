@@ -641,6 +641,14 @@ static void testShadows()
     CHECK(drawPrimitive(gl, s, prims[i], p, counts[i]) == kOfxStatOK);
     checkSavedState(); // one save for both passes
     const std::vector<Block> b = blocks();
+    const bool filled = prims[i] == kOfxDrawPrimitivePolygon || prims[i] == kOfxDrawPrimitiveRectangle;
+    CHECK(hasShadow(prims[i]) == !filled);
+    if (filled) {
+      // no shadow under the filled primitives: one pass, in the colour
+      CHECK(b.size() == 1 && count(eColor4f) == 1);
+      CHECK(b.size() == 1 && near(b[0].colour[0], 0.2) && b[0].colour[3] == 0.5);
+      continue;
+    }
     CHECK(b.size() == 2);
     if (b.size() != 2) {
       continue;
@@ -707,10 +715,11 @@ public:
     bool shadows;
   };
 
-  explicit HostDrawSuite(const GLFunctions *gl) : OpenGLDrawSuite(gl), hostFont(true), recordPrimitives(false) {}
+  explicit HostDrawSuite(const GLFunctions *gl) : OpenGLDrawSuite(gl), hostFont(true), recordPrimitives(false), replyDefault(false) {}
 
   bool hostFont;
   bool recordPrimitives; // record renderPrimitive() instead of drawing with the core
+  bool replyDefault; // renderText() returns kOfxStatReplyDefault (can't render text)
   std::vector<TextCall> texts;
   std::vector<PrimitiveCall> primitives;
 
@@ -744,6 +753,9 @@ protected:
     c.colour = state().colour;
     c.shadows = state().shadows;
     texts.push_back(c);
+    if (replyDefault) {
+      return kOfxStatReplyDefault;
+    }
     return OpenGLDrawSuite::renderText(utf8, baselineLeft, m); // the built-in font there
   }
 
@@ -931,7 +943,43 @@ static void testHostHelper()
       CHECK(s.points[1].x == 12. && s.points[1].y == 2. && p.points[1].x == 10. && p.points[1].y == 5.);
       CHECK(s.colour.b == 0.25f && s.colour.a == 0.5f && near(p.colour.r, 0.2) && !s.shadows && !p.shadows);
     }
+    // the filled primitives: no shadow, one pass
+    host.primitives.clear();
+    const OfxPointD tri[3] = { pt(0., 0.), pt(10., 0.), pt(0., 10.) };
+    CHECK(host.drawPrimitive(kOfxDrawPrimitiveRectangle, line, 2) == kOfxStatOK);
+    CHECK(host.drawPrimitive(kOfxDrawPrimitivePolygon, tri, 3) == kOfxStatOK);
+    CHECK(host.primitives.size() == 2);
+    if (host.primitives.size() == 2) {
+      CHECK(host.primitives[0].points[1].x == 10. && near(host.primitives[0].colour.r, 0.2) && host.primitives[0].colour.a == 0.5);
+      CHECK(host.primitives[1].points[1].x == 10. && near(host.primitives[1].colour.r, 0.2));
+    }
+    host.recordPrimitives = false;
+    gCalls.clear();
+    CHECK(host.drawPrimitive(kOfxDrawPrimitiveRectangle, line, 2) == kOfxStatOK);
+    CHECK(blocks().size() == 1 && count(eColor4f) == 1);
+    // renderText() returns kOfxStatReplyDefault (the view can't render text): the built-in
+    // font, for both passes
+    host.hostFont = true;
+    host.replyDefault = true;
+    host.texts.clear();
+    gCalls.clear();
+    CHECK(host.drawText("AB", &pos, kOfxDrawTextAlignmentRight) == kOfxStatOK);
+    CHECK(host.texts.size() == 1); // only the shadow pass asked the host
+    b = blocks();
+    CHECK(b.size() == 2);
+    if (b.size() == 2) {
+      CHECK(!b[0].vertices.empty() && b[0].vertices.size() == b[1].vertices.size() && b[0].mode == 0x0007);
+      CHECK(b[0].colour[2] == 0.25 && near(b[1].colour[0], 0.2));
+      CHECK(near(b[0].vertices[0].x, b[1].vertices[0].x + 2.) && near(b[0].vertices[0].y, b[1].vertices[0].y - 3.));
+      double x0 = 1e9;
+      for (size_t k = 0; k < b[1].vertices.size(); ++k) {
+        x0 = std::min(x0, b[1].vertices[k].x);
+      }
+      CHECK(x0 == 100. - 11. * 2.); // right-aligned with the built-in metrics (11 pixels)
+    }
+    host.replyDefault = false;
     // off: one pass
+    host.recordPrimitives = true;
     host.beginDraw(pt(2., 3.), 1., false);
     host.primitives.clear();
     host.texts.clear();

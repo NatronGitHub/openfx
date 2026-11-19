@@ -25,7 +25,7 @@
 
   - DrawArgs::isOpenGLContextCurrent().
   - kNatronOfxInteractPropDrawSuiteShadows (absent, 0, 1) in the OpenGL backend's state, and
-    (with the CGL context) the shadow it draws.
+    (with the CGL context) the shadow it draws under a line, and not under a rectangle.
 
   Built with -DBUILD_EXAMPLE_PLUGINS=ON, except on Windows (target drawcontext-opengl-test). Prints
   one line per failed check, and exits with 0 if all passed.
@@ -1066,16 +1066,20 @@ static void testDrawSuiteShadows()
     DrawArgs copy(args);
     CHECK(DrawArgsAccess::drawSuiteShadows(DrawArgsAccess::openGLContext(copy)) == expected);
 #ifdef OFXS_TEST_GL_CONTEXT
-    // a red square, and its shadow one pixel right and down: opaque black (alpha 1) on the
-    // transparent background
+    // a red line, and its shadow one pixel right and down: opaque black (alpha 1) on the
+    // transparent background; a red square, without a shadow (filled primitives have none)
     clear();
-    OfxPointD rect[2] = { pt(10, 10), pt(20, 20) };
+    OfxPointD line[2] = { pt(10, 30.5), pt(50, 30.5) };
     CHECK(dc.setColour(1.f, 0.f, 0.f, 1.f));
+    CHECK(dc.draw(kOfxDrawPrimitiveLines, line, 2));
+    OfxPointD rect[2] = { pt(10, 10), pt(20, 20) };
     CHECK(dc.draw(kOfxDrawPrimitiveRectangle, rect, 2));
     readBack();
+    CHECK(isColour(30, 30, 1, 0, 0) && near(pixel(30, 30)[3], 1.f));
+    CHECK(isColour(30, 29, 0, 0, 0) && near(pixel(30, 29)[3], expected ? 1.f : 0.f));
+    CHECK(near(pixel(30, 31)[3], 0.f) && near(pixel(30, 28)[3], 0.f));
     CHECK(isColour(10, 10, 1, 0, 0) && isColour(19, 19, 1, 0, 0));
-    CHECK(near(pixel(20, 9)[3], expected ? 1.f : 0.f) && isColour(20, 9, 0, 0, 0));
-    CHECK(near(pixel(10, 9)[3], 0.f) && near(pixel(20, 18)[3], expected ? 1.f : 0.f) && near(pixel(20, 19)[3], 0.f));
+    CHECK(near(pixel(20, 9)[3], 0.f) && near(pixel(20, 18)[3], 0.f));
 #endif
   }
   gFakeDrawSuiteShadows = -1;

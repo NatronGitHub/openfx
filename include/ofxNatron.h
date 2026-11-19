@@ -680,6 +680,8 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
 
   14) OpenGL overlays (Natron's, openfx-supportext's) draw a drop shadow under their lines and text, so that they stay visible on any image. A plug-in that draws with the OFX 1.5 DrawSuite can't do the same: the host chooses the look of DrawSuite elements, and drawing each element twice from the plug-in would double the shadows of a host that already draws them. So the shadows of DrawSuite elements are the host's job, and the host tells the DrawSuite code which look it wants with the read-only int property kNatronOfxInteractPropDrawSuiteShadows in the inArgs of kOfxInteractActionDraw: 1 if the host wants drop shadows on DrawSuite elements, 0 (or absent) if not.
  The shadows are drawn by the host's DrawSuite implementation (in a draw called through kOfxImageEffectPluginPropOverlayInteractV2) and by the OFX Support library's DrawSuite-to-OpenGL compatibility layer (OFX::DrawArgs::getDrawContext() in a draw called through kOfxImageEffectPluginPropOverlayInteractV1, which emulates the DrawSuite with OpenGL; see include/ofxDrawSuiteOpenGL.h). Plug-ins must never draw shadows with DrawSuite calls. OpenGL drawing code keeps its own shadows: the property is not about the plug-ins' own OpenGL calls.
+ Which elements: the lines (kOfxDrawPrimitiveLines, LineStrip, LineLoop), the ellipse outline (kOfxDrawPrimitiveEllipse) and the text get a shadow; the filled primitives (kOfxDrawPrimitiveRectangle, kOfxDrawPrimitivePolygon) don't, since a shadow under a translucent fill (e.g. kOfxStandardColourOverlayMarqueeBG) makes it hazy, and the Natron and SupportExt OpenGL overlays only shadow their lines and points.
+ The shadow is offset by one screen pixel (screen pixel ratio device pixels: 2 on HiDPI screens; the OpenGL shadows of the Natron and SupportExt overlays are offset by one device pixel). Its colour is the host's kOfxStandardColourOverlayBackground (OfxDrawSuiteV1::getColour) in the host's DrawSuite draws, and the fixed standard background colour of include/ofxDrawSuiteOpenGL.h (black) in the Support library's emulation, which can't query the host's colours in V1 draws; with the alpha of the current colour.
  
  */
 
@@ -1301,7 +1303,7 @@ says:
  - Valid Values - 0 or 1
 
  The shadows are drawn by the host's DrawSuite implementation and by OFX Support's DrawSuite-to-OpenGL compatibility layer (the emulation of the DrawSuite in the draws called through kOfxImageEffectPluginPropOverlayInteractV1). Plug-ins must never draw shadows with DrawSuite calls. OpenGL drawing code keeps its own shadows.
- A shadow is the element drawn first offset by one screen pixel to the right and down, in the host's kOfxStandardColourOverlayBackground colour (with the alpha of the current colour), then the element itself (include/ofxDrawSuiteOpenGL.h).
+ A shadow is the element drawn first offset by one screen pixel to the right and down, in the background colour (the host's kOfxStandardColourOverlayBackground in the host's DrawSuite, black in the Support library's emulation; with the alpha of the current colour), then the element itself (include/ofxDrawSuiteOpenGL.h). Only the lines, line strips and loops, the ellipse outline and the text get a shadow, not the filled rectangles and polygons.
  A host that doesn't support this extension doesn't set it: a plug-in (or the Support library) must treat a failed propGetInt (kOfxStatErrUnknown) as 0.
 
     @propdef

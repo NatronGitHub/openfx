@@ -181,11 +181,15 @@ namespace OFX {
      control characters are skipped), one font pixel per screen pixel (the text has a constant
      size on screen), 6 pixels per character, 7 pixels above the baseline and 1 below.
    - shadows: if the host sets kNatronOfxInteractPropDrawSuiteShadows to 1 in the draw action's
-     inArgs (ofxNatron.h, extension 14, read with OFX_EXTENSIONS_NATRON; absent is 0), each
-     primitive and text is drawn first offset by one screen pixel right and down, in the
-     kOfxStandardColourOverlayBackground colour with the current alpha, then normally, as the
-     host draws its own DrawSuite elements. Plug-ins never draw shadows with DrawSuite calls
-     (in V2 draws, the host's DrawSuite draws them).
+     inArgs (ofxNatron.h, extension 14, read with OFX_EXTENSIONS_NATRON; absent is 0), each line,
+     line strip or loop, ellipse outline and text is drawn first offset by one screen pixel right
+     and down, in the standard background colour (black: this backend can't query the host's)
+     with the current alpha, then normally, as the host draws its own DrawSuite elements. The
+     filled rectangles and polygons get no shadow. Plug-ins never draw shadows with DrawSuite
+     calls (in V2 draws, the host's DrawSuite draws them): a plug-in that draws through
+     getDrawContext() in a V1 draw must not add its own shadow loop (e.g. drawing everything
+     twice, offset, as SupportExt's OpenGL overlays do) when the host sets the property,
+     otherwise the shadows are doubled.
    The OpenGL backend is not compiled if OFXS_DRAWCONTEXT_NO_OPENGL is defined when compiling
    ofxsDrawContextOpenGL.cpp (for plug-in binaries built without OpenGL): getDrawContext() on a
    V1 overlay then draws nothing (canDraw() is false). Plug-ins that call getDrawContext() must
