@@ -81,7 +81,8 @@ namespace OFX {
 namespace OFX {
   namespace Host {
     // kOfxHostSupportHostPointer (ofxhHost.h) stores away our private pointer to our host descriptor.
-    // "Properties on the Image Effect Host" (ofxPropertiesByObject.rst): all are read only. The
+    // The image effect host properties are all read only ("Write Access: host", propset_ImageEffectHost
+    // in Documentation/sources/Reference/ofxPropertySetsGenerated.rst). The
     // property suite never lets a plug-in write kOfxHostSupportHostPointer, whatever the
     // read-only policy: fetchSuite() dereferences it for every plug-in.
     static const Property::PropSpec hostStuffs[] = {
