@@ -119,7 +119,8 @@ shared with other Support versions can test it:
   ``setOverlayInteractDescriptor()`` registers it instead of the main entry.
   ``DrawArgs::calledViaOverlayInteractV2()`` says which entry the host called.
   The spec doesn't say which entry a host uses when both are set; HostSupport
-  uses V2 when it has the DrawSuite.
+  uses V2 when it has the DrawSuite, unless the host prefers V1
+  (``Host::preferOverlayInteractV1()``, e.g. Natron).
 - ``OFXS_SUPPORT_HAS_OPENGL_CONTEXT_CHECK``: ``getDrawContext()`` uses OpenGL
   only if an OpenGL context is current, and
   ``DrawArgs::isOpenGLContextCurrent()`` makes the same check.
