@@ -70,8 +70,10 @@ namespace MyHost
 { 
   Host::Host()
     : _ofx14(false)
-    , _keepLoaded(getenv("OFX_HOSTDEMO_KEEP_LOADED") != NULL && strcmp(getenv("OFX_HOSTDEMO_KEEP_LOADED"), "1") == 0)
+    , _keepLoaded(false)
   {
+    const char *keepLoaded = getenv("OFX_HOSTDEMO_KEEP_LOADED");
+    _keepLoaded = keepLoaded != NULL && strcmp(keepLoaded, "1") == 0;
     // set host properties... TODO
     _properties.setIntProperty(kOfxPropAPIVersion, 1, 0);
     _properties.setIntProperty(kOfxPropAPIVersion, 4, 1);

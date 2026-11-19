@@ -5867,7 +5867,11 @@ namespace OFX {
           try {
             factory->load();
           } catch (...) {
-            OFX::Private::loadActionFailed();
+            try {
+              OFX::Private::loadActionFailed();
+            } catch (...) {
+              // keep the original exception (and its status)
+            }
             throw;
           }
 

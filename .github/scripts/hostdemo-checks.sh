@@ -371,7 +371,6 @@ fails hostdemo-keynoanim.log "doesn't animate" -p net.sf.openfx.GenericTestPlugi
 fails hostdemo-keytime.log "invalid key time" -s supportsTiles@x=1
 fails hostdemo-nobutton.log "invalid parameter assignment" -s supportsTiles
 
-# OFX 1.4 hosts: every plug-in must keep working in a host that implements only OFX 1.4. hostDemo
 # kOfxActionLoad and kOfxActionDescribe once per load of the binary (ofxCore.h: Load "will not be
 # called again while the binary containing the plug-in remains loaded"), and kOfxActionUnload
 # before the binary is unloaded. The property tester prints these actions with
@@ -380,7 +379,7 @@ fails hostdemo-nobutton.log "invalid parameter assignment" -s supportsTiles
 # (Host::keepPluginsLoadedAfterScan()) the scanned plug-in stays loaded: its first use sends no
 # second Load or Describe, and Unload comes once, at exit. A run that uses the plug-in cache loads
 # the binary only at the first use, in both modes.
-lifecycle_trace() { sed -n 's/^propTester: OfxAction//p' "$1" | tr '\n' ' '; }
+lifecycle_trace() { grep -o 'propTester: OfxAction[A-Za-z]*' "$1" | sed 's/^propTester: OfxAction//' | tr '\n' ' '; }
 # lifecycle NAME EXPECTED CACHE KEEP: --describe of the property tester, without the plug-in cache
 # (CACHE=0), or in the directory lifecycle-cache (CACHE=1, which keeps its cache file)
 lifecycle() { local name=$1 expected=$2 cache=$3 keep=$4 log=$PWD/lifecycle-$1.log
@@ -401,6 +400,7 @@ lifecycle "from the cache, keep mode" "Load Describe Unload " 1 1
 rm -rf lifecycle-cache
 lifecycle "scan that writes the cache, kept loaded" "Load Describe Unload " 1 1
 
+# OFX 1.4 hosts: every plug-in must keep working in a host that implements only OFX 1.4. hostDemo
 # --ofx14 has only the OFX 1.4 host properties (a plug-in reading another one gets
 # kOfxStatErrUnknown) and suites (no DrawSuite, OpenCL program, plane or Vegas suites), doesn't
 # call OfxSetHost, refuses StrChoice and Bytes params (kOfxStatErrUnknown) and renders one view.

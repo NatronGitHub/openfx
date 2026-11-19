@@ -221,11 +221,21 @@ namespace OFX {
       /// reset too.
       static void resetPointerProperties(ImageEffectPlugin *plugin, Descriptor &desc)
       {
+        desc.resetOverlayDescriptor();
         try {
           auto_ptr<ImageEffect::Descriptor> fresh(gImageEffectHost->makeDescriptor(plugin));
           copyPropertySetValues(desc.getProps(), fresh->getProps(), ePropertyCopyPointers);
-          desc.resetOverlayDescriptor();
         } catch (...) {
+          // no fresh descriptor: their default values (NULL)
+          const Property::PropertyMap &props = desc.getProps().getProperties();
+          for (Property::PropertyMap::const_iterator it = props.begin(); it != props.end(); ++it) {
+            if (it->second->getType() == Property::ePointer) {
+              try {
+                it->second->reset();
+              } catch (...) {
+              }
+            }
+          }
         }
       }
 
@@ -240,6 +250,10 @@ namespace OFX {
         {
           pluginIdentifier = id.c_str();
         }
+      private:
+        // pluginIdentifier points into id: not copyable
+        SavedPluginIdentifier(const SavedPluginIdentifier &);
+        SavedPluginIdentifier &operator=(const SavedPluginIdentifier &);
       };
 
       PluginHandle *ImageEffectPlugin::getPluginHandle() 
