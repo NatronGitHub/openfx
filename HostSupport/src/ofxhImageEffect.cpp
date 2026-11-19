@@ -4446,15 +4446,37 @@ namespace OFX {
       ////////////////////////////////////////////////////////////////////////////////
       // Progress suite functions
 
+      /// Map a progress or timeline suite handle to an effect instance.
+      /// The handle is the effect's OfxImageEffectHandle, Base::getHandle(), the address of
+      /// the (polymorphic) ImageEffect::Base, so it is cast through Base, as in
+      /// messageHandleToInstance(): a reinterpret_cast to Instance would also accept a
+      /// descriptor. A NULL (it "cannot be NULL") or describe-time (descriptor) handle gives
+      /// NULL. ImageEffect::Base::verifyMagic() always returns true (there is no magic number):
+      /// any other pointer is undefined behaviour.
+      static Instance *effectHandleToInstance(void *handle)
+      {
+        ImageEffect::Base *effectBase = reinterpret_cast<ImageEffect::Base*>(handle);
+        if (!effectBase || !effectBase->verifyMagic()) {
+          return NULL;
+        }
+        return dynamic_cast<Instance*>(effectBase);
+      }
+
       /// begin progressing
       static OfxStatus ProgressStartV1(void *effectInstance,
                                        const char *label)
       {
-        if (!effectInstance)
-          return kOfxStatErrBadHandle;
-        Instance *me = reinterpret_cast<Instance *>(effectInstance);
-        me->progressStart(label, "");
-        return kOfxStatOK;
+        try {
+          // "kOfxStatErrBadHandle - effectInstance was invalid"
+          Instance *me = effectHandleToInstance(effectInstance);
+          if (!me)
+            return kOfxStatErrBadHandle;
+          me->progressStart(label ? label : "", "");
+          return kOfxStatOK;
+        } catch (...) {
+          // "kOfxStatFailed - the progress object failed for some reason"
+          return kOfxStatFailed;
+        }
       }
       
 
@@ -4463,31 +4485,50 @@ namespace OFX {
                                      const char *message,
                                      const char *messageid)
       {
-        if (!effectInstance)
-          return kOfxStatErrBadHandle;
-        Instance *me = reinterpret_cast<Instance *>(effectInstance);
-        me->progressStart(message, messageid);
-        return kOfxStatOK;
+        try {
+          // "kOfxStatErrBadHandle - effectInstance was invalid"
+          Instance *me = effectHandleToInstance(effectInstance);
+          if (!me)
+            return kOfxStatErrBadHandle;
+          // messageId "may be NULL, or "", in which case no override will occur"
+          me->progressStart(message ? message : "", messageid ? messageid : "");
+          return kOfxStatOK;
+        } catch (...) {
+          // "kOfxStatFailed - the progress object failed for some reason"
+          return kOfxStatFailed;
+        }
       }
       
       /// finish progressing
       static OfxStatus ProgressEnd(void *effectInstance)
       {
-        if (!effectInstance)
-          return kOfxStatErrBadHandle;
-        Instance *me = reinterpret_cast<Instance *>(effectInstance);
-        me->progressEnd();
-        return kOfxStatOK;
+        try {
+          // "kOfxStatErrBadHandle - the progress handle was invalid"
+          Instance *me = effectHandleToInstance(effectInstance);
+          if (!me)
+            return kOfxStatErrBadHandle;
+          me->progressEnd();
+          return kOfxStatOK;
+        } catch (...) {
+          // C++ exceptions must not propagate into the plug-in
+          return kOfxStatFailed;
+        }
       }
 
       /// update progressing
       static OfxStatus ProgressUpdate(void *effectInstance, double progress)
       {
-        if (!effectInstance)
-          return kOfxStatErrBadHandle;
-        Instance *me = reinterpret_cast<Instance *>(effectInstance);
-        bool v = me->progressUpdate(progress);
-        return v ? kOfxStatOK : kOfxStatReplyNo;          
+        try {
+          // "kOfxStatErrBadHandle - the progress handle was invalid"
+          Instance *me = effectHandleToInstance(effectInstance);
+          if (!me)
+            return kOfxStatErrBadHandle;
+          bool v = me->progressUpdate(progress);
+          return v ? kOfxStatOK : kOfxStatReplyNo;
+        } catch (...) {
+          // C++ exceptions must not propagate into the plug-in
+          return kOfxStatFailed;
+        }
       }
 
       /// our progress suite
@@ -4511,31 +4552,54 @@ namespace OFX {
       /// timeline suite function
       static OfxStatus TimeLineGetTime(void *effectInstance, double *time)
       {
-        if (!effectInstance)
-          return kOfxStatErrBadHandle;
-        Instance *me = reinterpret_cast<Instance *>(effectInstance);
-        *time = me->timeLineGetTime();
-        return kOfxStatOK;
+        try {
+          // "kOfxStatErrBadHandle - the effect handle was invalid"; a NULL return pointer
+          // is rejected the same way, as in clipGetHandle() and imageMemoryAlloc()
+          Instance *me = effectHandleToInstance(effectInstance);
+          if (!me || !time)
+            return kOfxStatErrBadHandle;
+          *time = me->timeLineGetTime();
+          return kOfxStatOK;
+        } catch (...) {
+          // "kOfxStatFailed - the enquiry failed for some host specific reason"
+          return kOfxStatFailed;
+        }
       }
 
       /// timeline suite function
       static OfxStatus TimeLineGotoTime(void *effectInstance, double time)
       {
-        if (!effectInstance)
-          return kOfxStatErrBadHandle;
-        Instance *me = reinterpret_cast<Instance *>(effectInstance);
-        me->timeLineGotoTime(time);
-        return kOfxStatOK;
+        try {
+          // "kOfxStatErrBadHandle - the effect handle was invalid"
+          Instance *me = effectHandleToInstance(effectInstance);
+          if (!me)
+            return kOfxStatErrBadHandle;
+          // "kOfxStatErrValue - the time was an illegal value"
+          if (OFX::IsNaN(time))
+            return kOfxStatErrValue;
+          me->timeLineGotoTime(time);
+          return kOfxStatOK;
+        } catch (...) {
+          // "kOfxStatFailed - the change failed for some host specific reason"
+          return kOfxStatFailed;
+        }
       }
       
       /// timeline suite function
       static OfxStatus TimeLineGetBounds(void *effectInstance, double *firstTime, double *lastTime)
       {
-        if (!effectInstance)
-          return kOfxStatErrBadHandle;
-        Instance *me = reinterpret_cast<Instance *>(effectInstance);
-        me->timeLineGetBounds(*firstTime, *lastTime);
-        return kOfxStatOK;
+        try {
+          // "kOfxStatErrBadHandle - the effect handle was invalid"; NULL return pointers
+          // are rejected the same way, as in clipGetHandle() and imageMemoryAlloc()
+          Instance *me = effectHandleToInstance(effectInstance);
+          if (!me || !firstTime || !lastTime)
+            return kOfxStatErrBadHandle;
+          me->timeLineGetBounds(*firstTime, *lastTime);
+          return kOfxStatOK;
+        } catch (...) {
+          // "kOfxStatFailed - the enquiry failed for some host specific reason"
+          return kOfxStatFailed;
+        }
       }
 
       /// our progress suite

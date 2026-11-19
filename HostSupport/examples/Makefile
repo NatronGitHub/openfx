@@ -40,10 +40,10 @@ HOST_DEMO_FILES = $(DST_DIR)/hostDemo.o \
 	$(DST_DIR)/hostDemoHostDescriptor.o   \
 	$(DST_DIR)/hostDemoParamInstance.o    
 
-all : $(DST_DIR)/hostDemo $(DST_DIR)/cacheDemo $(DST_DIR)/propsetDump
+all : $(DST_DIR)/hostDemo $(DST_DIR)/cacheDemo $(DST_DIR)/propsetDump $(DST_DIR)/suiteHandleChecks
 
 clean :
-	rm -f $(DST_DIR)/*.o $(DST_DIR)/cacheDemo $(DST_DIR)/hostDemo $(DST_DIR)/propsetDump
+	rm -f $(DST_DIR)/*.o $(DST_DIR)/cacheDemo $(DST_DIR)/hostDemo $(DST_DIR)/propsetDump $(DST_DIR)/suiteHandleChecks
 	cd ..; make clean DEBUG=$(DEBUG) EXPAT_CFLAGS="$(EXPAT_CFLAGS)" OBJSUF=$(OBJSUF) LIBSUF=$(LIBSUF) \
 	LIBPREFIX=$(LIBPREFIX) LIBNAME=$(LIBNAME); 
 
@@ -81,3 +81,19 @@ $(DST_DIR)/propsetDump.o : propsetDump.cpp $(HOST_DEMO_HEADERS)
 $(DST_DIR)/propsetDump : $(PROPSET_DUMP_FILES) $(OFXSLIB)
 	mkdir -p $(DST_DIR)
 	$(CXX) $(CXXFLAGS) $(PROPSET_DUMP_FILES) -o $(DST_DIR)/propsetDump -L../$(DST_DIR) -lofxHost $(EXPAT_LIBS) -ldl
+
+# suiteHandleChecks: the param, progress and timeline suites reject NULL and descriptor handles
+# (run by .github/scripts/hostdemo-checks.sh)
+SUITE_HANDLE_CHECKS_FILES = $(DST_DIR)/suiteHandleChecks.o \
+	$(DST_DIR)/hostDemoClipInstance.o     \
+	$(DST_DIR)/hostDemoEffectInstance.o   \
+	$(DST_DIR)/hostDemoHostDescriptor.o   \
+	$(DST_DIR)/hostDemoParamInstance.o
+
+$(DST_DIR)/suiteHandleChecks.o : suiteHandleChecks.cpp $(HOST_DEMO_HEADERS)
+	mkdir -p $(DST_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(DST_DIR)/suiteHandleChecks : $(SUITE_HANDLE_CHECKS_FILES) $(OFXSLIB)
+	mkdir -p $(DST_DIR)
+	$(CXX) $(CXXFLAGS) $(SUITE_HANDLE_CHECKS_FILES) -o $(DST_DIR)/suiteHandleChecks -L../$(DST_DIR) -lofxHost $(EXPAT_LIBS) -ldl

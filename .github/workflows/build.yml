@@ -166,7 +166,7 @@ jobs:
           find install -name '*.ofx' | sort
           test "$(find install -name '*.ofx' | wc -l)" -ge 5
           # the example hosts are only compiled on Windows (the test renders run on Linux and macOS)
-          ls install/bin/hostDemo.exe install/bin/cacheDemo.exe install/bin/propsetDump.exe
+          ls install/bin/hostDemo.exe install/bin/cacheDemo.exe install/bin/propsetDump.exe install/bin/suiteHandleChecks.exe
       - name: Plug-in project built against the installed package and with add_subdirectory
         run: |
           set -eo pipefail

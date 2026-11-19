@@ -97,15 +97,26 @@ namespace OFX {
     };    
 
     static const void *fetchSuite(OfxPropertySetHandle hostProps, const char *suiteName, int suiteVersion)
-    {      
+    {
+      // "returns NULL if the API is unknown": a bad host handle (not a property set, checked
+      // with its magic number) or a NULL suite name give NULL, as an unknown suite does
       Property::Set* properties = reinterpret_cast<Property::Set*>(hostProps);
-      
-      Host* host = (Host*)properties->getPointerProperty(kOfxHostSupportHostPointer);
-      
-      if(host)
-        return host->fetchSuite(suiteName,suiteVersion);
-      else
+
+      if (!properties || !properties->verifyMagic() || !suiteName)
         return 0;
+
+      try {
+        Host* host = (Host*)properties->getPointerProperty(kOfxHostSupportHostPointer);
+
+        if(host)
+          return host->fetchSuite(suiteName,suiteVersion);
+        else
+          return 0;
+      } catch (...) {
+        // e.g. a property set without kOfxHostSupportHostPointer: C++ exceptions must not
+        // propagate into the plug-in
+        return 0;
+      }
     }
 
     // Base Host
