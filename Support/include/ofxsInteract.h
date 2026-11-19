@@ -317,7 +317,8 @@ namespace OFX {
 
     /** @brief true if an OpenGL context is current on the calling thread: the run-time check
         that getDrawContext() makes before using OpenGL (wglGetCurrentContext,
-        CGLGetCurrentContext, glXGetCurrentContext or eglGetCurrentContext, loaded at run time
+        CGLGetCurrentContext, glXGetCurrentContext or eglGetCurrentContext (and, on ELF systems,
+        OSMesaGetCurrentContext from the library of the gl* functions), loaded at run time
         like the OpenGL functions; false if none can be loaded). Evaluated at each call. Legacy
         OpenGL calls without a current context usually crash (macOS), and a DrawSuite host may
         have no OpenGL: a plug-in that draws with its own OpenGL code in a V1 draw should test

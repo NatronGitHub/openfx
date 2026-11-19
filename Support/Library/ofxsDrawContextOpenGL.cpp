@@ -227,7 +227,7 @@ namespace OFX {
       void pinLibraryOf(void *p)
       {
         Dl_info info;
-        if ( p && dladdr(p, &info) && info.dli_fname ) {
+        if ( p && dladdr(p, &info) && info.dli_fname && *info.dli_fname ) {
           (void)dlopen(info.dli_fname, RTLD_LAZY | RTLD_LOCAL | RTLD_NOLOAD);
         }
       }
@@ -281,8 +281,6 @@ namespace OFX {
         int count;
       };
 
-      // lib may be RTLD_DEFAULT, which is NULL on glibc and musl: the callers check that the
-      // other libraries are not NULL
       void addCurrentContextFunctionPointer(CurrentContextFunctions &c, void *p)
       {
         if (!p || c.count >= kMaxCurrentContextFunctions) {
@@ -296,7 +294,8 @@ namespace OFX {
         }
         c.f[c.count++] = f;
       }
-
+      // lib may be RTLD_DEFAULT, which is NULL on glibc and musl: the callers check that the
+      // other libraries are not NULL
       void addCurrentContextFunction(CurrentContextFunctions &c, void *lib, const char *name)
       {
         addCurrentContextFunctionPointer( c, openGLSymbol(lib, name) );
