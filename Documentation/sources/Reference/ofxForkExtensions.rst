@@ -128,6 +128,20 @@ shared with other Support versions can test it:
   The spec doesn't say which entry a host uses when both are set; HostSupport
   uses V2 when it has the DrawSuite, unless the host prefers V1
   (``Host::preferOverlayInteractV1()``, e.g. Natron).
+
+  The fork follows the per-call reading of ``ofxInteract.h``
+  (``kOfxInteractActionDraw``): "If this is called via
+  kOfxImageEffectPluginPropOverlayInteractV2, drawing MUST use DrawSuite. If
+  this is called via kOfxImageEffectPluginPropOverlayInteractV1, drawing
+  SHOULD use OpenGL." The rule applies to each draw call, according to the
+  entry the host called. So a plug-in may register both entries, and the
+  host chooses one (``Host::preferOverlayInteractV1()``). The reference
+  guide (``ofxInteracts.rst``) says that effects use the DrawSuite "by
+  requesting kOfxImageEffectPluginPropOverlayInteractV2 instead of
+  kOfxImageEffectPluginPropOverlayInteractV1", and that then "the plugin
+  *must* do all drawing with the DrawSuite". The fork deliberately reads
+  this as describing how a V2 draw draws, not as forbidding both
+  registrations. The maintainer chose this reading.
 - ``OFXS_SUPPORT_HAS_OPENGL_CONTEXT_CHECK``: ``getDrawContext()`` uses OpenGL
   only if an OpenGL context is current, and
   ``DrawArgs::isOpenGLContextCurrent()`` makes the same check.
