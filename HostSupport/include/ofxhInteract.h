@@ -90,6 +90,10 @@ namespace OFX {
         /// call describe on this descriptor, returns true if all went well
         bool describe(int bitDepthPerComponent, bool hasAlpha);
 
+        /// back to the state before describe(), without entry point: e.g. when the plug-in is
+        /// unloaded (its entry point may be in an unloaded binary)
+        void reset();
+
         /// grab a handle on the properties of this parameter for the C api
         OfxPropertySetHandle getPropHandle() {return _properties.getHandle();}
 

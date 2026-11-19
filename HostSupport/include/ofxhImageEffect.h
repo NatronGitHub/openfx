@@ -98,8 +98,9 @@ namespace OFX {
         /// loading=true before it sends kOfxActionLoad and kOfxActionDescribe (and by default
         /// kOfxActionUnload, see Host::keepPluginsLoadedAfterScan()) to the plug-in, so a host can
         /// tell which plug-in it is describing. It is called with loading=false when the plug-in is
-        /// deleted (PluginCache::clearPluginCache()). It is not called when the first use of a
-        /// plug-in (ImageEffectPlugin::getPluginHandle()) loads it.
+        /// deleted (PluginCache::clearPluginCache()), before the plug-in gets its kOfxActionUnload
+        /// (if it is loaded). It is not called around the kOfxActionUnload that follows the scan,
+        /// nor when the first use of a plug-in (ImageEffectPlugin::getPluginHandle()) loads it.
         ///
         /// Use this in any dialogue etc... showing progress
         /// \arg loading - whether this plugin is loading or unloading
@@ -451,6 +452,11 @@ namespace OFX {
         /// This will return NULL if there is not main entry point or if the description failed
         /// otherwise it will return the described overlay
         Interact::Descriptor &getOverlayDescriptor(int bitDepthPerComponent = 8, bool hasAlpha = false);
+
+        /// Reset the overlay descriptor (getOverlayDescriptor()) to its undescribed state, e.g. when
+        /// the plug-in is unloaded: it is described again, with the current entry point, at the
+        /// next getOverlayDescriptor()
+        void resetOverlayDescriptor() { _overlayDescriptor.reset(); }
       };      
 
       /// a map used to specify needed frame ranges on set of clips

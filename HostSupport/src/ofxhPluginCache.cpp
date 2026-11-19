@@ -446,7 +446,8 @@ PluginHandle::PluginHandle(Plugin *p, OFX::Host::Host *host)
   }
   _op = 0;
   OfxPlugin* (*getPlug)(int) = 0;
-  if (_b->_getPluginFunc) {
+  if (_b->_getPluginFunc && !freshLoad) {
+    // (after a fresh load, the binary may be at another address: look the symbol up again)
     getPlug = _b->_getPluginFunc;
   }
   if (!getPlug && _b->_binary) {
@@ -477,6 +478,11 @@ PluginHandle::PluginHandle(Plugin *p, OFX::Host::Host *host)
 PluginHandle::~PluginHandle() {
   if (_b->_binary) {
     _b->_binary->unref();
+    if (!_b->_binary->isLoaded()) {
+      // they pointed into the unloaded binary
+      _b->_getNumberOfPlugins = 0;
+      _b->_getPluginFunc = 0;
+    }
   }
 }
 

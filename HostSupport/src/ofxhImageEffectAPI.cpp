@@ -103,7 +103,7 @@ namespace OFX {
       ImageEffectPlugin::~ImageEffectPlugin()
       {
         // first: the descriptor handles are valid "until the end of the kOfxActionUnload action"
-        unload();
+        unload(true);
         for(std::map<std::string, Descriptor *>::iterator it =  _contexts.begin(); it != _contexts.end(); ++it) {
           delete it->second;
         }
@@ -186,7 +186,14 @@ namespace OFX {
         return true;
       }
 
-      static void copyPropertySetValues(Property::Set &dst, const Property::Set &src)
+      /// which properties copyPropertySetValues() copies
+      enum PropertyCopyEnum {
+        ePropertyCopyAll,
+        ePropertyCopyNoPointers, ///< not the pointers (e.g. kOfxImageEffectPluginPropOverlayInteractV1)
+        ePropertyCopyPointers    ///< only the pointers
+      };
+
+      static void copyPropertySetValues(Property::Set &dst, const Property::Set &src, PropertyCopyEnum which = ePropertyCopyAll)
       {
         const Property::PropertyMap &srcProps = src.getProperties();
         for (Property::PropertyMap::const_iterator it = srcProps.begin(); it != srcProps.end(); ++it) {
@@ -195,12 +202,45 @@ namespace OFX {
           if (!d || d == s) {
             continue;
           }
-          (void)(copyPropertyValues<Property::Int>(d, s) ||
-                 copyPropertyValues<Property::Double>(d, s) ||
-                 copyPropertyValues<Property::String>(d, s) ||
-                 copyPropertyValues<Property::Pointer>(d, s));
+          if (which != ePropertyCopyPointers &&
+              (copyPropertyValues<Property::Int>(d, s) ||
+               copyPropertyValues<Property::Double>(d, s) ||
+               copyPropertyValues<Property::String>(d, s))) {
+            continue;
+          }
+          if (which != ePropertyCopyNoPointers) {
+            (void)copyPropertyValues<Property::Pointer>(d, s);
+          }
         }
       }
+
+      /// The pointers that the plug-in set on its base descriptor (overlay interact entry points...)
+      /// point into the binary: after kOfxActionUnload, the binary may be unloaded. They get the
+      /// values of a new descriptor (NULL), as the base descriptor of a plug-in only known from the
+      /// cache. The base descriptor's overlay descriptor, described with the old entry point, is
+      /// reset too.
+      static void resetPointerProperties(ImageEffectPlugin *plugin, Descriptor &desc)
+      {
+        try {
+          auto_ptr<ImageEffect::Descriptor> fresh(gImageEffectHost->makeDescriptor(plugin));
+          copyPropertySetValues(desc.getProps(), fresh->getProps(), ePropertyCopyPointers);
+          desc.resetOverlayDescriptor();
+        } catch (...) {
+        }
+      }
+
+      /// the pluginIdentifier of an OfxPlugin, saved for CatchAllSetStatus before kOfxActionUnload,
+      /// after which the OfxPlugin may be deleted (the Support library deletes it)
+      struct SavedPluginIdentifier {
+        std::string id;
+        const char *pluginIdentifier;
+        explicit SavedPluginIdentifier(const OfxPlugin *op)
+          : id(op && op->pluginIdentifier ? op->pluginIdentifier : "")
+          , pluginIdentifier(NULL)
+        {
+          pluginIdentifier = id.c_str();
+        }
+      };
 
       PluginHandle *ImageEffectPlugin::getPluginHandle() 
       {
@@ -277,18 +317,21 @@ namespace OFX {
           std::cerr << "OFX: " << getIdentifier() << ": " << kOfxActionDescribe << " failed (" << StatStr(stat) << ")" << std::endl;
           if (previousProps.get()) {
             try {
-              copyPropertySetValues(props, *previousProps);
+              // not the pointers: they are reset below
+              copyPropertySetValues(props, *previousProps, ePropertyCopyNoPointers);
             } catch (...) {
             }
           }
           // kOfxActionLoad succeeded, so the plug-in may have allocated global
           // resources: it must get kOfxActionUnload before being dropped.
           // ("kOfxStatErrMissingHostFeature, in which the plugin will be unloaded and ignored")
+          const SavedPluginIdentifier saved(op);
           OfxStatus unloadStat;
           try {
             unloadStat = op->mainEntry(kOfxActionUnload, 0, 0, 0);
-          } CatchAllSetStatus(unloadStat, gImageEffectHost, op, kOfxActionUnload);
+          } CatchAllSetStatus(unloadStat, gImageEffectHost, &saved, kOfxActionUnload);
           (void)unloadStat;
+          resetPointerProperties(this, getDescriptor());
           return loadFailed();
         }
 
@@ -382,29 +425,33 @@ namespace OFX {
         return 0;
       }
 
-      void ImageEffectPlugin::unload() {
+      void ImageEffectPlugin::unload(bool deleting) {
         if (_pluginHandle.get()) {
           // kOfxActionUnload: "No other actions will be called", until the binary is loaded again.
           // The context descriptors of this load are dropped: the next load describes the plug-in
           // and its contexts again (the plug-in may have cached their handles).
+          OfxPlugin *op = _pluginHandle->getOfxPlugin();
+          const SavedPluginIdentifier saved(op); // the plug-in may delete op in kOfxActionUnload
           OfxStatus stat;
           try {
 #           ifdef OFX_DEBUG_ACTIONS
-              OfxPlugin *op = _pluginHandle->getOfxPlugin();
-              std::cout << "OFX: "<<op->pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionUnload<<"()"<<std::endl;
-              std::string pluginIdentifier(op->pluginIdentifier); // save it before it becomes invalid
+              std::cout << "OFX: "<<saved.pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionUnload<<"()"<<std::endl;
 #           endif
-            stat = (*_pluginHandle)->mainEntry(kOfxActionUnload, 0, 0, 0);
+            stat = op->mainEntry(kOfxActionUnload, 0, 0, 0);
 #           ifdef OFX_DEBUG_ACTIONS
-              std::cout << "OFX: "<<pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionUnload<<"()->"<<StatStr(stat)<<std::endl;
+              std::cout << "OFX: "<<saved.pluginIdentifier<<"("<<(void*)op<<")->"<<kOfxActionUnload<<"()->"<<StatStr(stat)<<std::endl;
 #           endif
-          } CatchAllSetStatus(stat, gImageEffectHost, (*_pluginHandle), kOfxActionUnload);
+          } CatchAllSetStatus(stat, gImageEffectHost, &saved, kOfxActionUnload);
           (void)stat;
           _pluginHandle.reset(NULL); // may unload the binary
           for (std::map<std::string, Descriptor *>::iterator it = _contexts.begin(); it != _contexts.end(); ++it) {
             delete it->second;
           }
           _contexts.clear();
+          if (!deleting) {
+            // (not when the plug-in cache is deleted: the host may be gone)
+            resetPointerProperties(this, getDescriptor());
+          }
         }
       }
 

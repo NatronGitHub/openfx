@@ -126,8 +126,12 @@ namespace OFX {
         /// binary was unloaded, the next call loads it and tries again: e.g. a Describe that
         /// returned kOfxStatErrMemory ("describe may be called again after a memory purge").
         ///
-        /// Not thread-safe: the host must serialize getPluginHandle(), getContext() and
-        /// createInstance() for a plug-in, and not call them during the scan.
+        /// Not thread-safe. The call that loads the plug-in (no handle yet), and the unload (after
+        /// the scan, or PluginCache::clearPluginCache()), change state that all the plug-ins of the
+        /// binary share (PluginBinary): the host must serialize them with every other call of
+        /// getPluginHandle(), getContext() and createInstance(), for all the plug-ins of the binary,
+        /// and not call these during the scan. Once the plug-in is loaded, getPluginHandle() only
+        /// reads; getContext() still describes a new context, so serialize it per plug-in.
         PluginHandle *getPluginHandle();
 
         /// this is called to make an instance of the effect
@@ -136,8 +140,9 @@ namespace OFX {
 
       private:
         /// if the plug-in is loaded: kOfxActionUnload, then release the handle (which may unload the
-        /// binary) and the context descriptors of this load
-        void unload();
+        /// binary) and the context descriptors of this load, and, unless the plug-in is being
+        /// deleted, reset the pointer properties of the base descriptor and its overlay descriptor
+        void unload(bool deleting = false);
       };
 
       class MajorPlugin {
