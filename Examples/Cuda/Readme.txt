@@ -6,9 +6,11 @@ the host enables it, else on the CPU. It uses the CUDA render properties of
 OFX 1.5, in include/ofxGPURender.h (they no longer need OFX_EXTENSIONS_RESOLVE).
 
 cuda.cpp is the plug-in (no CUDA dependency), kernel.cu the kernel and its
-launch, compiled by nvcc. Build with Makefile (CUDAPATH, CUDA_ARCH), with
-"make HAVE_CUDA=1" in Examples/, or with CMake -DOFX_SUPPORTS_CUDARENDER=ON
-(not on macOS, which has no CUDA).
+launch, compiled by nvcc. Build with CMake -DOFX_SUPPORTS_CUDARENDER=ON (Linux,
+or Windows with MSVC), or on Linux with Makefile (CUDAPATH, CUDA_ARCH; the CUDA
+runtime is linked statically, as CMake does), or "make HAVE_CUDA=1" in
+Examples/. macOS has had no CUDA since 10.13: MakefileOSX is kept from the 2015
+example, but can't be used with current systems.
 
 Describe
 --------
@@ -21,12 +23,11 @@ The plug-in sets on its descriptor:
 An OFX 1.4 host doesn't know these properties: their status is ignored, and the
 plug-in renders on the CPU there.
 
-In the load action, it reads the same two properties on the host descriptor.
-
 Render
 ------
-If the host supports CUDA render, the plug-in reads kOfxImageEffectPropCudaEnabled
-in the render inArgs:
+The plug-in reads kOfxImageEffectPropCudaEnabled in the render inArgs (0 if it
+is missing, as on an OFX 1.4 host; it is read whatever the host descriptor
+says, so that device pointers are never taken for CPU memory):
   "1 indicates that the kOfxImagePropData of each image of each clip is a CUDA
    memory pointer", 0 that it "is a CPU memory pointer".
 
@@ -52,7 +53,8 @@ render returns kOfxStatGPURenderFailed (kOfxStatGPUOutOfMemory if CUDA ran out
 of memory), so that the host can render on the CPU (ofxGPURender.h: "the host
 should retry the render with OpenGL rendering disabled"; with
 kOfxStatGLOutOfMemory, "the host may choose to free resources on the GPU and
-retry").
+retry"). Unlike OpenCL and Metal, the size of a CUDA device allocation can't be
+checked from its pointer: the kernel trusts the host's bounds and row bytes.
 
 When CUDA is not enabled (or on an OFX 1.4 host), the render is on the CPU, in
 cuda.cpp.

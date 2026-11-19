@@ -61,11 +61,6 @@ OfxMultiThreadSuiteV1 *gThreadHost = 0;
 OfxMessageSuiteV1     *gMessageSuite = 0;
 OfxInteractSuiteV1    *gInteractHost = 0;
 
-// what the host supports (from the host descriptor, in the load action). An OFX 1.4 host has
-// neither property: it always passes CPU images.
-static bool gHostSupportsCudaRender = false;
-static bool gHostSupportsCudaStream = false;
-
 #define DPRINT(args) print_dbg args
 static void print_dbg(const char *fmt, ...)
 {
@@ -99,31 +94,12 @@ getMyInstanceData( OfxImageEffectHandle effect)
   return (MyInstanceData *) ofxuGetEffectInstanceData(effect);
 }
 
-// is a string property of the host descriptor "true"? (false if the host doesn't know it)
-static bool
-hostPropertyIsTrue(const char *name)
-{
-  const char *value = NULL;
-  return (gPropHost->propGetString(gHost->host, name, 0, &value) == kOfxStatOK &&
-          value && strcmp(value, "true") == 0);
-}
-
 /** @brief Called at load */
 static OfxStatus
 onLoad(void)
 {
-  // fetch the host suites, and record the host's GPU render support
-  OfxStatus stat = ofxuFetchHostSuites();
-  if(stat != kOfxStatOK)
-    return stat;
-
-  // ofxGPURender.h, kOfxImageEffectPropCudaRenderSupported: "true" - "the host or plug-in can
-  // support CUDA render"
-  gHostSupportsCudaRender = hostPropertyIsTrue(kOfxImageEffectPropCudaRenderSupported);
-  gHostSupportsCudaStream = gHostSupportsCudaRender && hostPropertyIsTrue(kOfxImageEffectPropCudaStreamSupported);
-  DPRINT(("cuda: host CUDA render support %d, CUDA stream support %d\n",
-          (int)gHostSupportsCudaRender, (int)gHostSupportsCudaStream));
-  return kOfxStatOK;
+  // fetch the host suites
+  return ofxuFetchHostSuites();
 }
 
 /** @brief Called before unload */
@@ -404,16 +380,16 @@ static OfxStatus render( OfxImageEffectHandle  instance,
 
   // ofxGPURender.h, kOfxImageEffectPropCudaEnabled: "1 indicates that the kOfxImagePropData of
   // each image of each clip is a CUDA memory pointer", 0 that it "is a CPU memory pointer".
-  // An OFX 1.4 host doesn't set it: CPU memory.
+  // It is read whatever the host descriptor says, so that the images are never taken for CPU
+  // memory when the host passes device memory. An OFX 1.4 host doesn't set it: CPU memory.
   int cudaEnabled = 0;
-  if(gHostSupportsCudaRender &&
-     gPropHost->propGetInt(inArgs, kOfxImageEffectPropCudaEnabled, 0, &cudaEnabled) != kOfxStatOK)
+  if(gPropHost->propGetInt(inArgs, kOfxImageEffectPropCudaEnabled, 0, &cudaEnabled) != kOfxStatOK)
     cudaEnabled = 0;
 
   // kOfxImageEffectPropCudaStream: "This property will only be set if the host and plug-in both
   // support CUDA streams." If it isn't, the kernel runs on the default stream, and is waited for.
   void *cudaStream = NULL;
-  if(cudaEnabled && gHostSupportsCudaStream &&
+  if(cudaEnabled &&
      gPropHost->propGetPointer(inArgs, kOfxImageEffectPropCudaStream, 0, &cudaStream) != kOfxStatOK)
     cudaStream = NULL;
 

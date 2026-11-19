@@ -54,7 +54,10 @@ int RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Gain
     GainKernel<<<blocks, threads, 0, stream>>>(p_Width, p_Height, p_Gain[0], p_Gain[1], p_Gain[2],
                                                p_Input, p_InOffset, p_InRow,
                                                p_Output, p_OutOffset, p_OutRow);
-    cudaError_t error = cudaGetLastError(); // launch errors
+    // launch errors. cudaPeekAtLastError doesn't clear the error state, which belongs to the
+    // host's thread too: an earlier error of the host's own work is left for it to see (the
+    // render then also fails, and the host may retry on the CPU).
+    cudaError_t error = cudaPeekAtLastError();
     if ((error == cudaSuccess) && !stream)
     {
         // "If not set: the plug-in SHOULD ensure that any asynchronous operations it enqueues

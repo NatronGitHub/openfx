@@ -1,3 +1,5 @@
+# The 2015 macOS build of the CUDA example, kept for reference: macOS has had no CUDA since 10.13.
+# Use CMake or Makefile on Linux, or CMake with MSVC on Windows.
 CUDAPATH = /usr/local/cuda
 NVCC = ${CUDAPATH}/bin/nvcc
 CXXFLAGS = -I../../include -I../include
