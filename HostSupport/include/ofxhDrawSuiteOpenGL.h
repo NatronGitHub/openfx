@@ -245,7 +245,9 @@ namespace OFX {
         /// Only called if measureText() returned true; drawText() handles the alignment and the
         /// shadows. Return kOfxStatReplyDefault, without drawing, if this view can't render text
         /// (e.g. Natron's CustomParamInteract, whose OverlaySupport has no way to say so in
-        /// advance): drawText() then draws with the built-in font instead. The default draws the
+        /// advance): drawText() then draws with the built-in font instead. Return it
+        /// consistently for a given view within a draw, otherwise the shadow and the text are
+        /// drawn with different fonts. The default draws the
         /// built-in font there (kOfxStatFailed without an OpenGL table).
         virtual OfxStatus renderText(const char *utf8, const OfxPointD &baselineLeft, const TextMetrics & /*metrics*/)
         {
