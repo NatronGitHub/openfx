@@ -4450,7 +4450,9 @@ namespace OFX {
       /// The handle is the effect's OfxImageEffectHandle, Base::getHandle(), the address of
       /// the (polymorphic) ImageEffect::Base, so it is cast through Base, as in
       /// messageHandleToInstance(): a reinterpret_cast to Instance would also accept a
-      /// descriptor. NULL (it "cannot be NULL"), a descriptor or a bad handle give NULL.
+      /// descriptor. A NULL (it "cannot be NULL") or describe-time (descriptor) handle gives
+      /// NULL. ImageEffect::Base::verifyMagic() always returns true (there is no magic number):
+      /// any other pointer is undefined behaviour.
       static Instance *effectHandleToInstance(void *handle)
       {
         ImageEffect::Base *effectBase = reinterpret_cast<ImageEffect::Base*>(handle);

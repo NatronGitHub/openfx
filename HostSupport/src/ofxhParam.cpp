@@ -30,9 +30,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // ofx
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
-#ifdef OFX_SUPPORTS_PARAMETRIC
-#include "ofxParametricParam.h"
-#endif
+#include "ofxParametricParam.h" // kOfxParamTypeParametric, a known type even without OFX_SUPPORTS_PARAMETRIC
 #ifdef OFX_EXTENSIONS_NUKE
 #include "nuke/fnPublicOfxExtensions.h"
 #endif
@@ -2222,6 +2220,12 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << "OFX: paramDefine - " << paramSet << ' ' << (paramType ? paramType : "(null)") << ' ' << (name ? name : "(null)") << ' ' << propertySet << " ...";
 #       endif
+        // on failure, hand back a NULL property set rather than leaving it uninitialised
+        // (kOfxStatErrExists hands back the existing param's, below)
+        if (propertySet) {
+          *propertySet = NULL;
+        }
+
         // the handle is a BaseSet (getParamSetHandle()). Params are defined in a describe
         // action, on a descriptor's set: an instance's set is "kOfxStatErrBadHandle - if the
         // plugin handle was invalid" (a reinterpret_cast would use it as a SetDescriptor).
@@ -2237,6 +2241,18 @@ namespace OFX {
 
         // a NULL type is not a type: "kOfxStatErrUnknown - if the type is unknown"
         if (!paramType) {
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << ' ' << StatStr(kOfxStatErrUnknown) << std::endl;
+#         endif
+          return kOfxStatErrUnknown;
+        }
+
+        // "kOfxStatErrUnknown - if the type is unknown": none of the kOfxParamType* types.
+        // SetDescriptor::paramDefine() returns NULL for it, and host overrides that call it
+        // (e.g. Natron's) don't expect NULL. A parametric param is known even when HostSupport is
+        // built without OFX_SUPPORTS_PARAMETRIC (not in isStandardType()): it stays
+        // kOfxStatErrUnsupported, below.
+        if (!isStandardType(paramType) && std::string(paramType) != kOfxParamTypeParametric) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrUnknown) << std::endl;
 #         endif
@@ -2403,6 +2419,12 @@ namespace OFX {
           return kOfxStatOK;
         }
 
+        // A descriptor's set is accepted too, at describe time, although ofxParam.h says "You
+        // cannot call this in a plugin's describe function, as it needs an instance to work on":
+        // the Support library's ParametricParamDescriptor::setParamSet() (ofxsParams.cpp) gets the
+        // descriptor's handle this way to add the default control points, in the describe of every
+        // plug-in with a parametric param. The handle is then a Param::Descriptor's, which the
+        // value, key and copy functions reject (paramHandleToInstance()).
         SetDescriptor *setDescriptor = dynamic_cast<SetDescriptor*>(baseSet);
         
         if(setDescriptor){            
@@ -2501,8 +2523,10 @@ namespace OFX {
       
       /// Map a param handle to a param instance. The handle is Base::getHandle(), the address
       /// of the (polymorphic) Param::Base, which may be a describe-time Param::Descriptor: the
-      /// value, key and copy functions need an Instance, and get NULL for a descriptor
-      /// ("kOfxStatErrBadHandle - if the parameter handle was invalid").
+      /// value, key and copy functions need an Instance, and get NULL for a NULL or a
+      /// describe-time (descriptor) handle ("kOfxStatErrBadHandle - if the parameter handle was
+      /// invalid"). Param::Base::verifyMagic() always returns true (there is no magic number):
+      /// any other pointer is undefined behaviour.
       static Instance *paramHandleToInstance(OfxParamHandle paramHandle)
       {
         Base *paramBase = reinterpret_cast<Base*>(paramHandle);
@@ -2795,6 +2819,13 @@ namespace OFX {
 #       endif
           return kOfxStatErrBadHandle;
         }
+        // a NULL return pointer is rejected as a bad handle, as in the timeline suite
+        if (!numberOfKeys) {
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
+#         endif
+          return kOfxStatErrBadHandle;
+        }
         OfxStatus stat = paramInstance->getNumKeys(*numberOfKeys);
 #       ifdef OFX_DEBUG_PARAMETERS
         if (stat == kOfxStatOK) {
@@ -2842,6 +2873,13 @@ namespace OFX {
 #       endif
           return kOfxStatErrBadHandle;
         }
+        // a NULL return pointer is rejected as a bad handle, as in the timeline suite
+        if (!time) {
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
+#         endif
+          return kOfxStatErrBadHandle;
+        }
         OfxStatus stat = paramInstance->getKeyTime(nthKey,*time);
 #       ifdef OFX_DEBUG_PARAMETERS
         std::cout << ' ' << StatStr(stat) << std::endl;
@@ -2885,6 +2923,13 @@ namespace OFX {
 
         KeyframeParam *paramInstance = dynamic_cast<KeyframeParam*>(pInstance);
         if(!paramInstance) {
+#         ifdef OFX_DEBUG_PARAMETERS
+          std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
+#         endif
+          return kOfxStatErrBadHandle;
+        }
+        // a NULL return pointer is rejected as a bad handle, as in the timeline suite
+        if (!index) {
 #         ifdef OFX_DEBUG_PARAMETERS
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
