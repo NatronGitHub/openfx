@@ -29,15 +29,23 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 /*
-   Direct GPU processing using OpenGL
+   CUDA render (OFX 1.5, ofxGPURender.h), with the raw C API.
+
+   A gain on the R, G and B channels of float RGBA images. The host decides, for each render
+   action, whether the images are in CUDA device memory (kOfxImageEffectPropCudaEnabled=1) or in
+   CPU memory. The plug-in renders on the CPU when CUDA is not enabled, also on an OFX 1.4 host,
+   which has none of the CUDA render properties.
+
+   This file has no CUDA dependency: the kernel and its launch are in kernel.cu (compiled by nvcc).
  */
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
-#include <cuda.h>
-#include <cuda_runtime_api.h>
+#include <limits.h>
+#include <stddef.h>
 
 #include "ofxImageEffect.h"
+#include "ofxGPURender.h" // OFX 1.5 GPU render: kOfxImageEffectPropCuda*, kOfxStatGPU*
 #include "ofxMemory.h"
 #include "ofxMultiThread.h"
 
@@ -53,41 +61,22 @@ OfxMultiThreadSuiteV1 *gThreadHost = 0;
 OfxMessageSuiteV1     *gMessageSuite = 0;
 OfxInteractSuiteV1    *gInteractHost = 0;
 
-// some flags about the host's behaviour
-int gHostSupportsMultipleBitDepths = false;
-int gHostSupportsCuda = false;
-
-#define CHECK_STATUS(args) check_status_fun args
-
-static void
-check_status_fun(int status, int expected, const char *name)
-{
-  if (status != expected) {
-    fprintf(stderr, "OFX error in %s: expected status %d, got %d\n",
-	    name, expected, status);
-  }
-}
-
 #define DPRINT(args) print_dbg args
-void print_dbg(const char *fmt, ...)
+static void print_dbg(const char *fmt, ...)
 {
-  char msg[1024];
+#ifdef DEBUG
   va_list ap;
-
   va_start(ap, fmt);
-  vsnprintf(msg, 1023, fmt, ap);
-  fwrite(msg, sizeof(char), strlen(msg), stderr);
-  fflush(stderr);
-#ifdef _WIN32
-  OutputDebugString(msg);
-#endif
+  vfprintf(stderr, fmt, ap);
   va_end(ap);
+  fflush(stderr);
+#else
+  (void)fmt;
+#endif
 }
 
 // private instance data type
 struct MyInstanceData {
-  bool isGeneralEffect;
-
   // handles to the clips we deal with
   OfxImageClipHandle sourceClip;
   OfxImageClipHandle outputClip;
@@ -98,29 +87,19 @@ struct MyInstanceData {
   OfxParamHandle bGainParam;
 };
 
-/* mandatory function to set up the host structures */
-
-
-// Convinience wrapper to get private data
+// Convenience wrapper to get private data
 static MyInstanceData *
 getMyInstanceData( OfxImageEffectHandle effect)
 {
-  // get the property handle for the plugin
-  OfxPropertySetHandle effectProps;
-  gEffectHost->getPropertySet(effect, &effectProps);
-
-  // get my data pointer out of that
-  MyInstanceData *myData = 0;
-  gPropHost->propGetPointer(effectProps,  kOfxPropInstanceData, 0,
-			    (void **) &myData);
-  return myData;
+  return (MyInstanceData *) ofxuGetEffectInstanceData(effect);
 }
 
 /** @brief Called at load */
 static OfxStatus
 onLoad(void)
 {
-  return kOfxStatOK;
+  // fetch the host suites
+  return ofxuFetchHostSuites();
 }
 
 /** @brief Called before unload */
@@ -134,21 +113,12 @@ onUnLoad(void)
 static OfxStatus
 createInstance( OfxImageEffectHandle effect)
 {
-  // get a pointer to the effect properties
-  OfxPropertySetHandle effectProps;
-  gEffectHost->getPropertySet(effect, &effectProps);
-
   // get a pointer to the effect's parameter set
   OfxParamSetHandle paramSet;
   gEffectHost->getParamSet(effect, &paramSet);
 
   // make my private instance data
   MyInstanceData *myData = new MyInstanceData;
-  const char *context = 0;
-
-  // is this instance a general effect ?
-  gPropHost->propGetString(effectProps, kOfxImageEffectPropContext, 0,  &context);
-  myData->isGeneralEffect = context && (strcmp(context, kOfxImageEffectContextGeneral) == 0);
 
   // cache away our param handles
   gParamHost->paramGetHandle(paramSet, "R Gain", &myData->rGainParam, 0);
@@ -156,11 +126,11 @@ createInstance( OfxImageEffectHandle effect)
   gParamHost->paramGetHandle(paramSet, "B Gain", &myData->bGainParam, 0);
 
   // cache away our clip handles
-  gEffectHost->clipGetHandle(effect, "Source", &myData->sourceClip, 0);
-  gEffectHost->clipGetHandle(effect, "Output", &myData->outputClip, 0);
+  gEffectHost->clipGetHandle(effect, kOfxImageEffectSimpleSourceClipName, &myData->sourceClip, 0);
+  gEffectHost->clipGetHandle(effect, kOfxImageEffectOutputClipName, &myData->outputClip, 0);
 
   // set my private instance data
-  gPropHost->propSetPointer(effectProps, kOfxPropInstanceData, 0, (void *) myData);
+  ofxuSetEffectInstanceData(effect, (void *) myData);
 
   return kOfxStatOK;
 }
@@ -169,17 +139,13 @@ createInstance( OfxImageEffectHandle effect)
 static OfxStatus
 destroyInstance( OfxImageEffectHandle  effect)
 {
-  // get my instance data
-  MyInstanceData *myData = getMyInstanceData(effect);
-
-  // and delete it
-  if(myData)
-    delete myData;
+  // get my instance data, and delete it
+  delete getMyInstanceData(effect);
   return kOfxStatOK;
 }
 
 // tells the host what region we are capable of filling
-OfxStatus
+static OfxStatus
 getSpatialRoD( OfxImageEffectHandle  effect,  OfxPropertySetHandle inArgs,  OfxPropertySetHandle outArgs)
 {
   // retrieve any instance data associated with this effect
@@ -199,8 +165,8 @@ getSpatialRoD( OfxImageEffectHandle  effect,  OfxPropertySetHandle inArgs,  OfxP
 }
 
 // tells the host how much of the input we need to fill the given window
-OfxStatus
-getSpatialRoI( OfxImageEffectHandle  effect,  OfxPropertySetHandle inArgs,  OfxPropertySetHandle outArgs)
+static OfxStatus
+getSpatialRoI( OfxImageEffectHandle  /*effect*/,  OfxPropertySetHandle inArgs,  OfxPropertySetHandle outArgs)
 {
   // get the RoI the effect is interested in from inArgs
   OfxRectD roi;
@@ -209,17 +175,14 @@ getSpatialRoI( OfxImageEffectHandle  effect,  OfxPropertySetHandle inArgs,  OfxP
   // the input needed is the same as the output, so set that on the source clip
   gPropHost->propSetDoubleN(outArgs, "OfxImageClipPropRoI_Source", 4, &roi.x1);
 
-  // retrieve any instance data associated with this effect
-  MyInstanceData *myData = getMyInstanceData(effect);
-
   return kOfxStatOK;
 }
 
 // Tells the host how many frames we can fill, only called in the general context.
 // This is actually redundant as this is the default behaviour, but for illustrative
 // purposes.
-OfxStatus
-getTemporalDomain( OfxImageEffectHandle  effect,  OfxPropertySetHandle inArgs,  OfxPropertySetHandle outArgs)
+static OfxStatus
+getTemporalDomain( OfxImageEffectHandle  effect,  OfxPropertySetHandle /*inArgs*/,  OfxPropertySetHandle outArgs)
 {
   MyInstanceData *myData = getMyInstanceData(effect);
 
@@ -235,29 +198,17 @@ getTemporalDomain( OfxImageEffectHandle  effect,  OfxPropertySetHandle inArgs,  
   return kOfxStatOK;
 }
 
-
-// Set our clip preferences
-static OfxStatus
-getClipPreferences( OfxImageEffectHandle  effect,  OfxPropertySetHandle inArgs,  OfxPropertySetHandle outArgs)
+// the gains at a time
+static void
+getGains(MyInstanceData *myData, OfxTime time, float gain[3])
 {
-  // retrieve any instance data associated with this effect
-  MyInstanceData *myData = getMyInstanceData(effect);
-
-  // get the component type and bit depth of our main input
-  int  bitDepth;
-  bool isRGBA;
-  ofxuClipGetFormat(myData->sourceClip, bitDepth, isRGBA, true); // get the unmapped clip component
-
-  // get the strings used to label the various bit depths
-  const char *bitDepthStr = bitDepth == 8 ? kOfxBitDepthByte : (bitDepth == 16 ? kOfxBitDepthShort : kOfxBitDepthFloat);
-  const char *componentStr = isRGBA ? kOfxImageComponentRGBA : kOfxImageComponentAlpha;
-
-  // set out output to be the same same as the input, component and bitdepth
-  gPropHost->propSetString(outArgs, "OfxImageClipPropComponents_Output", 0, componentStr);
-  if(gHostSupportsMultipleBitDepths)
-    gPropHost->propSetString(outArgs, "OfxImageClipPropDepth_Output", 0, bitDepthStr);
-
-  return kOfxStatOK;
+  double rGain = 1, gGain = 1, bGain = 1;
+  gParamHost->paramGetValueAtTime(myData->rGainParam, time, &rGain);
+  gParamHost->paramGetValueAtTime(myData->gGainParam, time, &gGain);
+  gParamHost->paramGetValueAtTime(myData->bGainParam, time, &bGain);
+  gain[0] = (float)rGain;
+  gain[1] = (float)gGain;
+  gain[2] = (float)bGain;
 }
 
 // are the settings of the effect performing an identity operation
@@ -266,16 +217,24 @@ isIdentity( OfxImageEffectHandle  effect,
 	    OfxPropertySetHandle inArgs,
 	    OfxPropertySetHandle outArgs)
 {
-  // In this case do the default, which in this case is to render
+  OfxTime time = ofxuGetTime(inArgs);
+  float gain[3];
+  getGains(getMyInstanceData(effect), time, gain);
+  if(gain[0] == 1.f && gain[1] == 1.f && gain[2] == 1.f) {
+    // the output is the source image
+    gPropHost->propSetString(outArgs, kOfxPropName, 0, kOfxImageEffectSimpleSourceClipName);
+    return kOfxStatOK;
+  }
+  // render
   return kOfxStatReplyDefault;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // function called when the instance has been changed by anything
 static OfxStatus
-instanceChanged( OfxImageEffectHandle  effect,
-		 OfxPropertySetHandle inArgs,
-		 OfxPropertySetHandle outArgs)
+instanceChanged( OfxImageEffectHandle  /*effect*/,
+		 OfxPropertySetHandle /*inArgs*/,
+		 OfxPropertySetHandle /*outArgs*/)
 {
   // don't trap any others
   return kOfxStatReplyDefault;
@@ -284,186 +243,193 @@ instanceChanged( OfxImageEffectHandle  effect,
 ////////////////////////////////////////////////////////////////////////////////
 // rendering routines
 
-extern void RunKernel(int p_Width, int p_Height, float p_RGain, float p_GGain, float p_BGain, float* p_Input, float* p_Output);
+// an image fetched from a clip
+struct Image {
+  OfxPropertySetHandle props; // NULL if there is no image
+  void *data;                 // kOfxImagePropData: CPU memory, or CUDA device memory if CUDA is enabled
+  OfxRectI bounds;
+  int rowBytes;
+  bool isFloatRGBA;
+};
+
+// fetch the image of a clip at a time (props is NULL if there is none); release it with releaseImage
+static void
+fetchImage(OfxImageClipHandle clip, OfxTime time, Image &img)
+{
+  memset(&img, 0, sizeof(img));
+  if(gEffectHost->clipGetImage(clip, time, NULL, &img.props) != kOfxStatOK) {
+    img.props = NULL;
+    return;
+  }
+  const char *components = NULL;
+  gPropHost->propGetString(img.props, kOfxImageEffectPropComponents, 0, &components);
+  img.data = ofxuGetImageData(img.props);
+  img.bounds = ofxuGetImageBounds(img.props);
+  img.rowBytes = ofxuGetImageRowBytes(img.props);
+  img.isFloatRGBA = (ofxuGetImagePixelDepth(img.props) == 32 &&
+                     components && strcmp(components, kOfxImageComponentRGBA) == 0);
+}
+
+static void
+releaseImage(Image &img)
+{
+  if(img.props)
+    gEffectHost->clipReleaseImage(img.props);
+  img.props = NULL;
+}
+
+// the address of the float RGBA pixel (x, y) of a CPU image, NULL outside its bounds
+static float *
+pixelAddress(const Image &img, int x, int y)
+{
+  if(!img.data || x < img.bounds.x1 || x >= img.bounds.x2 || y < img.bounds.y1 || y >= img.bounds.y2)
+    return NULL;
+  return (float *) ((char *) img.data + (ptrdiff_t)(y - img.bounds.y1) * img.rowBytes
+                    + (ptrdiff_t)(x - img.bounds.x1) * 4 * (ptrdiff_t)sizeof(float));
+}
+
+// CPU render: the render window of dst, black and transparent where there is no source pixel
+static OfxStatus
+renderCPU(OfxImageEffectHandle instance, const OfxRectI &window, const Image &src, const Image &dst,
+          const float gain[3])
+{
+  for(int y = window.y1; y < window.y2; ++y) {
+    if(gEffectHost->abort(instance))
+      break;
+    float *dstPix = pixelAddress(dst, window.x1, y);
+    for(int x = window.x1; x < window.x2; ++x, dstPix += 4) {
+      const float *srcPix = pixelAddress(src, x, y);
+      if(srcPix) {
+        dstPix[0] = srcPix[0] * gain[0];
+        dstPix[1] = srcPix[1] * gain[1];
+        dstPix[2] = srcPix[2] * gain[2];
+        dstPix[3] = srcPix[3];
+      }
+      else {
+        dstPix[0] = dstPix[1] = dstPix[2] = dstPix[3] = 0.f;
+      }
+    }
+  }
+  return kOfxStatOK;
+}
+
+// The layout of the render window in a device image, for the kernel: the offset of its first
+// pixel and the row length, in floats. The kernel reads or writes the float RGBA pixels of the
+// window from there: the image must cover the window, with positive row bytes (a multiple of
+// sizeof(float)) of at least a row of its bounds, and the indices must fit in an int.
+static bool
+deviceLayout(const Image &img, const OfxRectI &window, int &offset, int &rowFloats)
+{
+  if(!img.props || !img.data || !img.isFloatRGBA)
+    return false;
+  const OfxRectI &b = img.bounds;
+  if(window.x1 < b.x1 || window.x2 > b.x2 || window.y1 < b.y1 || window.y2 > b.y2)
+    return false;
+  if(img.rowBytes <= 0 || img.rowBytes % (int)sizeof(float) != 0 ||
+     img.rowBytes / (int)sizeof(float) < (b.x2 - b.x1) * 4)
+    return false;
+  rowFloats = img.rowBytes / (int)sizeof(float);
+  const long long first = (long long)(window.y1 - b.y1) * rowFloats + (long long)(window.x1 - b.x1) * 4;
+  const long long end = first + (long long)(window.y2 - window.y1 - 1) * rowFloats + (long long)(window.x2 - window.x1) * 4;
+  if(end > INT_MAX)
+    return false;
+  offset = (int)first;
+  return true;
+}
+
+// kernel.cu: returns 0 (success), 1 (failed) or 2 (out of memory). p_Stream is the host's
+// cudaStream_t, or NULL (then it waits for the kernel to complete).
+extern int RunCudaKernel(void *p_Stream, int p_Width, int p_Height, const float *p_Gain,
+                         const float *p_Input, int p_InOffset, int p_InRow,
+                         float *p_Output, int p_OutOffset, int p_OutRow);
+
+// CUDA render: src and dst data are CUDA device pointers on the host's current device, so the
+// kernel runs on them directly, on the host's stream: no cudaSetDevice, no allocation, no copy.
+// Images it can't process (a missing source, other layouts) fail with kOfxStatGPURenderFailed,
+// so that the host may render on the CPU instead. ofxGPURender.h: "If a plug-in returns
+// kOfxStatGLRenderFailed [== kOfxStatGPURenderFailed], the host should retry the render with
+// OpenGL rendering disabled", and with kOfxStatGLOutOfMemory [== kOfxStatGPUOutOfMemory] "the host
+// may choose to free resources on the GPU and retry".
+static OfxStatus
+renderCuda(void *stream, const OfxRectI &window, const Image &src, const Image &dst, const float gain[3])
+{
+  int srcOffset, srcRow, dstOffset, dstRow;
+  if(!deviceLayout(src, window, srcOffset, srcRow) || !deviceLayout(dst, window, dstOffset, dstRow))
+    return kOfxStatGPURenderFailed;
+  const int status = RunCudaKernel(stream, window.x2 - window.x1, window.y2 - window.y1, gain,
+                                   (const float *) src.data, srcOffset, srcRow,
+                                   (float *) dst.data, dstOffset, dstRow);
+  if(status == 2)
+    return kOfxStatGPUOutOfMemory;
+  return status == 0 ? kOfxStatOK : kOfxStatGPURenderFailed;
+}
 
 // the process code  that the host sees
 static OfxStatus render( OfxImageEffectHandle  instance,
                          OfxPropertySetHandle inArgs,
-                         OfxPropertySetHandle outArgs)
+                         OfxPropertySetHandle /*outArgs*/)
 {
   // get the render window and the time from the inArgs
   OfxTime time;
   OfxRectI renderWindow;
-  OfxStatus status = kOfxStatOK;
-
   gPropHost->propGetDouble(inArgs, kOfxPropTime, 0, &time);
   gPropHost->propGetIntN(inArgs, kOfxImageEffectPropRenderWindow, 4, &renderWindow.x1);
 
   // Retrieve instance data associated with this effect
   MyInstanceData *myData = getMyInstanceData(instance);
 
-  // property handles and members of each image
-  OfxPropertySetHandle sourceImg = NULL, outputImg = NULL;
-  int srcRowBytes, srcBitDepth, dstRowBytes, dstBitDepth;
-  bool srcIsAlpha, dstIsAlpha;
-  OfxRectI dstRect, srcRect;
-  void *src, *dst;
+  // ofxGPURender.h, kOfxImageEffectPropCudaEnabled: "1 indicates that the kOfxImagePropData of
+  // each image of each clip is a CUDA memory pointer", 0 that it "is a CPU memory pointer".
+  // It is read whatever the host descriptor says, so that the images are never taken for CPU
+  // memory when the host passes device memory. An OFX 1.4 host doesn't set it: CPU memory.
+  int cudaEnabled = 0;
+  if(gPropHost->propGetInt(inArgs, kOfxImageEffectPropCudaEnabled, 0, &cudaEnabled) != kOfxStatOK)
+    cudaEnabled = 0;
 
-  DPRINT(("Render: window = [%d, %d - %d, %d]\n",
-	  renderWindow.x1, renderWindow.y1,
-	  renderWindow.x2, renderWindow.y2));
+  // kOfxImageEffectPropCudaStream: "This property will only be set if the host and plug-in both
+  // support CUDA streams." If it isn't, the kernel runs on the default stream, and is waited for.
+  void *cudaStream = NULL;
+  if(cudaEnabled &&
+     gPropHost->propGetPointer(inArgs, kOfxImageEffectPropCudaStream, 0, &cudaStream) != kOfxStatOK)
+    cudaStream = NULL;
 
-  int isCudaEnabled = 0;
-  if (gHostSupportsCuda)
-  {
-      gPropHost->propGetInt(inArgs, kOfxImageEffectPropCudaEnabled, 0, &isCudaEnabled);
-      DPRINT(("render: Cuda rendering %s\n", isCudaEnabled ? "enabled" : "DISABLED"));
+  DPRINT(("cuda: render window [%d, %d - %d, %d], CUDA %s, stream %p\n",
+          renderWindow.x1, renderWindow.y1, renderWindow.x2, renderWindow.y2,
+          cudaEnabled ? "enabled" : "disabled", cudaStream));
+
+  float gain[3];
+  getGains(myData, time, gain);
+
+  // get the images (there is no source image if the clip is not connected)
+  Image dst, src;
+  fetchImage(myData->outputClip, time, dst);
+  if(!dst.props)
+    return kOfxStatFailed;
+  fetchImage(myData->sourceClip, time, src);
+
+  // render the part of the window that is in the output image
+  OfxRectI window = renderWindow;
+  if(window.x1 < dst.bounds.x1) window.x1 = dst.bounds.x1;
+  if(window.x2 > dst.bounds.x2) window.x2 = dst.bounds.x2;
+  if(window.y1 < dst.bounds.y1) window.y1 = dst.bounds.y1;
+  if(window.y2 > dst.bounds.y2) window.y2 = dst.bounds.y2;
+
+  OfxStatus status = kOfxStatOK;
+  if(window.x1 >= window.x2 || window.y1 >= window.y2) {
+    // empty window or image: nothing to do (and an empty CUDA grid is a launch error)
+  }
+  else if(cudaEnabled) {
+    status = (src.props ? renderCuda(cudaStream, window, src, dst, gain) : kOfxStatGPURenderFailed);
+  }
+  else if(!dst.data || !dst.isFloatRGBA || (src.props && (!src.data || !src.isFloatRGBA))) {
+    status = kOfxStatErrImageFormat; // only float RGBA is declared in describe
+  }
+  else {
+    status = renderCPU(instance, window, src, dst, gain);
   }
 
-  cudaError_t cudaError;
-  int deviceCount;
-
-  cudaGetDeviceCount(&deviceCount);
-
-  cudaDeviceProp deviceProp;
-  for (int i = 0; i < deviceCount; ++i)
-  {
-      cudaGetDeviceProperties(&deviceProp, i);
-      DPRINT(("Device [%d/%d] %s (Unified addressing %d)\n", i, deviceCount, deviceProp.name, deviceProp.unifiedAddressing));
-  }
-
-  // Get the Cuda device that the host is running on
-  int hostDevice;
-  cudaGetDevice(&hostDevice);
-
-  // Use the first Cuda device
-  int pluginDevice = 0;
-  cudaError = cudaSetDevice(pluginDevice);
-  if (cudaError != cudaSuccess)
-  {
-      DPRINT(("cudaSetDevice: cudaError %d\n", cudaError));
-  }
-
-  cudaGetDeviceProperties(&deviceProp, pluginDevice);
-  DPRINT(("Using %s for plugin\n", deviceProp.name));
-
-  // get the source image
-  sourceImg = ofxuGetImage(myData->sourceClip, time, srcRowBytes, srcBitDepth, srcIsAlpha, srcRect, src);
-
-  // get the output image
-  outputImg = ofxuGetImage(myData->outputClip, time, dstRowBytes, dstBitDepth, dstIsAlpha, dstRect, dst);
-
-  // get the scale parameter
-  double rGain = 1, gGain = 1, bGain = 1;
-  gParamHost->paramGetValueAtTime(myData->rGainParam, time, &rGain);
-  gParamHost->paramGetValueAtTime(myData->gGainParam, time, &gGain);
-  gParamHost->paramGetValueAtTime(myData->bGainParam, time, &bGain);
-  DPRINT(("Gain(%f %f %f)\n", rGain, gGain, bGain));
-
-  float w = (renderWindow.x2 - renderWindow.x1);
-  float h = (renderWindow.y2 - renderWindow.y1);
-
-  // Allocate the temporary buffers on the plugin device
-  void* inBuffer;
-  cudaError = cudaMalloc(&inBuffer, sizeof(float) * w * h * 4);
-  if (cudaError != cudaSuccess)
-  {
-      DPRINT(("cudaMalloc: cudaError %d\n", cudaError));
-  }
-  void* outBuffer;
-  cudaError = cudaMalloc(&outBuffer, sizeof(float) * w * h * 4);
-  if (cudaError != cudaSuccess)
-  {
-      DPRINT(("cudaMalloc: cudaError %d\n", cudaError));
-  }
-
-  if (isCudaEnabled)
-  {
-      if (pluginDevice == hostDevice)
-      {
-          DPRINT(("Using Cuda transfers (same device)\n"));
-
-          RunKernel(w, h, rGain, gGain, bGain, static_cast<float*>(src), static_cast<float*>(dst));
-
-          if (cudaError != cudaSuccess)
-          {
-              DPRINT(("cudaMemcpy: cudaError %d\n", cudaError));
-          }
-      }
-      else
-      {
-        DPRINT(("Using Cuda transfers (different devices)\n"));
-
-        // Copy the buffer from the host device to the plugin device
-        cudaError = cudaMemcpyPeer(inBuffer, pluginDevice, src, hostDevice, sizeof(float) * w * h * 4);
-
-        if (cudaError != cudaSuccess)
-        {
-            DPRINT(("cudaMemcpyPeer: cudaError %d\n", cudaError));
-        }
-
-        RunKernel(w, h, rGain, gGain, bGain, static_cast<float*>(inBuffer), static_cast<float*>(outBuffer));
-
-        if (cudaError != cudaSuccess)
-        {
-            DPRINT(("cudaMemcpy: cudaError %d\n", cudaError));
-        }
-
-
-        // Copy the buffer from the plugin device to the host device
-        cudaError = cudaMemcpyPeer(dst, hostDevice, outBuffer, pluginDevice, sizeof(float) * w * h * 4);
-
-        if (cudaError != cudaSuccess)
-        {
-            DPRINT(("cudaMemcpyPeer: cudaError %d\n", cudaError));
-        }
-      }
-  }
-  else
-  {
-      DPRINT(("Using CPU transfers\n"));
-
-      // Copy the buffer from the CPU to the plugin device
-      cudaError = cudaMemcpy(inBuffer, src, sizeof(float) * w * h * 4, cudaMemcpyHostToDevice);
-
-      if (cudaError != cudaSuccess)
-      {
-          DPRINT(("cudaMemcpy: cudaError %d\n", cudaError));
-      }
-
-      RunKernel(w, h, rGain, gGain, bGain, static_cast<float*>(inBuffer), static_cast<float*>(outBuffer));
-
-      if (cudaError != cudaSuccess)
-      {
-          DPRINT(("cudaMemcpy: cudaError %d\n", cudaError));
-      }
-
-      // Copy the buffer from the plugin device to the CPU
-      cudaError = cudaMemcpy(dst, outBuffer, sizeof(float) * w * h * 4, cudaMemcpyDeviceToHost);
-
-      if (cudaError != cudaSuccess)
-      {
-          DPRINT(("cudaMemcpy: cudaError %d\n", cudaError));
-      }
-  }
-
-  // Free the temporary buffers on the plugin device
-  cudaFree(inBuffer);
-  cudaFree(outBuffer);
-
-  // Set back the Cuda device that the host is running on
-  cudaSetDevice(hostDevice);
-
-  if (sourceImg)
-  {
-      gEffectHost->clipReleaseImage(sourceImg);
-  }
-
-  if (outputImg)
-  {
-      gEffectHost->clipReleaseImage(outputImg);
-  }
-
+  releaseImage(src);
+  releaseImage(dst);
   return status;
 }
 
@@ -476,7 +442,6 @@ defineParam( OfxParamSetHandle effectParams,
 	     const char *hint,
 	     const char *parent)
 {
-  OfxParamHandle param;
   OfxPropertySetHandle props;
   gParamHost->paramDefine(effectParams, kOfxParamTypeDouble, name, &props);
 
@@ -496,27 +461,20 @@ defineParam( OfxParamSetHandle effectParams,
 
 //  describe the plugin in context
 static OfxStatus
-describeInContext( OfxImageEffectHandle  effect,  OfxPropertySetHandle inArgs)
+describeInContext( OfxImageEffectHandle  effect,  OfxPropertySetHandle /*inArgs*/)
 {
-  // get the context from the inArgs handle
-  const char *context;
-  gPropHost->propGetString(inArgs, kOfxImageEffectPropContext, 0, &context);
-  bool isGeneralContext = strcmp(context, kOfxImageEffectContextGeneral) == 0;
-
   OfxPropertySetHandle props;
   // define the single output clip in both contexts
-  gEffectHost->clipDefine(effect, "Output", &props);
+  gEffectHost->clipDefine(effect, kOfxImageEffectOutputClipName, &props);
 
   // set the component types we can handle on out output
   gPropHost->propSetString(props, kOfxImageEffectPropSupportedComponents, 0, kOfxImageComponentRGBA);
-  gPropHost->propSetString(props, kOfxImageEffectPropSupportedComponents, 1, kOfxImageComponentAlpha);
 
   // define the single source clip in both contexts
-  gEffectHost->clipDefine(effect, "Source", &props);
+  gEffectHost->clipDefine(effect, kOfxImageEffectSimpleSourceClipName, &props);
 
   // set the component types we can handle on our main input
   gPropHost->propSetString(props, kOfxImageEffectPropSupportedComponents, 0, kOfxImageComponentRGBA);
-  gPropHost->propSetString(props, kOfxImageEffectPropSupportedComponents, 1, kOfxImageComponentAlpha);
 
   ////////////////////////////////////////////////////////////////////////////////
   // define the parameters for this context
@@ -532,7 +490,6 @@ describeInContext( OfxImageEffectHandle  effect,  OfxPropertySetHandle inArgs)
           "Blue Gain", 0);
 
   // make a page of controls and add my parameters to it
-  OfxParamHandle page;
   gParamHost->paramDefine(paramSet, kOfxParamTypePage, "Main", &props);
   gPropHost->propSetString(props, kOfxParamPropPageChild, 0, "R Gain");
   gPropHost->propSetString(props, kOfxParamPropPageChild, 1, "G Gain");
@@ -545,14 +502,6 @@ describeInContext( OfxImageEffectHandle  effect,  OfxPropertySetHandle inArgs)
 static OfxStatus
 describe(OfxImageEffectHandle  effect)
 {
-  // first fetch the host APIs, this cannot be done before this call
-  OfxStatus stat;
-  if((stat = ofxuFetchHostSuites()) != kOfxStatOK)
-    return stat;
-
-  // record a few host features
-  gPropHost->propGetInt(gHost->host, kOfxImageEffectPropSupportsMultipleClipDepths, 0, &gHostSupportsMultipleBitDepths);
-
   // get the property handle for the plugin
   OfxPropertySetHandle effectProps;
   gEffectHost->getPropertySet(effect, &effectProps);
@@ -561,31 +510,25 @@ describe(OfxImageEffectHandle  effect)
   // So set the flag that allows us to do this
   gPropHost->propSetInt(effectProps, kOfxImageEffectPluginPropFieldRenderTwiceAlways, 0, 0);
 
-  // say we can support multiple pixel depths and let the clip preferences action deal with it all.
-  gPropHost->propSetInt(effectProps, kOfxImageEffectPropSupportsMultipleClipDepths, 0, 1);
-
-  // set the bit depths the plugin can handle
-  gPropHost->propSetString(effectProps, kOfxImageEffectPropSupportedPixelDepths, 0, kOfxBitDepthByte);
-  gPropHost->propSetString(effectProps, kOfxImageEffectPropSupportedPixelDepths, 1, kOfxBitDepthShort);
-  gPropHost->propSetString(effectProps, kOfxImageEffectPropSupportedPixelDepths, 2, kOfxBitDepthFloat);
+  // the CPU and CUDA renders process float RGBA images
+  gPropHost->propSetString(effectProps, kOfxImageEffectPropSupportedPixelDepths, 0, kOfxBitDepthFloat);
 
   // set some labels and the group it belongs to
   gPropHost->propSetString(effectProps, kOfxPropLabel, 0, "Resolve Simple Gain (CUDA)");
-  gPropHost->propSetString(effectProps, kOfxImageEffectPluginPropGrouping, 0, "Resolve Simple Gain");
+  gPropHost->propSetString(effectProps, kOfxImageEffectPluginPropGrouping, 0, "OFX Example (GPU)");
 
   // define the contexts we can be used in
   gPropHost->propSetString(effectProps, kOfxImageEffectPropSupportedContexts, 0, kOfxImageEffectContextFilter);
   gPropHost->propSetString(effectProps, kOfxImageEffectPropSupportedContexts, 1, kOfxImageEffectContextGeneral);
 
-  // we support Cuda rendering
+  // We support CUDA render, and render on the CPU otherwise: "true" (ofxGPURender.h: "the host or
+  // plug-in can support CUDA render"; "needed" would say that it can't render without CUDA).
+  // And CUDA streams ("the host or plug-in can support CUDA streams"): the host may then give its
+  // stream in kOfxImageEffectPropCudaStream.
+  // An OFX 1.4 host may not know these properties (kOfxStatErrUnknown): the status is ignored,
+  // the plug-in renders on the CPU there.
   gPropHost->propSetString(effectProps, kOfxImageEffectPropCudaRenderSupported, 0, "true");
-
-  {
-    const char *s = "<undefined>";
-    stat = gPropHost->propGetString(gHost->host, kOfxImageEffectPropCudaRenderSupported, 0, &s);
-    DPRINT(("Host has Cuda render support: %s (stat=%d)\n", s, stat));
-    gHostSupportsCuda = stat == 0 && !strcmp(s, "true");
-  }
+  gPropHost->propSetString(effectProps, kOfxImageEffectPropCudaStreamSupported, 0, "true");
 
   return kOfxStatOK;
 }
@@ -628,9 +571,6 @@ pluginMain(const char *action,  const void *handle, OfxPropertySetHandle inArgs,
   else if(strcmp(action, kOfxImageEffectActionGetRegionsOfInterest) == 0) {
     return getSpatialRoI(effect, inArgs, outArgs);
   }
-  else if(strcmp(action, kOfxImageEffectActionGetClipPreferences) == 0) {
-    return getClipPreferences(effect, inArgs, outArgs);
-  }
   else if(strcmp(action, kOfxActionInstanceChanged) == 0) {
     return instanceChanged(effect, inArgs, outArgs);
   }
@@ -658,13 +598,13 @@ static OfxPlugin basicPlugin =
   1,
   "com.blackmagicdesign.ResolveSimpleGainCUDAPlugin",
   1,
-  0,
+  1,
   setHostFunc,
   pluginMain
 };
 
 // the two mandated functions
-OfxPlugin *
+OfxExport OfxPlugin *
 OfxGetPlugin(int nth)
 {
   if(nth == 0)
@@ -672,7 +612,7 @@ OfxGetPlugin(int nth)
   return 0;
 }
 
-int
+OfxExport int
 OfxGetNumberOfPlugins(void)
 {
   return 1;

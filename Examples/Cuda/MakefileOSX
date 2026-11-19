@@ -1,10 +1,12 @@
+# The 2015 macOS build of the CUDA example, kept for reference: macOS has had no CUDA since 10.13.
+# Use CMake or Makefile on Linux, or CMake with MSVC on Windows.
 CUDAPATH = /usr/local/cuda
 NVCC = ${CUDAPATH}/bin/nvcc
-CXXFLAGS = -I../../include -I${CUDAPATH}/include
+CXXFLAGS = -I../../include -I../include
 OPTIMIZER = -g
 
 cuda.ofx : cuda.o kernel.o
-	$(CXX) -bundle cuda.o kernel.o -o cuda.ofx -L${CUDAPATH}/lib -lcuda -lcudart
+	$(CXX) -bundle cuda.o kernel.o -o cuda.ofx -L${CUDAPATH}/lib -lcudart
 	mkdir -p cuda.ofx.bundle/Contents/MacOS/
 	cp cuda.ofx cuda.ofx.bundle/Contents/MacOS/
 

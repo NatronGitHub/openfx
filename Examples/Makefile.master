@@ -89,6 +89,12 @@ $(OBJECTPATH)/%.o : %.cpp
 	mkdir -p $(OBJECTPATH)
 	$(AM_V_CXX)$(CXX) -c $(CXXFLAGS) $< -o $@
 
+# Objective-C++ (e.g. a Metal kernel on macOS), compiled by the C++ compiler with the C++ flags.
+# An object with a .cpp source still uses the rule above, which comes first.
+$(OBJECTPATH)/%.o : %.mm
+	mkdir -p $(OBJECTPATH)
+	$(AM_V_CXX)$(CXX) -x objective-c++ -c $(CXXFLAGS) $< -o $@
+
 .PHONY: all install uninstall
 
 all: $(OBJECTPATH)/$(PLUGINNAME).ofx.bundle
