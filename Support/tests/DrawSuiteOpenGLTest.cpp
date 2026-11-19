@@ -912,7 +912,7 @@ static void testHostHelper()
     CHECK(host.texts.empty() && blocks().size() == 1);
   }
 
-  // shadows: two passes, the shadow first, offset (+1, -1) screen pixels, in the host's
+  // shadows: two passes, the shadow first, offset one device pixel (+1, -1 at ratio 1), in the host's
   // background colour with the current alpha; the hooks see shadows false
   {
     HostDrawSuite host(&gl);
