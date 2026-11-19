@@ -1215,6 +1215,7 @@ kNatronOfxKeyModifierShift = 1
 kNatronOfxKeyModifierControl = 2
 kNatronOfxKeyModifierAlt = 4
 kNatronOfxKeyModifierMeta = 8
+kNatronOfxInteractPropDrawSuiteShadows = 'NatronOfxInteractPropDrawSuiteShadows'
 kNatronOfxParamPropParametricIsPeriodic = 'OfxParamPropParametricIsPeriodic'
 kOfxImageClipPropFormat = 'OfxImageClipPropFormat'
 kOfxImageEffectPropCanDistort = 'OfxImageEffectPropCanDistort'

@@ -24,6 +24,8 @@
     alignment, the error statuses, and that the OpenGL state is restored.
 
   - DrawArgs::isOpenGLContextCurrent().
+  - kNatronOfxInteractPropDrawSuiteShadows (absent, 0, 1) in the OpenGL backend's state, and
+    (with the CGL context) the shadow it draws.
 
   Built with -DBUILD_EXAMPLE_PLUGINS=ON, except on Windows (target drawcontext-opengl-test). Prints
   one line per failed check, and exits with 0 if all passed.
@@ -70,6 +72,7 @@ static int gFailures = 0;
 
 static void *gFakeDrawContextHandle = NULL; // kOfxInteractPropDrawContext
 static double gFakeScreenPixelRatio = 1.;
+static int gFakeDrawSuiteShadows = -1; // kNatronOfxInteractPropDrawSuiteShadows, -1: absent
 static bool gRefuseOverlayInteractV2 = false; // the host refuses kOfxImageEffectPluginPropOverlayInteractV2
 
 typedef std::pair<OfxPropertySetHandle, std::string> PropKey;
@@ -133,7 +136,19 @@ static OfxStatus fakeGetDouble(OfxPropertySetHandle, const char *property, int i
   (void)index;
   return kOfxStatOK;
 }
-static OfxStatus fakeGetInt(OfxPropertySetHandle, const char *, int, int *value) { *value = 0; return kOfxStatErrUnknown; }
+static OfxStatus fakeGetInt(OfxPropertySetHandle, const char *property, int, int *value)
+{
+  *value = 0;
+#ifdef kNatronOfxInteractPropDrawSuiteShadows
+  if (gFakeDrawSuiteShadows >= 0 && std::strcmp(property, kNatronOfxInteractPropDrawSuiteShadows) == 0) {
+    *value = gFakeDrawSuiteShadows;
+    return kOfxStatOK;
+  }
+#else
+  (void)property;
+#endif
+  return kOfxStatErrUnknown;
+}
 static OfxStatus fakeGetPointerN(OfxPropertySetHandle h, const char *p, int count, void **value)
 {
   for (int i = 0; i < count; ++i) fakeGetPointer(h, p, i, &value[i]);
@@ -1026,6 +1041,46 @@ static void testOpenGL()
 
 #endif // OFXS_TEST_GL_CONTEXT
 
+// kNatronOfxInteractPropDrawSuiteShadows: read by DrawArgs (OFX_EXTENSIONS_NATRON) for the
+// OpenGL backend; absent is 0
+static void testDrawSuiteShadows()
+{
+  using namespace OFX;
+  using namespace OFX::Private;
+  OfxPropertySetHandle inArgs = (OfxPropertySetHandle)&gFakePropSuite;
+  gFakeDrawContextHandle = NULL;
+  const int values[] = { -1, 0, 1 };
+  for (int i = 0; i < 3; ++i) {
+    gFakeDrawSuiteShadows = values[i];
+    DrawArgs args((PropertySet(inArgs)));
+    DrawArgsAccess::setOverlayRegistration(args, eOverlayRegistrationV1);
+    const DrawContext &dc = args.getDrawContext();
+#ifdef OFX_EXTENSIONS_NATRON
+    const bool expected = values[i] == 1;
+#else
+    const bool expected = false;
+#endif
+    CHECK(DrawArgsAccess::drawSuiteShadows(DrawArgsAccess::openGLContext(args)) == expected);
+    CHECK(&dc == &DrawArgsAccess::openGLContext(args) && DrawArgsAccess::drawSuiteShadows(dc) == expected);
+    // (copied with the args)
+    DrawArgs copy(args);
+    CHECK(DrawArgsAccess::drawSuiteShadows(DrawArgsAccess::openGLContext(copy)) == expected);
+#ifdef OFXS_TEST_GL_CONTEXT
+    // a red square, and its shadow one pixel right and down: opaque black (alpha 1) on the
+    // transparent background
+    clear();
+    OfxPointD rect[2] = { pt(10, 10), pt(20, 20) };
+    CHECK(dc.setColour(1.f, 0.f, 0.f, 1.f));
+    CHECK(dc.draw(kOfxDrawPrimitiveRectangle, rect, 2));
+    readBack();
+    CHECK(isColour(10, 10, 1, 0, 0) && isColour(19, 19, 1, 0, 0));
+    CHECK(near(pixel(20, 9)[3], expected ? 1.f : 0.f) && isColour(20, 9, 0, 0, 0));
+    CHECK(near(pixel(10, 9)[3], 0.f) && near(pixel(20, 18)[3], expected ? 1.f : 0.f) && near(pixel(20, 19)[3], 0.f));
+#endif
+  }
+  gFakeDrawSuiteShadows = -1;
+}
+
 int main()
 {
   OFX::Private::gPropSuite = &gFakePropSuite;
@@ -1059,6 +1114,7 @@ int main()
 #ifdef OFXS_TEST_GL_CONTEXT
   testOpenGL();
 #endif
+  testDrawSuiteShadows();
   if (gFailures) {
     std::printf("%d check(s) failed\n", gFailures);
     return 1;

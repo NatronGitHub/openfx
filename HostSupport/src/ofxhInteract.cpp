@@ -153,6 +153,7 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NATRON
         { kNatronOfxPropPickerColour, Property::eDouble, 4, false, "-1.0f" },
         { kOfxInteractPropScreenPixelRatio, Property::eDouble, 1, false, "1.f" },
+        { kNatronOfxInteractPropDrawSuiteShadows, Property::eInt, 1, false, "0" }, // set during kOfxInteractActionDraw
 #endif
         { kOfxInteractPropBackgroundColour , Property::eDouble, 3, false, "0.0f" },
 #ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
@@ -484,6 +485,10 @@ namespace OFX {
         // during this action ("kOfxStatFailed - failure, e.g. if function is called outside
         // kOfxInteractActionDraw")
         _argProperties.setPointerProperty(kOfxInteractPropDrawContext, (void*)this);
+#ifdef OFX_EXTENSIONS_NATRON
+        // Natron extension 14: the host wants drop shadows on the DrawSuite elements
+        _argProperties.setIntProperty(kNatronOfxInteractPropDrawSuiteShadows, drawSuiteShadows() ? 1 : 0);
+#endif
         _inDraw = true;
         OfxStatus st;
         try {
@@ -491,10 +496,16 @@ namespace OFX {
         } catch (...) {
           _inDraw = false;
           _argProperties.setPointerProperty(kOfxInteractPropDrawContext, NULL);
+#ifdef OFX_EXTENSIONS_NATRON
+          _argProperties.setIntProperty(kNatronOfxInteractPropDrawSuiteShadows, 0);
+#endif
           throw;
         }
         _inDraw = false;
         _argProperties.setPointerProperty(kOfxInteractPropDrawContext, NULL);
+#ifdef OFX_EXTENSIONS_NATRON
+        _argProperties.setIntProperty(kNatronOfxInteractPropDrawSuiteShadows, 0);
+#endif
         return st;
       }
 

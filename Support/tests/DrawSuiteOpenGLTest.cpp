@@ -10,7 +10,10 @@
   mask, the blend function, the colour, the glBegin mode and the vertex count of every primitive,
   the line width (smooth or width 0) and stipple (factor and patterns), the ellipse tessellation,
   the error statuses, the text alignment and metrics, the built-in font's quads, resetState()'s
-  sanitising, and the shadow pass.
+  sanitising, and the shadow pass. It also tests HostSupport's helper,
+  OFX::Host::Interact::OpenGLDrawSuite (HostSupport/include/ofxhDrawSuiteOpenGL.h): beginDraw(),
+  the built-in font fallback, the host text hooks, kOfxStatFailed without a table, and the
+  shadow passes.
 
   Prints one line per failed check, and exits with 0 if all passed.
 */
@@ -22,6 +25,7 @@
 #include <vector>
 
 #include "ofxDrawSuiteOpenGL.h"
+#include "ofxhDrawSuiteOpenGL.h"
 
 using namespace OFX::DrawSuiteOpenGL;
 
@@ -684,6 +688,259 @@ static void testShadows()
   CHECK(gCalls.empty());
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// HostSupport's OpenGLDrawSuite
+
+// a host with its own font (measureText() true) and colours, which records the hook calls
+class HostDrawSuite : public OFX::Host::Interact::OpenGLDrawSuite {
+public:
+  struct TextCall {
+    OfxPointD baselineLeft;
+    TextMetrics metrics;
+    OfxRGBAColourF colour;
+    bool shadows;
+  };
+  struct PrimitiveCall {
+    OfxDrawPrimitive primitive;
+    std::vector<OfxPointD> points;
+    OfxRGBAColourF colour;
+    bool shadows;
+  };
+
+  explicit HostDrawSuite(const GLFunctions *gl) : OpenGLDrawSuite(gl), hostFont(true), recordPrimitives(false) {}
+
+  bool hostFont;
+  bool recordPrimitives; // record renderPrimitive() instead of drawing with the core
+  std::vector<TextCall> texts;
+  std::vector<PrimitiveCall> primitives;
+
+  // the host's background colour: dark blue
+  virtual OfxStatus getColour(OfxStandardColour c, OfxRGBAColourF *colour) const
+  {
+    if (c == kOfxStandardColourOverlayBackground && colour) {
+      colour->r = 0.f; colour->g = 0.f; colour->b = 0.25f; colour->a = 1.f;
+      return kOfxStatOK;
+    }
+    return OpenGLDrawSuite::getColour(c, colour);
+  }
+
+protected:
+  virtual bool measureText(const char *utf8, TextMetrics &m)
+  {
+    if (!hostFont) {
+      return false;
+    }
+    m.width = 10. * (double)std::strlen(utf8); // 10 screen pixels per byte
+    m.ascent = 12.;
+    m.descent = 4.;
+    return true;
+  }
+
+  virtual OfxStatus renderText(const char *utf8, const OfxPointD &baselineLeft, const TextMetrics &m)
+  {
+    TextCall c;
+    c.baselineLeft = baselineLeft;
+    c.metrics = m;
+    c.colour = state().colour;
+    c.shadows = state().shadows;
+    texts.push_back(c);
+    return OpenGLDrawSuite::renderText(utf8, baselineLeft, m); // the built-in font there
+  }
+
+  virtual OfxStatus renderPrimitive(OfxDrawPrimitive primitive, const OfxPointD *points, int pointCount)
+  {
+    if (!recordPrimitives) {
+      return OpenGLDrawSuite::renderPrimitive(primitive, points, pointCount);
+    }
+    PrimitiveCall c;
+    c.primitive = primitive;
+    c.points.assign(points, points + pointCount);
+    c.colour = state().colour;
+    c.shadows = state().shadows;
+    primitives.push_back(c);
+    return kOfxStatOK;
+  }
+};
+
+static void testHostHelper()
+{
+  using OFX::Host::Interact::OpenGLDrawSuite;
+  const GLFunctions gl = fakeGL();
+  const OfxPointD pos = pt(100., 50.);
+  const OfxPointD line[2] = { pt(0., 0.), pt(10., 5.) };
+
+  // beginDraw resets the state, and sanitises it
+  {
+    OpenGLDrawSuite ds(&gl);
+    CHECK(ds.glFunctions() == &gl);
+    const OfxRGBAColourF red = { 1.f, 0.f, 0.f, 0.5f };
+    CHECK(ds.setColour(&red) == kOfxStatOK && ds.setLineWidth(3.f) == kOfxStatOK &&
+          ds.setLineStipple(kOfxDrawLineStipplePatternDash) == kOfxStatOK);
+    CHECK(ds.state().colour.r == 1.f && ds.state().colour.g == 0.f && ds.state().lineWidth == 3.f &&
+          ds.state().stipple == kOfxDrawLineStipplePatternDash);
+    ds.beginDraw(pt(-2., 0.), 100., true);
+    CHECK(ds.state().colour.r == 1.f && ds.state().colour.g == 1.f && ds.state().colour.a == 1.f);
+    CHECK(ds.state().lineWidth == 0.f && ds.state().stipple == kOfxDrawLineStipplePatternSolid);
+    CHECK(ds.state().pixelScale.x == 2. && ds.state().pixelScale.y == 1. && ds.state().screenPixelRatio == 64.);
+    CHECK(ds.state().shadows);
+    ds.beginDraw(pt(1., 1.), 2., false);
+    CHECK(!ds.state().shadows && ds.state().screenPixelRatio == 2.);
+    // statuses
+    CHECK(ds.setColour(NULL) == kOfxStatErrValue);
+    CHECK(ds.setLineWidth(-1.f) == kOfxStatFailed);
+    CHECK(ds.setLineStipple((OfxDrawLineStipplePattern)9) == kOfxStatErrValue);
+    OfxRGBAColourF c;
+    CHECK(ds.getColour(kOfxStandardColourOverlaySelected, &c) == kOfxStatOK && c.r == 1.f && c.g == 0.f);
+    CHECK(ds.getColour((OfxStandardColour)7, &c) == kOfxStatErrValue);
+    gCalls.clear();
+    CHECK(ds.drawPrimitive(kOfxDrawPrimitiveLines, line, 1) == kOfxStatErrValue);
+    CHECK(ds.drawPrimitive((OfxDrawPrimitive)17, line, 2) == kOfxStatErrValue);
+    CHECK(ds.drawText(NULL, &pos, 0) == kOfxStatErrValue);
+    CHECK(ds.drawText("A", NULL, 0) == kOfxStatErrValue);
+    CHECK(ds.drawText("", &pos, 0) == kOfxStatOK);
+    CHECK(gCalls.empty());
+    // the core draws the primitives, the built-in font the text (measureText() is false)
+    CHECK(ds.drawPrimitive(kOfxDrawPrimitiveLines, line, 2) == kOfxStatOK);
+    checkSavedState();
+    CHECK(blocks().size() == 1);
+    gCalls.clear();
+    CHECK(ds.drawText("A", &pos, kOfxDrawTextAlignmentRight) == kOfxStatOK);
+    checkSavedState();
+    const std::vector<Block> b = blocks();
+    CHECK(b.size() == 1 && b[0].mode == 0x0007 && b[0].vertices.size() == 32);
+    if (b.size() == 1 && !b[0].vertices.empty()) {
+      double x0 = 1e9;
+      for (size_t k = 0; k < b[0].vertices.size(); ++k) {
+        x0 = std::min(x0, b[0].vertices[k].x);
+      }
+      CHECK(x0 == 95.); // right-aligned: 5 pixels wide
+    }
+  }
+
+  // no table: kOfxStatFailed, after the argument checks
+  {
+    OpenGLDrawSuite ds;
+    CHECK(ds.glFunctions() == NULL);
+    gCalls.clear();
+    CHECK(ds.drawPrimitive(kOfxDrawPrimitiveLines, line, 2) == kOfxStatFailed);
+    CHECK(ds.drawPrimitive(kOfxDrawPrimitiveLines, line, 3) == kOfxStatErrValue);
+    CHECK(ds.drawText("A", &pos, 0) == kOfxStatFailed);
+    CHECK(ds.drawText("", &pos, 0) == kOfxStatOK);
+    GLFunctions partial = gl;
+    partial.End = NULL;
+    ds.setGLFunctions(&partial);
+    CHECK(ds.drawPrimitive(kOfxDrawPrimitiveLines, line, 2) == kOfxStatFailed);
+    CHECK(ds.drawText("A", &pos, 0) == kOfxStatFailed);
+    CHECK(gCalls.empty());
+    HostDrawSuite host(NULL);
+    CHECK(host.drawText("A", &pos, 0) == kOfxStatFailed); // the default renderText needs a table
+    CHECK(host.texts.size() == 1);
+  }
+
+  // host text: renderText() gets the left end of the baseline and the metrics
+  {
+    HostDrawSuite host(&gl);
+    host.beginDraw(pt(2., 0.5), 1., false);
+    const OfxRGBAColourF col = { 0.2f, 0.4f, 0.6f, 0.8f };
+    host.setColour(&col);
+    struct Case { int alignment; double x, y; };
+    // "AB": width 20, ascent 12, descent 4 screen pixels; pixel scale (2, 0.5)
+    const Case cases[] = {
+      { 0, 100., 50. },
+      { kOfxDrawTextAlignmentLeft | kOfxDrawTextAlignmentBaseline, 100., 50. },
+      { kOfxDrawTextAlignmentRight, 60., 50. },
+      { kOfxDrawTextAlignmentCenterH, 80., 50. },
+      { kOfxDrawTextAlignmentTop, 100., 44. },
+      { kOfxDrawTextAlignmentBottom, 100., 52. },
+      { kOfxDrawTextAlignmentCenterH | kOfxDrawTextAlignmentCenterV, 80., 48. },
+      { kOfxDrawTextAlignmentRight | kOfxDrawTextAlignmentTop | kOfxDrawTextAlignmentBottom, 60., 48. },
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+      host.texts.clear();
+      gCalls.clear();
+      CHECK(host.drawText("AB", &pos, cases[i].alignment) == kOfxStatOK);
+      CHECK(host.texts.size() == 1);
+      if (host.texts.size() == 1) {
+        const HostDrawSuite::TextCall &t = host.texts[0];
+        const bool ok = near(t.baselineLeft.x, cases[i].x) && near(t.baselineLeft.y, cases[i].y);
+        if (!ok) {
+          std::printf("  host text alignment 0x%x: baseline left (%g, %g)\n", cases[i].alignment, t.baselineLeft.x, t.baselineLeft.y);
+        }
+        CHECK(ok);
+        CHECK(t.metrics.width == 20. && t.metrics.ascent == 12. && t.metrics.descent == 4.);
+        CHECK(near(t.colour.r, 0.2) && near(t.colour.a, 0.8) && !t.shadows);
+      }
+      CHECK(blocks().size() == 1); // the default renderText: the built-in font
+    }
+    // measureText() false: the built-in font, no renderText()
+    host.hostFont = false;
+    host.texts.clear();
+    gCalls.clear();
+    CHECK(host.drawText("AB", &pos, 0) == kOfxStatOK);
+    CHECK(host.texts.empty() && blocks().size() == 1);
+  }
+
+  // shadows: two passes, the shadow first, offset (+1, -1) screen pixels, in the host's
+  // background colour with the current alpha; the hooks see shadows false
+  {
+    HostDrawSuite host(&gl);
+    host.beginDraw(pt(2., 3.), 1., true);
+    const OfxRGBAColourF col = { 0.2f, 0.4f, 0.6f, 0.5f };
+    host.setColour(&col);
+    CHECK(host.drawText("AB", &pos, kOfxDrawTextAlignmentLeft) == kOfxStatOK);
+    CHECK(host.texts.size() == 2);
+    if (host.texts.size() == 2) {
+      const HostDrawSuite::TextCall &s = host.texts[0], &t = host.texts[1];
+      CHECK(near(s.baselineLeft.x, t.baselineLeft.x + 2.) && near(s.baselineLeft.y, t.baselineLeft.y - 3.));
+      CHECK(s.colour.r == 0.f && s.colour.g == 0.f && s.colour.b == 0.25f && s.colour.a == 0.5f);
+      CHECK(near(t.colour.r, 0.2) && near(t.colour.b, 0.6) && t.colour.a == 0.5f);
+      CHECK(!s.shadows && !t.shadows);
+      CHECK(t.baselineLeft.x == 100. && t.baselineLeft.y == 50.);
+    }
+    CHECK(host.state().shadows && near(host.state().colour.r, 0.2)); // restored
+    // the built-in font with shadows: two GL_QUADS blocks
+    host.hostFont = false;
+    gCalls.clear();
+    CHECK(host.drawText("AB", &pos, 0) == kOfxStatOK);
+    std::vector<Block> b = blocks();
+    CHECK(b.size() == 2);
+    if (b.size() == 2) {
+      CHECK(b[0].vertices.size() == b[1].vertices.size() && b[0].colour[2] == 0.25 && b[0].colour[3] == 0.5);
+      CHECK(near(b[0].vertices[0].x, b[1].vertices[0].x + 2.) && near(b[0].vertices[0].y, b[1].vertices[0].y - 3.));
+    }
+    // primitives, with the core: two blocks, the shadow in the host's colour
+    const OfxPointD e[2] = { pt(0., 0.), pt(40., 20.) };
+    gCalls.clear();
+    CHECK(host.drawPrimitive(kOfxDrawPrimitiveEllipse, e, 2) == kOfxStatOK);
+    b = blocks();
+    CHECK(b.size() == 2);
+    if (b.size() == 2) {
+      CHECK(b[0].vertices.size() == b[1].vertices.size());
+      CHECK((int)b[1].vertices.size() == ellipseSegmentCount(20. / 2., 10. / 3.));
+      CHECK(b[0].colour[0] == 0. && b[0].colour[2] == 0.25 && b[0].colour[3] == 0.5);
+      CHECK(near(b[1].colour[0], 0.2) && b[1].colour[3] == 0.5);
+      CHECK(near(b[0].vertices[3].x, b[1].vertices[3].x + 2.) && near(b[0].vertices[3].y, b[1].vertices[3].y - 3.));
+    }
+    // primitives, with the host's renderer
+    host.recordPrimitives = true;
+    CHECK(host.drawPrimitive(kOfxDrawPrimitiveLines, line, 2) == kOfxStatOK);
+    CHECK(host.primitives.size() == 2);
+    if (host.primitives.size() == 2) {
+      const HostDrawSuite::PrimitiveCall &s = host.primitives[0], &p = host.primitives[1];
+      CHECK(s.points.size() == 2 && p.points.size() == 2);
+      CHECK(s.points[1].x == 12. && s.points[1].y == 2. && p.points[1].x == 10. && p.points[1].y == 5.);
+      CHECK(s.colour.b == 0.25f && s.colour.a == 0.5f && near(p.colour.r, 0.2) && !s.shadows && !p.shadows);
+    }
+    // off: one pass
+    host.beginDraw(pt(2., 3.), 1., false);
+    host.primitives.clear();
+    host.texts.clear();
+    host.hostFont = true;
+    CHECK(host.drawPrimitive(kOfxDrawPrimitiveLines, line, 2) == kOfxStatOK && host.primitives.size() == 1);
+    CHECK(host.drawText("AB", &pos, 0) == kOfxStatOK && host.texts.size() == 1);
+  }
+}
+
 int main()
 {
   testLoad();
@@ -696,6 +953,7 @@ int main()
   testAlignText();
   testText();
   testShadows();
+  testHostHelper();
   if (gFailures) {
     std::printf("drawsuite-opengl-test: %d check(s) FAILED\n", gFailures);
     return 1;

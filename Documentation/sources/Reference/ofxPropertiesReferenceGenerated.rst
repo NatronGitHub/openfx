@@ -125,6 +125,16 @@ Integer (Boolean) Properties
 - **Dimension**: 1
 - **Doc**: For detailed doc, see :c:macro:`kNatronOfxInteractHostPropSupportsKeyModifiers`.
 
+.. _prop_NatronOfxInteractPropDrawSuiteShadows:
+
+**NatronOfxInteractPropDrawSuiteShadows**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kNatronOfxInteractPropDrawSuiteShadows`
+- **Type**: bool
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kNatronOfxInteractPropDrawSuiteShadows`.
+
 .. _prop_NatronOfxPageParamPropInViewerContextIsToolbar:
 
 **NatronOfxPageParamPropInViewerContextIsToolbar**

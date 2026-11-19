@@ -414,6 +414,7 @@ namespace OFX {
     : _handle(0)
     , _openGL(0)
     , _screenPixelRatio(1.)
+    , _drawSuiteShadows(false)
   {
     _pixelScale.x = _pixelScale.y = 1.;
     initDrawContextState(_colour, _lineWidth, _lineStipple);
@@ -423,6 +424,7 @@ namespace OFX {
     : _handle(handle)
     , _openGL(0)
     , _screenPixelRatio(1.)
+    , _drawSuiteShadows(false)
   {
     _pixelScale.x = _pixelScale.y = 1.;
     initDrawContextState(_colour, _lineWidth, _lineStipple);
@@ -515,10 +517,14 @@ namespace OFX {
     // backend then uses 1)
 #ifdef OFX_EXTENSIONS_NATRON
     const double ratio = screenPixelRatio;
+    // Natron extension 14: drop shadows on the emulated DrawSuite elements (absent is 0; only
+    // the OpenGL backend uses it: in V2 draws, the host's DrawSuite draws the shadows)
+    const bool shadows = props.propGetInt(kNatronOfxInteractPropDrawSuiteShadows, 0, false) != 0;
 #else
     const double ratio = 1.;
+    const bool shadows = false;
 #endif
-    Private::DrawArgsAccess::initOpenGLContext(_openGLDrawContext, pixelScale, ratio);
+    Private::DrawArgsAccess::initOpenGLContext(_openGLDrawContext, pixelScale, ratio, shadows);
   }
 
   DrawArgs::DrawArgs(const DrawArgs &other)

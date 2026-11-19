@@ -32,6 +32,12 @@
     getDrawContext() uses OpenGL if a context is current, else draws nothing (never the host's
     DrawSuite). */
 #define OFXS_SUPPORT_HAS_OVERLAY_HAS_OPENGL_DRAW 1
+/** @brief Feature macro: defined when the OpenGL backend of DrawArgs::getDrawContext() (the
+    DrawSuite-to-OpenGL emulation of V1 draws) draws drop shadows when the host sets
+    kNatronOfxInteractPropDrawSuiteShadows to 1 in the draw action's inArgs (ofxNatron.h,
+    extension 14; read with OFX_EXTENSIONS_NATRON only). Plug-ins never draw shadows with
+    DrawSuite calls. */
+#define OFXS_SUPPORT_HAS_DRAWSUITE_SHADOWS 1
 /*
 OFX Support Library, a library that skins the OFX plug-in API with C++ classes.
 Copyright (C) 2004-2005 The Open Effects Association Ltd
@@ -174,6 +180,12 @@ namespace OFX {
    - drawText: a built-in 5x7 pixel font (printable ASCII; other characters are drawn as '?',
      control characters are skipped), one font pixel per screen pixel (the text has a constant
      size on screen), 6 pixels per character, 7 pixels above the baseline and 1 below.
+   - shadows: if the host sets kNatronOfxInteractPropDrawSuiteShadows to 1 in the draw action's
+     inArgs (ofxNatron.h, extension 14, read with OFX_EXTENSIONS_NATRON; absent is 0), each
+     primitive and text is drawn first offset by one screen pixel right and down, in the
+     kOfxStandardColourOverlayBackground colour with the current alpha, then normally, as the
+     host draws its own DrawSuite elements. Plug-ins never draw shadows with DrawSuite calls
+     (in V2 draws, the host's DrawSuite draws them).
    The OpenGL backend is not compiled if OFXS_DRAWCONTEXT_NO_OPENGL is defined when compiling
    ofxsDrawContextOpenGL.cpp (for plug-in binaries built without OpenGL): getDrawContext() on a
    V1 overlay then draws nothing (canDraw() is false). Plug-ins that call getDrawContext() must
@@ -237,6 +249,7 @@ namespace OFX {
     // for the OpenGL backend: the draw action's arguments, and the emulated DrawSuite state
     OfxPointD _pixelScale;
     double _screenPixelRatio;
+    bool _drawSuiteShadows; // kNatronOfxInteractPropDrawSuiteShadows
     mutable OfxRGBAColourF _colour;
     mutable float _lineWidth;
     mutable OfxDrawLineStipplePattern _lineStipple;

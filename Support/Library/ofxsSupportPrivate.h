@@ -205,11 +205,14 @@ namespace OFX {
       // backend (the only change made through a const DrawArgs)
       static DrawContext &openGLContext(const DrawArgs &args) { return args._openGLDrawContext; }
       static void setOpenGLBackend(DrawContext &ctx, const DrawContextBackend *backend) { ctx._openGL = backend; }
-      static void initOpenGLContext(DrawContext &ctx, const OfxPointD &pixelScale, double screenPixelRatio)
+      static void initOpenGLContext(DrawContext &ctx, const OfxPointD &pixelScale, double screenPixelRatio, bool drawSuiteShadows = false)
       {
         ctx._pixelScale = pixelScale;
         ctx._screenPixelRatio = screenPixelRatio;
+        ctx._drawSuiteShadows = drawSuiteShadows;
       }
+      // kNatronOfxInteractPropDrawSuiteShadows, for the OpenGL backend (and the self-test)
+      static bool drawSuiteShadows(const DrawContext &ctx) { return ctx._drawSuiteShadows; }
     };
 
     /** @brief The DrawSuite emulation behind a DrawContext that has no DrawSuite handle (the
@@ -233,6 +236,7 @@ namespace OFX {
       // the DrawContext state, for the backends
       static const OfxPointD &pixelScale(const DrawContext &ctx) { return ctx._pixelScale; }
       static double screenPixelRatio(const DrawContext &ctx) { return ctx._screenPixelRatio; }
+      static bool drawSuiteShadows(const DrawContext &ctx) { return ctx._drawSuiteShadows; }
       static OfxRGBAColourF &colour(const DrawContext &ctx) { return ctx._colour; }
       static float &lineWidth(const DrawContext &ctx) { return ctx._lineWidth; }
       static OfxDrawLineStipplePattern &lineStipple(const DrawContext &ctx) { return ctx._lineStipple; }
