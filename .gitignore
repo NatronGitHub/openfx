@@ -58,3 +58,4 @@ __pycache__/
 /test_package/build/
 CMakeUserPresets.json
 build-ci/
+build-ci-natron/

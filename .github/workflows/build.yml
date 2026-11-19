@@ -71,15 +71,26 @@ jobs:
         run: |
           { echo '#include "ofxCore.h"'; echo '#include "ofxImageEffect.h"'
             for h in $(cd include && ls *.h); do echo "#include \"$h\""; done
-            echo '#include "nuke/fnOfxExtensions.h"'; } > all.cpp
+            echo '#include "nuke/fnOfxExtensions.h"'
+            echo '#include "ofxhDrawSuiteOpenGL.h"'; } > all.cpp
           for std in c++98 c++17; do
             for D in "" "-DOFX_EXTENSIONS_RESOLVE" "-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC_V2"; do
               echo "== $std $D"
-              g++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude all.cpp
+              g++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude -IHostSupport/include all.cpp
             done
           done
       - name: Build and test
         run: .github/scripts/cmake-build-test.sh
+      - name: DrawSuite self-tests with the Natron extensions (the DrawSuite shadows property)
+        run: |
+          # cmake-build-test.sh builds with the extensions off: build and run only the two
+          # DrawSuite self-tests with OFX_EXTENSIONS_NATRON (no GL context here: the property
+          # reading and the backend state, and the drawing with the fake OpenGL table)
+          set -eo pipefail
+          cmake -S . -B build-ci-natron -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLE_PLUGINS=ON \
+            -DBUILD_EXAMPLE_HOSTS=OFF -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON > /dev/null
+          cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test
+          (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test)
       - name: Python wrapper and sample plug-in tests (ofxhost)
         run: |
           pip install numpy pytest
