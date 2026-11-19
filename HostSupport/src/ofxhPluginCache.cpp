@@ -663,7 +663,13 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
 
       bool isdir = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
 #endif
-      if (name.find(".ofx.bundle") != std::string::npos) {
+      static const std::string bundleSuffix(".ofx.bundle");
+      if (!name.empty() && name[0] == '@') {
+        // "Any bundle or sub-directory name starting with the character '@' is to be ignored. Such
+        // directories or bundles must be skipped by the host." (ofxPackaging.rst)
+      } else if (name.size() > bundleSuffix.size() &&
+                 name.compare(name.size() - bundleSuffix.size(), bundleSuffix.size(), bundleSuffix) == 0) {
+        // a bundle is a directory whose name ends with ".ofx.bundle" (not "X.ofx.bundle.old")
         std::string barename = name.substr(0, name.length() - strlen(".bundle"));
         std::string bundlename = dir + DIRSEP + name;
         // The binary in the most preferred ARCHITECTURE directory that has one, or in the most
@@ -723,7 +729,7 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
           foundBinFiles.insert(binpath);
         }
       } else {
-        if (isdir && (recurse && !name.empty() && name[0] != '@' && name[name.size() - 1] != '.')) {
+        if (isdir && (recurse && !name.empty() && name[name.size() - 1] != '.')) {
           scanDirectory(foundBinFiles, dir + DIRSEP + name, recurse);
         }
       }
