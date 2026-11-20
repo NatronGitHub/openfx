@@ -1169,6 +1169,24 @@ namespace OFX {
         /// set kOfxImageEffectPropNoSpatialAwareness in inArgs (which must contain it), according
         /// to isNoSpatialAwarenessRender() and the plug-in descriptor.
         void setNoSpatialAwarenessArg(Property::Set &inArgs) const;
+
+        /// next OFX release (after 1.5.1): the host's behaviour when the plug-in is unlicensed,
+        /// kOfxImageEffectPropBehaviourWhenUnlicensed in the inArgs of BeginSequenceRender and Render:
+        /// kOfxUnlicensedContinue ("render an image (typically watermarked or a placeholder) and
+        /// return kOfxStatUnlicensed") or kOfxUnlicensedFail ("return kOfxStatUnlicensed and may do
+        /// this without any rendering, because it knows the host will fail the render").
+        ///
+        /// Called by beginRenderAction() and renderAction() each time they build their inArgs. The
+        /// default returns "": the property is then not in the inArgs, which the spec allows ("not
+        /// set (indicating the host has not implemented this functionality)": the plug-in "should
+        /// render an image (typically watermarked or a placeholder) and return kOfxStatOK"). Hosts
+        /// override it, e.g. to return kOfxUnlicensedFail for offline renders. Any other value is
+        /// not sent either.
+        virtual std::string getBehaviourWhenUnlicensed() const;
+
+        /// add kOfxImageEffectPropBehaviourWhenUnlicensed to inArgs if getBehaviourWhenUnlicensed()
+        /// returns kOfxUnlicensedContinue or kOfxUnlicensedFail; leave inArgs unchanged otherwise.
+        void setBehaviourWhenUnlicensedArg(Property::Set &inArgs) const;
       };
 
       ////////////////////////////////////////////////////////////////////////////////
