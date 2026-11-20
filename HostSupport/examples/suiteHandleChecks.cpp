@@ -309,6 +309,9 @@ namespace {
       if (progress1 && progress2 && timeline) {
         // a NULL label or message id is an empty string
         const size_t n = myInstance->getProgress().size();
+        // hostDemo throws kOfxStatErrBadHandle without an ongoing progress: the suite returns it
+        check("progressUpdate(instance, no progress started) = kOfxStatErrBadHandle", progress2->progressUpdate(h, 0.5) == kOfxStatErrBadHandle);
+        check("progressEnd(instance, no progress started) = kOfxStatErrBadHandle", progress2->progressEnd(h) == kOfxStatErrBadHandle);
         check("progressStart V1(instance, NULL label) = kOfxStatOK",
               progress1->progressStart(h, NULL) == kOfxStatOK && myInstance->getProgress().size() == n + 1 &&
               myInstance->getProgress().back().message.empty() && myInstance->getProgress().back().id.empty());
@@ -321,11 +324,15 @@ namespace {
               myInstance->getProgress().back().message == "message" && myInstance->getProgress().back().id.empty());
         check("progressUpdate(instance) = kOfxStatOK", progress2->progressUpdate(h, 0.5) == kOfxStatOK);
         check("progressEnd V2(instance) = kOfxStatOK", progress2->progressEnd(h) == kOfxStatOK);
+        check("progressUpdate(instance, after progressEnd) = kOfxStatErrBadHandle", progress2->progressUpdate(h, 0.5) == kOfxStatErrBadHandle);
+        check("progressEnd(instance, after progressEnd) = kOfxStatErrBadHandle", progress2->progressEnd(h) == kOfxStatErrBadHandle);
 
         double t = -1., t1 = -1., t2 = -1.;
         check("gotoTime(instance, 3) = kOfxStatOK", timeline->gotoTime(h, 3.) == kOfxStatOK);
         check("gotoTime(instance, NaN) = kOfxStatErrValue", timeline->gotoTime(h, std::numeric_limits<double>::quiet_NaN()) == kOfxStatErrValue);
-        check("getTime(instance) = kOfxStatOK, the time before the NaN", timeline->getTime(h, &t) == kOfxStatOK && t == 3.);
+        check("gotoTime(instance, +infinity) = kOfxStatErrValue", timeline->gotoTime(h, std::numeric_limits<double>::infinity()) == kOfxStatErrValue);
+        check("gotoTime(instance, -infinity) = kOfxStatErrValue", timeline->gotoTime(h, -std::numeric_limits<double>::infinity()) == kOfxStatErrValue);
+        check("getTime(instance) = kOfxStatOK, the time before the NaN and infinities", timeline->getTime(h, &t) == kOfxStatOK && t == 3.);
         check("getTime(instance, NULL) = kOfxStatErrBadHandle", timeline->getTime(h, NULL) == kOfxStatErrBadHandle);
         check("getTimeBounds(instance) = kOfxStatOK", timeline->getTimeBounds(h, &t1, &t2) == kOfxStatOK && t1 <= t2);
         check("getTimeBounds(instance, NULL, &lastTime) = kOfxStatErrBadHandle", timeline->getTimeBounds(h, NULL, &t2) == kOfxStatErrBadHandle);
