@@ -354,7 +354,10 @@ namespace {
     }
   };
 
-  /// BeginSequenceRender, then EndSequenceRender, of the instance
+  /// BeginSequenceRender, then EndSequenceRender, of the instance. No Render is called in between,
+  /// unlike the \pre of EndSequenceRender ("kOfxImageEffectActionRender action was called at least
+  /// once on the instance"): harmless with Invert, which does nothing in Begin/End, and enough to
+  /// check their inArgs
   void beginEndSequenceRender(ImageEffect::Instance *instance)
   {
     OfxPointD renderScale = { 1., 1. };

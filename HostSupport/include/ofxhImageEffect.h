@@ -493,10 +493,12 @@ namespace OFX {
 
       /// OFX 1.5.1 thumbnail renders (kOfxImageEffectPropThumbnailRender).
       ///
-      /// The spec puts kOfxImageEffectPropThumbnailRender ("true"/"false") in the
-      /// inArgs of BeginInstanceChanged, InstanceChanged, BeginSequenceRender,
-      /// Render, EndSequenceRender, GetRegionOfDefinition, GetRegionsOfInterest,
-      /// GetFramesNeeded and IsIdentity. The action wrappers of Instance
+      /// kOfxImageEffectPropThumbnailRender ("true"/"false") is in the inArgs of
+      /// actions: OFX 1.5.1 lists GetRegionOfDefinition, GetRegionsOfInterest,
+      /// GetFramesNeeded, IsIdentity, BeginSequenceRender, Render and
+      /// EndSequenceRender (and GetClipPreferences, inconsistently: its inArgs are
+      /// NULL); upstream main adds BeginInstanceChanged and InstanceChanged, and
+      /// drops EndSequenceRender. The action wrappers of Instance
       /// (beginInstanceChangedAction, paramInstanceChangedAction,
       /// ClipInstance::instanceChangedAction, beginRenderAction, renderAction,
       /// endRenderAction, getRegionOfDefinitionAction,

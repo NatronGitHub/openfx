@@ -600,9 +600,12 @@ namespace OFX {
       // Instance
       //
 
-      /// OFX 1.5.1: kOfxImageEffectPropThumbnailRender is in the inArgs of
-      /// BeginInstanceChanged, InstanceChanged, BeginSequenceRender, Render, EndSequenceRender,
-      /// GetRegionOfDefinition, GetRegionsOfInterest, GetFramesNeeded and IsIdentity.
+      /// kOfxImageEffectPropThumbnailRender, in the inArgs of actions: OFX 1.5.1 lists
+      /// GetRegionOfDefinition, GetRegionsOfInterest, GetFramesNeeded, IsIdentity,
+      /// BeginSequenceRender, Render and EndSequenceRender (and GetClipPreferences,
+      /// inconsistently: its inArgs are NULL); upstream main adds BeginInstanceChanged and
+      /// InstanceChanged, and drops EndSequenceRender. HostSupport sets it in all of them but
+      /// GetClipPreferences.
       /// Hosts that do thumbnail renders set it to "true".
       static const Property::PropSpec ofx15ThumbnailRenderArgs[] = {
         { kOfxImageEffectPropThumbnailRender, Property::eString, 1, true, "false" },
