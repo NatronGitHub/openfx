@@ -31,6 +31,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <math.h>
 #include <float.h>
 #include <string.h>
+#include <stdlib.h> // malloc, free
+#include <cstddef> // std::max_align_t
 
 // ofx
 #include "ofxCore.h"
@@ -52,19 +54,67 @@ namespace OFX {
     ////////////////////////////////////////////////////////////////////////////////
     /// simple memory suite 
     namespace Memory {
+      // Each block starts with a header that holds a magic number, so that memoryFree() can return
+      // "::kOfxStatErrBadHandle allocatedData was not a valid pointer returned by
+      // OfxMemorySuiteV1::memoryAlloc" (ofxMemory.h) instead of passing any pointer to free().
+      // memoryFree(NULL) is kOfxStatErrBadHandle too: NULL is never returned by memoryAlloc.
+      // A plug-in that frees memoryAlloc's memory with free() (which was already wrong) now passes
+      // a pointer that malloc() didn't return. As with the magic number of property sets, a pointer
+      // that is not a block is still read (the header before it). A double free is not
+      // detected (reading the freed header is undefined behaviour anyway): the header is not
+      // cleared on free, as a store just before free() may be optimised away.
+      //
+      // The header is 64 bytes (or alignof(std::max_align_t), if larger). The data pointer is
+      // malloc()'s pointer + the header, so it keeps any alignment of malloc()'s result up to 64
+      // bytes: blocks that malloc() aligns to a page or to 64 bytes (e.g. large blocks on macOS)
+      // stay cache-line and AVX-512 aligned, as they were before the header. Small blocks keep
+      // malloc()'s usual alignment (16 on 64-bit systems, at least alignof(std::max_align_t)), which
+      // satisfies "Allocated memory will be aligned for any use." (ofxMemory.h). The cost is 64
+      // bytes per block.
+#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
+      static const size_t kMemoryHeaderSize = alignof(std::max_align_t) > 64 ? alignof(std::max_align_t) : 64;
+      static_assert(kMemoryHeaderSize % alignof(std::max_align_t) == 0,
+                    "the memory suite header must keep the alignment of malloc()");
+      static_assert(kMemoryHeaderSize >= sizeof(unsigned int), "the memory suite header holds the magic number");
+#else
+      static const size_t kMemoryHeaderSize = 64; // (no std::max_align_t before C++11)
+#endif
+      static const unsigned int kMemoryMagic = 0x0f8e3a17; // a live block
+
       static OfxStatus memoryAlloc(void */*handle*/, size_t bytes, void **data)
       {
-        *data = malloc(bytes);
-        if (*data) {
-          return kOfxStatOK;
-        } else {
+        // a NULL allocatedData is a programmer error: kOfxStatErrBadHandle, deliberately, although
+        // memoryAlloc documents only kOfxStatOK and kOfxStatErrMemory (as HostSupport does for the
+        // NULL return pointers of the other suites)
+        if (!data) {
+          return kOfxStatErrBadHandle;
+        }
+        *data = NULL;
+        // "::kOfxStatErrMemory the request could not be met and no memory was allocated"
+        if (bytes > (size_t)-1 - kMemoryHeaderSize) {
           return kOfxStatErrMemory;
         }
+        unsigned char *block = (unsigned char *)malloc(kMemoryHeaderSize + bytes);
+        if (!block) {
+          return kOfxStatErrMemory;
+        }
+        memcpy(block, &kMemoryMagic, sizeof(kMemoryMagic));
+        *data = block + kMemoryHeaderSize;
+        return kOfxStatOK;
       }
       
       static OfxStatus memoryFree(void *data)
       {
-        free(data);
+        if (!data) {
+          return kOfxStatErrBadHandle;
+        }
+        unsigned char *block = (unsigned char *)data - kMemoryHeaderSize;
+        unsigned int magic;
+        memcpy(&magic, block, sizeof(magic));
+        if (magic != kMemoryMagic) {
+          return kOfxStatErrBadHandle;
+        }
+        free(block);
         return kOfxStatOK;
       }
       

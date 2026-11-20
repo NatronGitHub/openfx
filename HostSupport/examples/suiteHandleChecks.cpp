@@ -17,6 +17,7 @@
 #include "ofxParam.h"
 #include "ofxProgress.h"
 #include "ofxTimeLine.h"
+#include "ofxMemory.h"
 
 #include "ofxhPropertySuite.h"
 #include "ofxhParam.h"
@@ -764,6 +765,42 @@ int main()
 
   // std::bad_alloc in the image, image memory and texture functions (no plug-in needed: test clips)
   checkBadAlloc(host);
+
+  // the memory suite: memoryFree of a pointer that memoryAlloc didn't return is kOfxStatErrBadHandle
+  const OfxMemorySuiteV1 *mem = (const OfxMemorySuiteV1 *)host.fetchSuite(kOfxMemorySuite, 1);
+  check("memory suite", mem != NULL);
+  if (mem) {
+    void *p = NULL;
+    check("memoryAlloc(100) = kOfxStatOK", mem->memoryAlloc(NULL, 100, &p) == kOfxStatOK && p != NULL);
+    // "Allocated memory will be aligned for any use."
+    check("memoryAlloc: aligned for any use", p && (size_t)p % 16 == 0);
+    // the header is 64 bytes: the data pointer and malloc()'s pointer agree modulo 64, so a large
+    // block keeps the page (or 64-byte) alignment that malloc() gives it
+    void *big = NULL;
+    const size_t bigSize = 4 << 20;
+    check("memoryAlloc(4 MB) = kOfxStatOK", mem->memoryAlloc(NULL, bigSize, &big) == kOfxStatOK && big != NULL);
+    if (big) {
+      void *m = std::malloc(bigSize + 64); // what malloc() gives a block of that size
+      check("memoryAlloc(4 MB): the same alignment modulo 64 as malloc()", m && (size_t)big % 64 == (size_t)m % 64);
+      std::free(m);
+      check("memoryFree(4 MB) = kOfxStatOK", mem->memoryFree(big) == kOfxStatOK);
+    }
+    if (p) {
+      std::memset(p, 0, 100);
+      // 64 bytes into the block, not returned by memoryAlloc: its "header" is p[0..63], zeroed above
+      check("memoryFree(inside a block) = kOfxStatErrBadHandle", mem->memoryFree((char *)p + 64) == kOfxStatErrBadHandle);
+      check("memoryFree(memoryAlloc's pointer) = kOfxStatOK", mem->memoryFree(p) == kOfxStatOK);
+    }
+    p = NULL;
+    check("memoryAlloc(0) = kOfxStatOK", mem->memoryAlloc(NULL, 0, &p) == kOfxStatOK && p != NULL && mem->memoryFree(p) == kOfxStatOK);
+    p = &host;
+    check("memoryAlloc(too large) = kOfxStatErrMemory, NULL", mem->memoryAlloc(NULL, (size_t)-1, &p) == kOfxStatErrMemory && p == NULL);
+    check("memoryAlloc(NULL output) = kOfxStatErrBadHandle", mem->memoryAlloc(NULL, 1, NULL) == kOfxStatErrBadHandle);
+    check("memoryFree(NULL) = kOfxStatErrBadHandle", mem->memoryFree(NULL) == kOfxStatErrBadHandle);
+    // 64 bytes into a zeroed buffer: the 64-byte "header" before it is inside the buffer
+    std::vector<double> notABlock(16, 0.);
+    check("memoryFree(not from memoryAlloc) = kOfxStatErrBadHandle", mem->memoryFree(&notABlock[8]) == kOfxStatErrBadHandle);
+  }
 
   // the C fetchSuite of the host
   OfxHost *ofxHost = host.getHandle();
