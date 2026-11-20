@@ -3742,8 +3742,8 @@ namespace OFX {
 
         return kOfxStatOK;
         } catch (const std::bad_alloc&) {
-        // "::kOfxStatErrMemory - the host had not enough memory to complete the operation, plugin
-        // should abort whatever it was doing." (ofxImageEffect.h, clipGetImage)
+          // "::kOfxStatErrMemory - the host had not enough memory to complete the operation, plugin
+          // should abort whatever it was doing." (ofxImageEffect.h, clipGetImage)
           *h3 = NULL;
 
           return kOfxStatErrMemory;
@@ -3893,6 +3893,10 @@ namespace OFX {
         }
 
         return kOfxStatOK;
+        } catch (const std::bad_alloc&) {
+          // "::kOfxStatErrMemory - the host had not enough memory to complete the operation, plugin
+          // should abort whatever it was doing." (ofxImageEffect.h, clipGetRegionOfDefinition)
+          return kOfxStatErrMemory;
         } catch (...) {
           return kOfxStatErrBadHandle;
         }
@@ -4139,6 +4143,10 @@ namespace OFX {
           }
 
           return kOfxStatOK;
+        } catch (const std::bad_alloc&) {
+          // as clipGetRegionOfDefinition: "::kOfxStatErrMemory - the host had not enough memory to
+          // complete the operation, plugin should abort whatever it was doing." (ofxImageEffect.h)
+          return kOfxStatErrMemory;
         } catch (...) {
           return kOfxStatErrBadHandle;
         }
@@ -4238,6 +4246,7 @@ namespace OFX {
         ClipInstance *clipInstance = reinterpret_cast<ClipInstance*>(h1);
 
         if (!clipInstance || !clipInstance->verifyMagic()) {
+          *h3 = NULL;
           return kOfxStatErrBadHandle;
         }
 

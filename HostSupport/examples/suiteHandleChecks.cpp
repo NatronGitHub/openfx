@@ -442,7 +442,7 @@ namespace {
     virtual ImageEffect::Image *getImage(OfxTime, const OfxRectD *) { throw std::bad_alloc(); }
 #ifdef OFX_EXTENSIONS_NUKE
     virtual ImageEffect::Image *getImagePlane(OfxTime, int, const std::string &, const OfxRectD *) { throw std::bad_alloc(); }
-    virtual OfxRectD getRegionOfDefinition(OfxTime, int) const { OfxRectD r = { 0., 0., 1., 1. }; return r; }
+    virtual OfxRectD getRegionOfDefinition(OfxTime, int) const { throw std::bad_alloc(); }
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     virtual ImageEffect::Texture *loadTexture(OfxTime, const char *, const OfxRectD *) { throw std::bad_alloc(); }
@@ -453,7 +453,7 @@ namespace {
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
     virtual void setView(int) {}
 #endif
-    virtual OfxRectD getRegionOfDefinition(OfxTime) const { OfxRectD r = { 0., 0., 1., 1. }; return r; }
+    virtual OfxRectD getRegionOfDefinition(OfxTime) const { throw std::bad_alloc(); }
   };
 
   /// image memory whose lock fails with std::bad_alloc (e.g. a host that pages it back in)
@@ -475,6 +475,8 @@ namespace {
     if (ies) {
       OfxPropertySetHandle img = (OfxPropertySetHandle)bad;
       check("clipGetImage(std::bad_alloc) = kOfxStatErrMemory", ies->clipGetImage(ch, 0., &region, &img) == kOfxStatErrMemory && img == NULL);
+      OfxRectD rod = region;
+      check("clipGetRegionOfDefinition(std::bad_alloc) = kOfxStatErrMemory", ies->clipGetRegionOfDefinition(ch, 0., &rod) == kOfxStatErrMemory);
       OutOfMemoryImageMemory mem;
       void *ptr = bad;
       check("imageMemoryLock(std::bad_alloc) = kOfxStatErrMemory", ies->imageMemoryLock(mem.getHandle(), &ptr) == kOfxStatErrMemory && ptr == NULL);
@@ -485,6 +487,8 @@ namespace {
     if (gl) {
       OfxPropertySetHandle tex = (OfxPropertySetHandle)bad;
       check("clipLoadTexture(std::bad_alloc) = kOfxStatErrMemory", gl->clipLoadTexture(ch, 0., NULL, &region, &tex) == kOfxStatErrMemory && tex == NULL);
+      tex = (OfxPropertySetHandle)bad;
+      check("clipLoadTexture(NULL clip) = kOfxStatErrBadHandle, NULL", gl->clipLoadTexture(NULL, 0., NULL, &region, &tex) == kOfxStatErrBadHandle && tex == NULL);
     }
 #endif
 #ifdef OFX_EXTENSIONS_NUKE
@@ -494,6 +498,8 @@ namespace {
       OfxPropertySetHandle img = (OfxPropertySetHandle)bad;
       check("clipGetImagePlane(std::bad_alloc) = kOfxStatErrMemory",
             planes->clipGetImagePlane(ch, 0., 0, kFnOfxImagePlaneColour, &region, &img) == kOfxStatErrMemory && img == NULL);
+      OfxRectD rod = region;
+      check("clipGetRegionOfDefinition V2 (view)(std::bad_alloc) = kOfxStatErrMemory", planes->clipGetRegionOfDefinition(ch, 0., 0, &rod) == kOfxStatErrMemory);
     }
 #endif
 #ifdef OFX_EXTENSIONS_VEGAS
