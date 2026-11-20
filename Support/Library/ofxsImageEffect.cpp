@@ -1887,7 +1887,8 @@ namespace OFX {
   }
 #endif
 
-  /** @brief indicate that the plugin is made obsolete by another version in the same bundle (OFX 1.5) */
+  /** @brief indicate that the plugin is obsolete (next OFX release, after 1.5.1): made obsolete by another version
+   in the same bundle or, in this fork, superseded by another plugin or by a host-internal node (see the header) */
   void ImageEffectDescriptor::setIsObsolete(bool v)
   {
     // host may not know this property: don't throw

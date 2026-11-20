@@ -379,7 +379,10 @@ namespace OFX {
         int getViewInvariance() const;
 #endif
 
-        /// is this plug-in obsolete (OFX 1.5 kOfxImageEffectPluginPropObsolete)
+        /// is this plug-in obsolete (kOfxImageEffectPluginPropObsolete, next OFX release, after 1.5.1):
+        /// hidden from new use, still loaded by existing projects. Made obsolete by another version
+        /// of the same plug-in in the bundle or, in this fork (which relaxes upstream's rule that one
+        /// version must not be obsolete), superseded by another plug-in or by a host-internal node.
         bool isObsolete() const;
 
 #ifdef OFX_EXTENSIONS_NATRON
