@@ -484,7 +484,7 @@ namespace OFX {
         // OFX 1.5 DrawSuite: the draw context identifies this instance, and is only valid
         // during this action ("kOfxStatFailed - failure, e.g. if function is called outside
         // kOfxInteractActionDraw")
-        _argProperties.setPointerProperty(kOfxInteractPropDrawContext, (void*)this);
+        _argProperties.setPointerProperty(kOfxInteractPropDrawContext, (void*)getHandle()); // the address of the Interact::Base
 #ifdef OFX_EXTENSIONS_NATRON
         // Natron extension 14: the host wants drop shadows on the DrawSuite elements
         _argProperties.setIntProperty(kNatronOfxInteractPropDrawSuiteShadows, drawSuiteShadows() ? 1 : 0);
@@ -801,15 +801,33 @@ namespace OFX {
       ////////////////////////////////////////////////////////////////////////////////
       ////////////////////////////////////////////////////////////////////////////////
       // Interact suite functions
+      //
+      // An interact handle is the address of an Interact::Base (Base::getHandle()): an
+      // Interact::Instance, or an Interact::Descriptor during kOfxActionDescribe of the interact.
+      // ofxInteract.h lists no status for these functions: a NULL or wrong handle, or a NULL
+      // return pointer, gives "kOfxStatErrBadHandle - Status error code for an operation on a
+      // bad handle" (ofxCore.h), as the other suites. Interact::Base has no magic number, so a
+      // pointer to anything else is still undefined behaviour.
+
+      /// the Interact::Instance whose handle this is, or NULL for a NULL or descriptor handle
+      static Interact::Instance *interactHandleToInstance(void *handle)
+      {
+        Interact::Base *interact = reinterpret_cast<Interact::Base*>(handle);
+        if (!interact) {
+          return NULL;
+        }
+        return dynamic_cast<Interact::Instance*>(interact);
+      }
 
       static OfxStatus interactSwapBuffers(OfxInteractHandle handle)
       {
         try {
-        Interact::Instance *interactInstance = reinterpret_cast<Interact::Instance*>(handle);
-        if(interactInstance)
+          // "Requests an openGL buffer swap on the interact instance": an instance only
+          Interact::Instance *interactInstance = interactHandleToInstance(handle);
+          if (!interactInstance) {
+            return kOfxStatErrBadHandle;
+          }
           return interactInstance->swapBuffers();
-        else
-          return kOfxStatErrBadHandle;
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -818,11 +836,12 @@ namespace OFX {
       static OfxStatus interactRedraw(OfxInteractHandle handle)
       {
         try {
-        Interact::Instance *interactInstance = reinterpret_cast<Interact::Instance*>(handle);
-        if(interactInstance)
+          // "Requests a redraw of the interact instance": an instance only
+          Interact::Instance *interactInstance = interactHandleToInstance(handle);
+          if (!interactInstance) {
+            return kOfxStatErrBadHandle;
+          }
           return interactInstance->redraw();
-        else
-          return kOfxStatErrBadHandle;
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -831,19 +850,18 @@ namespace OFX {
       static OfxStatus interactGetPropertySet(OfxInteractHandle handle, OfxPropertySetHandle *property)
       {
         try {
-        Interact::Base *interact = reinterpret_cast<Interact::Base*>(handle);
-        if (!property) {
-          return kOfxStatErrBadHandle;
-        }
-
-        if (interact) {
+          // "Gets the property set handle for this interact handle": an instance, or a descriptor
+          // (the plug-in sets the descriptor's properties in kOfxActionDescribe)
+          if (!property) {
+            return kOfxStatErrBadHandle;
+          }
+          *property = NULL;
+          Interact::Base *interact = reinterpret_cast<Interact::Base*>(handle);
+          if (!interact) {
+            return kOfxStatErrBadHandle;
+          }
           *property = interact->getPropHandle();
-
           return kOfxStatOK;
-        }
-        *property = NULL;
-
-        return kOfxStatErrBadHandle;
         } catch (...) {
           return kOfxStatFailed;
         }
@@ -854,10 +872,14 @@ namespace OFX {
       //
       // The context is the Interact::Instance whose kOfxInteractActionDraw is being
       // called (see Instance::drawAction()); outside that action the functions fail.
+      // ofxDrawSuite.h has no kOfxStatErrBadHandle: a NULL or wrong context (e.g. an interact
+      // descriptor) gives "kOfxStatFailed - failure, e.g. if function is called outside
+      // kOfxInteractActionDraw", as a context used outside the draw action.
 
       static Interact::Instance *drawContextInstance(OfxDrawContextHandle context)
       {
-        Interact::Instance *interactInstance = reinterpret_cast<Interact::Instance*>(context);
+        // the context is the instance's handle (Instance::drawAction())
+        Interact::Instance *interactInstance = interactHandleToInstance(context);
         if (!interactInstance || !interactInstance->isInDraw()) {
           return NULL;
         }

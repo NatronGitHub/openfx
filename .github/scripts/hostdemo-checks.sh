@@ -12,9 +12,10 @@ n=$(grep -c "Contexts:" cachedemo.log)
 echo "cacheDemo: $n plug-ins loaded"
 test "$n" -ge 5
 
-# The param, progress and timeline suites reject NULL and descriptor handles, NULL names and NULL
-# return pointers (suiteHandleChecks, built with hostDemo; not a hostDemo feature)
-"$bindir/suiteHandleChecks" > suitehandlechecks.log 2>&1 || { cat suitehandlechecks.log; exit 1; }
+# The param, progress, timeline, interact and draw suites reject NULL and descriptor handles, NULL
+# names and NULL return pointers (suiteHandleChecks, built with hostDemo; not a hostDemo feature).
+# The checks on an effect instance use the Invert plug-in of OFX_PLUGIN_PATH, which must be there.
+SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$dirs" "$bindir/suiteHandleChecks" > suitehandlechecks.log 2>&1 || { cat suitehandlechecks.log; exit 1; }
 tail -1 suitehandlechecks.log
 
 # hostDemo runs are deterministic: only the plug-ins in OFX_PLUGIN_PATH, no plug-in
