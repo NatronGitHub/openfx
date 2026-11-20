@@ -12,6 +12,7 @@
 #include <sstream>
 
 #include "ofxMessage.h"
+#include "ofxParametricParam.h"  // kOfxParamTypeParametric
 #ifdef OFX_EXTENSIONS_NUKE
 #include "nuke/fnOfxExtensions.h"  // kFnOfxImagePlaneColour
 #endif
@@ -21,16 +22,15 @@ namespace ofxh {
 // ---------------------------------------------------------------------------------------------
 // References and errors
 
-void raiseDeleted(const char *what)
-{
-  PyErr_Format(PyExc_ReferenceError, "%s: deleted by HostSupport (or not created yet)", what);
-  throw nb::python_error();
-}
-
-[[noreturn]] static void raise(PyObject *type, const std::string &message)
+void raiseError(PyObject *type, const std::string &message)
 {
   PyErr_SetString(type, message.c_str());
   throw nb::python_error();
+}
+
+void raiseDeleted(const char *what)
+{
+  raiseError(PyExc_ReferenceError, std::string(what) + ": deleted by HostSupport (or not created yet)");
 }
 
 PyHost *HostBase::get() const
@@ -64,6 +64,15 @@ Globals &globals()
   return *g;
 }
 
+nb::object numpy()
+{
+  Globals &g = globals();
+  if (!g.numpy.is_valid()) {
+    g.numpy = nb::module_::import_("numpy");
+  }
+  return g.numpy;
+}
+
 nb::object stat(OfxStatus s) { return globals().statFn(s); }
 
 /// the first error saved by the callbacks since the innermost ActionScope (heap-allocated, see
@@ -74,8 +83,27 @@ static nb::object &pendingError()
   return *e;
 }
 
+static int &scopeDepth()
+{
+  static int d = 0;
+  return d;
+}
+
+int ActionScope::depth() { return scopeDepth(); }
+
+/// a callback failed outside any action: nobody can raise its error, report it
+static void reportUnraisable(nb::handle exc)
+{
+  PyErr_SetObject((PyObject *)Py_TYPE(exc.ptr()), exc.ptr());
+  PyErr_WriteUnraisable(nb::str("ofxh: a host callback called outside an action").ptr());
+}
+
 void saveError(nb::handle exc)
 {
+  if (scopeDepth() == 0) {
+    reportUnraisable(exc);
+    return;
+  }
   if (!pendingError().is_valid()) {
     pendingError() = nb::borrow(exc);
   }
@@ -83,12 +111,12 @@ void saveError(nb::handle exc)
 
 void saveError(const char *message)
 {
-  if (!pendingError().is_valid()) {
-    pendingError() = nb::steal(PyObject_CallFunction(PyExc_RuntimeError, "s", message));
-    if (!pendingError().is_valid()) {
-      PyErr_Clear();
-    }
+  nb::object e = nb::steal(PyObject_CallFunction(PyExc_RuntimeError, "s", message));
+  if (!e.is_valid()) {
+    PyErr_Clear();
+    return;
   }
+  saveError(e);
 }
 
 ActionScope::ActionScope()
@@ -96,6 +124,7 @@ ActionScope::ActionScope()
   , _done(false)
 {
   pendingError() = nb::object();
+  ++scopeDepth();
 }
 
 ActionScope::~ActionScope() { discard(); }
@@ -104,6 +133,7 @@ void ActionScope::discard()
 {
   if (!_done) {
     _done = true;
+    --scopeDepth();
     pendingError() = std::move(_saved);
   }
 }
@@ -150,20 +180,102 @@ std::string formatMessage(const char *format, va_list args)
   if (!format) {
     return std::string();
   }
-  std::vector<char> buf(65536);
+  char buf[1024];
   va_list copy;
   va_copy(copy, args);
-  const int n = vsnprintf(&buf[0], buf.size(), format, copy);
+  const int n = vsnprintf(buf, sizeof(buf), format, copy);
   va_end(copy);
-  std::string text(n > 0 ? &buf[0] : "");
-  if (n < 0 || n >= (int)buf.size()) {
-    text += "...";
+  if (n < 0) {
+    return std::string("...");  // (an encoding error)
   }
-  return text;
+  if ((size_t)n < sizeof(buf)) {
+    return std::string(buf, (size_t)n);
+  }
+  std::vector<char> big((size_t)n + 1);
+  va_copy(copy, args);
+  vsnprintf(&big[0], big.size(), format, copy);
+  va_end(copy);
+  return std::string(&big[0], (size_t)n);
 }
 
 // ---------------------------------------------------------------------------------------------
 // Names
+
+struct NameEntry {
+  const char *kind;
+  const char *shortName;
+  const char *ofx;
+};
+
+static const NameEntry kNames[] = {
+  {"depth", "none", kOfxBitDepthNone},
+  {"depth", "byte", kOfxBitDepthByte},
+  {"depth", "short", kOfxBitDepthShort},
+  {"depth", "half", kOfxBitDepthHalf},
+  {"depth", "float", kOfxBitDepthFloat},
+  {"components", "none", kOfxImageComponentNone},
+  {"components", "rgba", kOfxImageComponentRGBA},
+  {"components", "rgb", kOfxImageComponentRGB},
+  {"components", "alpha", kOfxImageComponentAlpha},
+  {"premult", "opaque", kOfxImageOpaque},
+  {"premult", "premult", kOfxImagePreMultiplied},
+  {"premult", "unpremult", kOfxImageUnPreMultiplied},
+  {"field", "none", kOfxImageFieldNone},
+  {"field", "both", kOfxImageFieldBoth},
+  {"field", "lower", kOfxImageFieldLower},
+  {"field", "upper", kOfxImageFieldUpper},
+  {"field", "single", kOfxImageFieldSingle},
+  {"field", "doubled", kOfxImageFieldDoubled},
+  {"context", "generator", kOfxImageEffectContextGenerator},
+  {"context", "filter", kOfxImageEffectContextFilter},
+  {"context", "transition", kOfxImageEffectContextTransition},
+  {"context", "paint", kOfxImageEffectContextPaint},
+  {"context", "general", kOfxImageEffectContextGeneral},
+  {"context", "retimer", kOfxImageEffectContextRetimer},
+  {"context", "reader", "OfxImageEffectContextReader"},  // (the macros need OFX_EXTENSIONS_TUTTLE)
+  {"context", "writer", "OfxImageEffectContextWriter"},
+  {"message", "fatal", kOfxMessageFatal},
+  {"message", "error", kOfxMessageError},
+  {"message", "warning", kOfxMessageWarning},
+  {"message", "message", kOfxMessageMessage},
+  {"message", "log", kOfxMessageLog},
+  {"message", "question", kOfxMessageQuestion},
+  {"change", "user", kOfxChangeUserEdited},
+  {"change", "plugin", kOfxChangePluginEdited},
+  {"change", "time", kOfxChangeTime},
+  {"param_type", "integer", kOfxParamTypeInteger},
+  {"param_type", "double", kOfxParamTypeDouble},
+  {"param_type", "boolean", kOfxParamTypeBoolean},
+  {"param_type", "choice", kOfxParamTypeChoice},
+  {"param_type", "strchoice", kOfxParamTypeStrChoice},
+  {"param_type", "rgba", kOfxParamTypeRGBA},
+  {"param_type", "rgb", kOfxParamTypeRGB},
+  {"param_type", "double2d", kOfxParamTypeDouble2D},
+  {"param_type", "integer2d", kOfxParamTypeInteger2D},
+  {"param_type", "double3d", kOfxParamTypeDouble3D},
+  {"param_type", "integer3d", kOfxParamTypeInteger3D},
+  {"param_type", "string", kOfxParamTypeString},
+  {"param_type", "custom", kOfxParamTypeCustom},
+  {"param_type", "bytes", kOfxParamTypeBytes},
+  {"param_type", "pushbutton", kOfxParamTypePushButton},
+  {"param_type", "group", kOfxParamTypeGroup},
+  {"param_type", "page", kOfxParamTypePage},
+  {"param_type", "parametric", kOfxParamTypeParametric},
+  // (the Nuke extension's colour plane; the other planes keep their names)
+  {"plane", "Colour", "uk.co.thefoundry.OfxImagePlaneColour"},
+  {NULL, NULL, NULL}};
+
+/// other accepted spellings
+static const NameEntry kAliases[] = {
+  {"depth", "uint8", kOfxBitDepthByte},
+  {"depth", "uint16", kOfxBitDepthShort},
+  {"depth", "float16", kOfxBitDepthHalf},
+  {"depth", "float32", kOfxBitDepthFloat},
+  {"components", "a", kOfxImageComponentAlpha},
+  {"premult", "premultiplied", kOfxImagePreMultiplied},
+  {"premult", "unpremultiplied", kOfxImageUnPreMultiplied},
+  {"plane", "Color", "uk.co.thefoundry.OfxImagePlaneColour"},
+  {NULL, NULL, NULL}};
 
 static std::string lower(const std::string &s)
 {
@@ -176,52 +288,26 @@ static std::string lower(const std::string &s)
   return r;
 }
 
-std::string depthName(const std::string &s)
+std::string ofxName(const char *kind, const std::string &s)
 {
   const std::string l = lower(s);
-  if (l == "byte" || l == "uint8") return kOfxBitDepthByte;
-  if (l == "short" || l == "uint16") return kOfxBitDepthShort;
-  if (l == "half" || l == "float16") return kOfxBitDepthHalf;
-  if (l == "float" || l == "float32") return kOfxBitDepthFloat;
-  if (l == "none") return kOfxBitDepthNone;
+  for (const NameEntry *t : {kNames, kAliases}) {
+    for (const NameEntry *e = t; e->kind; ++e) {
+      if (std::strcmp(e->kind, kind) == 0 && lower(e->shortName) == l) {
+        return e->ofx;
+      }
+    }
+  }
   return s;
 }
 
-std::string componentsName(const std::string &s)
+std::string shortName(const char *kind, const std::string &s)
 {
-  const std::string l = lower(s);
-  if (l == "rgba") return kOfxImageComponentRGBA;
-  if (l == "rgb") return kOfxImageComponentRGB;
-  if (l == "alpha" || l == "a") return kOfxImageComponentAlpha;
-  if (l == "none") return kOfxImageComponentNone;
-  return s;
-}
-
-std::string premultName(const std::string &s)
-{
-  const std::string l = lower(s);
-  if (l == "premult" || l == "premultiplied") return kOfxImagePreMultiplied;
-  if (l == "unpremult" || l == "unpremultiplied") return kOfxImageUnPreMultiplied;
-  if (l == "opaque") return kOfxImageOpaque;
-  return s;
-}
-
-std::string fieldName(const std::string &s)
-{
-  const std::string l = lower(s);
-  if (l == "none" || l.empty()) return kOfxImageFieldNone;
-  if (l == "both") return kOfxImageFieldBoth;
-  if (l == "lower") return kOfxImageFieldLower;
-  if (l == "upper") return kOfxImageFieldUpper;
-  return s;
-}
-
-std::string changeReason(const std::string &s)
-{
-  const std::string l = lower(s);
-  if (l == "user" || l == "user_edited") return kOfxChangeUserEdited;
-  if (l == "plugin" || l == "plugin_edited") return kOfxChangePluginEdited;
-  if (l == "time") return kOfxChangeTime;
+  for (const NameEntry *e = kNames; e->kind; ++e) {
+    if (std::strcmp(e->kind, kind) == 0 && s == e->ofx) {
+      return e->shortName;
+    }
+  }
   return s;
 }
 
@@ -277,7 +363,7 @@ static OfxRectD toRectD(nb::handle h)
 {
   const nb::tuple t = nb::tuple(h);
   if (t.size() != 4) {
-    raise(PyExc_ValueError, "a rectangle is (x1, y1, x2, y2)");
+    raiseError(PyExc_ValueError, "a rectangle is (x1, y1, x2, y2)");
   }
   OfxRectD r;
   r.x1 = nb::cast<double>(t[0]);
@@ -291,7 +377,7 @@ static OfxRectI toRectI(nb::handle h, const char *what)
 {
   const nb::tuple t = nb::tuple(h);
   if (t.size() != 4) {
-    raise(PyExc_ValueError, std::string(what) + " is (x1, y1, x2, y2)");
+    raiseError(PyExc_ValueError, std::string(what) + " is (x1, y1, x2, y2)");
   }
   OfxRectI r;
   r.x1 = nb::cast<int>(t[0]);
@@ -300,6 +386,8 @@ static OfxRectI toRectI(nb::handle h, const char *what)
   r.y2 = nb::cast<int>(t[3]);
   return r;
 }
+
+static std::string typeName(nb::handle o) { return nb::cast<std::string>(nb::str(o.type())); }
 
 static std::string attrString(const nb::object &o, const char *name, const char *fallback)
 {
@@ -319,6 +407,21 @@ static bool attrBool(const nb::object &o, const char *name, bool fallback)
 static std::pair<double, double> attrPair(const nb::object &o, const char *name, std::pair<double, double> fallback)
 {
   OFXH_CALL(fallback, return nb::cast<std::pair<double, double> >(o.attr(name));)
+}
+
+static std::pair<double, double> callPair(const nb::object &o, const char *name, std::pair<double, double> fallback)
+{
+  OFXH_CALL(fallback, return nb::cast<std::pair<double, double> >(o.attr(name)());)
+}
+
+/// the cached string for a const std::string& return: assigned only when the value changes, so
+/// that what a caller got (e.g. its c_str()) stays valid while the value doesn't change
+static const std::string &cached(std::string &cache, const std::string &value)
+{
+  if (cache != value) {
+    cache = value;
+  }
+  return cache;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -366,16 +469,23 @@ PyHost::PyHost(nb::object py, RefPtr ref)
   _ref->p = this;
 }
 
+/// drop the last reference of an adapter to its Python object: after its Refs are cleared, so
+/// that what the Python object's deletion runs (e.g. a __del__) sees a deleted object
+static void dropLast(nb::object &py)
+{
+  nb::object last = std::move(py);
+  if (!nb::is_alive()) {
+    last.release();  // (leaked: the interpreter is gone)
+    return;
+  }
+  nb::gil_scoped_acquire gil;
+  last.reset();
+}
+
 PyHost::~PyHost()
 {
-  if (nb::is_alive()) {
-    nb::gil_scoped_acquire gil;
-    _ref->p = nullptr;
-    _py.reset();
-  } else {
-    _ref->p = nullptr;
-    _py.release();  // (leaked: the interpreter is gone)
-  }
+  _ref->p = nullptr;
+  dropLast(_py);
 }
 
 OHIE::Instance *PyHost::newInstance(void *clientData, OHIE::ImageEffectPlugin *plugin,
@@ -384,7 +494,7 @@ OHIE::Instance *PyHost::newInstance(void *clientData, OHIE::ImageEffectPlugin *p
   // clientData is the Python instance passed to ofxh.create_instance()
   OFXH_CALL((OHIE::Instance *)NULL,
     if (!clientData) {
-      raise(PyExc_RuntimeError, "use ofxh.create_instance() to create an instance");
+      raiseError(PyExc_RuntimeError, "use ofxh.create_instance() to create an instance");
     }
     nb::object py = nb::borrow((PyObject *)clientData);
     InstanceBase &ib = nb::cast<InstanceBase &>(py);
@@ -407,20 +517,24 @@ OHIE::Descriptor *PyHost::makeDescriptor(const std::string &bundlePath, OHIE::Im
   return new OHIE::Descriptor(bundlePath, plugin);
 }
 
-OfxStatus PyHost::vmessage(const char *type, const char *id, const char *format, va_list args)
+/// call a message callback (message or persistent_message) with the short message type
+static OfxStatus callMessage(const nb::object &py, const char *method, const char *type, const char *id,
+                             const char *format, va_list args)
 {
   const std::string text = formatMessage(format, args);
   OFXH_CALL(StatusFallback{kOfxStatFailed},
-    return statusFromResult(_py.attr("message")(type ? type : "", id ? id : "", text));
+    return statusFromResult(py.attr(method)(shortName("message", type ? type : ""), id ? id : "", text));
   )
+}
+
+OfxStatus PyHost::vmessage(const char *type, const char *id, const char *format, va_list args)
+{
+  return callMessage(_py, "message", type, id, format, args);
 }
 
 OfxStatus PyHost::setPersistentMessage(const char *type, const char *id, const char *format, va_list args)
 {
-  const std::string text = formatMessage(format, args);
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
-    return statusFromResult(_py.attr("persistent_message")(type ? type : "", id ? id : "", text));
-  )
+  return callMessage(_py, "persistent_message", type, id, format, args);
 }
 
 OfxStatus PyHost::clearPersistentMessage()
@@ -445,12 +559,7 @@ PyImage::~PyImage()
 {
   // HostSupport deletes the image when its last reference is released, usually in a plug-in's
   // clipReleaseImage (with the GIL, part 1 renders on the Python thread)
-  if (nb::is_alive()) {
-    nb::gil_scoped_acquire gil;
-    _pixels.reset();
-  } else {
-    _pixels.release();  // (leaked: the interpreter is gone)
-  }
+  dropLast(_pixels);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -470,17 +579,10 @@ PyClipInstance::PyClipInstance(PyEffectInstance *effect, OHIE::ClipDescriptor &d
 
 PyClipInstance::~PyClipInstance()
 {
+  _ref->p = nullptr;
   releaseOutputImage();
-  if (nb::is_alive()) {
-    nb::gil_scoped_acquire gil;
-    _ref->p = nullptr;
-    _outputData.reset();
-    _py.reset();
-  } else {
-    _ref->p = nullptr;
-    _outputData.release();
-    _py.release();
-  }
+  dropLast(_outputData);
+  dropLast(_py);
 }
 
 void PyClipInstance::releaseOutputImage()
@@ -520,16 +622,12 @@ nb::object PyClipInstance::newImage(int x1, int y1, int x2, int y2) const
   const char *dtname = NULL;
   const int c = componentCount(comps);
   if (!dtypeOf(depth, dt, dtname) || c == 0) {
-    raise(PyExc_ValueError, "clip " + getName() + ": can't make images of depth \"" + depth +
-                            "\" and components \"" + comps + "\"");
+    raiseError(PyExc_ValueError, "clip " + getName() + ": can't make images of depth \"" + shortName("depth", depth) +
+                                 "\" and components \"" + shortName("components", comps) + "\"");
   }
   if (x2 < x1) x2 = x1;
   if (y2 < y1) y2 = y1;
-  Globals &g = globals();
-  if (!g.numpy.is_valid()) {
-    g.numpy = nb::module_::import_("numpy");
-  }
-  return g.numpy.attr("empty")(nb::make_tuple(y2 - y1, x2 - x1, c), dtname);
+  return numpy().attr("empty")(nb::make_tuple(y2 - y1, x2 - x1, c), dtname);
 }
 
 // fill the output image with hostDemo's sentinel (hostDemoClipInstance.cpp, MyImage): a quiet NaN
@@ -557,11 +655,126 @@ static void fillSentinel(unsigned char *data, long long rowBytes, int width, int
   }
 }
 
+/// make the C++ image of what get_image() returned (raises if it isn't a valid image)
+static PyImage *makeImage(PyClipInstance &clip, nb::object r, OfxTime time, int view)
+{
+  PyEffectInstance *const effect = clip._effect;
+  if (!nb::isinstance<ImageData>(r)) {
+    raiseError(PyExc_TypeError, "clip " + clip.getName() + ": get_image() must return an ofxh.ImageData or None, not " +
+                                typeName(r));
+  }
+  ImageData &d = nb::cast<ImageData &>(r);
+  const std::string where = "clip " + clip.getName() + ": get_image(): ";
+  const OfxRectI bounds = toRectI(d.bounds, "bounds");
+  const std::string &depth = clip.getPixelDepth();
+  const std::string &comps = clip.getComponents();
+  const int nComps = componentCount(comps);
+  nb::dlpack::dtype dt;
+  const char *dtname = NULL;
+  if (!dtypeOf(depth, dt, dtname) || nComps == 0) {
+    raiseError(PyExc_ValueError, where + "the clip's depth \"" + shortName("depth", depth) + "\" and components \"" +
+                                 shortName("components", comps) + "\" are not supported");
+  }
+  if (!nb::isinstance(d.pixels, numpy().attr("ndarray"))) {
+    raiseError(PyExc_TypeError, where + "pixels must be a NumPy array");
+  }
+  nb::ndarray<nb::ro> a;
+  if (!nb::try_cast(d.pixels, a, false)) {
+    raiseError(PyExc_TypeError, where + "pixels: unsupported NumPy array");
+  }
+  const int width = bounds.x2 - bounds.x1, height = bounds.y2 - bounds.y1;
+  if (a.ndim() != 3 || width < 0 || height < 0 || (long long)a.shape(0) != height ||
+      (long long)a.shape(1) != width || (int)a.shape(2) != nComps) {
+    std::ostringstream ss;
+    ss << where << "pixels must have the shape (y2-y1, x2-x1, " << nComps << ") = (" << height << ", "
+       << width << ", " << nComps << ") of the bounds and the clip's components ("
+       << shortName("components", comps) << "), not (";
+    for (size_t i = 0; i < a.ndim(); ++i) {
+      ss << (i ? ", " : "") << a.shape(i);
+    }
+    ss << ")";
+    raiseError(PyExc_ValueError, ss.str());
+  }
+  if (a.dtype() != dt) {
+    raiseError(PyExc_ValueError, where + "pixels must be " + dtname + ", the clip's depth (" +
+                                 shortName("depth", depth) + "), not " +
+                                 nb::cast<std::string>(nb::str(nb::handle(nb::object(d.pixels.attr("dtype"))))));
+  }
+  if ((nComps > 1 && a.stride(2) != 1) || (width > 1 && a.stride(1) != nComps)) {
+    raiseError(PyExc_ValueError, where + "the pixels of each row must be contiguous (strides[1] == C*itemsize, "
+                                 "strides[2] == itemsize)");
+  }
+  // the plug-in gets a pointer to non-const data, for the inputs too: no read-only arrays
+  if (!nb::cast<bool>(d.pixels.attr("flags").attr("writeable"))) {
+    raiseError(PyExc_ValueError, where + "the pixels must be writable (the plug-in gets a non-const pointer): "
+                                 "pass a copy of a read-only array");
+  }
+  if (clip.isOutput() && effect->_rendering) {
+    const OfxRectI &w = effect->_renderWindow;
+    if (bounds.x1 > w.x1 || bounds.y1 > w.y1 || bounds.x2 < w.x2 || bounds.y2 < w.y2) {
+      std::ostringstream ss;
+      ss << where << "the bounds (" << bounds.x1 << ", " << bounds.y1 << ", " << bounds.x2 << ", " << bounds.y2
+         << ") of the output image must contain the render window (" << w.x1 << ", " << w.y1 << ", " << w.x2
+         << ", " << w.y2 << ")";
+      raiseError(PyExc_ValueError, ss.str());
+    }
+  }
+  const long long rowBytes = (long long)a.stride(0) * (long long)a.itemsize();
+  if (rowBytes > INT_MAX || rowBytes < -INT_MAX) {
+    raiseError(PyExc_ValueError, where + "the rows are too large");
+  }
+  void *data = const_cast<void *>(static_cast<const void *>(a.data()));
+  const double par = clip.getAspectRatio();
+  const OfxRectI rodPixels = d.rod.is_none() ? canonicalToPixelEnclosing(clip.rod(time, view), effect->_renderScale, par)
+                                             : toRectI(d.rod, "rod");
+  std::string uid = d.uniqueId;
+  if (uid.empty()) {
+    std::ostringstream ss;  // as hostDemo
+    ss << clip.getName() << ":" << time << ":" << view << (clip.isOutput() ? ":output" : "");
+    uid = ss.str();
+  }
+  if (clip.isOutput()) {
+    fillSentinel(static_cast<unsigned char *>(data), rowBytes, width, height, nComps, depth);
+  }
+  PyImage *img = new PyImage(clip, nb::borrow(d.pixels), data, effect->_renderScale, bounds, rodPixels,
+                             (int)rowBytes, fieldName(d.field), uid);
+  if (clip.isOutput()) {
+    // the clip keeps a reference until the end of the render (releaseOutputImage)
+    clip._outputImage = img;
+    clip._outputData = r;
+    img->addReference();
+  }
+  return img;
+}
+
 OHIE::Image *PyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds)
+{
+  OHIE::Image *img = fetchFromPython(time, view, optionalBounds);
+  if (img || !isOutput() || !_effect->_rendering) {
+    return img;  // (an input may have no image: the plug-in checks)
+  }
+  // During a render, the output image is never NULL (plug-ins don't check it): the host makes one
+  // over the render window, the plug-in is asked to abort, and the render action fails.
+  OFXH_CALL((OHIE::Image *)NULL,
+    saveError(("clip " + getName() + ": get_image() gave no valid output image during the render: ofxh made one "
+               "over the render window, and the render fails").c_str());
+    _effect->_outputFailed = true;
+    const OfxRectI &w = _effect->_renderWindow;
+    ImageData d;
+    d.pixels = newImage(w.x1, w.y1, w.x2, w.y2);
+    d.bounds = nb::make_tuple(w.x1, w.y1, w.x2, w.y2);
+    d.rod = nb::none();
+    d.field = "none";
+    return (OHIE::Image *)makeImage(*this, nb::cast(std::move(d)), time, view);
+  )
+}
+
+OHIE::Image *PyClipInstance::fetchFromPython(OfxTime time, int view, const OfxRectD *optionalBounds)
 {
   OFXH_CALL((OHIE::Image *)NULL,
     if (isOutput() && _outputImage) {
-      // one output image per render, shared by all its fetches
+      // one output image per render, shared by all its fetches (whatever their view: see the
+      // ClipInstance docstring)
       _outputImage->addReference();
       return (OHIE::Image *)_outputImage;
     }
@@ -572,82 +785,7 @@ OHIE::Image *PyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *
     if (r.is_none()) {
       return (OHIE::Image *)NULL;
     }
-    if (!nb::isinstance<ImageData>(r)) {
-      raise(PyExc_TypeError, "clip " + getName() + ": get_image() must return an ofxh.ImageData or None, not " +
-                             nb::cast<std::string>(nb::str(r.type())));
-    }
-    ImageData &d = nb::cast<ImageData &>(r);
-    const std::string where = "clip " + getName() + ": get_image(): ";
-    const OfxRectI bounds = toRectI(d.bounds, "bounds");
-    const std::string &depth = getPixelDepth();
-    const std::string &comps = getComponents();
-    const int nComps = componentCount(comps);
-    nb::dlpack::dtype dt;
-    const char *dtname = NULL;
-    if (!dtypeOf(depth, dt, dtname) || nComps == 0) {
-      raise(PyExc_ValueError, where + "the clip's depth \"" + depth + "\" and components \"" + comps +
-                              "\" are not supported");
-    }
-    Globals &g = globals();
-    if (!g.numpy.is_valid()) {
-      g.numpy = nb::module_::import_("numpy");
-    }
-    if (!nb::isinstance(d.pixels, g.numpy.attr("ndarray"))) {
-      raise(PyExc_TypeError, where + "pixels must be a NumPy array");
-    }
-    nb::ndarray<nb::ro> a;
-    if (!nb::try_cast(d.pixels, a, false)) {
-      raise(PyExc_TypeError, where + "pixels: unsupported NumPy array");
-    }
-    const int width = bounds.x2 - bounds.x1, height = bounds.y2 - bounds.y1;
-    if (a.ndim() != 3 || width < 0 || height < 0 || (long long)a.shape(0) != height ||
-        (long long)a.shape(1) != width || (int)a.shape(2) != nComps) {
-      std::ostringstream ss;
-      ss << where << "pixels must have the shape (y2-y1, x2-x1, " << nComps << ") = (" << height << ", "
-         << width << ", " << nComps << ") of the bounds and the clip's components (" << comps << "), not (";
-      for (size_t i = 0; i < a.ndim(); ++i) {
-        ss << (i ? ", " : "") << a.shape(i);
-      }
-      ss << ")";
-      raise(PyExc_ValueError, ss.str());
-    }
-    if (a.dtype() != dt) {
-      raise(PyExc_ValueError, where + "pixels must be " + dtname + ", the clip's depth (" + depth + "), not " +
-                              nb::cast<std::string>(nb::str(nb::handle(nb::object(d.pixels.attr("dtype"))))));
-    }
-    if ((nComps > 1 && a.stride(2) != 1) || (width > 1 && a.stride(1) != nComps)) {
-      raise(PyExc_ValueError, where + "the pixels of each row must be contiguous (strides[1] == C*itemsize, "
-                              "strides[2] == itemsize)");
-    }
-    if (isOutput() && !nb::cast<bool>(d.pixels.attr("flags").attr("writeable"))) {
-      raise(PyExc_ValueError, where + "the pixels of an output image must be writable");
-    }
-    const long long rowBytes = (long long)a.stride(0) * (long long)a.itemsize();
-    if (rowBytes > INT_MAX || rowBytes < -INT_MAX) {
-      raise(PyExc_ValueError, where + "the rows are too large");
-    }
-    void *data = const_cast<void *>(static_cast<const void *>(a.data()));
-    const double par = getAspectRatio();
-    const OfxRectI rodPixels = d.rod.is_none() ? canonicalToPixelEnclosing(rod(time, view), _effect->_renderScale, par)
-                                               : toRectI(d.rod, "rod");
-    std::string uid = d.uniqueId;
-    if (uid.empty()) {
-      std::ostringstream ss;  // as hostDemo
-      ss << getName() << ":" << time << ":" << view << (isOutput() ? ":output" : "");
-      uid = ss.str();
-    }
-    if (isOutput()) {
-      fillSentinel(static_cast<unsigned char *>(data), rowBytes, width, height, nComps, depth);
-    }
-    PyImage *img = new PyImage(*this, nb::borrow(d.pixels), data, _effect->_renderScale, bounds, rodPixels,
-                               (int)rowBytes, fieldName(d.field), uid);
-    if (isOutput()) {
-      // the clip keeps a reference until the end of the render (releaseOutputImage)
-      _outputImage = img;
-      _outputData = r;
-      img->addReference();
-    }
-    return (OHIE::Image *)img;
+    return (OHIE::Image *)makeImage(*this, r, time, view);
   )
 }
 
@@ -712,8 +850,7 @@ const std::string &PyClipInstance::getUnmappedBitDepth() const
   if (!getConnected()) {
     return none;
   }
-  _unmappedDepth = depthName(attrString(_py, "unmapped_bit_depth", kOfxBitDepthByte));
-  return _unmappedDepth;
+  return cached(_unmappedDepth, depthName(attrString(_py, "unmapped_bit_depth", kOfxBitDepthByte)));
 }
 
 const std::string &PyClipInstance::getUnmappedComponents() const
@@ -723,14 +860,12 @@ const std::string &PyClipInstance::getUnmappedComponents() const
   if (!getConnected()) {
     return none;
   }
-  _unmappedComponents = componentsName(attrString(_py, "unmapped_components", kOfxImageComponentRGBA));
-  return _unmappedComponents;
+  return cached(_unmappedComponents, componentsName(attrString(_py, "unmapped_components", kOfxImageComponentRGBA)));
 }
 
 const std::string &PyClipInstance::getPremult() const
 {
-  _premult = premultName(attrString(_py, "premult", kOfxImageUnPreMultiplied));
-  return _premult;
+  return cached(_premult, premultName(attrString(_py, "premult", kOfxImageUnPreMultiplied)));
 }
 
 #ifdef OFX_EXTENSIONS_NATRON
@@ -756,8 +891,7 @@ void PyClipInstance::getFrameRange(double &startFrame, double &endFrame) const
 
 const std::string &PyClipInstance::getFieldOrder() const
 {
-  _fieldOrder = fieldName(attrString(_py, "field_order", kOfxImageFieldNone));
-  return _fieldOrder;
+  return cached(_fieldOrder, fieldName(attrString(_py, "field_order", kOfxImageFieldNone)));
 }
 
 bool PyClipInstance::getConnected() const
@@ -802,6 +936,7 @@ OfxRectD PyClipInstance::getRegionOfDefinition(OfxTime time, int view) const
 #ifdef OFX_EXTENSIONS_VEGAS
 OHIE::Image *PyClipInstance::getStereoscopicImage(OfxTime time, int view, const OfxRectD *optionalBounds)
 {
+  // (the output clip gives its image of the current render, whatever the view)
   return fetchImage(time, view, optionalBounds);
 }
 #endif
@@ -835,6 +970,7 @@ PyEffectInstance::PyEffectInstance(OHIE::ImageEffectPlugin *plugin, OHIE::Descri
   , _rendering(false)
   , _timeLineTime(0.)
   , _abort(0)
+  , _outputFailed(false)
 {
   _renderScale.x = _renderScale.y = 1.;
   _renderWindow.x1 = _renderWindow.y1 = _renderWindow.x2 = _renderWindow.y2 = 0;
@@ -845,15 +981,22 @@ PyEffectInstance::PyEffectInstance(OHIE::ImageEffectPlugin *plugin, OHIE::Descri
 PyEffectInstance::~PyEffectInstance()
 {
   openInstances().erase(this);
-  // (~Instance() deletes the clips and params next)
-  if (nb::is_alive()) {
-    nb::gil_scoped_acquire gil;
-    _ref->p = nullptr;
-    _py.reset();
-  } else {
-    _ref->p = nullptr;
-    _py.release();
+  // first, the Python objects of the instance and of its clips become deleted
+  _ref->p = nullptr;
+  for (std::map<std::string, OHIE::ClipInstance *>::iterator it = _clips.begin(); it != _clips.end(); ++it) {
+    if (PyClipInstance *c = dynamic_cast<PyClipInstance *>(it->second)) {
+      c->_ref->p = nullptr;
+    }
   }
+  // then the clips are deleted (here, not by ~Instance(), so that the instance's Python object
+  // goes last)
+  if (_ownsData) {
+    for (std::map<std::string, OHIE::ClipInstance *>::iterator it = _clips.begin(); it != _clips.end(); ++it) {
+      delete it->second;
+      it->second = NULL;
+    }
+  }
+  dropLast(_py);
 }
 
 OfxRectI PyEffectInstance::projectPixelRect(const OfxPointD &renderScale) const
@@ -871,12 +1014,8 @@ OfxRectI PyEffectInstance::projectPixelRect(const OfxPointD &renderScale) const
 
 const std::string &PyEffectInstance::getDefaultOutputFielding() const
 {
-  _fielding = fieldName(attrString(_py, "default_output_fielding", kOfxImageFieldNone));
-  return _fielding;
+  return cached(_fielding, fieldName(attrString(_py, "default_output_fielding", kOfxImageFieldNone)));
 }
-
-/// ofxh.ClipDescriptor: what new_clip_instance() is told about the clip (a copy)
-nb::object makeClipDescriptor(const OHIE::ClipDescriptor &desc);
 
 OHIE::ClipInstance *PyEffectInstance::newClipInstance(OHIE::Instance * /*plugin*/, OHIE::ClipDescriptor *descriptor,
                                                       int index)
@@ -884,12 +1023,11 @@ OHIE::ClipInstance *PyEffectInstance::newClipInstance(OHIE::Instance * /*plugin*
   OFXH_CALL((OHIE::ClipInstance *)NULL,
     nb::object py = _py.attr("new_clip_instance")(makeClipDescriptor(*descriptor), index);
     if (!nb::isinstance<ClipBase>(py)) {
-      raise(PyExc_TypeError, "new_clip_instance() must return an ofxh.ClipInstance, not " +
-                             nb::cast<std::string>(nb::str(py.type())));
+      raiseError(PyExc_TypeError, "new_clip_instance() must return an ofxh.ClipInstance, not " + typeName(py));
     }
     ClipBase &cb = nb::cast<ClipBase &>(py);
     if (cb.ref->p) {
-      raise(PyExc_ValueError, "new_clip_instance() returned a clip that already belongs to an instance");
+      raiseError(PyExc_ValueError, "new_clip_instance() returned a clip that already belongs to an instance");
     }
     return (OHIE::ClipInstance *)new PyClipInstance(this, *descriptor, py, cb.ref);
   )
@@ -897,18 +1035,12 @@ OHIE::ClipInstance *PyEffectInstance::newClipInstance(OHIE::Instance * /*plugin*
 
 OfxStatus PyEffectInstance::vmessage(const char *type, const char *id, const char *format, va_list args)
 {
-  const std::string text = formatMessage(format, args);
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
-    return statusFromResult(_py.attr("message")(type ? type : "", id ? id : "", text));
-  )
+  return callMessage(_py, "message", type, id, format, args);
 }
 
 OfxStatus PyEffectInstance::setPersistentMessage(const char *type, const char *id, const char *format, va_list args)
 {
-  const std::string text = formatMessage(format, args);
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
-    return statusFromResult(_py.attr("persistent_message")(type ? type : "", id ? id : "", text));
-  )
+  return callMessage(_py, "persistent_message", type, id, format, args);
 }
 
 OfxStatus PyEffectInstance::clearPersistentMessage()
@@ -916,7 +1048,7 @@ OfxStatus PyEffectInstance::clearPersistentMessage()
   OFXH_CALL(StatusFallback{kOfxStatFailed}, return statusFromResult(_py.attr("clear_persistent_message")());)
 }
 
-int PyEffectInstance::abort() { return _abort.load() ? 1 : 0; }
+int PyEffectInstance::abort() { return (_abort.load() || _outputFailed) ? 1 : 0; }
 
 void PyEffectInstance::getProjectSize(double &xSize, double &ySize) const
 {
@@ -970,20 +1102,23 @@ OfxStatus PyEffectInstance::getViewCount(int *nViews) const
 OfxStatus PyEffectInstance::getViewName(int viewIndex, const char **name) const
 {
   OFXH_CALL(StatusFallback{kOfxStatFailed},
-    _viewName = nb::cast<std::string>(_py.attr("view_name")(viewIndex));
-    *name = _viewName.c_str();  // "valid throughout the calling action"
+    const std::string &n = cached(_viewNames[viewIndex], nb::cast<std::string>(_py.attr("view_name")(viewIndex)));
+    *name = n.c_str();  // "valid throughout the calling action"
     return kOfxStatOK;
   )
 }
 #endif
 
-OH::Param::Instance *PyEffectInstance::newParam(const std::string & /*name*/, OH::Param::Descriptor &descriptor)
+OH::Param::Instance *PyEffectInstance::newParam(const std::string &name, OH::Param::Descriptor &descriptor)
 {
-  try {
-    return newStoredParam(this, descriptor);
-  } catch (...) {
-    return NULL;
-  }
+  OFXH_CALL((OH::Param::Instance *)NULL,
+    OH::Param::Instance *p = newStoredParam(this, descriptor);
+    if (!p) {
+      raiseError(PyExc_NotImplementedError, "parameter " + name + ": type " + shortName("param_type", descriptor.getType()) +
+                                            " is not supported (part 1)");
+    }
+    return p;
+  )
 }
 
 OfxStatus PyEffectInstance::editBegin(const std::string &name)
@@ -1026,17 +1161,7 @@ void PyEffectInstance::timeLineGotoTime(double t)
 
 void PyEffectInstance::timeLineGetBounds(double &t1, double &t2)
 {
-  std::pair<double, double> r = std::make_pair(0., 25.);
-  {
-    nb::gil_scoped_acquire gil;
-    try {
-      r = nb::cast<std::pair<double, double> >(_py.attr("timeline_get_bounds")());
-    } catch (nb::python_error &e) {
-      saveError(e.value());
-    } catch (const std::exception &e) {
-      saveError(e.what());
-    }
-  }
+  const std::pair<double, double> r = callPair(_py, "timeline_get_bounds", std::make_pair(0., 25.));
   t1 = r.first;
   t2 = r.second;
 }

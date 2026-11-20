@@ -4,7 +4,8 @@
 // sets the value, paramGetValueAtTime returns it, the derivative is 0 and the integral is
 // value * (t2 - t1)). The value starts at the descriptor's default (kOfxParamPropDefault, with
 // normalised spatial defaults converted to canonical coordinates, as hostDemo does). Python
-// reads and writes the values with ImageEffectInstance.get_param() and set_param().
+// reads the values with ImageEffectInstance.get_param() (at a time or not: the same value), and
+// sets them with set_param() (no time in part 1: no keys).
 
 #include "ofxhPython.h"
 
@@ -249,17 +250,13 @@ P::Instance *newStoredParam(PyEffectInstance *e, P::Descriptor &d)
   if (t == kOfxParamTypePushButton) return new P::PushbuttonInstance(d, e);
   if (t == kOfxParamTypeGroup) return new P::GroupInstance(d, e);
   if (t == kOfxParamTypePage) return new P::PageInstance(d, e);
-  return NULL;  // e.g. parametric parameters (not in part 1): the instance can't be created
+  return NULL;  // e.g. parametric parameters (not in part 1): newParam() saves the error
 }
 
 // ---------------------------------------------------------------------------------------------
 // Python access
 
-[[noreturn]] static void raiseValue(const std::string &message)
-{
-  PyErr_SetString(PyExc_ValueError, message.c_str());
-  throw nb::python_error();
-}
+[[noreturn]] static void raiseValue(const std::string &message) { raiseError(PyExc_ValueError, message); }
 
 static void check(OfxStatus st, P::Instance *p)
 {
@@ -379,10 +376,10 @@ template <class T> static std::vector<T> values(nb::handle v, size_t n, P::Insta
   return r;
 }
 
-OfxStatus setParamValue(P::Instance *p, nb::handle value, const double *time)
+OfxStatus setParamValue(P::Instance *p, nb::handle value)
 {
   const std::string &t = p->getType();
-#define OFXH_SET(...) return time ? i->set(*time, __VA_ARGS__) : i->set(__VA_ARGS__)
+#define OFXH_SET(...) return i->set(__VA_ARGS__)
   if (t == kOfxParamTypeInteger) {
     P::IntegerInstance *i = as<P::IntegerInstance>(p);
     OFXH_SET(nb::cast<int>(value));

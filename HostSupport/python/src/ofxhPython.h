@@ -7,13 +7,17 @@
 //   an instance of a user subclass of a small Python base class (ofxh.Host,
 //   ofxh.ImageEffectInstance, ofxh.ClipInstance), and implements each virtual function by calling
 //   the Python object.
-// - The Python base class holds a Ref, shared with the adapter. The adapter's destructor sets
-//   Ref::p to NULL: from then on, the Python object raises ReferenceError ("deleted by
-//   HostSupport").
+// - The Python object holds only a Ref, shared with the adapter, which doesn't own the adapter.
+//   The adapter's destructor sets Ref::p to NULL before it drops its reference to the Python
+//   object: from then on, the Python object raises ReferenceError ("deleted by HostSupport").
+// - An effect instance lives until ImageEffectInstance.close() or ofxh.shutdown(), which send
+//   kOfxActionDestroyInstance and delete it (with its clips and params).
 // - No exception may cross a HostSupport or plug-in frame: every callback is wrapped in
 //   OFXH_CALL, which turns a Python exception into a status (ofxh.OfxError(status) gives that
 //   status, anything else kOfxStatFailed or a safe default) and saves the first error, which the
 //   Python binding that called into HostSupport re-raises as ofxh.CallbackError (ActionScope).
+//   A callback that fails outside any ActionScope (e.g. called by a plug-in through ctypes)
+//   reports its error with sys.unraisablehook.
 // - The GIL: the Python side calls HostSupport with the GIL held, and every callback acquires it
 //   (part 1 renders on the calling thread only).
 
@@ -25,6 +29,7 @@
 
 #include <atomic>
 #include <cstdarg>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -56,6 +61,8 @@ typedef std::shared_ptr<Ref> RefPtr;
 
 /// raise ReferenceError: the C++ object was deleted (or was never created)
 [[noreturn]] void raiseDeleted(const char *what);
+/// raise a Python exception (PyExc_ValueError...) with this message
+[[noreturn]] void raiseError(PyObject *type, const std::string &message);
 
 class PyHost;
 class PyEffectInstance;
@@ -93,22 +100,25 @@ struct ImageData {
 
 /// Python objects made by the module prelude (Stat, OfxError, CallbackError, ...)
 struct Globals {
-  nb::object statFn;           ///< ofxh._stat(int) -> Stat or int
-  nb::object ofxError;         ///< ofxh.OfxError
-  nb::object raiseCallbackError; ///< ofxh._raise_callback_error(where, exc)
-  nb::object numpy;            ///< the numpy module (imported on first use)
+  nb::object statFn;             ///< ofxh._stat(int) -> Stat or int
+  nb::object ofxError;           ///< ofxh.OfxError
+  nb::object raiseCallbackError; ///< ofxh._raise_callback_error(where, exc, status)
+  nb::object numpy;              ///< the numpy module (imported on first use)
 };
 Globals &globals();
+nb::object numpy();
 
 /// the status as an ofxh.Stat (or a plain int if it isn't one)
 nb::object stat(OfxStatus s);
 
-/// save the first error of the current action (see ActionScope)
+/// save the first error of the current action (see ActionScope); outside any action, report it
+/// with sys.unraisablehook
 void saveError(nb::handle exc);
 void saveError(const char *message);
 
 /// Saves the pending error of an enclosing action when a Python binding calls into HostSupport,
 /// and re-raises the first error saved by the callbacks, as ofxh.CallbackError, in check().
+/// The scopes nest: depth() > 0 inside an action or a callback.
 class ActionScope {
   nb::object _saved;
   bool _done;
@@ -122,7 +132,19 @@ public:
   bool failed() const;
   /// forget the errors of the callbacks (and restore the enclosing action's)
   void discard();
+  /// the number of open scopes
+  static int depth();
 };
+
+/// evaluate an expression that may call the Python callbacks in its own ActionScope, and raise
+/// their first error (used by the bindings that don't run an action)
+#define OFXH_SCOPED(where, ...)                                                        \
+  ([&]() {                                                                             \
+    ::ofxh::ActionScope ofxh_s_;                                                       \
+    auto ofxh_r_ = (__VA_ARGS__);                                                      \
+    ofxh_s_.check(where);                                                              \
+    return ofxh_r_;                                                                    \
+  }())
 
 /// fallback tag for the functions that return an OfxStatus: ofxh.OfxError(status) gives status
 struct StatusFallback {
@@ -169,13 +191,18 @@ template <class T> T onCxxError(const char *what, T fb)
 OfxStatus statusFromResult(nb::handle r);
 
 // ---------------------------------------------------------------------------------------------
-// Names (Python accepts the short names, HostSupport gets the OFX strings)
+// Names: Python reads short names (depth "byte", components "rgba", context "filter"...) and
+// accepts them or the OFX strings; HostSupport gets the OFX strings.
+// Kinds: depth, components, premult, field, context, message, change, param_type, plane.
 
-std::string depthName(const std::string &s);       ///< "byte" -> kOfxBitDepthByte...
-std::string componentsName(const std::string &s);  ///< "rgba" -> kOfxImageComponentRGBA...
-std::string premultName(const std::string &s);     ///< "premult" -> kOfxImagePreMultiplied...
-std::string fieldName(const std::string &s);       ///< "none" -> kOfxImageFieldNone...
-std::string changeReason(const std::string &s);    ///< "user" -> kOfxChangeUserEdited...
+/// the OFX string of a short name (or of an OFX string: unchanged); unknown names are unchanged
+std::string ofxName(const char *kind, const std::string &s);
+/// the short name of an OFX string; unknown strings are unchanged
+std::string shortName(const char *kind, const std::string &s);
+inline std::string depthName(const std::string &s) { return ofxName("depth", s); }
+inline std::string componentsName(const std::string &s) { return ofxName("components", s); }
+inline std::string premultName(const std::string &s) { return ofxName("premult", s); }
+inline std::string fieldName(const std::string &s) { return ofxName("field", s.empty() ? std::string("none") : s); }
 int componentCount(const std::string &components); ///< 4, 3, 1, or 0 if unsupported
 
 /// hostDemo's canonicalToPixelEnclosing (clamped to the int range)
@@ -238,8 +265,10 @@ public:
 
   /// release the output image of the last render (the next fetch gets a new one)
   void releaseOutputImage();
-  /// call the Python get_image() and make a C++ image from what it returns (NULL if None)
+  /// call the Python get_image() and make a C++ image from what it returns (NULL if None). The
+  /// output image of a render is never NULL (see fetchImage()).
   OHIE::Image *fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds);
+  OHIE::Image *fetchFromPython(OfxTime time, int view, const OfxRectD *optionalBounds);
   /// the clip's RoD in canonical coordinates, from the Python region_of_definition()
   OfxRectD rod(OfxTime time, int view) const;
   /// the default RoD (hostDemo's): the effect's RoD for the output clip, the project for a
@@ -288,14 +317,15 @@ class PyEffectInstance : public OHIE::Instance {
 public:
   nb::object _py;
   RefPtr _ref;
-  // the render state, set by the render binding
+  // the render state, set by the action bindings
   bool _rendering;
-  OfxPointD _renderScale;
+  OfxPointD _renderScale;         ///< the render scale of the current action (1, 1 outside)
   OfxRectI _renderWindow;
   double _timeLineTime;           ///< the default timeline (timeline_get_time/goto_time)
   std::atomic<int> _abort;        ///< ImageEffectInstance.aborted
+  bool _outputFailed;             ///< the host made the output image of the render (abort() is 1)
   mutable std::string _fielding;  ///< getDefaultOutputFielding()
-  mutable std::string _viewName;  ///< getViewName()
+  mutable std::map<int, std::string> _viewNames;  ///< getViewName()
 
   PyEffectInstance(OHIE::ImageEffectPlugin *plugin, OHIE::Descriptor &desc,
                    const std::string &context, nb::object py, RefPtr ref);
@@ -343,19 +373,22 @@ public:
 /// the open instances, closed by shutdown()
 std::set<PyEffectInstance *> &openInstances();
 
-/// format a printf-style message (hostDemo's buffer size; "..." if truncated)
+/// format a printf-style message
 std::string formatMessage(const char *format, va_list args);
+
+/// ofxh.ClipDescriptor: what new_clip_instance() is told about the clip (a copy)
+nb::object makeClipDescriptor(const OHIE::ClipDescriptor &desc);
 
 // ---------------------------------------------------------------------------------------------
 // Parameters (part 1: C++ parameters that store their value; Python sees get/set)
 
 /// a C++ parameter instance of the descriptor's type, with the default value
-/// (kOfxParamPropDefault), or NULL if the type is unknown
+/// (kOfxParamPropDefault), or NULL if the type is not supported
 OH::Param::Instance *newStoredParam(PyEffectInstance *effect, OH::Param::Descriptor &descriptor);
 /// the value of a parameter, as a Python object (a tuple for multi-dimensional parameters)
 nb::object getParamValue(OH::Param::Instance *param, const double *time);
 /// set the value of a parameter from a Python object
-OfxStatus setParamValue(OH::Param::Instance *param, nb::handle value, const double *time);
+OfxStatus setParamValue(OH::Param::Instance *param, nb::handle value);
 
 // ---------------------------------------------------------------------------------------------
 /// bind the module (ofxhPythonModule.cpp)

@@ -2,7 +2,8 @@
 # Needs Python >= 3.10 (Interpreter and Development.Module) and nanobind, found from the Python
 # interpreter (pip install nanobind; or set nanobind_DIR). The module links OfxHost, so it is
 # compiled with the same OFX_* definitions (PUBLIC usage requirements of OfxHost).
-cmake_minimum_required(VERSION 3.18)
+# (a subdirectory: no cmake_minimum_required, which would reset the policies of the top level;
+# the top level's minimum version is enough for nanobind)
 
 # the host functions that these options make pure virtual are not implemented
 if(OFX_SUPPORTS_MULTITHREAD OR OFX_SUPPORTS_DIALOG)
@@ -31,7 +32,10 @@ target_compile_features(ofxh PRIVATE cxx_std_17)
 set_target_properties(ofxh PROPERTIES
   CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN ON)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  # don't export the symbols of the static libraries (HostSupport, expat, nanobind)
-  target_link_options(ofxh PRIVATE "-Wl,--exclude-libs,ALL")
+# export only the module's init function, not the symbols of the static libraries (HostSupport,
+# expat, nanobind)
+if(APPLE)
+  target_link_options(ofxh PRIVATE "LINKER:-exported_symbol,_PyInit_ofxh")
+elseif(NOT WIN32)
+  target_link_options(ofxh PRIVATE "LINKER:--exclude-libs,ALL")
 endif()
