@@ -119,18 +119,28 @@ def test_other_threads_run_during_render(plugin_dir):
     Python thread runs: the GIL is released. (With the GIL held, no Python code could run there.)
 
     This relies on the fetch order of the Support Invert (Support/Plugins/Invert): it fetches the
-    output image, then the source, then processes the pixels, and the source's get_image() is the
-    only Python code of the render (the output's is the C++ default, the other clip values are
-    plain attributes). A few renders: the watcher must be scheduled while one is processing."""
+    output image, then the source, then processes the pixels. Clip.get_image() is Python for both
+    (the output's calls the default), and the source's is the last Python code of the render: the
+    other clip values are plain attributes, and the defaults are C++. The watcher sees the render
+    running from outside (its call raises RuntimeError: a binding runs on the main thread) after
+    that last statement. A few renders: the watcher must be scheduled while one is processing."""
     image = np.random.default_rng(1).random((2048, 2048, 4), dtype=np.float32)
     state = {"phase": None, "observed": False, "stop": False}
     ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False)
     with ofxh.create_instance(ofxh.get_plugin(INVERT), "filter", Instance(image, state=state)) as inst:
         _prepare(inst)
 
+        def running():
+            """a binding (the render) runs on the main thread"""
+            try:
+                inst.rendering
+            except RuntimeError:
+                return True
+            return False
+
         def watch():
             while not state["stop"]:
-                if state["phase"] == "processing" and inst.rendering:
+                if state["phase"] == "processing" and running():
                     state["observed"] = True
                     return
 
@@ -173,7 +183,9 @@ def test_no_calls_from_another_thread_during_an_action(plugin_dir):
         assert stat == ofxh.Stat.OK
         assert len(errors) == 1 and "another thread" in errors[0]
         # outside the actions, other threads may call ofxh
-        call()
+        t = threading.Thread(target=call)
+        t.start()
+        t.join()
         assert len(errors) == 1
 
 
@@ -183,9 +195,10 @@ _MESSAGE = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_char_p, ctyp
 
 def test_plugin_worker_thread_may_call_back(plugin_dir):
     """A thread of the plug-in (e.g. OpenMP) that calls the host during an action: inside that
-    callback, the bindings may be called (here project_pixel_rect(), a scoped binding). The thread is
-    a Python thread started in a callback and joined there, which calls the message suite through
-    ctypes, as a plug-in's thread would; a plain Python thread is refused (the test above)."""
+    callback, the bindings that run no action may be called (here project_pixel_rect(), a scoped
+    binding), but not the actions or set_param(). The thread is a Python thread started in a callback
+    and joined there, which calls the message suite through ctypes, as a plug-in's thread would; a
+    plain Python thread is refused (the test above)."""
     seen = []
 
     class Worker(Instance):
@@ -194,6 +207,14 @@ def test_plugin_worker_thread_may_call_back(plugin_dir):
                 seen.append(("rect", self.project_pixel_rect()))
             except RuntimeError as e:
                 seen.append(("error", str(e)))
+            for name, call in (("rod", lambda: self.get_region_of_definition_action(0.)),
+                               ("set_param", lambda: self.set_param("x", 1)),
+                               ("begin", lambda: self.begin_instance_changed_action())):
+                try:
+                    call()
+                    seen.append((name, "allowed"))
+                except RuntimeError as e:
+                    seen.append((name, "worker thread" in str(e)))
 
     def fetched():
         suite = ofxh.fetch_suite("OfxMessageSuite", 1)
@@ -214,7 +235,8 @@ def test_plugin_worker_thread_may_call_back(plugin_dir):
         inst_ref.append(inst)
         stat, _ = _render(inst)
         assert stat == ofxh.Stat.OK
-        assert seen == [("rect", (0, 0, 8, 8)), ("status", ofxh.Stat.OK)]
+        assert seen == [("rect", (0, 0, 8, 8)), ("rod", True), ("set_param", True), ("begin", True),
+                        ("status", ofxh.Stat.OK)]
 
 
 def test_nested_action_restores_the_timeline(plugin_dir):
@@ -239,3 +261,111 @@ def test_nested_action_restores_the_timeline(plugin_dir):
         assert inst.timeline_get_time() == 10.
         inst.get_region_of_definition_action(7.)
         assert inst.timeline_get_time() == 7.
+        # the instance changed actions without a time: the current time (not 0)
+        inst.begin_instance_changed_action()
+        inst.clip_changed_action("Source")
+        inst.end_instance_changed_action()
+        assert inst.timeline_get_time() == 7.
+
+
+def test_worker_errors_stay_in_their_thread(plugin_dir):
+    """Two workers inside a callback: B's callback raises while A's scope is open (each scope of
+    a worker has its own pending error): A's binding succeeds, B's raises B's error, and the render
+    action raises nothing.
+
+    A opens project_pixel_rect() and blocks in its first callback (project_offset); B's
+    project_offset raises, and B blocks in project_size, with its error pending; A finishes, then
+    B. With one pending error for all the scopes, A would raise B's error and B nothing."""
+    import time as _time
+    ev_b_start, ev_a, ev_b = threading.Event(), threading.Event(), threading.Event()
+    seen = {}
+
+    class Workers(Instance):
+        @property
+        def project_offset(self):
+            name = threading.current_thread().name
+            if name == "A":
+                ev_b_start.set()
+                ev_a.wait(10)
+            elif name == "B":
+                raise ValueError("B's error")
+            return (0., 0.)
+
+        @property
+        def project_size(self):
+            if threading.current_thread().name == "B":
+                ev_a.set()
+                ev_b.wait(10)
+            h, w = self.image.shape[:2]
+            return (w, h)
+
+        @project_offset.setter
+        def project_offset(self, value):  # (Instance.__init__ sets the project)
+            pass
+
+        @project_size.setter
+        def project_size(self, value):
+            pass
+
+        def message(self, type, id, text):
+            name = threading.current_thread().name
+            try:
+                seen[name] = ("rect", self.project_pixel_rect())
+            except ofxh.CallbackError as e:
+                seen[name] = ("error", str(e.__cause__))
+            if name == "A":
+                ev_b.set()
+
+    def fetched():
+        suite = ofxh.fetch_suite("OfxMessageSuite", 1)
+        message = _MESSAGE(ctypes.c_void_p.from_address(suite).value)
+        handle = inst_ref[0].handle
+
+        def a():
+            message(handle, b"OfxMessageLog", b"A", b"A")
+
+        def b():
+            ev_b_start.wait(10)
+            _time.sleep(0.05)  # (A is blocked in project_offset)
+            message(handle, b"OfxMessageLog", b"B", b"B")
+
+        ta, tb = threading.Thread(target=a, name="A"), threading.Thread(target=b, name="B")
+        ta.start()
+        tb.start()
+        ta.join()
+        tb.join()
+
+    inst_ref = []
+    image = np.zeros((8, 8, 4), np.float32)
+    ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False)
+    with ofxh.create_instance(ofxh.get_plugin(INVERT), "filter", Workers(image, fetched)) as inst:
+        inst_ref.append(inst)
+        stat, _ = _render(inst)  # (no CallbackError)
+        assert stat == ofxh.Stat.OK
+        assert seen == {"A": ("rect", (0, 0, 8, 8)), "B": ("error", "B's error")}
+
+
+def test_render_actions_dont_nest(plugin_dir):
+    """A callback of a render can't start another render (nor begin or end a sequence): it would
+    release the outer render's output image."""
+    seen = []
+
+    def fetched():
+        inst = inst_ref[0]
+        for name, call in (("render", lambda: inst.render_action(0., (0, 0, 8, 8))),
+                           ("begin", lambda: inst.begin_sequence_render_action(0., 0.)),
+                           ("end", lambda: inst.end_sequence_render_action(0., 0.))):
+            try:
+                call()
+                seen.append((name, "allowed"))
+            except RuntimeError as e:
+                seen.append((name, "during a render" in str(e)))
+
+    inst_ref = []
+    image = np.random.default_rng(2).random((8, 8, 4), dtype=np.float32)
+    ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False)
+    with ofxh.create_instance(ofxh.get_plugin(INVERT), "filter", Instance(image, fetched)) as inst:
+        inst_ref.append(inst)
+        stat, outputs = _render(inst)
+        assert stat == ofxh.Stat.OK and seen == [("render", True), ("begin", True), ("end", True)]
+        np.testing.assert_array_equal(outputs["Colour"].pixels[..., :3], 1. - image[..., :3])

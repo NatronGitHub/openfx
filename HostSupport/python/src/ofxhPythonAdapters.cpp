@@ -36,6 +36,7 @@ void raiseDeleted(const char *what)
 
 PyHost *HostBase::get() const
 {
+  checkThread("ofxh", false);
   if (!ref->p) {
     raiseDeleted("ofxh.Host");
   }
@@ -44,6 +45,7 @@ PyHost *HostBase::get() const
 
 PyEffectInstance *InstanceBase::get() const
 {
+  checkThread("ofxh", false);
   if (!ref->p) {
     raiseDeleted("ofxh.ImageEffectInstance");
   }
@@ -52,6 +54,7 @@ PyEffectInstance *InstanceBase::get() const
 
 PyClipInstance *ClipBase::get() const
 {
+  checkThread("ofxh", false);
   if (!ref->p) {
     raiseDeleted("ofxh.ClipInstance");
   }
@@ -76,21 +79,59 @@ nb::object numpy()
 
 nb::object stat(OfxStatus s) { return globals().statFn(s); }
 
-/// the first error saved by the callbacks since the innermost ActionScope (heap-allocated, see
-/// globals())
-static nb::object &pendingError()
+// The scopes and their errors.
+// - The owner thread: the thread of the open scopes of the bindings called from Python (the
+//   actions run there, with the GIL released). Its scopes share one pending error (ownerPending).
+// - A worker thread: another thread, inside a callback (a plug-in's thread that called the host
+//   during an action). Its scopes (the non-action bindings, OFXH_SCOPED) have their own pending
+//   error and depth (thread_local), so that the scopes of two workers don't interleave. An error
+//   of a worker's callback outside its own scopes goes to the owner's pending error: the action
+//   raises it.
+// All of this is touched with the GIL only. The pending errors are raw references (PyObject *):
+// a thread_local nb::object would be destroyed at the thread's exit, without the GIL.
+
+/// the pending error of the owner thread's innermost scope (a new reference, or NULL)
+static PyObject *&ownerPending()
 {
-  static nb::object *e = new nb::object;
-  return *e;
+  static PyObject *e = NULL;
+  return e;
 }
 
-static int &scopeDepth()
+/// the pending error of this worker thread's innermost scope
+static PyObject *&workerPending()
+{
+  static thread_local PyObject *e = NULL;
+  return e;
+}
+
+/// the open scopes of the owner thread
+static int &ownerDepth()
 {
   static int d = 0;
   return d;
 }
 
-int ActionScope::depth() { return scopeDepth(); }
+/// the open scopes of this thread (owner or worker)
+static int &threadDepth()
+{
+  static thread_local int d = 0;
+  return d;
+}
+
+static std::thread::id &ownerThread()
+{
+  static std::thread::id t;
+  return t;
+}
+
+/// is a scope open on the owner thread, and is this another thread?
+static bool foreignThread() { return ownerDepth() > 0 && ownerThread() != std::this_thread::get_id(); }
+
+int ActionScope::depth() { return threadDepth(); }
+
+bool ActionScope::running() { return ownerDepth() > 0; }
+
+bool ActionScope::onWorker() { return foreignThread(); }
 
 int &CallbackDepth::depth()
 {
@@ -98,11 +139,19 @@ int &CallbackDepth::depth()
   return d;
 }
 
-/// the thread of the open scopes (the actions run there, with the GIL released)
-static std::thread::id &scopeThread()
+void checkThread(const char *what, bool action)
 {
-  static std::thread::id t;
-  return t;
+  if (!foreignThread()) {
+    return;
+  }
+  if (CallbackDepth::depth() == 0) {
+    raiseError(PyExc_RuntimeError, std::string(what) + ": an action is running in another thread (ofxh is not "
+                                   "thread-safe: call it from one thread)");
+  }
+  if (action) {
+    raiseError(PyExc_RuntimeError, std::string(what) + ": a plug-in's worker thread may only call the bindings that "
+                                   "don't run an action or change a value (an action is running in another thread)");
+  }
 }
 
 /// a callback failed outside any action: nobody can raise its error, report it
@@ -114,12 +163,18 @@ static void reportUnraisable(nb::handle exc)
 
 void saveError(nb::handle exc)
 {
-  if (scopeDepth() == 0) {
+  PyObject **slot = NULL;
+  if (threadDepth() > 0) {
+    slot = foreignThread() ? &workerPending() : &ownerPending();
+  } else if (ownerDepth() > 0) {
+    slot = &ownerPending();  // (a worker's callback outside its own scopes: the action raises it)
+  } else {
     reportUnraisable(exc);
     return;
   }
-  if (!pendingError().is_valid()) {
-    pendingError() = nb::borrow(exc);
+  if (!*slot) {
+    Py_INCREF(exc.ptr());
+    *slot = exc.ptr();
   }
 }
 
@@ -133,21 +188,27 @@ void saveError(const char *message)
   saveError(e);
 }
 
-ActionScope::ActionScope()
-  : _done(false)
+ActionScope::ActionScope(bool fromWorker)
+  : _saved(NULL)
+  , _slot(NULL)
+  , _owner(true)
+  , _done(false)
 {
-  // ofxh is single-threaded: the GIL is released during the actions, so another Python thread
-  // may run, but not call into HostSupport
-  if (scopeDepth() > 0 && scopeThread() != std::this_thread::get_id() && CallbackDepth::depth() == 0) {
-    raiseError(PyExc_RuntimeError, "ofxh: an action is running in another thread (ofxh is not thread-safe: call it "
-                                   "from one thread)");
+  if (foreignThread()) {
+    // (raises unless fromWorker and inside a callback)
+    checkThread(fromWorker ? "ofxh" : "ofxh action", !fromWorker);
+    _owner = false;
+    _slot = &workerPending();
+  } else {
+    if (ownerDepth() == 0) {
+      ownerThread() = std::this_thread::get_id();
+    }
+    ++ownerDepth();
+    _slot = &ownerPending();
   }
-  if (scopeDepth() == 0) {
-    scopeThread() = std::this_thread::get_id();
-  }
-  _saved = std::move(pendingError());
-  pendingError() = nb::object();
-  ++scopeDepth();
+  _saved = *_slot;
+  *_slot = NULL;
+  ++threadDepth();
 }
 
 ActionScope::~ActionScope() { discard(); }
@@ -156,16 +217,22 @@ void ActionScope::discard()
 {
   if (!_done) {
     _done = true;
-    --scopeDepth();
-    pendingError() = std::move(_saved);
+    --threadDepth();
+    if (_owner) {
+      --ownerDepth();
+    }
+    PyObject *cur = *_slot;
+    *_slot = _saved;
+    Py_XDECREF(cur);
   }
 }
 
-bool ActionScope::failed() const { return !_done && pendingError().is_valid(); }
+bool ActionScope::failed() const { return !_done && *_slot != NULL; }
 
 void ActionScope::check(const char *where, const OfxStatus *status)
 {
-  nb::object e = std::move(pendingError());
+  nb::object e = nb::steal(*_slot);
+  *_slot = NULL;
   discard();
   if (e.is_valid()) {
     // raises (python_error)
@@ -596,7 +663,6 @@ PyClipInstance::PyClipInstance(PyEffectInstance *effect, OHIE::ClipDescriptor &d
   , _ref(std::move(ref))
   , _view(0)
   , _outputImage(NULL)
-  , _inRoDAction(false)
 {
   _ref->p = this;
 }
@@ -830,25 +896,32 @@ OfxRectD PyClipInstance::defaultRoD(OfxTime time, int view) const
 {
   OfxRectD v = emptyRectD();
   if (isOutput()) {
-    // the output RoD is the effect's RoD (the guard protects against a plug-in that asks for
-    // the output RoD in its own RoD action)
-    if (_inRoDAction) {
+    // the output RoD is the effect's RoD: an action, which a worker thread may not run
+    checkThread("region_of_definition() of the output clip (the plug-in's RoD action)", true);
+    // (the guard protects against a plug-in that asks for the output RoD in its own RoD action;
+    // per thread)
+    static thread_local std::set<const PyClipInstance *> inRoDAction;
+    if (inRoDAction.count(this)) {
       return v;
     }
-    _inRoDAction = true;
+    inRoDAction.insert(this);
     OfxRectD r = v;
-    // (called by the default region_of_definition(), with the GIL: the plug-in runs without it)
-    const OfxStatus st = withoutGil([&] {
-      return _effect->getRegionOfDefinitionAction(time, _effect->_renderScale,
+    {
+      // (called by the default region_of_definition(), with the GIL: the plug-in runs without it;
+      // the timeline at the RoD's time, restored when nested, as the RoD action binding)
+      TimeLineScope tl(_effect, time);
+      const OfxStatus st = withoutGil([&] {
+        return _effect->getRegionOfDefinitionAction(time, _effect->_renderScale,
 #ifdef OFX_EXTENSIONS_NUKE
-                                                  view,
+                                                    view,
 #endif
-                                                  r);
-    });
-    _inRoDAction = false;
-    if (st == kOfxStatOK || st == kOfxStatReplyDefault) {
-      v = r;
+                                                    r);
+      });
+      if (st == kOfxStatOK || st == kOfxStatReplyDefault) {
+        v = r;
+      }
     }
+    inRoDAction.erase(this);
     return v;
   }
   (void)view;
@@ -1006,7 +1079,7 @@ PyEffectInstance::PyEffectInstance(OHIE::ImageEffectPlugin *plugin, OHIE::Descri
   , _timeLineTime(0.)
   , _abort(0)
   , _outputFailed(false)
-  , _instanceChangedCount(0)
+  , _paramChangedCount(0)
 {
   _renderScale.x = _renderScale.y = 1.;
   _renderWindow.x1 = _renderWindow.y1 = _renderWindow.x2 = _renderWindow.y2 = 0;
@@ -1019,10 +1092,14 @@ PyEffectInstance::~PyEffectInstance()
   // A safety net, which ofxh doesn't reach: close() and shutdown() send kOfxActionDestroyInstance
   // before they delete the instance, and HostSupport deletes an instance itself only when
   // populate() fails, before kOfxActionCreateInstance. Without it, ~Instance() would send the
-  // action after the clips and parameters are deleted below. (It runs with the GIL of the caller:
-  // the callbacks take it anyway.)
+  // action after the clips and parameters are deleted below. (Without the GIL if the caller holds
+  // it, as the other actions; HostSupport's own deletes run without it.)
   if (_created) {
-    destroyInstanceAction();
+    if (nb::is_alive() && PyGILState_Check()) {
+      withoutGil([&] { return destroyInstanceAction(); });
+    } else {
+      destroyInstanceAction();
+    }
   }
   openInstances().erase(this);
   // first, the Python objects of the instance, of its clips and of its parameters become deleted
@@ -1196,7 +1273,7 @@ OH::Param::Instance *PyEffectInstance::newParam(const std::string &name, OH::Par
 OfxStatus PyEffectInstance::paramInstanceChangedAction(const std::string &paramName, const std::string &why,
                                                        OfxTime time, OfxPointD renderScale)
 {
-  ++_instanceChangedCount;
+  ++_paramChangedCount;
   return OHIE::Instance::paramInstanceChangedAction(paramName, why, time, renderScale);
 }
 

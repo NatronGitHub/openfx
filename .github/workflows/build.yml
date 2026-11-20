@@ -185,7 +185,7 @@ jobs:
             -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON -DOFX_EXTENSIONS_VEGAS=ON \
             -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON \
             -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins" \
-            -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$(command -v python)" \
+            -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$(cygpath -m "$(command -v python)")" \
             -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF
           # strict -std=c++17 (C++ standard policy): no GNU dialect, so the compiler defines _WIN32 but not
           # WIN32, which is how plug-ins are built by the consumers

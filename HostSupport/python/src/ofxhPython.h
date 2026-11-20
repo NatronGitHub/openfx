@@ -19,11 +19,15 @@
 //   A callback that fails outside any ActionScope (e.g. called by a plug-in through ctypes)
 //   reports its error with sys.unraisablehook.
 // - The GIL: the bindings release it around the HostSupport calls that run plug-in code (the
-//   actions, the plug-in scan, create_instance), and every callback (OFXH_CALL) and every adapter
-//   destructor that drops a Python object (dropLast) takes it again: no adapter touches a Python
-//   object without it. ofxh is still single-threaded: everything runs on the thread that called
-//   the binding, and a binding called from another thread while an action runs raises
-//   RuntimeError (ActionScope).
+//   actions, the plug-in scan, create_instance, the default RoD of the output clip), and every
+//   callback (OFXH_CALL) and every adapter destructor that drops a Python object (dropLast)
+//   takes it again: no adapter touches a Python object without it.
+// - Threads: ofxh is single-threaded. While a binding runs on one thread (the owner thread, see
+//   ActionScope), another thread may call a binding only from inside a callback (a plug-in's
+//   worker thread that called the host): the bindings that read or call into HostSupport
+//   without running an action (OFXH_SCOPED, the getters), with their own pending error. The
+//   actions and set_param() raise RuntimeError there, and so does any binding called from a
+//   thread outside a callback (checkThread()).
 
 #ifndef OFXH_PYTHON_H
 #define OFXH_PYTHON_H
@@ -137,15 +141,18 @@ void saveError(const char *message);
 
 /// Saves the pending error of an enclosing action when a Python binding calls into HostSupport,
 /// and re-raises the first error saved by the callbacks, as ofxh.CallbackError, in check().
-/// The scopes nest: depth() > 0 inside an action or a callback. Made with the GIL. Its
-/// constructor raises RuntimeError on a thread other than the one of the open scopes (an action
-/// runs there, with the GIL released), unless that thread is inside a callback of the action
-/// (a plug-in's worker thread that called the host).
+/// The scopes nest: depth() > 0 inside an action or a callback of this thread. Made with the GIL.
+/// The owner thread (the one of the open scopes) shares one pending error; a worker thread (a
+/// plug-in's thread inside a callback) has its own. The constructor raises RuntimeError on a
+/// thread other than the owner's while a scope is open there, unless fromWorker (OFXH_SCOPED: the
+/// bindings that don't run an action) and that thread is inside a callback (checkThread()).
 class ActionScope {
-  nb::object _saved;
+  PyObject *_saved;  ///< the pending error of the enclosing scope (a reference)
+  PyObject **_slot;  ///< the pending error of this thread's scopes
+  bool _owner;
   bool _done;
 public:
-  ActionScope();
+  explicit ActionScope(bool fromWorker = false);
   ~ActionScope();
   /// raise ofxh.CallbackError("<where>: ...") from the first error, if a callback failed (with
   /// the action's status, if given)
@@ -154,16 +161,27 @@ public:
   bool failed() const;
   /// forget the errors of the callbacks (and restore the enclosing action's)
   void discard();
-  /// the number of open scopes
+  /// the number of open scopes of this thread
   static int depth();
+  /// is a scope open on the owner thread (an action or a binding that calls into HostSupport)?
+  static bool running();
+  /// is this a worker thread (another thread than the owner's, while a scope is open there)?
+  static bool onWorker();
 };
 
+/// The thread rule of the bindings, which every binding of an object checks (the get() of the
+/// Python objects): while a scope is open on the owner thread, another thread raises RuntimeError,
+/// unless it is inside a callback (a plug-in's worker thread) and !action. action: the bindings
+/// that run an action or change a value (set_param()).
+void checkThread(const char *what, bool action);
+
 /// evaluate an expression that may call the Python callbacks in its own ActionScope, and raise
-/// their first error (used by the bindings that don't run an action). If the expression raises
+/// their first error (used by the bindings that don't run an action: a plug-in's worker thread
+/// inside a callback may call them). If the expression raises
 /// after a callback failed (e.g. a bad status), the callback's error is raised instead.
 #define OFXH_SCOPED(where, ...)                                                        \
   ([&]() {                                                                             \
-    ::ofxh::ActionScope ofxh_s_;                                                       \
+    ::ofxh::ActionScope ofxh_s_(true);                                                 \
     try {                                                                              \
       auto ofxh_r_ = (__VA_ARGS__);                                                    \
       ofxh_s_.check(where);                                                            \
@@ -309,7 +327,6 @@ public:
   int _view;                   ///< the view of getImage() (setView)
   PyImage *_outputImage;       ///< the output image of the current render (output clip only)
   nb::object _outputData;      ///< its ImageData
-  mutable bool _inRoDAction;   ///< the output clip is asking for the effect's RoD
   // the strings returned by reference
   mutable std::string _unmappedDepth, _unmappedComponents, _premult, _fieldOrder;
 
@@ -377,7 +394,7 @@ public:
   double _timeLineTime;           ///< the default timeline (timeline_get_time/goto_time)
   std::atomic<int> _abort;        ///< ImageEffectInstance.aborted
   bool _outputFailed;             ///< the host made the output image of the render (abort() is 1)
-  int _instanceChangedCount;      ///< the kOfxActionInstanceChanged sent for parameters
+  int _paramChangedCount;      ///< the kOfxActionInstanceChanged sent for parameters
   mutable std::string _fielding;  ///< getDefaultOutputFielding()
   mutable std::map<int, std::string> _viewNames;  ///< getViewName()
 
@@ -414,7 +431,7 @@ public:
   virtual OH::Param::Instance *newParam(const std::string &name, OH::Param::Descriptor &descriptor);
   virtual OfxStatus editBegin(const std::string &name);
   virtual OfxStatus editEnd();
-  // (counts them: instance_changed_count)
+  // (counts them: param_changed_count)
   virtual OfxStatus paramInstanceChangedAction(const std::string &paramName, const std::string &why, OfxTime time,
                                                OfxPointD renderScale);
   // Progress::ProgressI
@@ -444,6 +461,27 @@ public:
 /// the type is not supported
 OH::Param::Instance *newPyParam(PyEffectInstance *effect, OH::Param::Descriptor &descriptor, nb::object py,
                                 RefPtr ref);
+
+/// The default timeline at the time of an action (as hostDemo, which sets it before each
+/// action): a top-level action leaves it there; an action nested in another one (called by a
+/// callback, or by a worker thread) restores the time of the outer action. Made after the
+/// action's ActionScope (or inside an OFXH_SCOPED).
+struct TimeLineScope {
+  PyEffectInstance *p;
+  double saved;
+  bool nested;
+  TimeLineScope(PyEffectInstance *inst, double time)
+    : p(inst), saved(inst->_timeLineTime), nested(ActionScope::depth() > 1 || ActionScope::onWorker())
+  {
+    p->_timeLineTime = time;
+  }
+  ~TimeLineScope()
+  {
+    if (nested) {
+      p->_timeLineTime = saved;
+    }
+  }
+};
 
 /// the open instances, closed by shutdown()
 std::set<PyEffectInstance *> &openInstances();

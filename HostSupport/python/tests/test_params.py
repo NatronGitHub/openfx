@@ -233,14 +233,14 @@ def test_project_load_sends_no_instance_changed(plugin_dir):
         assert inst.create_instance_action() == ofxh.Stat.OK
         # no instanceChanged, counted host-side, and none seen by the plug-in (Tester sends
         # messageText as a message from instanceChanged)
-        assert inst.instance_changed_count == 0 and inst.messages == []
+        assert inst.param_changed_count == 0 and inst.messages == []
         assert inst.get_param("messageText") == "loaded" and inst.param_keys("keysDouble") == [1.]
         # the same checks see a user edit after the create instance action, which the host sends
         assert inst.set_param("messageText", "edited") == ofxh.Stat.OK
         inst.begin_instance_changed_action()
         assert inst.param_changed_action("messageText") in OK
         inst.end_instance_changed_action()
-        assert inst.instance_changed_count == 1
+        assert inst.param_changed_count == 1
         assert inst.messages[0] == ("message", "edited")
 
 
@@ -262,7 +262,7 @@ def test_param_values_and_descriptor(plugin_dir):
         d = inst.param_descriptor("enableTest")
         assert d.type == "choice" and len(d.choices) >= 2 and d.default == 0
         assert inst.param_type("keys2D") == "double2d"
-        assert inst.param_default("widgetPos") == (384., 288.) == inst.get_param("widgetPos")
+        assert inst.param_initial("widgetPos") == (384., 288.) == inst.get_param("widgetPos")
 
 
 def test_strchoice_values_are_checked(plugin_dir):
@@ -292,7 +292,7 @@ def test_python_params(plugin_dir):
         # a normalised spatial default (Tester's widgetPos, at the middle): default is as the plug-in
         # set it, initial in canonical coordinates for the project, as the C++ parameters
         w = inst.param("widgetPos")
-        assert w.default == (.5, .5) and w.initial == (384., 288.) == inst.param_default("widgetPos")
+        assert w.default == (.5, .5) and w.initial == (384., 288.) == inst.param_initial("widgetPos")
         assert inst.get_param("widgetPos") == (384., 288.)
         # get_param() and set_param() call get() and set()
         obj.log.clear()
@@ -430,3 +430,18 @@ def test_python_param_lifetime(plugin_dir):
     del p
     gc.collect()
     assert seen == [False]  # (deleted by HostSupport before the Python object goes)
+
+
+def test_python_param_wrong_type(plugin_dir):
+    """A get() that returns a value of the wrong type: TypeError naming the parameter and get()."""
+    class Wrong(Value):
+        def get(self, time):
+            return "not a number" if self.name == "keysDouble" else (1., "x", 2.)
+
+    obj = Recorder(python=("keysDouble", "keysRGB"), param_class=Wrong)
+    with _tester(plugin_dir, obj) as inst:
+        for name in ("keysDouble", "keysRGB"):
+            with pytest.raises(ofxh.CallbackError) as e:
+                inst.get_param(name)
+            cause = e.value.__cause__
+            assert isinstance(cause, TypeError) and name in str(cause) and "get()" in str(cause)

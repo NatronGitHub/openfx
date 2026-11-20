@@ -551,6 +551,7 @@ P::Instance *newStoredParam(PyEffectInstance *e, P::Descriptor &d)
 
 P::Instance *ParamBase::get() const
 {
+  checkThread("ofxh", false);
   if (!ref->p) {
     raiseDeleted("ofxh.Param");
   }
@@ -619,18 +620,37 @@ static nb::object getTime(const PyParamCore &c, const OfxTime *t)
 }
 
 /// n values from what a Python method returned (a scalar for n == 1, else a sequence of n)
+template <class T> static const char *expected();
+template <> const char *expected<int>() { return "an int"; }
+template <> const char *expected<double>() { return "a float"; }
+template <> const char *expected<bool>() { return "a bool"; }
+template <> const char *expected<std::string>() { return "a str"; }
+
+/// n values from what a Python method returned (a scalar for n == 1, else a sequence of n);
+/// TypeError, naming the parameter and the method, if they are not of the parameter's type
 template <class T> static void fromPython(nb::handle r, T *v, int n, const P::Instance &p, const char *method)
 {
-  if (n == 1) {
-    v[0] = Conv<T>::from(r);
-    return;
-  }
-  const nb::tuple t = nb::tuple(r);
-  if ((int)t.size() != n) {
-    raiseValue("parameter " + p.getName() + ": " + method + "() must return " + std::to_string(n) + " values");
-  }
-  for (int k = 0; k < n; ++k) {
-    v[k] = Conv<T>::from(t[k]);
+  const std::string where = "parameter " + p.getName() + " (" + shortName("param_type", p.getType()) + "): " + method +
+                            "() ";
+  try {
+    if (n == 1) {
+      v[0] = Conv<T>::from(r);
+      return;
+    }
+    if (!nb::isinstance<nb::tuple>(r) && !nb::isinstance<nb::list>(r)) {
+      raiseError(PyExc_TypeError, where + "must return a tuple of " + std::to_string(n) + " values, not " +
+                                  nb::cast<std::string>(nb::str(r.type())));
+    }
+    const nb::tuple t = nb::tuple(r);
+    if ((int)t.size() != n) {
+      raiseValue(where + "must return " + std::to_string(n) + " values");
+    }
+    for (int k = 0; k < n; ++k) {
+      v[k] = Conv<T>::from(t[k]);
+    }
+  } catch (const nb::cast_error &) {
+    raiseError(PyExc_TypeError, where + "must return " + expected<T>() + (n > 1 ? " for each value" : "") + ", not " +
+                                nb::cast<std::string>(nb::repr(r)));
   }
 }
 
@@ -1138,7 +1158,9 @@ void bindParams(nb::module_ &m)
     "- changed(prop_name): a property of the parameter changed (kOfxParamPropEnabled,\n"
     "  kOfxParamPropSecret, kOfxParamPropLabel...), e.g. the plug-in's setEnabled(); default: nothing.\n"
     "Raise OfxError(status) to return a status to the plug-in. The calls happen during the actions\n"
-    "(with the GIL taken again), and from get_param()/set_param(). Push buttons, groups and pages\n"
+    "(with the GIL taken again), and from get_param()/set_param(), maybe on a plug-in's worker\n"
+    "thread (paramGetValue from a render thread). A Python string choice checks its values in\n"
+    "set() itself (ofxh doesn't check them against the enums). Push buttons, groups and pages\n"
     "have no value: only changed() (and the keyframe methods for push buttons) are called.",
     nb::dynamic_attr());
   c.def(nb::init<>())
@@ -1162,7 +1184,7 @@ void bindParams(nb::module_ &m)
     .def("delete_all_keys", [](ParamBase &) { return nb::none(); })
     .def("changed", [](ParamBase &, const std::string &) {}, "prop_name"_a)
     // --- information
-    .def_prop_ro("alive", [](ParamBase &s) { return s.ref->p != nullptr; })
+    .def_prop_ro("alive", [](ParamBase &s) { checkThread("ofxh", false); return s.ref->p != nullptr; })
     .def_prop_ro("name", [](ParamBase &s) { return s.get()->getName(); })
     .def_prop_ro("type", [](ParamBase &s) { return shortName("param_type", s.get()->getType()); },
                  "integer, double, boolean, choice, strchoice, string, custom, bytes, rgba, rgb, double2d...")
@@ -1182,7 +1204,8 @@ void bindParams(nb::module_ &m)
       return OFXH_SCOPED("Param.initial", initialValue(p, c ? c->_effect : NULL));
     }, "The value a parameter starts with: the default, with the normalised spatial defaults\n"
        "(kOfxParamPropDefaultCoordinateSystem) in canonical coordinates for the instance's project, as\n"
-       "ofxh's C++ parameters and param_template() have them. Return it from get() until set().")
+       "ofxh's C++ parameters and param_template() have them. Return it from get() until set() (also\n"
+       "from a plug-in's worker thread inside the get() callback: a non-action binding).")
     .def_prop_ro("props", [](ParamBase &s) { s.get(); return PropertySetView{s.ref, 3}; },
                  "The properties of the parameter instance (kOfxParamProp*), which the plug-in may change.")
     .def_prop_ro("instance", [](ParamBase &s) -> nb::object {

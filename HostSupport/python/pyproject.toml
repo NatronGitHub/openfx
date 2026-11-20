@@ -9,6 +9,11 @@
 # The openfx options keep their defaults (the Natron, Nuke, Vegas and TuttleOFX extensions on,
 # Resolve off; macOS 14.0 unless MACOSX_DEPLOYMENT_TARGET is set); change them with, e.g.,
 #   pip install -C cmake.define.OFX_EXTENSIONS_VEGAS=OFF ./HostSupport/python
+# Supported on macOS and Linux only: on Windows, the wheel wouldn't bundle the DLLs the module
+# needs (expat, the compiler's runtime); build it there in the openfx tree (-DOFX_PYTHON_BINDINGS=ON).
+# A wheel meant for other machines must be built with MACOSX_DEPLOYMENT_TARGET=14.0 (VFX Reference
+# Platform CY2027): otherwise scikit-build-core tags it with the build machine's macOS (the build
+# defaults to 14.0 in CMakeLists.txt only when MACOSX_DEPLOYMENT_TARGET is unset).
 # The tests (HostSupport/python/tests) need the sample plug-ins and hostDemo of an openfx build:
 # set OFX_TEST_PLUGIN_PATH and OFXHOST_HOSTDEMO.
 

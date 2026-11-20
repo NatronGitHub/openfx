@@ -42,8 +42,10 @@ static const char *kModuleDoc =
   "HostSupport/examples/python/minimal_host.py.\n\n"
   "The GIL is released while HostSupport and the plug-in run (the actions, the plug-in scan,\n"
   "create_instance()), and taken again by every callback, so that other Python threads run; but\n"
-  "ofxh is single-threaded: call it from one thread (another thread gets RuntimeError while an\n"
-  "action runs).\n\n"
+  "ofxh is single-threaded: call it from one thread. While a binding runs, another thread gets\n"
+  "RuntimeError, except a plug-in's worker thread inside a callback (it called the host), which\n"
+  "may call the bindings that run no action and change no value (get_param(), the getters, the\n"
+  "defaults...), but not the actions, press() or set_param().\n\n"
   "Parts 1 and 2 of NatronGitHub/openfx#136. Planned for part 3: the OFX 1.4 host profile\n"
   "(hostDemo's --ofx14), the JSON report of hostDemo, and lifting the one-host-per-process limit\n"
   "where HostSupport allows it.";
@@ -137,8 +139,19 @@ static void requireInit()
 
 static void requireNoAction(const char *what)
 {
-  if (ActionScope::depth() > 0) {
-    raiseError(PyExc_RuntimeError, std::string(what) + " can't be called in an action or a host callback");
+  if (ActionScope::depth() > 0 || ActionScope::running()) {
+    raiseError(PyExc_RuntimeError, std::string(what) + " can't be called in an action or a host callback (or while "
+                                   "one runs in another thread)");
+  }
+}
+
+/// the render actions don't nest: a nested render would release the outer render's output image
+/// and leave the instance not rendering
+static void requireNotRendering(PyEffectInstance *p, const char *what)
+{
+  if (p->_rendering) {
+    raiseError(PyExc_RuntimeError, std::string(what) + " can't be called during a render action (from one of its "
+                                   "callbacks)");
   }
 }
 
@@ -149,6 +162,7 @@ static void requireNoAction(const char *what)
 
 OH::Property::Set &PropertySetView::get() const
 {
+  checkThread("ofxh.PropertySet", false);
   if (!ref->p) {
     raiseDeleted("ofxh.PropertySet");
   }
@@ -266,6 +280,7 @@ struct PluginView {
   unsigned generation;
   OHIE::ImageEffectPlugin *get() const
   {
+    checkThread("ofxh.Plugin", false);
     if (!state().initialized || generation != state().generation) {
       raiseDeleted("ofxh.Plugin");
     }
@@ -349,26 +364,6 @@ struct RenderScaleScope {
   ~RenderScaleScope() { p->_renderScale = saved; }
 };
 
-/// The default timeline at the time of an action (as hostDemo, which sets it before each
-/// action): a top-level action leaves it there, an action nested in another one (called by a
-/// callback) restores the time of the outer action. Made after the action's ActionScope.
-struct TimeLineScope {
-  PyEffectInstance *p;
-  double saved;
-  bool nested;
-  TimeLineScope(PyEffectInstance *inst, double time)
-    : p(inst), saved(inst->_timeLineTime), nested(ActionScope::depth() > 1)
-  {
-    p->_timeLineTime = time;
-  }
-  ~TimeLineScope()
-  {
-    if (nested) {
-      p->_timeLineTime = saved;
-    }
-  }
-};
-
 /// the render state, for the duration of a render action
 struct RenderScope : RenderScaleScope {
   RenderScope(PyEffectInstance *inst, const OfxPointD &scale, const OfxRectI &window) : RenderScaleScope(inst, scale)
@@ -449,7 +444,7 @@ static void shutdown()
   }
   // the plug-ins get kOfxActionUnload and the binaries are unloaded: this needs the image effect
   // plug-in cache (the API handler) and the host, which are deleted after (as in hostDemo)
-  OH::PluginCache::clearPluginCache();
+  withoutGil([] { OH::PluginCache::clearPluginCache(); });
   delete st.pluginCache;
   st.pluginCache = nullptr;
   OHIE::gImageEffectHost = nullptr;
@@ -647,6 +642,7 @@ void bindModule(nb::module_ &m)
       return OFXH_SCOPED("PropertySet.get()", propValue(v.get(), name, index));
     }, "name"_a, "index"_a = 0)
     .def("__setitem__", [](const PropertySetView &v, const std::string &name, nb::handle value) {
+      checkThread("PropertySet[]=", true);
       OFXH_SCOPED("PropertySet[]=", setProp(v.get(), name, value));
     })
     .def("__contains__", [](const PropertySetView &v, const std::string &name) { return v.get().fetchProperty(name, true) != NULL; })
@@ -755,7 +751,7 @@ void bindModule(nb::module_ &m)
          "Called by ofxh.init() before the plug-in scan: set the host properties here (props: ofxh.PropertySet).")
     .def_prop_ro("props", [](HostBase &h) { h.get(); return PropertySetView{h.ref, 0}; },
                  "The host properties (after ofxh.init()).")
-    .def_prop_ro("alive", [](HostBase &h) { return h.ref->p != nullptr; });
+    .def_prop_ro("alive", [](HostBase &h) { checkThread("ofxh", false); return h.ref->p != nullptr; });
 
   // ------------------------------------------------------------------------- ImageEffectInstance
   nb::class_<InstanceBase> inst(m, "ImageEffectInstance",
@@ -773,7 +769,10 @@ void bindModule(nb::module_ &m)
     "Actions: the *_action() methods, named after HostSupport's. They return an ofxh.Stat, or\n"
     "(Stat, result). Those with a time move the default timeline there first (as hostDemo), so that\n"
     "paramGetValue and paramSetValue, which use the current time, use the action's. A top-level action\n"
-    "leaves it there; an action called by a callback of another one restores the outer action's time.",
+    "leaves it there; an action called by a callback of another one restores the outer action's time.\n"
+    "A timeline_get_time() override must follow them: return the action's time during an action\n"
+    "(e.g. keep the default, or move with timeline_goto_time()), or paramGetValue (and Param.get()\n"
+    "for it) doesn't give the action's value.",
     nb::dynamic_attr());
   inst.def(nb::init<>())
     // --- callbacks (defaults)
@@ -822,7 +821,7 @@ void bindModule(nb::module_ &m)
   overridable(inst, "view_count", [](InstanceBase &) { return nb::cast(1); });
 
   // --- information
-  inst.def_prop_ro("alive", [](InstanceBase &s) { return s.ref->p != nullptr; })
+  inst.def_prop_ro("alive", [](InstanceBase &s) { checkThread("ofxh", false); return s.ref->p != nullptr; })
     .def_prop_ro("plugin", [](InstanceBase &s) { return PluginView{s.get()->getPlugin(), state().generation}; })
     .def_prop_ro("context", [](InstanceBase &s) { return shortName("context", s.get()->getContext()); })
     .def_prop_ro("props", [](InstanceBase &s) { s.get(); return PropertySetView{s.ref, 1}; })
@@ -871,6 +870,7 @@ void bindModule(nb::module_ &m)
        "gets it: int, float, bool, str, bytes, or a tuple for several dimensions (None for push buttons,\n"
        "groups and pages). A Python parameter (ofxh.Param) gives what its get() returns.")
     .def("set_param", [](InstanceBase &s, const std::string &name, nb::handle value, std::optional<double> time) {
+      checkThread("set_param()", true);
       OH::Param::Instance *p = s.get()->getParam(name);
       if (!p) {
         raiseKey(name);
@@ -882,7 +882,9 @@ void bindModule(nb::module_ &m)
        "Sends no instance changed action: call param_changed_action() for a user edit, or not at all to\n"
        "load a project before create_instance_action() (\"if the values are being loaded from an old\n"
        "setup, that load should have taken place before the create instance action is called\").\n"
-       "Bytes take bytes (or a list of ints, as param_template() gives them).")
+       "Bytes take bytes (or a list of ints, as param_template() gives them). The C++ string choice\n"
+       "parameters check the value against the enums (Stat.ErrValue); a Python one (ofxh.Param) checks\n"
+       "what it wants in its set(). Not from a plug-in's worker thread (RuntimeError).")
     .def("param", [](InstanceBase &s, const std::string &name) -> nb::object {
       OH::Param::Instance *p = s.get()->getParam(name);
       if (!p) {
@@ -891,17 +893,17 @@ void bindModule(nb::module_ &m)
       PyParamCore *c = dynamic_cast<PyParamCore *>(p);
       return c ? c->_py : nb::none();
     }, "name"_a, "The ofxh.Param that new_param() made for this parameter, or None (a C++ parameter).")
-    .def("param_default", [](InstanceBase &s, const std::string &name) {
+    .def("param_initial", [](InstanceBase &s, const std::string &name) {
       PyEffectInstance *p = s.get();
       OH::Param::Instance *param = p->getParam(name);
       if (!param) {
         raiseKey(name);
       }
-      return OFXH_SCOPED("param_default()", initialValue(param, p));
+      return OFXH_SCOPED("param_initial()", initialValue(param, p));
     }, "name"_a,
        "The value a parameter starts with: its default, with the normalised spatial defaults in\n"
        "canonical coordinates for the project (as the C++ parameters and param_template()).")
-    .def_prop_ro("instance_changed_count", [](InstanceBase &s) { return s.get()->_instanceChangedCount; },
+    .def_prop_ro("param_changed_count", [](InstanceBase &s) { return s.get()->_paramChangedCount; },
                  "The number of kOfxActionInstanceChanged sent for parameters so far (the plug-in's own\n"
                  "changes too): a diagnostic, e.g. to check that a project load sends none.")
     .def("param_descriptor", [](InstanceBase &s, const std::string &name) {
@@ -963,8 +965,9 @@ void bindModule(nb::module_ &m)
       scope.check("instanceChanged", &st);
       return stat(st);
     }, "name"_a, "time"_a.none() = nb::none(), "render_scale"_a = Point(1., 1.),
-       "Press a push button: kOfxActionInstanceChanged (reason \"user edited\", between the begin and end\n"
-       "instance changed actions) at time (None: timeline_get_time()). Returns its Stat.")
+       "Press a push button. This runs actions (despite its name without _action):\n"
+       "kOfxActionInstanceChanged (reason \"user edited\", between the begin and end instance changed\n"
+       "actions) at time (None: timeline_get_time()). Returns its Stat.")
     .def_prop_ro("rendering", [](InstanceBase &s) { return s.get()->_rendering; })
     .def_prop_ro("render_window", [](InstanceBase &s) { return tuple(s.get()->_renderWindow); },
                  "The render window of the current (or last) render action, in pixels.")
@@ -1105,6 +1108,7 @@ void bindModule(nb::module_ &m)
                                             int view) {
       PyEffectInstance *p = s.get();
       checkView(view, false);
+      requireNotRendering(p, "begin_sequence_render_action()");
       ActionScope scope;
       OfxStatus st;
       {
@@ -1131,6 +1135,7 @@ void bindModule(nb::module_ &m)
                              int nViews, const std::vector<std::string> &planes) {
       PyEffectInstance *p = s.get();
       checkView(view, true, nViews);
+      requireNotRendering(p, "render_action()");
       if (planes.size() != 1) {
         raiseError(PyExc_ValueError, "planes: part 1 renders one plane per render action");
       }
@@ -1221,6 +1226,7 @@ void bindModule(nb::module_ &m)
                                           int view) {
       PyEffectInstance *p = s.get();
       checkView(view, false);
+      requireNotRendering(p, "end_sequence_render_action()");
       ActionScope scope;
       OfxStatus st;
       {
@@ -1258,9 +1264,11 @@ void bindModule(nb::module_ &m)
       scope.check("beginInstanceChanged", &st);
       return stat(st);
     }, "why"_a = "user", "why: user, plugin or time (or the kOfxChange* value).")
-    .def("param_changed_action", [](InstanceBase &s, const std::string &name, const std::string &why, double time,
+    .def("param_changed_action", [](InstanceBase &s, const std::string &name, const std::string &why, std::optional<double> at,
                                     const Point &renderScale) {
       PyEffectInstance *p = s.get();
+      // (None: the current time, as press())
+      const double time = at ? *at : OFXH_SCOPED("param_changed_action()", p->timeLineGetTime());
       ActionScope scope;
       OfxStatus st;
       TimeLineScope tl(p, time);
@@ -1270,10 +1278,14 @@ void bindModule(nb::module_ &m)
       }
       scope.check("instanceChanged", &st);
       return stat(st);
-    }, "name"_a, "why"_a = "user", "time"_a = 0., "render_scale"_a = Point(1., 1.))
-    .def("clip_changed_action", [](InstanceBase &s, const std::string &name, const std::string &why, double time,
+    }, "name"_a, "why"_a = "user", "time"_a.none() = nb::none(), "render_scale"_a = Point(1., 1.),
+       "kOfxActionInstanceChanged for a parameter, at time (None: timeline_get_time()). Call it between\n"
+       "begin_instance_changed_action() and end_instance_changed_action().")
+    .def("clip_changed_action", [](InstanceBase &s, const std::string &name, const std::string &why, std::optional<double> at,
                                    const Point &renderScale) {
       PyEffectInstance *p = s.get();
+      // (None: the current time, as press())
+      const double time = at ? *at : OFXH_SCOPED("clip_changed_action()", p->timeLineGetTime());
       ActionScope scope;
       OfxStatus st;
       TimeLineScope tl(p, time);
@@ -1283,7 +1295,8 @@ void bindModule(nb::module_ &m)
       }
       scope.check("instanceChanged", &st);
       return stat(st);
-    }, "name"_a, "why"_a = "user", "time"_a = 0., "render_scale"_a = Point(1., 1.))
+    }, "name"_a, "why"_a = "user", "time"_a.none() = nb::none(), "render_scale"_a = Point(1., 1.),
+       "kOfxActionInstanceChanged for a clip, at time (None: timeline_get_time()).")
     .def("end_instance_changed_action", [](InstanceBase &s, const std::string &why) {
       PyEffectInstance *p = s.get();
       ActionScope scope;
@@ -1402,7 +1415,7 @@ void bindModule(nb::module_ &m)
   });
   overridable(clip, "continuous_samples", [](ClipBase &) { return nb::cast(false); });
   // --- information
-  clip.def_prop_ro("alive", [](ClipBase &s) { return s.ref->p != nullptr; })
+  clip.def_prop_ro("alive", [](ClipBase &s) { checkThread("ofxh", false); return s.ref->p != nullptr; })
     .def_prop_ro("name", [](ClipBase &s) { return s.get()->getName(); })
     .def_prop_ro("is_output", [](ClipBase &s) { return s.get()->isOutput(); })
     .def_prop_ro("is_optional", [](ClipBase &s) { return s.get()->isOptional(); })
