@@ -4,11 +4,14 @@
 ////////////////////////////////////////////////////////////////////////////////
 /// suiteHandleChecks: checks that the HostSupport param, progress and timeline suites, and the
 /// host's fetchSuite(), reject NULL and describe-time (descriptor) handles, NULL names and NULL
-/// return pointers with the statuses of the spec, instead of crashing. Run by
-/// .github/scripts/hostdemo-checks.sh; exits with 1 if a check fails.
+/// return pointers with the statuses of the spec, instead of crashing; and that Bytes params copy
+/// their default (descriptor and instance). Run by .github/scripts/hostdemo-checks.sh; exits with 1
+/// if a check fails.
 
 #include <cstdio>
+#include <cstring>
 #include <string>
+#include <vector>
 
 #include "ofxCore.h"
 #include "ofxParam.h"
@@ -49,6 +52,103 @@ namespace {
     virtual OfxStatus set(int) { return kOfxStatOK; }
     virtual OfxStatus set(OfxTime, int) { return kOfxStatOK; }
   };
+
+  /// a Bytes instance that records what setDefault() sees, as a host that overrides it (Natron)
+  class TestBytes : public Param::BytesInstance {
+  public:
+    int setDefaultCalls;
+    const OfxBytes *seenDefault;              ///< kOfxParamPropDefault in the last setDefault()
+    std::vector<unsigned char> seenGetDefault; ///< getDefault() in the last setDefault()
+    TestBytes(Param::Descriptor &d, Param::SetInstance *s) : Param::BytesInstance(d, s), setDefaultCalls(0), seenDefault(NULL) {}
+    virtual void setDefault()
+    {
+      ++setDefaultCalls;
+      seenDefault = (const OfxBytes *)getProperties().getPointerProperty(kOfxParamPropDefault);
+      seenGetDefault = getDefault();
+    }
+    virtual OfxStatus get(std::vector<unsigned char> &v) { v.clear(); return kOfxStatOK; }
+    virtual OfxStatus get(OfxTime, std::vector<unsigned char> &v) { v.clear(); return kOfxStatOK; }
+    virtual OfxStatus set(const unsigned char *, size_t) { return kOfxStatOK; }
+    virtual OfxStatus set(OfxTime, const unsigned char *, size_t) { return kOfxStatOK; }
+  };
+
+  /// the OfxBytes of kOfxParamPropDefault, through the property suite
+  const OfxBytes gGetFailed = { NULL, 0 }; ///< what getBytesDefault() returns if propGetPointer fails
+  const OfxBytes *getBytesDefault(const OfxPropertySuiteV1 *propSuite, OfxPropertySetHandle h)
+  {
+    void *p = NULL;
+    if (propSuite->propGetPointer(h, kOfxParamPropDefault, 0, &p) != kOfxStatOK) {
+      return &gGetFailed; // never a valid default
+    }
+    return (const OfxBytes *)p;
+  }
+
+  bool sameBytes(const OfxBytes *b, const unsigned char *data, size_t length)
+  {
+    return b && b->length == length && b->data && std::memcmp(b->data, data, length) == 0;
+  }
+
+  /// the Bytes default checks, on a descriptor (bytes == NULL) or on an instance
+  void checkBytesDefault(const OfxPropertySuiteV1 *propSuite, OfxPropertySetHandle h, const char *what, TestBytes *bytes)
+  {
+    const unsigned char orig[4] = { 1, 2, 3, 4 };
+    const OfxBytes *stackAddress = NULL;
+    const unsigned char *bufAddress = NULL;
+    int calls = bytes ? bytes->setDefaultCalls : 0;
+    {
+      unsigned char buf[4];
+      std::memcpy(buf, orig, sizeof(buf));
+      OfxBytes stackBytes = { buf, sizeof(buf) };
+      stackAddress = &stackBytes;
+      bufAddress = buf;
+      check((std::string(what) + ": propSetPointer(default, stack OfxBytes) = kOfxStatOK").c_str(),
+            propSuite->propSetPointer(h, kOfxParamPropDefault, 0, &stackBytes) == kOfxStatOK);
+      // the plug-in reuses its buffer
+      std::memset(buf, 0xff, sizeof(buf));
+      stackBytes.data = NULL;
+      stackBytes.length = 0;
+    }
+    const OfxBytes *def = getBytesDefault(propSuite, h);
+    check((std::string(what) + ": the default is a copy, not the plug-in's OfxBytes").c_str(),
+          def != NULL && def != stackAddress && def->data != bufAddress);
+    check((std::string(what) + ": the copy has the original length and bytes").c_str(), sameBytes(def, orig, sizeof(orig)));
+    if (bytes) {
+      check((std::string(what) + ": getDefault() has the original bytes").c_str(),
+            bytes->getDefault().size() == sizeof(orig) && std::memcmp(&bytes->getDefault()[0], orig, sizeof(orig)) == 0);
+      check((std::string(what) + ": setDefault() called once, and sees the copy").c_str(),
+            bytes->setDefaultCalls == calls + 1 && bytes->seenDefault == def && bytes->seenGetDefault == bytes->getDefault());
+    }
+
+    // the plug-in may pass a pointer into the host's copy (alias-safe copy)
+    if (def && def->data && def->length == sizeof(orig)) {
+      OfxBytes alias = { def->data + 1, 2 };
+      check((std::string(what) + ": propSetPointer(default, into the host's copy) = kOfxStatOK").c_str(),
+            propSuite->propSetPointer(h, kOfxParamPropDefault, 0, &alias) == kOfxStatOK);
+      check((std::string(what) + ": a default into the host's copy is copied").c_str(),
+            sameBytes(getBytesDefault(propSuite, h), orig + 1, 2) && (!bytes || bytes->getDefault().size() == 2));
+    }
+
+    check((std::string(what) + ": propSetPointer(default, NULL) = kOfxStatOK").c_str(),
+          propSuite->propSetPointer(h, kOfxParamPropDefault, 0, NULL) == kOfxStatOK);
+    check((std::string(what) + ": a NULL default stays NULL").c_str(), getBytesDefault(propSuite, h) == NULL && (!bytes || bytes->getDefault().empty()));
+
+    unsigned char buf2[2] = { 5, 6 };
+    OfxBytes b2 = { buf2, sizeof(buf2) };
+    check((std::string(what) + ": propReset(default) = kOfxStatOK").c_str(),
+          propSuite->propSetPointer(h, kOfxParamPropDefault, 0, &b2) == kOfxStatOK &&
+          sameBytes(getBytesDefault(propSuite, h), buf2, sizeof(buf2)) &&
+          propSuite->propReset(h, kOfxParamPropDefault) == kOfxStatOK);
+    check((std::string(what) + ": propReset gives a NULL default").c_str(), getBytesDefault(propSuite, h) == NULL && (!bytes || bytes->getDefault().empty()));
+
+    OfxBytes noData = { NULL, 4 };
+    check((std::string(what) + ": propSetPointer(default, {NULL, 4}) = kOfxStatErrValue").c_str(),
+          propSuite->propSetPointer(h, kOfxParamPropDefault, 0, &b2) == kOfxStatOK &&
+          propSuite->propSetPointer(h, kOfxParamPropDefault, 0, &noData) == kOfxStatErrValue);
+    check((std::string(what) + ": {NULL, 4} gives a NULL default").c_str(), getBytesDefault(propSuite, h) == NULL && (!bytes || bytes->getDefault().empty()));
+    if (bytes) {
+      check((std::string(what) + ": {NULL, 4}: setDefault() sees the NULL default").c_str(), bytes->seenDefault == NULL && bytes->seenGetDefault.empty());
+    }
+  }
 
   class TestSetInstance : public Param::SetInstance {
     Property::Set _props;
@@ -114,6 +214,38 @@ int main()
   check("paramCopy(instance, descriptor) = kOfxStatErrBadHandle", ps->paramCopy(instParam, descParam, 0., NULL) == kOfxStatErrBadHandle);
   props = NULL;
   check("paramGetPropertySet(descriptor) = kOfxStatOK", ps->paramGetPropertySet(descParam, &props) == kOfxStatOK && props == intDesc->getPropHandle());
+
+  // Bytes params (OFX 1.5) copy their default, which the plug-in owns (#188 for the descriptor).
+  // The C++ API, as the param suite's paramDefine refuses Bytes if the host doesn't support them.
+  const OfxPropertySuiteV1 *propSuite = (const OfxPropertySuiteV1 *)Property::GetSuite(1);
+  check("property suite", propSuite != NULL);
+  Param::Descriptor *bytesDesc = setDesc.paramDefine(kOfxParamTypeBytes, "bytes");
+  check("paramDefine(Bytes)", bytesDesc != NULL);
+  if (propSuite && bytesDesc) {
+    checkBytesDefault(propSuite, bytesDesc->getPropHandle(), "Bytes descriptor", NULL);
+
+    // an instance copies the descriptor's default, and points its property to its own copy
+    const unsigned char descBytes[3] = { 7, 8, 9 };
+    OfxBytes descDefault = { descBytes, sizeof(descBytes) };
+    check("Bytes descriptor: propSetPointer(default) = kOfxStatOK",
+          propSuite->propSetPointer(bytesDesc->getPropHandle(), kOfxParamPropDefault, 0, &descDefault) == kOfxStatOK);
+    const OfxBytes *descCopy = getBytesDefault(propSuite, bytesDesc->getPropHandle());
+    TestBytes bytesInst(*bytesDesc, &setInst);
+    const OfxBytes *instDefault = getBytesDefault(propSuite, bytesInst.getPropHandle());
+    check("Bytes instance: the default is the instance's copy",
+          instDefault != NULL && instDefault != descCopy && instDefault != &descDefault && instDefault->data != descCopy->data &&
+          sameBytes(instDefault, descBytes, sizeof(descBytes)) &&
+          bytesInst.getDefault().size() == sizeof(descBytes) && std::memcmp(&bytesInst.getDefault()[0], descBytes, sizeof(descBytes)) == 0);
+    check("Bytes instance: setDefault() not called by the constructor", bytesInst.setDefaultCalls == 0);
+    checkBytesDefault(propSuite, bytesInst.getPropHandle(), "Bytes instance", &bytesInst);
+    check("Bytes instance: the descriptor's default is unchanged", sameBytes(getBytesDefault(propSuite, bytesDesc->getPropHandle()), descBytes, sizeof(descBytes)));
+
+    // an instance of a descriptor with a NULL default has a NULL default
+    check("Bytes descriptor: propSetPointer(default, NULL) = kOfxStatOK",
+          propSuite->propSetPointer(bytesDesc->getPropHandle(), kOfxParamPropDefault, 0, NULL) == kOfxStatOK);
+    TestBytes nullInst(*bytesDesc, &setInst);
+    check("Bytes instance of a NULL default: NULL", getBytesDefault(propSuite, nullInst.getPropHandle()) == NULL && nullInst.getDefault().empty());
+  }
 
   // progress and timeline suites: NULL and an effect descriptor
   ImageEffect::Descriptor effectDesc("/nonexistent", NULL);
