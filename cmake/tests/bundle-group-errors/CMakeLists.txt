@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # The configure-time errors and warnings of ofx_plugin_bundle_group(): one case per configure
 # (OFX_TEST_CASE), checked by .github/scripts/cmake-plugin-project.sh. Nothing is built.
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21...3.31)
 project(OfxBundleGroupErrors CXX)
 find_package(openfx REQUIRED)
 
