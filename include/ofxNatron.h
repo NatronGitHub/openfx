@@ -611,6 +611,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  A shortcut can be set on the group parameters which are represented as toolbuttons so that the user can cycle through the actions with the keyboard.
  
  The selected toolbutton in the toolbar will have the property kOfxParamPropGroupOpen set to 1. 
+ kOfxParamPropGroupOpen on instances: ofxParam.h documents kOfxParamPropGroupOpen as "plugin parameter descriptor (read/write) and instance (read only)", but the toolbars (and the dialogs of 9) need the plug-in to set it on group parameter instances, e.g. to select a toolbutton, or to show or close a dialog. A host that supports these extensions lets plug-ins write kOfxParamPropGroupOpen on group parameter instances and applies it: HostSupport keeps it writable on instances, where the other "instance (read only)" parameter properties are read-only, and calls GroupInstance::setOpen(); the Support library sets it with OFX::GroupParam::setOpen() (e.g. openfx-misc's Shadertoy).
  The selected tool action in a toolbutton will have its parameter value set to true.
  To find out the active tool, retrieve the active action of the selected toolbutton.
  The host should always make sure that there is a selected toolbutton and that it has an active action.
@@ -647,6 +648,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  
  9) It may be useful to show a dialog to a user to request a little information before doing a task such as an analysis.
  Instead of embedding the parameters in the settings of an image effect, the host could display a temporary dialog with the parameters requested. If the property kNatronOfxGroupParamPropIsDialog is set to 1, then whenever the property kOfxParamPropGroupOpen is set to 1, the dialog should be displayed by the host.
+ The plug-in shows the dialog by setting kOfxParamPropGroupOpen to 1 on the group parameter instance, which the host must allow (see "kOfxParamPropGroupOpen on instances" in 4).
 
  10) If the property kNatronOfxPropDescriptionIsMarkdown is set to 1 on a parameter descriptor or on an image effect descriptor, then their corresponding description (kOfxParamPropHint for a parameter descriptor and kOfxPropPluginDescription for an image effect descriptor) may be interpreted as markdown by the host.
 

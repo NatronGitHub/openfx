@@ -766,12 +766,61 @@ namespace OFX {
       /// the description of a plugin parameter
       Instance::~Instance() {}
 
+      /// The parameter properties that OFX 1.5.1 ofxParam.h and ofxParametricParam.h document as
+      /// "plugin parameter descriptor (read/write) and instance (read only)", or "plugin parameter
+      /// instance (read only)" (kOfxParamPropInteractSize, kOfxParamPropIsAnimating,
+      /// kOfxParamPropIsAutoKeying, which the host sets): an instance copies them from its
+      /// descriptor, where the plug-in may write them, and they are read-only for the plug-in on
+      /// the instance. What a plug-in write through the property suite does is decided by
+      /// Property::PluginReadOnlyPolicyEnum (refused with kOfxStatErrValue by default); the host's
+      /// C++ setters are not restricted. kOfxParamPropType is not listed: it is read-only on the
+      /// descriptor too. kOfxParamInterpType (OFX 1.5, after 1.5.1) has the same "descriptor
+      /// (read/write) and instance (read only)" in include/ofxParam.h.
+      /// kOfxParamPropGroupOpen is also "descriptor (read/write) and instance (read only)", but it
+      /// stays writable on instances: the Natron toolbar and dialog extensions (ofxNatron.h, 4 and
+      /// 9) need plug-ins to set it on instances, and GroupInstance::setOpen() tells the host.
+      static const char* const gInstanceReadOnlyProps[] = {
+        kOfxParamPropInteractV1,
+        kOfxParamPropInteractSize,
+        kOfxParamPropInteractSizeAspect,
+        kOfxParamPropInteractMinimumSize,
+        kOfxParamPropInteractPreferedSize,
+        kOfxParamPropAnimates,
+        kOfxParamPropCanUndo,
+        kOfxParamPropIsAnimating,
+        kOfxParamPropPluginMayWrite,
+        kOfxParamPropPersistent,
+        kOfxParamPropScriptName,
+        kOfxParamPropCacheInvalidation,
+        kOfxParamPropDoubleType,
+        kOfxParamPropUseHostOverlayHandle,
+        kOfxPluginPropParamPageOrder,
+        kOfxParamPropPageChild,
+        kOfxParamPropParent,
+        kOfxParamPropDimensionLabel,
+        kOfxParamPropIsAutoKeying,
+        kOfxParamPropCustomInterpCallbackV1,
+        kOfxParamPropStringMode,
+        kOfxParamPropStringFilePathExists,
+        kOfxParamPropParametricDimension,
+        kOfxParamPropParametricUIColour,
+        kOfxParamPropParametricInteractBackground,
+        kOfxParamPropParametricRange,
+        kOfxParamInterpType,
+        NULL
+      };
+
       /// make a parameter, with the given type and name
       Instance::Instance(Descriptor& descriptor, Param::SetInstance* paramSet) 
         : Base(descriptor.getName(), descriptor.getType(), descriptor.getProperties())
         , _paramSetInstance(paramSet)
         , _parentInstance(NULL)
       {
+        for (int i = 0; gInstanceReadOnlyProps[i]; ++i) {
+          if (Property::Property *prop = _properties.fetchProperty(gInstanceReadOnlyProps[i])) {
+            prop->setPluginReadOnly(true);
+          }
+        }
         _properties.addNotifyHook(kOfxParamPropEnabled, this);
         _properties.addNotifyHook(kOfxParamPropSecret, this);
         _properties.addNotifyHook(kOfxPropLabel, this);
