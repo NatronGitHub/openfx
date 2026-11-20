@@ -4,6 +4,8 @@
 # package (cmake/tests/plugin-project). Used by the Linux and macOS jobs.
 # The extensions are off, as in the Makefile build: the hostDemo checks expect one view per frame
 # (with OFX_EXTENSIONS_NUKE or _VEGAS hostDemo renders two). The Windows job builds them on.
+# OFX_CMAKE_EXTRA_ARGS: more (space-separated) arguments for the configure step, e.g.
+# -DOFX_PYTHON_BINDINGS=ON (the Linux job).
 set -eo pipefail
 cd "$(dirname "$0")/../.."
 root=$PWD
@@ -16,7 +18,8 @@ cmake -S . -B "$build" -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON -DOFX_SUPPORTS_OPENCLRENDER=$opencl \
   -DOFX_EXTENSIONS_NATRON=OFF -DOFX_EXTENSIONS_NUKE=OFF -DOFX_EXTENSIONS_VEGAS=OFF \
   -DOFX_EXTENSIONS_TUTTLE=OFF -DOFX_EXTENSIONS_RESOLVE=OFF \
-  -DPLUGIN_INSTALLDIR="$build/install/OFX/Plugins" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
+  -DPLUGIN_INSTALLDIR="$build/install/OFX/Plugins" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"} \
+  ${OFX_CMAKE_EXTRA_ARGS}
 cmake --build "$build" --parallel
 # the OpenGL DrawSuite core self-test (Support/tests/DrawSuiteOpenGLTest.cpp, a fake OpenGL table)
 dst=$(find "$build" -name drawsuite-opengl-test -type f -perm -u+x | head -1)

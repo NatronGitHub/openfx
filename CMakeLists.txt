@@ -94,8 +94,10 @@ set(OFX_EXTRA_DEFINITIONS "" CACHE STRING
 
 option(BUILD_EXAMPLE_PLUGINS "Build the example plug-ins (Examples/, Support/Plugins/, Support/PropTester/)" OFF)
 option(BUILD_EXAMPLE_HOSTS "Build the example hosts (HostSupport/examples: hostDemo, cacheDemo, propsetDump, suiteHandleChecks)" OFF)
-# the example hosts need HostSupport, also when openfx is used with add_subdirectory()
-if(BUILD_EXAMPLE_HOSTS AND NOT OFX_BUILD_HOSTSUPPORT)
+option(OFX_PYTHON_BINDINGS "HostSupport Python bindings (nanobind)" OFF)
+# the example hosts and the Python bindings need HostSupport, also when openfx is used with
+# add_subdirectory()
+if((BUILD_EXAMPLE_HOSTS OR OFX_PYTHON_BINDINGS) AND NOT OFX_BUILD_HOSTSUPPORT)
   set(OFX_BUILD_HOSTSUPPORT ON CACHE BOOL "Build the HostSupport library (needs expat)" FORCE)
 endif()
 set(PLUGIN_INSTALLDIR "" CACHE STRING "Where the OFX bundles are installed (relative: to CMAKE_INSTALL_PREFIX; default depends on OS)")
@@ -199,6 +201,10 @@ target_compile_options(OfxApi INTERFACE "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/Zc:_
 # ---------------------------------------------------------------------------
 if(OFX_BUILD_HOSTSUPPORT)
   add_subdirectory(HostSupport)
+endif()
+if(OFX_PYTHON_BINDINGS)
+  # the ofxh module (HostSupport/python/src/ofxhPython.h; HostSupport/examples/python/minimal_host.py)
+  add_subdirectory(HostSupport/python)
 endif()
 add_subdirectory(Support)
 if(BUILD_EXAMPLE_PLUGINS)

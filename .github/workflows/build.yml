@@ -6,7 +6,8 @@ name: Build
 #   - Linux (ubuntu-24.04): CMake (.github/scripts/cmake-build-test.sh: build, install, the hostDemo
 #     checks, a plug-in project built against the installed package, and a host project using
 #     HostSupport with add_subdirectory and the system expat), plus the header and
-#     property metadata checks and the Python tests (HostSupport/examples/python, Support/Plugins/tests)
+#     property metadata checks and the Python tests (HostSupport/examples/python, Support/Plugins/tests,
+#     and the HostSupport Python bindings: HostSupport/python/tests)
 #   - macOS 15 arm64: CMake, system (Xcode) clang, MacPorts tools and libomp, no Homebrew
 #   - Windows: MSYS2 UCRT64, CMake, the plug-in and host projects
 # The plug-in repositories build with CMake (Natron#1181), so the per-PR builds do too. Other
@@ -56,7 +57,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev
-          pip install pyyaml
+          pip install pyyaml nanobind numpy pytest
       - name: Property metadata (@propdef)
         run: python scripts/check-props.py
       - name: Generated Python modules (ofxhost.constants, ofxhost.props) are up to date
@@ -92,7 +93,14 @@ jobs:
             done
           done
       - name: Build and test
+        # (with the HostSupport Python bindings, the ofxh module: nanobind from pip)
+        env:
+          OFX_CMAKE_EXTRA_ARGS: -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE=${{ env.pythonLocation }}/bin/python
         run: .github/scripts/cmake-build-test.sh
+      - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
+        run: |
+          PYTHONPATH="$PWD/build-ci/HostSupport/python" OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" \
+            python -X faulthandler -m pytest -q -p no:cacheprovider HostSupport/python/tests
       - name: DrawSuite self-tests with the Natron extensions (the DrawSuite shadows property)
         run: |
           # cmake-build-test.sh builds with the extensions off: build and run only the two
@@ -105,7 +113,6 @@ jobs:
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test)
       - name: Python wrapper and sample plug-in tests (ofxhost)
         run: |
-          pip install numpy pytest
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" \
             python -m pytest -q -p no:cacheprovider HostSupport/examples/python/tests Support/Plugins/tests
 
