@@ -2,7 +2,8 @@ name: Extended builds
 
 # Variants that must not run on every pull request (policy for all
 # Natron-related repos): CMake on Linux/macOS, MSVC, debug builds, extension
-# flags OFF, C++20 and C++23, and the ofxh module installed with pip on macOS (MacPorts Python). Runs nightly, but only if master changed in the
+# flags OFF, C++20 and C++23, and the ofxh module installed with pip on macOS
+# (MacPorts Python). Runs nightly, but only if master changed in the
 # last 25 hours (C++20 coverage is nightly per the C++ standard policy), and on
 # demand.
 
@@ -175,12 +176,14 @@ jobs:
             -DOFX_EXTENSIONS_TUTTLE=OFF -DOFX_EXTENSIONS_RESOLVE=OFF
           cmake --build build --parallel
       - name: pip install ./HostSupport/python (the same options)
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '14.0'  # (as the CMake build: VFX Reference Platform CY2027)
         run: |
           python3.11 -m venv --system-site-packages venv
           venv/bin/python -m pip install -v --no-build-isolation \
             -C cmake.define.OFX_EXTENSIONS_NATRON=OFF -C cmake.define.OFX_EXTENSIONS_NUKE=OFF \
             -C cmake.define.OFX_EXTENSIONS_VEGAS=OFF -C cmake.define.OFX_EXTENSIONS_TUTTLE=OFF \
-            ./HostSupport/python
+            -C cmake.define.OFX_EXTENSIONS_RESOLVE=OFF ./HostSupport/python
           (cd /tmp && "$GITHUB_WORKSPACE/venv/bin/python" -c "import ofxh; print(ofxh.__file__, ofxh.build_config)")
       - name: ofxh tests (HostSupport/python/tests) against the installed module
         run: |

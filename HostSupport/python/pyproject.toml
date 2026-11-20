@@ -6,7 +6,8 @@
 # alone (ofxh.*.so, which imports numpy). To use the build
 # requirements already installed (e.g. MacPorts py311-nanobind and py311-scikit-build-core):
 #   pip install --no-build-isolation ./HostSupport/python
-# The openfx options keep their defaults (the extensions on); change them with, e.g.,
+# The openfx options keep their defaults (the Natron, Nuke, Vegas and TuttleOFX extensions on,
+# Resolve off; macOS 14.0 unless MACOSX_DEPLOYMENT_TARGET is set); change them with, e.g.,
 #   pip install -C cmake.define.OFX_EXTENSIONS_VEGAS=OFF ./HostSupport/python
 # The tests (HostSupport/python/tests) need the sample plug-ins and hostDemo of an openfx build:
 # set OFX_TEST_PLUGIN_PATH and OFXHOST_HOSTDEMO.

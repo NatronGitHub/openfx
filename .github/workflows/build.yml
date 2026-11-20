@@ -198,7 +198,8 @@ jobs:
           set -eo pipefail
           # (only the import: no renders on Windows, as for hostDemo; its DLLs, expat and the GCC
           # runtime, are next to MSYS2's python.exe)
-          PYTHONPATH="$PWD/build/HostSupport/python" python -c "import ofxh; print(ofxh.__file__, ofxh.build_config)"
+          # (a Windows path: PYTHONPATH is read by the native python.exe)
+          PYTHONPATH="$(cygpath -w "$PWD/build/HostSupport/python")" python -c "import ofxh; print(ofxh.__file__, ofxh.build_config)"
       - name: Self-test of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows)
         run: |
           set -eo pipefail

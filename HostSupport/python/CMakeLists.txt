@@ -12,6 +12,14 @@
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   # (the policies and the minimum of the openfx tree)
   cmake_minimum_required(VERSION 3.21...3.31)
+  # macOS 14.0 (VFX Reference Platform CY2027) as the openfx tree's rule, which must come before the
+  # first project(): after it, CMake's Darwin initialisation has defined CMAKE_OSX_DEPLOYMENT_TARGET
+  # (empty), and the tree's rule no longer applies. MACOSX_DEPLOYMENT_TARGET (which pip or
+  # scikit-build-core may set) wins.
+  if(CMAKE_HOST_APPLE AND NOT CMAKE_TOOLCHAIN_FILE AND (NOT CMAKE_SYSTEM_NAME OR CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+     AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET AND "$ENV{MACOSX_DEPLOYMENT_TARGET}" STREQUAL "")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET 14.0 CACHE STRING "Minimum macOS version")
+  endif()
   project(ofxh LANGUAGES C CXX)
   set(_ofxh_standalone ON)
   # HostSupport only: no examples, no install of openfx, and not this directory again
