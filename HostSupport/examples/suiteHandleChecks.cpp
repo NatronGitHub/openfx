@@ -273,6 +273,51 @@ namespace {
     gDrawInteractHandle = gDrawDescriptorHandle = NULL;
   }
 
+  /// hostDemo's effect instance, with the statuses a host may throw (as Natron does): progressUpdate
+  /// and progressEnd without an ongoing progress throw kOfxStatErrBadHandle ("the progress handle
+  /// was invalid"); timeLineGotoTime throws kOfxStatErrValue for |t| > 1e9 (a time the host can't
+  /// go to), and kOfxStatErrFatal for t == 12345 (any other status)
+  class StatusEffectInstance : public MyHost::MyEffectInstance {
+    bool ongoing() const { return !_progress.empty() && !_progress.back().ended; }
+  public:
+    StatusEffectInstance(ImageEffect::ImageEffectPlugin *plugin, ImageEffect::Descriptor &desc, const std::string &context)
+      : MyHost::MyEffectInstance(plugin, desc, context) {}
+    virtual void progressEnd()
+    {
+      if (!ongoing()) {
+        throw Property::Exception(kOfxStatErrBadHandle);
+      }
+      MyHost::MyEffectInstance::progressEnd();
+    }
+    virtual bool progressUpdate(double t)
+    {
+      if (!ongoing()) {
+        throw Property::Exception(kOfxStatErrBadHandle);
+      }
+      return MyHost::MyEffectInstance::progressUpdate(t);
+    }
+    virtual void timeLineGotoTime(double t)
+    {
+      if (t > 1e9 || t < -1e9) {
+        throw Property::Exception(kOfxStatErrValue);
+      }
+      if (t == 12345.) {
+        throw Property::Exception(kOfxStatErrFatal);
+      }
+      MyHost::MyEffectInstance::timeLineGotoTime(t);
+    }
+  };
+
+  /// hostDemo's host, with StatusEffectInstance effect instances
+  class TestHost : public MyHost::Host {
+  public:
+    virtual ImageEffect::Instance *newInstance(void *, ImageEffect::ImageEffectPlugin *plugin,
+                                               ImageEffect::Descriptor &desc, const std::string &context)
+    {
+      return new StatusEffectInstance(plugin, desc, context);
+    }
+  };
+
   /// the progress and timeline suites on a valid effect instance handle: a real instance of a
   /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
   void checkEffectInstance(MyHost::Host &host)
@@ -309,9 +354,13 @@ namespace {
       if (progress1 && progress2 && timeline) {
         // a NULL label or message id is an empty string
         const size_t n = myInstance->getProgress().size();
-        // hostDemo throws kOfxStatErrBadHandle without an ongoing progress: the suite returns it
+        // V1 and V2 share progressUpdate and progressEnd (so the checks below are for both)
+        check("progress V1 and V2: the same progressUpdate and progressEnd",
+              progress1->progressUpdate == progress2->progressUpdate && progress1->progressEnd == progress2->progressEnd);
+        // StatusEffectInstance throws kOfxStatErrBadHandle without an ongoing progress: the suite returns it
         check("progressUpdate(instance, no progress started) = kOfxStatErrBadHandle", progress2->progressUpdate(h, 0.5) == kOfxStatErrBadHandle);
         check("progressEnd(instance, no progress started) = kOfxStatErrBadHandle", progress2->progressEnd(h) == kOfxStatErrBadHandle);
+        check("progressUpdate V1(instance, no progress started) = kOfxStatErrBadHandle", progress1->progressUpdate(h, 0.5) == kOfxStatErrBadHandle);
         check("progressStart V1(instance, NULL label) = kOfxStatOK",
               progress1->progressStart(h, NULL) == kOfxStatOK && myInstance->getProgress().size() == n + 1 &&
               myInstance->getProgress().back().message.empty() && myInstance->getProgress().back().id.empty());
@@ -332,7 +381,10 @@ namespace {
         check("gotoTime(instance, NaN) = kOfxStatErrValue", timeline->gotoTime(h, std::numeric_limits<double>::quiet_NaN()) == kOfxStatErrValue);
         check("gotoTime(instance, +infinity) = kOfxStatErrValue", timeline->gotoTime(h, std::numeric_limits<double>::infinity()) == kOfxStatErrValue);
         check("gotoTime(instance, -infinity) = kOfxStatErrValue", timeline->gotoTime(h, -std::numeric_limits<double>::infinity()) == kOfxStatErrValue);
-        check("getTime(instance) = kOfxStatOK, the time before the NaN and infinities", timeline->getTime(h, &t) == kOfxStatOK && t == 3.);
+        // a thrown kOfxStatErrValue is passed through; any other thrown status is kOfxStatFailed
+        check("gotoTime(instance, 1e300), the host throws kOfxStatErrValue: kOfxStatErrValue", timeline->gotoTime(h, 1e300) == kOfxStatErrValue);
+        check("gotoTime(instance, 12345), the host throws kOfxStatErrFatal: kOfxStatFailed", timeline->gotoTime(h, 12345.) == kOfxStatFailed);
+        check("getTime(instance) = kOfxStatOK, the time before the refused times", timeline->getTime(h, &t) == kOfxStatOK && t == 3.);
         check("getTime(instance, NULL) = kOfxStatErrBadHandle", timeline->getTime(h, NULL) == kOfxStatErrBadHandle);
         check("getTimeBounds(instance) = kOfxStatOK", timeline->getTimeBounds(h, &t1, &t2) == kOfxStatOK && t1 <= t2);
         check("getTimeBounds(instance, NULL, &lastTime) = kOfxStatErrBadHandle", timeline->getTimeBounds(h, NULL, &t2) == kOfxStatErrBadHandle);
@@ -350,7 +402,7 @@ int main()
 {
   // only the plug-ins of OFX_PLUGIN_PATH (checkEffectInstance()); before the first getPluginCache()
   PluginCache::useStdOFXPluginsLocation(false);
-  MyHost::Host host;
+  TestHost host;
   ImageEffect::gImageEffectHost = &host; // (set by ImageEffectPluginCache in a real host)
 
   const OfxParameterSuiteV1 *ps = (const OfxParameterSuiteV1 *)Param::GetSuite(1);

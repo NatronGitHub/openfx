@@ -316,27 +316,21 @@ namespace MyHost {
   }
   
   /// finish yer progress
-  // progressEnd and progressUpdate without an ongoing progress (none started, or the last one
-  // ended: "\post - you can no longer call progressUpdate on the instance") throw
-  // kOfxStatErrBadHandle, which the progress suite returns: "kOfxStatErrBadHandle - the progress
-  // handle was invalid" (ofxProgress.h)
   void  MyEffectInstance::progressEnd()
   {
-    if (_progress.empty() || _progress.back().ended) {
-      throw OFX::Host::Property::Exception(kOfxStatErrBadHandle);
+    if (!_progress.empty()) {
+      _progress.back().ended = true;
     }
-    _progress.back().ended = true;
   }
   
   /// set the progress to some level of completion, returns
   /// false if you should abandon processing, true to continue
   bool  MyEffectInstance::progressUpdate(double t)
   {
-    if (_progress.empty() || _progress.back().ended) {
-      throw OFX::Host::Property::Exception(kOfxStatErrBadHandle);
+    if (!_progress.empty()) {
+      ++_progress.back().updates;
+      _progress.back().lastValue = t;
     }
-    ++_progress.back().updates;
-    _progress.back().lastValue = t;
     return true;
   }
 
