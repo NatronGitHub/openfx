@@ -614,6 +614,13 @@ static bool dtypeOf(const std::string &depth, nb::dlpack::dtype &dt, const char 
   return true;
 }
 
+bool imageFormatSupported(const std::string &depth, const std::string &components)
+{
+  nb::dlpack::dtype dt;
+  const char *name = NULL;
+  return dtypeOf(depth, dt, name) && componentCount(components) > 0;
+}
+
 nb::object PyClipInstance::newImage(int x1, int y1, int x2, int y2) const
 {
   const std::string &depth = getPixelDepth();
@@ -781,7 +788,8 @@ OHIE::Image *PyClipInstance::fetchFromPython(OfxTime time, int view, const OfxRe
     nb::object b = optionalBounds ? nb::object(nb::make_tuple(optionalBounds->x1, optionalBounds->y1,
                                                               optionalBounds->x2, optionalBounds->y2))
                                   : nb::none();
-    nb::object r = _py.attr("get_image")(time, view, b);
+    // (part 1: the colour plane only; the keyword is there for the planes of a later part)
+    nb::object r = _py.attr("get_image")(time, view, b, nb::arg("plane") = "Colour");
     if (r.is_none()) {
       return (OHIE::Image *)NULL;
     }

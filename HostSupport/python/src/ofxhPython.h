@@ -204,6 +204,8 @@ inline std::string componentsName(const std::string &s) { return ofxName("compon
 inline std::string premultName(const std::string &s) { return ofxName("premult", s); }
 inline std::string fieldName(const std::string &s) { return ofxName("field", s.empty() ? std::string("none") : s); }
 int componentCount(const std::string &components); ///< 4, 3, 1, or 0 if unsupported
+/// can ofxh make images of this (OFX) depth and these components?
+bool imageFormatSupported(const std::string &depth, const std::string &components);
 
 /// hostDemo's canonicalToPixelEnclosing (clamped to the int range)
 OfxRectI canonicalToPixelEnclosing(const OfxRectD &r, const OfxPointD &renderScale, double par);

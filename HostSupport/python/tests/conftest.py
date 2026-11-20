@@ -1,7 +1,8 @@
 """pytest configuration of the ofxh tests (HostSupport/python/tests).
 
 The ofxh module must be importable: set PYTHONPATH to the directory of the built module
-(<build>/HostSupport/python); without it, the tests are skipped. The sample plug-ins and hostDemo
+(<build>/HostSupport/python); without it, the tests are skipped, unless OFXH_REQUIRE=1 (CI),
+which makes them fail. The sample plug-ins and hostDemo
 (to compare with) come from the same build directory as the module: <build>/Plugins and
 <build>/HostSupport/examples/hostDemo, unless $OFX_TEST_PLUGIN_PATH or $OFXHOST_HOSTDEMO are set.
 The tests don't read OFX_PLUGIN_PATH (ofxh.init(..., use_env_path=False)), and hostDemo gets the
@@ -18,15 +19,26 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # minimal_host.py and the ofxhost package
 sys.path.insert(0, str(REPO_ROOT / "HostSupport" / "examples" / "python"))
 
+# OFXH_REQUIRE=1 (CI): fail instead of skipping when the module, the plug-ins or hostDemo are missing
+REQUIRE = os.environ.get("OFXH_REQUIRE") == "1"
+
 try:
     import ofxh  # PYTHONPATH: the build directory of the module
 except ImportError:
+    if REQUIRE:
+        raise
     ofxh = None
+
+
+def _skip(message):
+    if REQUIRE:
+        pytest.fail(message + " (OFXH_REQUIRE=1)")
+    pytest.skip(message)
 
 
 def _build_dir():
     if ofxh is None:
-        pytest.skip("the ofxh module is not built or not on PYTHONPATH (-DOFX_PYTHON_BINDINGS=ON)")
+        _skip("the ofxh module is not built or not on PYTHONPATH (-DOFX_PYTHON_BINDINGS=ON)")
     # <build>/HostSupport/python/ofxh.*.so, possibly in a configuration directory
     here = Path(ofxh.__file__).resolve().parent
     for d in (here, *here.parents):
@@ -43,7 +55,7 @@ def plugin_dir():
     for d in cands:
         if (d / "example-Invert-support.ofx.bundle").is_dir():
             return str(d)
-    pytest.skip("the sample plug-ins are not built (cmake -DBUILD_EXAMPLE_PLUGINS=ON), or set OFX_TEST_PLUGIN_PATH")
+    _skip("the sample plug-ins are not built (cmake -DBUILD_EXAMPLE_PLUGINS=ON), or set OFX_TEST_PLUGIN_PATH")
 
 
 @pytest.fixture(scope="session")
@@ -57,7 +69,7 @@ def hostdemo():
     for p in [examples / exe, *sorted(examples.glob(f"*/{exe}"))]:
         if p.is_file() and os.access(p, os.X_OK):
             return p
-    pytest.skip("hostDemo is not built in the module's build directory (cmake -DBUILD_EXAMPLE_HOSTS=ON)")
+    _skip("hostDemo is not built in the module's build directory (cmake -DBUILD_EXAMPLE_HOSTS=ON)")
 
 
 @pytest.fixture(autouse=True)

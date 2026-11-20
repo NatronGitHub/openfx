@@ -55,11 +55,12 @@ class Clip(ofxh.ClipInstance):
         h, w = self.image.shape[:2]
         return ofxh.pixel_to_canonical((0, 0, w, h), (1., 1.), self.aspect_ratio)
 
-    def get_image(self, time, view, bounds):
+    def get_image(self, time, view, bounds, plane="Colour"):
         """The image for the plug-in's fetch. bounds (canonical, or None) is what it needs: this
-        host always gives the whole input."""
+        host always gives the whole input. plane is "Colour" (keep the keyword: later parts of
+        ofxh pass other planes)."""
         if self.is_output or self.image is None:
-            return super().get_image(time, view, bounds)
+            return super().get_image(time, view, bounds, plane)
         h, w = self.image.shape[:2]
         return ofxh.ImageData(self.image, (0, 0, w, h))
 

@@ -92,8 +92,11 @@ class CallbackError(RuntimeError):
     """A host callback raised an exception while HostSupport or the plug-in called it.
 
     Raised by the function that called into HostSupport (an action, create_instance, init...),
-    after the call. __cause__ is the first exception; status is the action's status (or None)."""
+    after the call. __cause__ is the first exception; status is the action's status (or None).
+    When create_instance() raises it but the instance was made, instance is that instance (still
+    bound: close() it); else None."""
     status = None
+    instance = None
 
 
 def _raise_callback_error(where, exc, status=None):
@@ -533,8 +536,16 @@ static nb::object createInstance(const PluginView &pv, const std::string &contex
   // newInstance(), newClipInstance() or newParam() fail, populate() fails and HostSupport deletes
   // the instance: raw is NULL.
   OHIE::Instance *raw = plugin->createInstance(ofxName("context", context), instance.ptr());
-  // (another callback failed, e.g. a message: the instance was made and stays bound)
-  scope.check("createInstance (making the clips and parameters)");
+  // (another callback failed, e.g. a message: the instance was made and stays bound, and the
+  // CallbackError carries it, as e.instance, so that the caller can close it)
+  try {
+    scope.check("createInstance (making the clips and parameters)");
+  } catch (nb::python_error &e) {
+    if (raw) {
+      nb::setattr(e.value(), "instance", instance);
+    }
+    throw;
+  }
   if (!raw) {
     return nb::none();
   }
@@ -995,6 +1006,22 @@ void bindModule(nb::module_ &m)
           c->_outputData.reset();
         }
       }
+      // the output image can be made (the clip preferences set its depth and components): else the
+      // output fallback of PyClipInstance::fetchImage() couldn't make one either
+      {
+        PyClipInstance *out = pyClip(p->getClip(kOfxImageEffectOutputClipName));
+        if (!out) {
+          raiseError(PyExc_ValueError, "render_action(): the plug-in has no output clip");
+        }
+        const std::string depth = OFXH_SCOPED("render_action()", out->getPixelDepth());
+        const std::string comps = OFXH_SCOPED("render_action()", out->getComponents());
+        if (!imageFormatSupported(depth, comps)) {
+          raiseError(PyExc_ValueError, "render_action(): the output clip's depth \"" + shortName("depth", depth) +
+                                       "\" and components \"" + shortName("components", comps) +
+                                       "\" can't be rendered: call create_instance_action() and "
+                                       "get_clip_preferences_action() first");
+        }
+      }
 #ifdef OFX_EXTENSIONS_NUKE
       std::list<std::string> pl(1, ofxName("plane", planes[0]));
 #endif
@@ -1043,6 +1070,9 @@ void bindModule(nb::module_ &m)
        "kOfxImageEffectActionRender. render_window: pixels at the render scale. Returns (Stat, {plane:\n"
        "the output ImageData the plug-in fetched}) (empty if it fetched none). Part 1 renders one plane,\n"
        "the colour plane; view and n_views need the Nuke or Vegas extensions (see build_config). If\n"
+       "The output clip must have a depth and components that ofxh can make (ValueError otherwise):\n"
+       "call create_instance_action() (which sets the default clip preferences) and\n"
+       "get_clip_preferences_action() before: ofxh doesn't run them for you. If\n"
        "get_image() gives no valid output image, ofxh gives the plug-in one over the render window (a\n"
        "plug-in may not check), asks it to abort, and the action returns Stat.Failed and raises\n"
        "CallbackError.")
@@ -1141,7 +1171,8 @@ void bindModule(nb::module_ &m)
   // ------------------------------------------------------------------------- ClipInstance
   nb::class_<ClipBase> clip(m, "ClipInstance",
     "A clip of an instance. Subclass it, and return one from ImageEffectInstance.new_clip_instance().\n\n"
-    "Callbacks (the defaults are hostDemo's): the methods get_image(time, view, bounds) and\n"
+    "Callbacks (the defaults are hostDemo's): the methods get_image(time, view, bounds, plane=\"Colour\")\n"
+    "(accept the plane keyword: part 1 passes \"Colour\", later parts other planes) and\n"
     "region_of_definition(time, view); and the values connected, unmapped_bit_depth,\n"
     "unmapped_components, premult, format, aspect_ratio, frame_rate, frame_range, field_order,\n"
     "unmapped_frame_rate, unmapped_frame_range, continuous_samples, which may be overridden with a\n"
@@ -1152,7 +1183,7 @@ void bindModule(nb::module_ &m)
     nb::dynamic_attr());
   clip.def(nb::init<>())
     // --- callbacks (defaults)
-    .def("get_image", [](ClipBase &s, double time, int view, nb::object) -> nb::object {
+    .def("get_image", [](ClipBase &s, double time, int view, nb::object, const std::string &) -> nb::object {
       PyClipInstance *c = s.get();
       if (!c->isOutput()) {
         return nb::none();
@@ -1171,9 +1202,10 @@ void bindModule(nb::module_ &m)
       d.rod = nb::none();
       d.field = "none";
       return nb::cast(std::move(d));
-    }, "time"_a, "view"_a, "bounds"_a.none(),
+    }, "time"_a, "view"_a, "bounds"_a.none(), "plane"_a = "Colour",
        "Return the image (an ofxh.ImageData, or None) at this time and view. bounds: the region the\n"
-       "plug-in asked for, in canonical coordinates, or None. The default makes the output image\n"
+       "plug-in asked for, in canonical coordinates, or None. plane: \"Colour\" (part 1). The default\n"
+       "makes the output image\n"
        "(filled with a sentinel) over the render window, and returns None for the inputs.")
     .def("region_of_definition", [](ClipBase &s, double time, int view) {
       PyClipInstance *c = s.get();
@@ -1295,7 +1327,8 @@ void bindModule(nb::module_ &m)
         "value), bound to instance (a new ofxh.ImageEffectInstance): describes the context if needed, makes\n"
         "the clips (instance.new_clip_instance()) and the parameters. Returns instance, or None if it failed\n"
         "(a CallbackError if a callback raised, e.g. new_clip_instance()). If a callback raised but the\n"
-        "instance was made, CallbackError is raised and the instance object stays bound: close() it.\n"
+        "instance was made, CallbackError is raised with the instance as e.instance, still bound:\n"
+        "close() it.\n"
         "Then call instance.create_instance_action() (kOfxActionCreateInstance).");
   m.def("fetch_suite", [](const std::string &name, int version) {
     requireInit();

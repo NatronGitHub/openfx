@@ -116,8 +116,10 @@ jobs:
       - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
         if: success() || failure()
         run: |
-          PYTHONPATH="$PWD/build-ci/HostSupport/python" \
-            python -X faulthandler -m pytest -q -p no:cacheprovider HostSupport/python/tests
+          # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
+          export PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1
+          python -c "import ofxh; print(ofxh.__file__)"
+          python -X faulthandler -m pytest -q -p no:cacheprovider HostSupport/python/tests
 
   macos:
     name: macOS 15 arm64 (CMake, Xcode clang, MacPorts)

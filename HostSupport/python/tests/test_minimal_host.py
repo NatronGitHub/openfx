@@ -96,9 +96,9 @@ class _FileSource(ofxh.ClipInstance):
         h, w = self.image.shape[:2]
         return ofxh.pixel_to_canonical((0, 0, w, h), self.scale, self.aspect_ratio)
 
-    def get_image(self, time, view, bounds):
+    def get_image(self, time, view, bounds, plane="Colour"):
         if self.is_output:
-            return super().get_image(time, view, bounds)
+            return super().get_image(time, view, bounds, plane)
         h, w = self.image.shape[:2]
         return ofxh.ImageData(self.image, (0, 0, w, h))
 

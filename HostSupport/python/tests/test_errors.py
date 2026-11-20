@@ -106,7 +106,7 @@ class BadSource(ofxh.ClipInstance):
             return super().region_of_definition(time, view)
         return (0., 0., 8 * self.aspect_ratio, 8.)
 
-    def get_image(self, time, view, bounds):
+    def get_image(self, time, view, bounds, plane="Colour"):
         if self.is_output:
             if self.error == "small_output":
                 return ofxh.ImageData(self.new_image((0, 0, 4, 4)), (0, 0, 4, 4))
@@ -114,7 +114,7 @@ class BadSource(ofxh.ClipInstance):
                 return None
             if self.error == "raise_output":
                 raise KeyError("no output")
-            return super().get_image(time, view, bounds)
+            return super().get_image(time, view, bounds, plane)
         if self.error == "raise":
             raise KeyError("no image")
         if self.error == "dtype":
@@ -178,3 +178,33 @@ def test_unsupported_arguments(plugin_dir):
         if not cfg["OFX_EXTENSIONS_VEGAS"]:
             with pytest.raises(ValueError):
                 inst.render_action(0., (0, 0, 8, 8), n_views=2)
+
+
+def test_render_without_clip_preferences(plugin_dir):
+    """render_action() before any clip preferences (createInstance sets the default ones): the
+    output clip has no depth yet, ofxh couldn't make an output image, so it refuses to render
+    (the plug-in isn't called)."""
+    ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False)
+    with ofxh.create_instance(ofxh.get_plugin(INVERT), "filter", BadInstance(None)) as inst:
+        assert inst.clip("Output").pixel_depth == "none"
+        with pytest.raises(ValueError, match="get_clip_preferences_action"):
+            inst.render_action(0., (0, 0, 8, 8))
+
+
+RECTANGLE = "uk.co.thefoundry.GeneratorExample"  # (normalised param defaults: they read project_size)
+
+
+def test_create_instance_error_carries_the_instance(plugin_dir):
+    class BadProject(ofxh.ImageEffectInstance):
+        @property
+        def project_size(self):
+            raise ArithmeticError("no project")
+
+    ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False)
+    obj = BadProject()
+    with pytest.raises(ofxh.CallbackError) as e:
+        ofxh.create_instance(ofxh.get_plugin(RECTANGLE), "filter", obj)
+    assert isinstance(e.value.__cause__, ArithmeticError)
+    assert e.value.instance is obj and obj.alive  # the instance was made: the caller closes it
+    obj.close()
+    assert not obj.alive
