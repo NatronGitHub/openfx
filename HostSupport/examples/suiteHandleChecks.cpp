@@ -33,6 +33,18 @@
 #include "ofxhImageEffectAPI.h"
 #include "hostDemoEffectInstance.h"
 
+// std::bad_alloc from the host is kOfxStatErrMemory
+#include <new>
+#include "ofxhClip.h"
+#include "ofxhMemory.h"
+#include "ofxGPURender.h"
+#ifdef OFX_EXTENSIONS_NUKE
+#include "nuke/fnOfxExtensions.h"
+#endif
+#ifdef OFX_EXTENSIONS_VEGAS
+#include "ofxSonyVegas.h"
+#endif
+
 using namespace OFX::Host;
 
 namespace {
@@ -406,6 +418,104 @@ namespace {
   }
 }
 
+namespace {
+  /// a clip instance whose image and texture fetches fail with std::bad_alloc, as a host's do
+  /// when it runs out of memory
+  class OutOfMemoryClip : public ImageEffect::ClipInstance {
+    std::string _s;
+  public:
+    OutOfMemoryClip(ImageEffect::ClipDescriptor &d) : ImageEffect::ClipInstance(NULL, d), _s(kOfxBitDepthFloat) {}
+    virtual const std::string &getUnmappedBitDepth() const { return _s; }
+    virtual const std::string &getUnmappedComponents() const { return _s; }
+    virtual const std::string &getPremult() const { return _s; }
+#ifdef OFX_EXTENSIONS_NATRON
+    virtual OfxRectI getFormat() const { OfxRectI r = { 0, 0, 1, 1 }; return r; }
+#endif
+    virtual double getAspectRatio() const { return 1.; }
+    virtual double getFrameRate() const { return 25.; }
+    virtual void getFrameRange(double &s, double &e) const { s = 0.; e = 1.; }
+    virtual const std::string &getFieldOrder() const { return _s; }
+    virtual bool getConnected() const { return true; }
+    virtual double getUnmappedFrameRate() const { return 25.; }
+    virtual void getUnmappedFrameRange(double &s, double &e) const { s = 0.; e = 1.; }
+    virtual bool getContinuousSamples() const { return false; }
+    virtual ImageEffect::Image *getImage(OfxTime, const OfxRectD *) { throw std::bad_alloc(); }
+#ifdef OFX_EXTENSIONS_NUKE
+    virtual ImageEffect::Image *getImagePlane(OfxTime, int, const std::string &, const OfxRectD *) { throw std::bad_alloc(); }
+    virtual OfxRectD getRegionOfDefinition(OfxTime, int) const { throw std::bad_alloc(); }
+#endif
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+    virtual ImageEffect::Texture *loadTexture(OfxTime, const char *, const OfxRectD *) { throw std::bad_alloc(); }
+#endif
+#ifdef OFX_EXTENSIONS_VEGAS
+    virtual ImageEffect::Image *getStereoscopicImage(OfxTime, int, const OfxRectD *) { throw std::bad_alloc(); }
+#endif
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    virtual void setView(int) {}
+#endif
+    virtual OfxRectD getRegionOfDefinition(OfxTime) const { throw std::bad_alloc(); }
+  };
+
+  /// image memory whose lock fails with std::bad_alloc (e.g. a host that pages it back in)
+  class OutOfMemoryImageMemory : public Memory::Instance {
+  public:
+    virtual void lock() { throw std::bad_alloc(); }
+  };
+
+  /// a std::bad_alloc from the host is kOfxStatErrMemory, and the returned handle or pointer NULL
+  void checkBadAlloc(MyHost::Host &host)
+  {
+    ImageEffect::ClipDescriptor desc(kOfxImageEffectSimpleSourceClipName);
+    OutOfMemoryClip clip(desc);
+    OfxImageClipHandle ch = clip.getHandle();
+    const OfxRectD region = { 0., 0., 1., 1. };
+    void *bad = &clip; // not NULL: the functions must set it to NULL
+    const OfxImageEffectSuiteV1 *ies = (const OfxImageEffectSuiteV1 *)host.fetchSuite(kOfxImageEffectSuite, 1);
+    check("image effect suite", ies != NULL);
+    if (ies) {
+      OfxPropertySetHandle img = (OfxPropertySetHandle)bad;
+      check("clipGetImage(std::bad_alloc) = kOfxStatErrMemory", ies->clipGetImage(ch, 0., &region, &img) == kOfxStatErrMemory && img == NULL);
+      OfxRectD rod = region;
+      check("clipGetRegionOfDefinition(std::bad_alloc) = kOfxStatErrMemory", ies->clipGetRegionOfDefinition(ch, 0., &rod) == kOfxStatErrMemory);
+      OutOfMemoryImageMemory mem;
+      void *ptr = bad;
+      check("imageMemoryLock(std::bad_alloc) = kOfxStatErrMemory", ies->imageMemoryLock(mem.getHandle(), &ptr) == kOfxStatErrMemory && ptr == NULL);
+    }
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+    const OfxImageEffectOpenGLRenderSuiteV1 *gl = (const OfxImageEffectOpenGLRenderSuiteV1 *)host.fetchSuite(kOfxOpenGLRenderSuite, 1);
+    check("OpenGL render suite", gl != NULL);
+    if (gl) {
+      OfxPropertySetHandle tex = (OfxPropertySetHandle)bad;
+      check("clipLoadTexture(std::bad_alloc) = kOfxStatErrMemory", gl->clipLoadTexture(ch, 0., NULL, &region, &tex) == kOfxStatErrMemory && tex == NULL);
+      tex = (OfxPropertySetHandle)bad;
+      check("clipLoadTexture(NULL clip) = kOfxStatErrBadHandle, NULL", gl->clipLoadTexture(NULL, 0., NULL, &region, &tex) == kOfxStatErrBadHandle && tex == NULL);
+    }
+#endif
+#ifdef OFX_EXTENSIONS_NUKE
+    const FnOfxImageEffectPlaneSuiteV2 *planes = (const FnOfxImageEffectPlaneSuiteV2 *)host.fetchSuite(kFnOfxImageEffectPlaneSuite, 2);
+    check("image plane suite V2", planes != NULL);
+    if (planes) {
+      OfxPropertySetHandle img = (OfxPropertySetHandle)bad;
+      check("clipGetImagePlane(std::bad_alloc) = kOfxStatErrMemory",
+            planes->clipGetImagePlane(ch, 0., 0, kFnOfxImagePlaneColour, &region, &img) == kOfxStatErrMemory && img == NULL);
+      OfxRectD rod = region;
+      check("clipGetRegionOfDefinition V2 (view)(std::bad_alloc) = kOfxStatErrMemory", planes->clipGetRegionOfDefinition(ch, 0., 0, &rod) == kOfxStatErrMemory);
+    }
+#endif
+#ifdef OFX_EXTENSIONS_VEGAS
+    const OfxVegasStereoscopicImageSuiteV1 *stereo =
+      (const OfxVegasStereoscopicImageSuiteV1 *)host.fetchSuite(kOfxVegasStereoscopicImageEffectSuite, 1);
+    check("Vegas stereoscopic image suite", stereo != NULL);
+    if (stereo) {
+      OfxRectD r = region;
+      OfxPropertySetHandle img = (OfxPropertySetHandle)bad;
+      check("clipGetStereoscopicImage(std::bad_alloc) = kOfxStatErrMemory",
+            stereo->clipGetStereoscopicImage(ch, 0., 0, &r, &img) == kOfxStatErrMemory && img == NULL);
+    }
+#endif
+  }
+}
+
 int main()
 {
   // only the plug-ins of OFX_PLUGIN_PATH (checkEffectInstance()); before the first getPluginCache()
@@ -584,6 +694,9 @@ int main()
 
   // the interact suite and the DrawSuite (no plug-in needed: a test interact)
   checkInteractSuites();
+
+  // std::bad_alloc in the image, image memory and texture functions (no plug-in needed: test clips)
+  checkBadAlloc(host);
 
   // the C fetchSuite of the host
   OfxHost *ofxHost = host.getHandle();
