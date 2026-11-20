@@ -1893,14 +1893,14 @@ namespace OFX {
   }
 #endif
 
-  /** @brief indicate that the plugin is made obsolete by another version in the same bundle (OFX 1.5) */
+  /** @brief indicate that the plugin is made obsolete by another version in the same bundle (next OFX release, after 1.5.1) */
   void ImageEffectDescriptor::setIsObsolete(bool v)
   {
     // host may not know this property: don't throw
     _effectProps.propSetInt(kOfxImageEffectPluginPropObsolete, int(v), false);
   }
 
-  /** @brief Does the plugin support Metal texture render (OFX 1.5) */
+  /** @brief Does the plugin support Metal texture render (next OFX release, after 1.5.1) */
   void ImageEffectDescriptor::setSupportsMetalTextureRender(bool v)
   {
     // host may not know this property: don't throw
@@ -2445,7 +2445,7 @@ namespace OFX {
   }
 
   /** @brief get the frame rate, in frames per second on this clip, after any clip preferences have been applied */
-  /** @brief kOfxImageClipPropDisplayTimeOffset (OFX 1.5), 0 if the host doesn't set it */
+  /** @brief kOfxImageClipPropDisplayTimeOffset (next OFX release, after 1.5.1), 0 if the host doesn't set it */
   double Clip::getDisplayTimeOffset(void) const
   {
     return _clipProps.propGetDouble(kOfxImageClipPropDisplayTimeOffset, false);
@@ -3321,7 +3321,7 @@ namespace OFX {
   }
 #endif
 
-  /** @brief Does this instance support Metal texture render (OFX 1.5) */
+  /** @brief Does this instance support Metal texture render (next OFX release, after 1.5.1) */
   void ImageEffect::setSupportsMetalTextureRender(bool v)
   {
     // host may not know this property: don't throw
@@ -4610,7 +4610,7 @@ namespace OFX {
           }
         }
 
-        // OFX 1.5, host optional
+        // next OFX release, after 1.5.1, host optional
         gHostDescription.supportsMetalTexture = hostProps.propGetString(kOfxImageEffectPropMetalTextureSupported, 0, false) == "true";
         {
             std::string originStr = hostProps.propGetString(kOfxImageEffectHostPropNativeOrigin, false); // appeared in OFX 1.4
@@ -4964,7 +4964,7 @@ namespace OFX {
       return inArgs.propGetString(kOfxImageEffectPropNoSpatialAwareness, 0, false) == "true";
     }
 
-    /** @brief kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5, optional in the inArgs) */
+    /** @brief kOfxImageEffectPropBehaviourWhenUnlicensed (next OFX release, after 1.5.1, optional in the inArgs) */
     static UnlicensedBehaviourEnum
       getBehaviourWhenUnlicensed(const OFX::PropertySet &inArgs)
     {
@@ -4984,7 +4984,7 @@ namespace OFX {
       args.isThumbnailRender = getIsThumbnailRender(inArgs);
       args.isNoSpatialAwareness = getIsNoSpatialAwareness(inArgs);
       args.behaviourWhenUnlicensed = getBehaviourWhenUnlicensed(inArgs);
-      // OFX 1.5 Metal textures: "This property is in the inArgs of kOfxImageEffectActionRender,
+      // Metal textures (next OFX release, after 1.5.1): "This property is in the inArgs of kOfxImageEffectActionRender,
       // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
       args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
       args.pMetalCommandQueue = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
@@ -5097,7 +5097,7 @@ namespace OFX {
       args.isThumbnailRender = getIsThumbnailRender(inArgs);
       args.isNoSpatialAwareness = getIsNoSpatialAwareness(inArgs);
       args.behaviourWhenUnlicensed = getBehaviourWhenUnlicensed(inArgs);
-      // OFX 1.5 Metal textures: "This property is in the inArgs of kOfxImageEffectActionRender,
+      // Metal textures (next OFX release, after 1.5.1): "This property is in the inArgs of kOfxImageEffectActionRender,
       // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
       args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
       args.pMetalCommandQueue = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
@@ -5150,7 +5150,7 @@ namespace OFX {
       ImageEffect *effectInstance = retrieveImageEffectPointer(handle);
 
       EndSequenceRenderArguments args;
-      // OFX 1.5 Metal textures: "This property is in the inArgs of kOfxImageEffectActionRender,
+      // Metal textures (next OFX release, after 1.5.1): "This property is in the inArgs of kOfxImageEffectActionRender,
       // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
       args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
       args.pMetalCommandQueue = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);

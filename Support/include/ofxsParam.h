@@ -124,14 +124,14 @@ namespace OFX {
 
 
     /** @brief Enumerates the different types of parameter */
-    /** @brief encoding of the values of a colour param (kOfxParamPropColourManagement, OFX 1.5.1) */
+    /** @brief encoding of the values of a colour param (kOfxParamPropColourManagement, next OFX release, after 1.5.1) */
     enum ColourManagementEnum {
         eColourManagementNone,    /**< kOfxParamColourManagementNone: legacy, unmanaged values (default) */
         eColourManagementManaged, /**< kOfxParamColourManagementManaged: ACES2065-1 (AP0) scene-linear values */
         eColourManagementSRGB     /**< kOfxParamColourManagementSRGB: sRGB values in [0..1], for UI/overlay colours */
     };
 
-    /** @brief default interpolation of a 1D int or double param (kOfxParamInterpType, OFX 1.5) */
+    /** @brief default interpolation of a 1D int or double param (kOfxParamInterpType, next OFX release, after 1.5.1) */
     enum InterpTypeEnum {
         eInterpTypeConstantStep, /**< kOfxParamInterpTypeConstantStep */
         eInterpTypeLinear,       /**< kOfxParamInterpTypeLinear (default) */
@@ -457,7 +457,7 @@ namespace OFX {
         friend class ParamSetDescriptor;
 
     public :
-        /** @brief set the default interpolation (kOfxParamInterpType, OFX 1.5), defaults to eInterpTypeLinear.
+        /** @brief set the default interpolation (kOfxParamInterpType, next OFX release, after 1.5.1), defaults to eInterpTypeLinear.
          Returns false if the host doesn't support it. */
         bool setInterpType(InterpTypeEnum v);
 
@@ -575,7 +575,7 @@ namespace OFX {
         friend class ParamSetDescriptor;
 
     public :
-        /** @brief set the default interpolation (kOfxParamInterpType, OFX 1.5), defaults to eInterpTypeLinear.
+        /** @brief set the default interpolation (kOfxParamInterpType, next OFX release, after 1.5.1), defaults to eInterpTypeLinear.
          Returns false if the host doesn't support it. */
         bool setInterpType(InterpTypeEnum v);
 
@@ -699,7 +699,7 @@ namespace OFX {
         // so it can make one
         friend class ParamSetDescriptor;
     public :
-        /** @brief declare how the values of this colour param are encoded (kOfxParamPropColourManagement, OFX 1.5.1).
+        /** @brief declare how the values of this colour param are encoded (kOfxParamPropColourManagement, next OFX release, after 1.5.1).
          Must be called at describe time. Returns false if the host doesn't support it: the plugin then
          MUST use eColourManagementNone (legacy, unmanaged) values. */
         bool setColourManagement(ColourManagementEnum v);
@@ -739,7 +739,7 @@ namespace OFX {
         // so it can make one
         friend class ParamSetDescriptor;
     public :
-        /** @brief declare how the values of this colour param are encoded (kOfxParamPropColourManagement, OFX 1.5.1).
+        /** @brief declare how the values of this colour param are encoded (kOfxParamPropColourManagement, next OFX release, after 1.5.1).
          Must be called at describe time. Returns false if the host doesn't support it: the plugin then
          MUST use eColourManagementNone (legacy, unmanaged) values. */
         bool setColourManagement(ColourManagementEnum v);

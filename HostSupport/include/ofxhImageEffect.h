@@ -379,7 +379,7 @@ namespace OFX {
         int getViewInvariance() const;
 #endif
 
-        /// is this plug-in obsolete (OFX 1.5 kOfxImageEffectPluginPropObsolete)
+        /// is this plug-in obsolete (kOfxImageEffectPluginPropObsolete, next OFX release, after 1.5.1)
         bool isObsolete() const;
 
 #ifdef OFX_EXTENSIONS_NATRON

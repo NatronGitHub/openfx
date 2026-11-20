@@ -46,12 +46,18 @@ Contains the core OFX architectural struct and function definitions. For more de
 /** @brief Platform independent export macro.
  *
  * This macro is to be used before any symbol that is to be
- * exported from a plug-in. This is OS/compiler dependent.
+ * exported from a plug-in.
+ * Ensures that the OFX entry points are exported, even when
+ * compiling with default-hidden symbol visibility.
+ * The definitions of OfxGetPlugin, OfxGetNumberOfPlugins and OfxSetHost in a
+ * plug-in need no specifier: they inherit it from the declarations below.
  */
 #if defined(_WIN32) || defined(WIN32) || defined(WIN64)
 	#define OfxExport extern __declspec(dllexport)
+#elif defined(__GNUC__) || defined(__clang__)
+	#define OfxExport extern __attribute__((visibility("default")))
 #else
-	#define OfxExport extern __attribute__ ((visibility ("default")))
+	#define OfxExport extern
 #endif
 
 /** @brief Blind data structure to manipulate sets of properties through */
@@ -363,6 +369,25 @@ These are the actions passed to a plug-in's 'main' function
  instance after its creation. It is there to allow a plugin to create any
  per-instance data structures it may need.
 
+ When a host creates a plugin instance from a saved project with a connected
+ clip, the host must either:
+
+  - connect all params and clips to an effect *before* calling createInstance,
+    and support the \ref OfxTimeLineSuite so the effect can call
+    \ref OfxTimeLineSuiteV1::getTime in createInstance (so the plugin can call
+    \ref OfxImageEffectSuiteV1::clipGetRegionOfDefinition),
+
+OR:
+
+  - call `instanceChanged` after `createInstance` and after the host has
+    hooked up all clips, with property \ref kOfxPropType = \ref kOfxTypeClip and
+    \ref kOfxPropChangeReason = \ref kOfxChangePluginEdited, and ensure that
+    \ref OfxImageEffectSuiteV1::clipGetRegionOfDefinition works in that action.
+
+ This fork uses \ref kOfxChangePluginEdited in both notes, here and in
+ \ref kOfxActionInstanceChanged (upstream main has \ref kOfxChangeUserEdited
+ here), as proposed in upstream openfx#294; this is what Natron does.
+
  @param  handle handle to the plug-in instance, cast to an \ref OfxImageEffectHandle
  @param  inArgs is redundant and is set to NULL
  @param  outArgs is redundant and is set to NULL
@@ -443,6 +468,14 @@ These are the actions passed to a plug-in's 'main' function
  \ref kOfxActionEndInstanceChanged actions. The ``inArgs`` property set is
  used to determine what was the thing inside the instance that was
  changed.
+
+ Note: when a host loads a plugin instance from a saved project, if the input
+ clips are not connected at that time, the host must call `instanceChanged`
+ after \ref kOfxActionCreateInstance and after the host has hooked up all clips, with
+ property \ref kOfxPropType = \ref kOfxTypeClip and \ref kOfxPropChangeReason =
+ \ref kOfxChangePluginEdited, and ensure that \ref OfxImageEffectSuiteV1::clipGetRegionOfDefinition works in
+ this action. (This fork follows upstream openfx#294: the same reason as in the
+ \ref kOfxActionCreateInstance note.)
 
  @param  handle handle to the plug-in instance, cast to an \ref OfxImageEffectHandle
  @param  inArgs has the following properties
@@ -1099,7 +1132,7 @@ General status codes start at 1 and continue until 999
 /*@}*/
 
 
-/** @name OFX 1.5 additions
+/** @name Additions of the next OFX release (after 1.5.1)
  Imported from the AcademySoftwareFoundation/openfx standard (main 4249fe1b).
  Values are identical to upstream, so that plug-ins and hosts built against
  either header set interoperate.

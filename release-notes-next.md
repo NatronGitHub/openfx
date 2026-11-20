@@ -86,6 +86,13 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 - Moved the 1.1 to 1.2 API changes chapter from the Reference section to the Release Notes section of the documentation.
 - Fixed broken links to the Programming Guide by Example (issue #229) and typos in the `ofxGPURender.h` and `ofxParam.h` comments (issues #42, #44).
 - Fixed about 60 broken cross-references in the Reference docs, including the "Properties on ..." links, which now go to the generated Property Sets reference, and the links to the multi-type parameter properties such as `kOfxParamPropDefault`. `Documentation/build.sh` no longer hides undefined-label warnings.
+- Synced docs and examples with upstream main (NatronGitHub/openfx#198):
+  - `include/ofxCore.h`: the project-load notes of upstream #184 are in the `kOfxActionCreateInstance` and `kOfxActionInstanceChanged` docs. Both use `kOfxChangePluginEdited`, as upstream openfx#294 proposes (upstream main has `kOfxChangeUserEdited` in the `kOfxActionCreateInstance` one).
+  - The `kOfxImageEffectPropSupportsTiles` doc says that an instance inherits the value set on the plug-in descriptor (#177).
+  - Version labels: the Support/ and HostSupport/ comments, and the group titles in `ofxCore.h`, `ofxImageEffect.h` and `ofxParam.h`, called the next-release features "OFX 1.5" or "OFX 1.5.1". They now say "next OFX release, after 1.5.1". These features are `kOfxImageEffectPluginPropObsolete`, `kOfxImageEffectPropMetalTextureSupported`/`Enabled`, `kOfxImageClipPropDisplayTimeOffset`, `kOfxImageEffectPropBehaviourWhenUnlicensed`, `kOfxParamPropColourManagement` and `kOfxParamInterpType`. None of them is in the `OFX_Release_1.5` or `OFX_Release_1.5.1` headers.
+  - `Examples/Rectangle`: the four RGBA defaults (0, 0, 0, 1) are set on the `colour` param. They used to be set on the Double2D `corner2`, which overwrote its (0.6, 0.6) default with (0, 0) (upstream #240).
+  - Examples: the per-example `EXPORT` macros are gone. The entry-point definitions inherit `OfxExport` from their declarations in `ofxCore.h`, as upstream #274 does. `OfxExport` is `extern __attribute__((visibility("default")))` for GCC and Clang only, and plain `extern` for other compilers, as upstream.
+  - `test_package/CMakeLists.txt` no longer forces C++17 (upstream #234). `cmake/OpenFX.cmake` sets the plug-ins' standard (`OFX_CXX_STANDARD`).
 
 ## Deprecations
 

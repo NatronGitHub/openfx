@@ -68,7 +68,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifdef OFX_SUPPORTS_OPENGLRENDER
 #include "ofxOpenGLRender.h"
 #endif
-#include "ofxGPURender.h" // OFX 1.5: CPU/Metal texture/OpenCL images render props
+#include "ofxGPURender.h" // CPU (OFX 1.5.1), Metal texture (next OFX release) and OpenCL images (OFX 1.5) render props
 #include "ofxColour.h" // OFX 1.5: colour management
 #include "ofxOld.h" // old plugins may rely on deprecated properties being present
 
@@ -159,7 +159,8 @@ namespace OFX {
         { kOfxImageEffectPropCanDistort, Property::eInt, 1, false, "0" },
         { kOfxImageEffectPropRenderAllPlanes, Property::eInt, 1, false, "0"},
 #endif
-        // OFX 1.5 / 1.5.1 plug-in descriptor properties, with their spec defaults.
+        // OFX 1.5 / 1.5.1 / next OFX release (after 1.5.1: kOfxImageEffectPluginPropObsolete,
+        // kOfxImageEffectPropMetalTextureSupported) plug-in descriptor properties, with their spec defaults.
         // These describe what the plug-in can do; they don't advertise any host capability.
         { kOfxImageEffectPluginPropObsolete, Property::eInt, 1, false, "0" },
         { kOfxImageEffectPluginPropOverlayInteractV2, Property::ePointer, 1, false, NULL },
@@ -683,7 +684,7 @@ namespace OFX {
         return ThumbnailRenderScope::isActive();
       }
 
-      /// OFX 1.5: kOfxImageEffectPropMetalTextureEnabled is in the inArgs of
+      /// next OFX release, after 1.5.1: kOfxImageEffectPropMetalTextureEnabled is in the inArgs of
       /// Render, BeginSequenceRender and EndSequenceRender (0: images are not Metal textures).
       static const Property::PropSpec ofx15MetalTextureArgs[] = {
         { kOfxImageEffectPropMetalTextureEnabled, Property::eInt, 1, true, "0" },
@@ -4891,7 +4892,8 @@ namespace OFX {
         { kOfxInteractHostPropSupportsKeyModifiers, Property::eInt, 1, true, "0" },
 #      endif
 #    endif
-        // OFX 1.5 / 1.5.1 host capabilities, with "not supported" defaults (a host
+        // OFX 1.5 / 1.5.1 / next OFX release (after 1.5.1: kOfxImageEffectPropMetalTextureSupported)
+        // host capabilities, with "not supported" defaults (a host
         // application that implements one of these sets it on its host descriptor).
         { kOfxImageEffectPropCPURenderSupported, Property::eString, 1, true, "true" },
         { kOfxImageEffectPropMetalTextureSupported, Property::eString, 1, true, "false" },

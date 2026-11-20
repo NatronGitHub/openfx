@@ -276,7 +276,7 @@ namespace OFX {
 
       /// clip instance properties that are stored values, without a get hook
       static const Property::PropSpec clipInstanceStoredStuffs[] = {
-        // OFX 1.5: "the frame number the host shows the user for time 0" (Default - 0).
+        // next OFX release, after 1.5.1: "the frame number the host shows the user for time 0" (Default - 0).
         // Hosts set it with getProps().setDoubleProperty().
         { kOfxImageClipPropDisplayTimeOffset, Property::eDouble, 1, true, "0" },
         Property::propSpecEnd
