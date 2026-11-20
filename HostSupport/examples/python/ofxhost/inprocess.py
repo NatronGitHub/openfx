@@ -599,11 +599,12 @@ class _Instance(ofxh.ImageEffectInstance):
         self.messages.append({"kind": "clearPersistentMessage", "type": "", "id": "", "text": ""})
 
     def progress_start(self, message, id):
-        self.progress.append({"message": message, "id": id, "updates": 0, "lastValue": 0., "ended": False})
+        self.progress.append({"message": message, "id": id, "updates": 0, "lastValue": 0., "ended": False, "ends": 0})
 
     def progress_end(self):
         if self.progress:
             self.progress[-1]["ended"] = True
+            self.progress[-1]["ends"] += 1  # (the number of progressEnd calls, as hostDemo)
 
     def progress_update(self, t):
         if self.progress:
@@ -1314,7 +1315,7 @@ def _run(dirs, plugin_id, context, specs, assignments, depth, frames, scale, win
                 p["secret"] = bool(props.get("OfxParamPropSecret", (0,))[0])
             report["messages"] = list(inst.messages)
             report["progress"] = [{"message": p["message"], "id": p["id"], "started": True, "ended": p["ended"],
-                                   "updates": p["updates"], "lastValue": p["lastValue"] if p["updates"] > 0 else None}
+                                   "ends": p["ends"], "updates": p["updates"], "lastValue": p["lastValue"] if p["updates"] > 0 else None}
                                   for p in inst.progress]
     report["ok"] = ret == 0
     report["exitStatus"] = ret

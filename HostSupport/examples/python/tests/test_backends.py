@@ -171,6 +171,14 @@ def test_buttons_and_messages(both):
     assert [m["text"] for m in i.report["messages"]] == ["Keys test passed"]
 
 
+def test_progress(both):
+    """The progress records (each field: the report comparison checks the keys too): Tester calls
+    progressStart, progressUpdate and progressEnd in each render."""
+    s, i = _compare(both, TESTER, inputs={"Source": rgba(8, 8)}, frames=[0, 1, 2])
+    assert len(i.report["progress"]) == len(i.report["renders"]) >= 2
+    assert i.report["progress"] == s.report["progress"]
+
+
 def test_refused_images(both):
     """Each image too large for hostDemo (more than 2^28 pixels) is an image fetch error, with its
     message, as in hostDemo: the Tester's analyse button fetches its Source at each frame of its
