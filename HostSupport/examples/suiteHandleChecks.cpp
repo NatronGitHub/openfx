@@ -774,6 +774,17 @@ int main()
     check("memoryAlloc(100) = kOfxStatOK", mem->memoryAlloc(NULL, 100, &p) == kOfxStatOK && p != NULL);
     // "Allocated memory will be aligned for any use."
     check("memoryAlloc: aligned for any use", p && (size_t)p % 16 == 0);
+    // the header is 64 bytes: the data pointer and malloc()'s pointer agree modulo 64, so a large
+    // block keeps the page (or 64-byte) alignment that malloc() gives it
+    void *big = NULL;
+    const size_t bigSize = 4 << 20;
+    check("memoryAlloc(4 MB) = kOfxStatOK", mem->memoryAlloc(NULL, bigSize, &big) == kOfxStatOK && big != NULL);
+    if (big) {
+      void *m = std::malloc(bigSize + 64); // what malloc() gives a block of that size
+      check("memoryAlloc(4 MB): the same alignment modulo 64 as malloc()", m && (size_t)big % 64 == (size_t)m % 64);
+      std::free(m);
+      check("memoryFree(4 MB) = kOfxStatOK", mem->memoryFree(big) == kOfxStatOK);
+    }
     if (p) {
       std::memset(p, 0, 100);
       // a pointer inside the block (zeros before it), not returned by memoryAlloc
