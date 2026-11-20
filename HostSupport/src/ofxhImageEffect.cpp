@@ -4509,6 +4509,11 @@ namespace OFX {
             return kOfxStatErrBadHandle;
           me->progressEnd();
           return kOfxStatOK;
+        } catch (const OFX::Host::Property::Exception& e) {
+          // a host's progressEnd() may throw kOfxStatErrBadHandle, e.g. when no progress was
+          // started: "kOfxStatErrBadHandle - the progress handle was invalid" (ofxProgress.h). The
+          // spec lists no other error status: any other one is kOfxStatFailed, as below
+          return e.getStatus() == kOfxStatErrBadHandle ? kOfxStatErrBadHandle : kOfxStatFailed;
         } catch (...) {
           // C++ exceptions must not propagate into the plug-in
           return kOfxStatFailed;
@@ -4525,6 +4530,12 @@ namespace OFX {
             return kOfxStatErrBadHandle;
           bool v = me->progressUpdate(progress);
           return v ? kOfxStatOK : kOfxStatReplyNo;
+        } catch (const OFX::Host::Property::Exception& e) {
+          // a host's progressUpdate() may throw kOfxStatErrBadHandle, e.g. when no progress was
+          // started: "kOfxStatErrBadHandle - the progress handle was invalid" (ofxProgress.h), not
+          // kOfxStatReplyNo, which tells the plug-in to abort. The spec lists no other error
+          // status: any other one is kOfxStatFailed, as below
+          return e.getStatus() == kOfxStatErrBadHandle ? kOfxStatErrBadHandle : kOfxStatFailed;
         } catch (...) {
           // C++ exceptions must not propagate into the plug-in
           return kOfxStatFailed;
@@ -4574,11 +4585,15 @@ namespace OFX {
           Instance *me = effectHandleToInstance(effectInstance);
           if (!me)
             return kOfxStatErrBadHandle;
-          // "kOfxStatErrValue - the time was an illegal value"
-          if (OFX::IsNaN(time))
+          // "kOfxStatErrValue - the time was an illegal value" (ofxTimeLine.h): NaN and +-infinity
+          if (OFX::IsNaN(time) || OFX::IsInfinite(time))
             return kOfxStatErrValue;
           me->timeLineGotoTime(time);
           return kOfxStatOK;
+        } catch (const OFX::Host::Property::Exception& e) {
+          // a host's timeLineGotoTime() may throw kOfxStatErrValue for a time it can't go to
+          // (e.g. out of the range of its frame numbers); any other status is kOfxStatFailed
+          return e.getStatus() == kOfxStatErrValue ? kOfxStatErrValue : kOfxStatFailed;
         } catch (...) {
           // "kOfxStatFailed - the change failed for some host specific reason"
           return kOfxStatFailed;
