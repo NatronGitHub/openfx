@@ -71,6 +71,11 @@ namespace OFX {
       /** @brief call this to kick off multi threading
 
       The nCPUs is 0, the maximum allowable number of CPUs will be used.
+
+      Called from a thread spawned by multiThread (e.g. from the multiThreadFunction() of
+      another Processor), it runs multiThreadFunction(0, 1) in the calling thread, because
+      the spec forbids recursive multiThread calls. getThreadIndex() then still returns the
+      outer thread's index, so don't use it to index per-thread data of the inner Processor.
       */
       virtual void multiThread(unsigned int nCPUs = 0);
     };
