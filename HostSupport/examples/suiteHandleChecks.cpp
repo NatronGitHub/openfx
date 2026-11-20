@@ -787,8 +787,8 @@ int main()
     }
     if (p) {
       std::memset(p, 0, 100);
-      // a pointer inside the block (zeros before it), not returned by memoryAlloc
-      check("memoryFree(inside a block) = kOfxStatErrBadHandle", mem->memoryFree((char *)p + 32) == kOfxStatErrBadHandle);
+      // 64 bytes into the block, not returned by memoryAlloc: its "header" is p[0..63], zeroed above
+      check("memoryFree(inside a block) = kOfxStatErrBadHandle", mem->memoryFree((char *)p + 64) == kOfxStatErrBadHandle);
       check("memoryFree(memoryAlloc's pointer) = kOfxStatOK", mem->memoryFree(p) == kOfxStatOK);
     }
     p = NULL;
@@ -797,8 +797,9 @@ int main()
     check("memoryAlloc(too large) = kOfxStatErrMemory, NULL", mem->memoryAlloc(NULL, (size_t)-1, &p) == kOfxStatErrMemory && p == NULL);
     check("memoryAlloc(NULL output) = kOfxStatErrBadHandle", mem->memoryAlloc(NULL, 1, NULL) == kOfxStatErrBadHandle);
     check("memoryFree(NULL) = kOfxStatErrBadHandle", mem->memoryFree(NULL) == kOfxStatErrBadHandle);
-    std::vector<double> notABlock(8, 0.);
-    check("memoryFree(not from memoryAlloc) = kOfxStatErrBadHandle", mem->memoryFree(&notABlock[4]) == kOfxStatErrBadHandle);
+    // 64 bytes into a zeroed buffer: the 64-byte "header" before it is inside the buffer
+    std::vector<double> notABlock(16, 0.);
+    check("memoryFree(not from memoryAlloc) = kOfxStatErrBadHandle", mem->memoryFree(&notABlock[8]) == kOfxStatErrBadHandle);
   }
 
   // the C fetchSuite of the host
