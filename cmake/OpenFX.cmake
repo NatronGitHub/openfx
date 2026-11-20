@@ -797,7 +797,7 @@ endfunction()
 #     PLUGIN <name> SOURCES <file>... [ID <identifier>] [REGISTER <function>...]
 #            [RESOURCES <item>...] [INFO_PLIST <file>]
 #            [LINK_LIBRARIES <lib>...] [COMPILE_DEFINITIONS <def>...] [COMPILE_OPTIONS <opt>...]
-#            [INCLUDE_DIRECTORIES <dir>...] [OPENMP] [COMBINED_ONLY | SEPARATE_ONLY]
+#            [INCLUDE_DIRECTORIES <dir>...] [OPENMP] [COMBINED_ONLY | SEPARATE_ONLY] [NO_ID_CHECK]
 #            [PROPERTIES <property> <value>...]... [OUT_TARGET <var>]
 #     [PLUGIN <name> ...]...)
 #
@@ -829,7 +829,9 @@ endfunction()
 # - COMMON_LINK_LIBRARIES, _COMPILE_DEFINITIONS, _COMPILE_OPTIONS and _INCLUDE_DIRECTORIES apply to
 #   every bundle, COMMON_RPATH and COMMON_EXPORT_SYMBOLS are add_ofx_plugin's RPATH and
 #   EXPORT_SYMBOLS of every bundle; a plug-in's LINK_LIBRARIES and INCLUDE_DIRECTORIES apply to the
-#   bundles that contain it (a combined bundle gets the union); its COMPILE_DEFINITIONS and
+#   bundles that contain it (a combined bundle gets the union, so a combined build searches every
+#   plug-in's include directories: header names must be unique across them, or it silently uses
+#   the first plug-in's header); its COMPILE_DEFINITIONS and
 #   COMPILE_OPTIONS to its own SOURCES only (source file properties, also seen by other targets of
 #   the directory that compile these files; not for generator-expression sources). A source listed
 #   by several plug-ins is compiled once per bundle, and these plug-ins must give it the same
@@ -857,7 +859,7 @@ endfunction()
 #   two with ALSO_SEPARATE); OUT_COMMON_TARGET: the OBJECT library of COMMON_SOURCES, if any.
 # - Best-effort configure-time checks: a warning if a plug-in source defines OFX::Plugin::getPluginIDs
 #   (it would clash with the Support library's), or if no string literal of the plug-in's sources
-#   starts with its explicit ID.
+#   (or of the headers in their directories) starts with its explicit ID; NO_ID_CHECK skips that.
 # Documentation/proposals/cmake-plugins.md has an example.
 function(ofx_plugin_bundle_group GROUP)
   set(_ctx "ofx_plugin_bundle_group(${GROUP})")
@@ -928,7 +930,7 @@ function(ofx_plugin_bundle_group GROUP)
 
   # the plug-ins: _p<i>_<field>
   set(_kws SOURCES ID REGISTER RESOURCES INFO_PLIST LINK_LIBRARIES COMPILE_DEFINITIONS COMPILE_OPTIONS
-           INCLUDE_DIRECTORIES OPENMP COMBINED_ONLY SEPARATE_ONLY PROPERTIES OUT_TARGET)
+           INCLUDE_DIRECTORIES OPENMP COMBINED_ONLY SEPARATE_ONLY NO_ID_CHECK PROPERTIES OUT_TARGET)
   # PROPERTIES may not use these names: the keywords, and the bookkeeping properties of the
   # helpers that add sources to a target (supportext_add_sources, ioSupport_add_sources), which
   # skip the components listed there
@@ -981,7 +983,7 @@ function(ofx_plugin_bundle_group GROUP)
     if(_state STREQUAL "name")
       message(FATAL_ERROR "${_ctx}: PLUGIN ${_name}: PROPERTIES without a property name")
     endif()
-    cmake_parse_arguments(P "OPENMP;COMBINED_ONLY;SEPARATE_ONLY" "ID;INFO_PLIST;OUT_TARGET"
+    cmake_parse_arguments(P "OPENMP;COMBINED_ONLY;SEPARATE_ONLY;NO_ID_CHECK" "ID;INFO_PLIST;OUT_TARGET"
       "SOURCES;REGISTER;RESOURCES;LINK_LIBRARIES;COMPILE_DEFINITIONS;COMPILE_OPTIONS;INCLUDE_DIRECTORIES"
       ${_rest})
     if(P_UNPARSED_ARGUMENTS)
@@ -1020,7 +1022,10 @@ function(ofx_plugin_bundle_group GROUP)
       endif()
     endforeach()
     set(_p${_i}_id "${_id}")
-    set(_p${_i}_explicit_id "${P_ID}")
+    set(_p${_i}_explicit_id "")
+    if(NOT P_NO_ID_CHECK)
+      set(_p${_i}_explicit_id "${P_ID}") # (only for the ID check)
+    endif()
     _ofx_group_abs_paths(_p${_i}_sources ${P_SOURCES})
     list(REMOVE_DUPLICATES _p${_i}_sources)
     _ofx_group_abs_paths(_p${_i}_incs ${P_INCLUDE_DIRECTORIES})
@@ -1275,8 +1280,35 @@ function(_ofx_group_source_checks I)
       endif()
     endif()
   endforeach()
+  # also the headers next to the sources (e.g. a kPluginIdentifier in CImg/Erode/CImgErodeDilate.h)
   if(_p${I}_explicit_id AND NOT _id_found)
-    message(WARNING "${_ctx}: PLUGIN ${_name}: no string literal of its SOURCES starts with the ID \"${_p${I}_explicit_id}\" (it should name the plug-in, e.g. the start of its kPluginIdentifier)")
+    set(_dirs "")
+    foreach(_s IN LISTS _p${I}_sources)
+      if(NOT _s MATCHES "^\\$<")
+        get_filename_component(_d "${_s}" DIRECTORY)
+        list(APPEND _dirs "${_d}")
+      endif()
+    endforeach()
+    if(_dirs)
+      list(REMOVE_DUPLICATES _dirs)
+    endif()
+    foreach(_d IN LISTS _dirs)
+      file(GLOB _hdrs LIST_DIRECTORIES false "${_d}/*.h" "${_d}/*.hpp" "${_d}/*.hxx" "${_d}/*.H")
+      foreach(_h IN LISTS _hdrs)
+        file(READ "${_h}" _content)
+        string(FIND "${_content}" "\"${_p${I}_explicit_id}" _pos)
+        if(NOT _pos EQUAL -1)
+          set(_id_found TRUE)
+          break()
+        endif()
+      endforeach()
+      if(_id_found)
+        break()
+      endif()
+    endforeach()
+  endif()
+  if(_p${I}_explicit_id AND NOT _id_found)
+    message(WARNING "${_ctx}: PLUGIN ${_name}: no string literal of its SOURCES, or of the headers in their directories, starts with the ID \"${_p${I}_explicit_id}\" (it should name the plug-in, e.g. the start of its kPluginIdentifier; NO_ID_CHECK skips this check)")
   endif()
 endfunction()
 
@@ -1359,11 +1391,13 @@ function(_ofx_group_bundle TGT BUNDLE PLIST KIND)
   if(TARGET ${TGT})
     message(FATAL_ERROR "${_ctx}: the target ${TGT} already exists")
   endif()
+  # (case-insensitive: the file systems of macOS and Windows usually are)
   get_property(_bundles GLOBAL PROPERTY _OFX_GROUP_BUNDLES)
-  if(BUNDLE IN_LIST _bundles)
+  string(TOLOWER "${BUNDLE}" _lbundle)
+  if(_lbundle IN_LIST _bundles)
     message(FATAL_ERROR "${_ctx}: the bundle ${BUNDLE}.ofx.bundle is already made by another group")
   endif()
-  set_property(GLOBAL APPEND PROPERTY _OFX_GROUP_BUNDLES ${BUNDLE})
+  set_property(GLOBAL APPEND PROPERTY _OFX_GROUP_BUNDLES ${_lbundle})
 
   # Info.plist: checked with the values add_ofx_plugin configures it with
   if(KIND STREQUAL "COMBINED")

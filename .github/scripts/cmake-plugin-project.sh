@@ -260,6 +260,7 @@ resource-clash-case|two resources go to Contents/Resources/
 destination-outside|must be a relative subdirectory
 destination-missing|DESTINATION without a subdirectory
 target-exists|the target A already exists
+bundle-name-case|the bundle t.a.ofx.bundle is already made by another group
 settings-conflict|with different COMPILE_DEFINITIONS
 also-separate-unknown|ALSO_SEPARATE C: no such PLUGIN
 also-separate-combined-only|the plug-in is COMBINED_ONLY
@@ -275,6 +276,8 @@ warnings|warn.cpp seems to define OFX::Plugin::getPluginIDs
 warnings|!warn3.cpp seems to define
 warnings|starts with the ID "t.NotInTheSources"
 warnings|!starts with the ID "t.B"
+warnings|!starts with the ID "t.NoCheck"
+warnings|!starts with the ID "t.InHeader"
 warnings|A.plist is not used
 warnings|is a generator expression
 EOT

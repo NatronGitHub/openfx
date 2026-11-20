@@ -84,6 +84,7 @@ ofx_plugin_bundle_group(<group>
     [LINK_LIBRARIES <lib>...] [COMPILE_DEFINITIONS <def>...] [COMPILE_OPTIONS <opt>...] [INCLUDE_DIRECTORIES <dir>...]
     [OPENMP]
     [COMBINED_ONLY | SEPARATE_ONLY]
+    [NO_ID_CHECK]                     # no warning about the ID (see Registration)
     [PROPERTIES <property> <value>...]...  # custom properties, appended to the targets that contain the plug-in
     [OUT_TARGET <var>]                # the targets that contain the plug-in
   [PLUGIN <name> ...]...)
@@ -103,14 +104,14 @@ ofx_plugin_bundle_group(<group>
   - a separate bundle's target and install component are the short PLUGIN `<name>` (e.g. `cmake --install build --component DenoiseSharpen`), the combined bundle's are `<COMBINED_NAME>`;
   - the dotted bundle name is the target's `OUTPUT_NAME` and `OFX_BUNDLE_NAME`;
   - a group with one plug-in may use the plug-in's name as the group name (e.g. `Shadertoy`): the target is then `Shadertoy` in both modes. A `COMBINED_NAME` that is also the target of a plug-in's separate bundle in either mode (the plug-in is `ALSO_SEPARATE` or `SEPARATE_ONLY`, or the group has `COMBINED_ONLY` plug-ins) is an error in both modes;
-  - also errors: a target name that already exists, a bundle name made by another group, two PLUGINs with the same name or identifier, a PLUGIN without SOURCES, and an unknown `ALSO_SEPARATE` name.
+  - also errors: a target name that already exists, a bundle name made by another group (compared without case), two PLUGINs with the same name or identifier, a PLUGIN without SOURCES, and an unknown `ALSO_SEPARATE` name.
 - **Registration:**
   - Support plug-ins register their factories with `mRegisterPluginFactoryInstance` (a static `OFX::PluginFactories` object), and the Support library's own `OFX::Plugin::getPluginIDs` does nothing. Linking a plug-in's sources into a bundle is then enough, in both modes, with no generated file. Every plug-in of openfx-misc, openfx-io and openfx-arena works this way.
   - `REGISTER <function>...` is for plug-ins that register by hand: functions `void f(OFX::PluginFactoryArray &ids)` that `push_back` their factories (namespaces allowed: `MyNS::getMyPluginIDs`). For each bundle that has such plug-ins, a generated source calls their functions in declaration order, at static initialization, into the Support library's automatic registration (`OFX::PluginFactories::plugIDs()`, the list that `mRegisterPluginFactoryInstance` fills).
   - The generated source doesn't define `OFX::Plugin::getPluginIDs`, which the Support library already defines (the CMake build never uses `OFXS_MANUAL_REGISTRATION`). So it needs `openfx::Support`, and works with the installed library as it is. `REGISTER OFX::Plugin::getPluginIDs` is an error.
   - REGISTER and self-registering plug-ins may be mixed in one bundle. The order between the two kinds is the static initialization order, which is unspecified; hosts don't depend on it.
   - A plug-in source that defines `getPluginIDs` (the old manual registration) gives a configure warning, since it would be a duplicate symbol with the Support library's: rename the function and pass it to `REGISTER`. There is no warning when the plug-in has a `REGISTER` function of that name in another namespace (`MyNS::getPluginIDs`).
-  - An explicit `ID` with which no string literal of the plug-in's sources starts gives a warning. `"net.sf.openfx.MergePlugin"` matches the ID `net.sf.openfx.Merge`. Both checks are best-effort text searches.
+  - An explicit `ID` with which no string literal of the plug-in's sources, or of the headers in their directories (e.g. openfx-misc's `CImg/Erode/CImgErodeDilate.h`), starts gives a warning. `NO_ID_CHECK` skips it for that plug-in. `"net.sf.openfx.MergePlugin"` matches the ID `net.sf.openfx.Merge`. Both checks are best-effort text searches.
 - **Sources:**
   - a plug-in's sources are compiled into each bundle target that contains it, never through a static archive, whose unreferenced objects (and so the static registrations) the linker would drop;
   - a source listed by several plug-ins is added once to a combined bundle, e.g. openfx-misc's `CImg/CImgFilter.cpp`, listed by every CImg entry;
@@ -122,7 +123,7 @@ ofx_plugin_bundle_group(<group>
   - they get no per-plug-in flags. A helper that must be compiled with a plug-in's definitions (e.g. `OFX_EXTENSIONS_*`, or a feature macro that changes a class layout) would break the one-definition rule there: list it in that plug-in's `SOURCES` instead (it is then compiled once per bundle).
 - **Compile and link settings:**
   - `COMMON_*` apply to every bundle and to the common objects. `COMMON_RPATH` and `COMMON_EXPORT_SYMBOLS` are `add_ofx_plugin`'s `RPATH` and `EXPORT_SYMBOLS` for every bundle, e.g. openfx-io's in-tree SeExpr directory;
-  - a plug-in's `LINK_LIBRARIES` and `INCLUDE_DIRECTORIES` apply to the bundles that contain it (a combined bundle gets the union, each once). So a source shared by plug-ins, such as `CImgFilter.cpp` or `randomGenerator.cpp`, sees all of them;
+  - a plug-in's `LINK_LIBRARIES` and `INCLUDE_DIRECTORIES` apply to the bundles that contain it (a combined bundle gets the union, each once). So a source shared by plug-ins, such as `CImgFilter.cpp` or `randomGenerator.cpp`, sees all of them. It also means that a combined bundle searches every plug-in's include directories: header names must be unique across them, or the combined build silently uses the first plug-in's header (e.g. two `Common.h`, one in each plug-in's directory). The separate builds, which see one plug-in's directories each, won't show it;
   - a plug-in's `COMPILE_DEFINITIONS` and `COMPILE_OPTIONS` apply to its own `SOURCES` only, in both modes, as source file properties:
     - other targets of the same directory that compile these files see them too;
     - sources added to the target later (e.g. by `supportext_add_sources`) don't;

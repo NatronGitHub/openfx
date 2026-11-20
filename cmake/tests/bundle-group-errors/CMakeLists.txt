@@ -51,12 +51,18 @@ elseif(_case STREQUAL "ok-same-name") # succeeds: a group of one plug-in of the 
   ofx_plugin_bundle_group(S PLUGIN S ID t.S SOURCES warn.cpp)
   set(OFX_PLUGIN_BUNDLES_C COMBINED)
   ofx_plugin_bundle_group(C PLUGIN C ID t.C SOURCES warn2.cpp)
+elseif(_case STREQUAL "bundle-name-case") # "the bundle t.a.ofx.bundle is already made by another group"
+  set(OFX_PLUGIN_BUNDLES SEPARATE)
+  ofx_plugin_bundle_group(G1 PLUGIN A ID t.A SOURCES warn.cpp)
+  ofx_plugin_bundle_group(G2 PLUGIN B ID t.a SOURCES warn2.cpp)
 elseif(_case STREQUAL "warnings") # succeeds, with warnings (the INFO_PLIST one in COMBINED mode)
   file(WRITE "${CMAKE_BINARY_DIR}/A.plist" "<plist><dict><key>CFBundleExecutable</key><string>A.ofx</string></dict></plist>\n")
   ofx_plugin_bundle_group(G
     PLUGIN A ID t.NotInTheSources SOURCES warn.cpp $<$<CONFIG:Debug>:warn2.cpp> COMPILE_DEFINITIONS X
       INFO_PLIST "${CMAKE_BINARY_DIR}/A.plist"
-    PLUGIN B ID t.B SOURCES warn3.cpp REGISTER ns::getPluginIDs)
+    PLUGIN B ID t.B SOURCES warn3.cpp REGISTER ns::getPluginIDs
+    PLUGIN C ID t.NoCheck SOURCES warn2.cpp NO_ID_CHECK # no ID warning
+    PLUGIN D ID t.InHeader SOURCES hdr/id.cpp)           # the ID is in hdr/id.h: no ID warning
 else()
   message(FATAL_ERROR "unknown OFX_TEST_CASE '${_case}'")
 endif()
