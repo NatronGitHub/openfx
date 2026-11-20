@@ -66,7 +66,9 @@ class Clip(ofxh.ClipInstance):
 
 
 class Instance(ofxh.ImageEffectInstance):
-    """The effect instance: the project, and the clips."""
+    """The effect instance: the project, and the clips. The parameters keep the default of
+    new_param(): ofxh's C++ parameters, which store their values and keys (return an ofxh.Param
+    subclass instead to hold one in Python)."""
 
     def __init__(self, inputs):
         super().__init__()

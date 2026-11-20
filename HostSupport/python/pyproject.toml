@@ -1,0 +1,45 @@
+# The ofxh module (the HostSupport Python bindings, NatronGitHub/openfx#136) as a Python package:
+#   pip install ./HostSupport/python
+# scikit-build-core runs CMakeLists.txt of this directory, which adds the openfx tree (../..)
+# and builds only HostSupport and the module, for the interpreter's architecture. It needs a C++17
+# compiler, CMake >= 3.21 and expat (the system's, as the openfx build), and installs the module
+# alone (ofxh.*.so, which imports numpy). To use the build
+# requirements already installed (e.g. MacPorts py311-nanobind and py311-scikit-build-core):
+#   pip install --no-build-isolation ./HostSupport/python
+# The openfx options keep their defaults (the Natron, Nuke, Vegas and TuttleOFX extensions on,
+# Resolve off; macOS 14.0 unless MACOSX_DEPLOYMENT_TARGET is set); change them with, e.g.,
+#   pip install -C cmake.define.OFX_EXTENSIONS_VEGAS=OFF ./HostSupport/python
+# Supported on macOS and Linux only: on Windows, the wheel wouldn't bundle the DLLs the module
+# needs (expat, the compiler's runtime); build it there in the openfx tree (-DOFX_PYTHON_BINDINGS=ON).
+# A wheel meant for other machines must be built with MACOSX_DEPLOYMENT_TARGET=14.0 (VFX Reference
+# Platform CY2027): otherwise scikit-build-core tags it with the build machine's macOS (the build
+# defaults to 14.0 in CMakeLists.txt only when MACOSX_DEPLOYMENT_TARGET is unset).
+# The tests (HostSupport/python/tests) need the sample plug-ins and hostDemo of an openfx build:
+# set OFX_TEST_PLUGIN_PATH and OFXHOST_HOSTDEMO.
+
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0,<4"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "ofxh"
+version = "0.2.0"
+description = "Python bindings of the OpenFX HostSupport library: OFX hosts in Python, in-process"
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/NatronGitHub/openfx"
+
+[tool.scikit-build]
+minimum-version = "0.10"
+cmake.version = ">=3.21"
+cmake.build-type = "Release"
+# the module only (installed by CMakeLists.txt at the top of the wheel), no Python package. The
+# build directory is temporary (-C build-dir=<dir> to keep it). An sdist can't hold the openfx
+# tree around this directory: install from a checkout.
+wheel.packages = []

@@ -55,7 +55,8 @@ the HostSupport Python bindings (the `ofxh` module, built with `-DOFX_PYTHON_BIN
 NatronGitHub/openfx#136). It renders one frame of a plug-in on one input, and is a template:
 which classes to subclass, and what each override does
 (`PYTHONPATH=<build>/HostSupport/python python minimal_host.py <plugin dir> <plugin id> in.npy out.npy`).
-Its tests are in `HostSupport/python/tests`.
+The module can also be installed alone, with `pip install ./HostSupport/python`
+(`HostSupport/python/pyproject.toml`, scikit-build-core). Its tests are in `HostSupport/python/tests`.
 
 ## hostDemo file formats
 

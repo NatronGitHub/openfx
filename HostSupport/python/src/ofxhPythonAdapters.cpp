@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include <thread>
 
 #include "ofxMessage.h"
 #include "ofxParametricParam.h"  // kOfxParamTypeParametric
@@ -35,6 +36,7 @@ void raiseDeleted(const char *what)
 
 PyHost *HostBase::get() const
 {
+  checkThread("ofxh", false);
   if (!ref->p) {
     raiseDeleted("ofxh.Host");
   }
@@ -43,6 +45,7 @@ PyHost *HostBase::get() const
 
 PyEffectInstance *InstanceBase::get() const
 {
+  checkThread("ofxh", false);
   if (!ref->p) {
     raiseDeleted("ofxh.ImageEffectInstance");
   }
@@ -51,6 +54,7 @@ PyEffectInstance *InstanceBase::get() const
 
 PyClipInstance *ClipBase::get() const
 {
+  checkThread("ofxh", false);
   if (!ref->p) {
     raiseDeleted("ofxh.ClipInstance");
   }
@@ -75,21 +79,80 @@ nb::object numpy()
 
 nb::object stat(OfxStatus s) { return globals().statFn(s); }
 
-/// the first error saved by the callbacks since the innermost ActionScope (heap-allocated, see
-/// globals())
-static nb::object &pendingError()
+// The scopes and their errors.
+// - The owner thread: the thread of the open scopes of the bindings called from Python (the
+//   actions run there, with the GIL released). Its scopes share one pending error (ownerPending).
+// - A worker thread: another thread, inside a callback (a plug-in's thread that called the host
+//   during an action). Its scopes (the non-action bindings, OFXH_SCOPED) have their own pending
+//   error and depth (thread_local), so that the scopes of two workers don't interleave. An error
+//   of a worker's callback outside its own scopes goes to the owner's pending error: the action
+//   raises it.
+// All of this is touched with the GIL only. The pending errors are raw references (PyObject *):
+// a thread_local nb::object would be destroyed at the thread's exit, without the GIL.
+
+/// the pending error of the owner thread's innermost scope (a new reference, or NULL)
+static PyObject *&ownerPending()
 {
-  static nb::object *e = new nb::object;
-  return *e;
+  static PyObject *e = NULL;
+  return e;
 }
 
-static int &scopeDepth()
+/// the pending error of this worker thread's innermost scope
+static PyObject *&workerPending()
+{
+  static thread_local PyObject *e = NULL;
+  return e;
+}
+
+/// the open scopes of the owner thread
+static int &ownerDepth()
 {
   static int d = 0;
   return d;
 }
 
-int ActionScope::depth() { return scopeDepth(); }
+/// the open scopes of this thread (owner or worker)
+static int &threadDepth()
+{
+  static thread_local int d = 0;
+  return d;
+}
+
+static std::thread::id &ownerThread()
+{
+  static std::thread::id t;
+  return t;
+}
+
+/// is a scope open on the owner thread, and is this another thread?
+static bool foreignThread() { return ownerDepth() > 0 && ownerThread() != std::this_thread::get_id(); }
+
+int ActionScope::depth() { return threadDepth(); }
+
+bool ActionScope::running() { return ownerDepth() > 0; }
+
+bool ActionScope::onWorker() { return foreignThread(); }
+
+int &CallbackDepth::depth()
+{
+  static thread_local int d = 0;
+  return d;
+}
+
+void checkThread(const char *what, bool action)
+{
+  if (!foreignThread()) {
+    return;
+  }
+  if (CallbackDepth::depth() == 0) {
+    raiseError(PyExc_RuntimeError, std::string(what) + ": an action is running in another thread (ofxh is not "
+                                   "thread-safe: call it from one thread)");
+  }
+  if (action) {
+    raiseError(PyExc_RuntimeError, std::string(what) + ": a plug-in's worker thread may only call the bindings that "
+                                   "don't run an action or change a value (an action is running in another thread)");
+  }
+}
 
 /// a callback failed outside any action: nobody can raise its error, report it
 static void reportUnraisable(nb::handle exc)
@@ -98,14 +161,28 @@ static void reportUnraisable(nb::handle exc)
   PyErr_WriteUnraisable(nb::str("ofxh: a host callback called outside an action").ptr());
 }
 
+/// the pending error of this thread's innermost open scope (NULL: none open)
+static PyObject **&currentSlot()
+{
+  static thread_local PyObject **s = NULL;
+  return s;
+}
+
 void saveError(nb::handle exc)
 {
-  if (scopeDepth() == 0) {
+  PyObject **slot = NULL;
+  if (threadDepth() > 0) {
+    // (the slot of this thread's scope: a worker whose scope outlives the owner's keeps its own)
+    slot = currentSlot();
+  } else if (ownerDepth() > 0) {
+    slot = &ownerPending();  // (a worker's callback outside its own scopes: the action raises it)
+  } else {
     reportUnraisable(exc);
     return;
   }
-  if (!pendingError().is_valid()) {
-    pendingError() = nb::borrow(exc);
+  if (!*slot) {
+    Py_INCREF(exc.ptr());
+    *slot = exc.ptr();
   }
 }
 
@@ -119,12 +196,30 @@ void saveError(const char *message)
   saveError(e);
 }
 
-ActionScope::ActionScope()
-  : _saved(std::move(pendingError()))
+ActionScope::ActionScope(bool fromWorker)
+  : _saved(NULL)
+  , _slot(NULL)
+  , _prevSlot(NULL)
+  , _owner(true)
   , _done(false)
 {
-  pendingError() = nb::object();
-  ++scopeDepth();
+  if (foreignThread()) {
+    // (raises unless fromWorker and inside a callback)
+    checkThread(fromWorker ? "ofxh" : "ofxh action", !fromWorker);
+    _owner = false;
+    _slot = &workerPending();
+  } else {
+    if (ownerDepth() == 0) {
+      ownerThread() = std::this_thread::get_id();
+    }
+    ++ownerDepth();
+    _slot = &ownerPending();
+  }
+  _saved = *_slot;
+  *_slot = NULL;
+  _prevSlot = currentSlot();
+  currentSlot() = _slot;
+  ++threadDepth();
 }
 
 ActionScope::~ActionScope() { discard(); }
@@ -133,16 +228,23 @@ void ActionScope::discard()
 {
   if (!_done) {
     _done = true;
-    --scopeDepth();
-    pendingError() = std::move(_saved);
+    --threadDepth();
+    currentSlot() = _prevSlot;
+    if (_owner) {
+      --ownerDepth();
+    }
+    PyObject *cur = *_slot;
+    *_slot = _saved;
+    Py_XDECREF(cur);
   }
 }
 
-bool ActionScope::failed() const { return !_done && pendingError().is_valid(); }
+bool ActionScope::failed() const { return !_done && *_slot != NULL; }
 
 void ActionScope::check(const char *where, const OfxStatus *status)
 {
-  nb::object e = std::move(pendingError());
+  nb::object e = nb::steal(*_slot);
+  *_slot = NULL;
   discard();
   if (e.is_valid()) {
     // raises (python_error)
@@ -459,8 +561,9 @@ PyHost::PyHost(nb::object py, RefPtr ref)
   _properties.setIntProperty(kOfxImageEffectPropSetableFielding, 0);
   _properties.setIntProperty(kOfxParamHostPropSupportsCustomInteract, 0);
   _properties.setIntProperty(kOfxParamHostPropSupportsStringAnimation, 0);
-  _properties.setIntProperty(kOfxParamHostPropSupportsChoiceAnimation, 0);   // part 1: no keys
-  _properties.setIntProperty(kOfxParamHostPropSupportsBooleanAnimation, 0);  // part 1: no keys
+  // as hostDemo: the C++ parameters have keys (Curve), held for choices and booleans
+  _properties.setIntProperty(kOfxParamHostPropSupportsChoiceAnimation, 1);
+  _properties.setIntProperty(kOfxParamHostPropSupportsBooleanAnimation, 1);
   _properties.setIntProperty(kOfxParamHostPropSupportsCustomAnimation, 0);
   _properties.setIntProperty(kOfxParamHostPropMaxParameters, -1);
   _properties.setIntProperty(kOfxParamHostPropMaxPages, 0);
@@ -471,7 +574,7 @@ PyHost::PyHost(nb::object py, RefPtr ref)
 
 /// drop the last reference of an adapter to its Python object: after its Refs are cleared, so
 /// that what the Python object's deletion runs (e.g. a __del__) sees a deleted object
-static void dropLast(nb::object &py)
+void dropLast(nb::object &py)
 {
   nb::object last = std::move(py);
   if (!nb::is_alive()) {
@@ -558,7 +661,7 @@ PyImage::PyImage(OHIE::ClipInstance &clip, nb::object pixels, void *data, const 
 PyImage::~PyImage()
 {
   // HostSupport deletes the image when its last reference is released, usually in a plug-in's
-  // clipReleaseImage (with the GIL, part 1 renders on the Python thread)
+  // clipReleaseImage, during an action, without the GIL: dropLast() takes it
   dropLast(_pixels);
 }
 
@@ -572,7 +675,6 @@ PyClipInstance::PyClipInstance(PyEffectInstance *effect, OHIE::ClipDescriptor &d
   , _ref(std::move(ref))
   , _view(0)
   , _outputImage(NULL)
-  , _inRoDAction(false)
 {
   _ref->p = this;
 }
@@ -806,21 +908,35 @@ OfxRectD PyClipInstance::defaultRoD(OfxTime time, int view) const
 {
   OfxRectD v = emptyRectD();
   if (isOutput()) {
-    // the output RoD is the effect's RoD (the guard protects against a plug-in that asks for
-    // the output RoD in its own RoD action)
-    if (_inRoDAction) {
+    // the output RoD is the effect's RoD: an action, which a worker thread may not run
+    checkThread("region_of_definition() of the output clip (the plug-in's RoD action)", true);
+    // (the guard protects against a plug-in that asks for the output RoD in its own RoD action;
+    // per thread)
+    static thread_local std::set<const PyClipInstance *> inRoDAction;
+    if (inRoDAction.count(this)) {
       return v;
     }
-    _inRoDAction = true;
+    struct Guard {  // (exception-safe)
+      std::set<const PyClipInstance *> &s;
+      const PyClipInstance *c;
+      Guard(std::set<const PyClipInstance *> &set, const PyClipInstance *clip) : s(set), c(clip) { s.insert(c); }
+      ~Guard() { s.erase(c); }
+    } guard(inRoDAction, this);
     OfxRectD r = v;
-    const OfxStatus st = _effect->getRegionOfDefinitionAction(time, _effect->_renderScale,
+    {
+      // (called by the default region_of_definition(), with the GIL: the plug-in runs without it;
+      // the timeline at the RoD's time, restored when nested, as the RoD action binding)
+      TimeLineScope tl(_effect, time);
+      const OfxStatus st = withoutGil([&] {
+        return _effect->getRegionOfDefinitionAction(time, _effect->_renderScale,
 #ifdef OFX_EXTENSIONS_NUKE
-                                                              view,
+                                                    view,
 #endif
-                                                              r);
-    _inRoDAction = false;
-    if (st == kOfxStatOK || st == kOfxStatReplyDefault) {
-      v = r;
+                                                    r);
+      });
+      if (st == kOfxStatOK || st == kOfxStatReplyDefault) {
+        v = r;
+      }
     }
     return v;
   }
@@ -979,6 +1095,7 @@ PyEffectInstance::PyEffectInstance(OHIE::ImageEffectPlugin *plugin, OHIE::Descri
   , _timeLineTime(0.)
   , _abort(0)
   , _outputFailed(false)
+  , _paramChangedCount(0)
 {
   _renderScale.x = _renderScale.y = 1.;
   _renderWindow.x1 = _renderWindow.y1 = _renderWindow.x2 = _renderWindow.y2 = 0;
@@ -988,21 +1105,45 @@ PyEffectInstance::PyEffectInstance(OHIE::ImageEffectPlugin *plugin, OHIE::Descri
 
 PyEffectInstance::~PyEffectInstance()
 {
+  // A safety net, which ofxh doesn't reach: close() and shutdown() send kOfxActionDestroyInstance
+  // before they delete the instance, and HostSupport deletes an instance itself only when
+  // populate() fails, before kOfxActionCreateInstance. Without it, ~Instance() would send the
+  // action after the clips and parameters are deleted below. (Without the GIL if the caller holds
+  // it, as the other actions; HostSupport's own deletes run without it.)
+  if (_created) {
+    if (nb::is_alive() && PyGILState_Check()) {
+      withoutGil([&] { return destroyInstanceAction(); });
+    } else {
+      destroyInstanceAction();
+    }
+  }
   openInstances().erase(this);
-  // first, the Python objects of the instance and of its clips become deleted
+  // first, the Python objects of the instance, of its clips and of its parameters become deleted
   _ref->p = nullptr;
   for (std::map<std::string, OHIE::ClipInstance *>::iterator it = _clips.begin(); it != _clips.end(); ++it) {
     if (PyClipInstance *c = dynamic_cast<PyClipInstance *>(it->second)) {
       c->_ref->p = nullptr;
     }
   }
-  // then the clips are deleted (here, not by ~Instance(), so that the instance's Python object
-  // goes last)
+  for (std::list<OH::Param::Instance *>::iterator it = _paramList.begin(); it != _paramList.end(); ++it) {
+    if (PyParamCore *c = dynamic_cast<PyParamCore *>(*it)) {
+      c->_ref->p = nullptr;
+    }
+  }
+  // then the clips and parameters are deleted (here, not by ~Instance() and ~SetInstance(), so
+  // that the instance's Python object goes last)
   if (_ownsData) {
     for (std::map<std::string, OHIE::ClipInstance *>::iterator it = _clips.begin(); it != _clips.end(); ++it) {
       delete it->second;
       it->second = NULL;
     }
+  }
+  if (_ownsParams) {
+    for (std::list<OH::Param::Instance *>::iterator it = _paramList.begin(); it != _paramList.end(); ++it) {
+      delete *it;
+    }
+    _paramList.clear();
+    _params.clear();
   }
   dropLast(_py);
 }
@@ -1120,13 +1261,36 @@ OfxStatus PyEffectInstance::getViewName(int viewIndex, const char **name) const
 OH::Param::Instance *PyEffectInstance::newParam(const std::string &name, OH::Param::Descriptor &descriptor)
 {
   OFXH_CALL((OH::Param::Instance *)NULL,
-    OH::Param::Instance *p = newStoredParam(this, descriptor);
+    // new_param(descriptor): an ofxh.Param, or None for a C++ parameter that stores its value
+    nb::object py = _py.attr("new_param")(makeParamDescriptor(descriptor, &getDescriptor()));
+    OH::Param::Instance *p = NULL;
+    if (py.is_none()) {
+      p = newStoredParam(this, descriptor);
+    } else {
+      if (!nb::isinstance<ParamBase>(py)) {
+        raiseError(PyExc_TypeError, "parameter " + name + ": new_param() must return an ofxh.Param or None, not " +
+                                    typeName(py));
+      }
+      ParamBase &pb = nb::cast<ParamBase &>(py);
+      if (pb.ref->p) {
+        raiseError(PyExc_ValueError, "parameter " + name + ": new_param() returned a parameter that is already bound");
+      }
+      p = newPyParam(this, descriptor, py, pb.ref);
+    }
     if (!p) {
       raiseError(PyExc_NotImplementedError, "parameter " + name + ": type " + shortName("param_type", descriptor.getType()) +
-                                            " is not supported (part 1)");
+                                            " is not supported (parametric parameters need OFX_SUPPORTS_PARAMETRIC "
+                                            "and a host implementation)");
     }
     return p;
   )
+}
+
+OfxStatus PyEffectInstance::paramInstanceChangedAction(const std::string &paramName, const std::string &why,
+                                                       OfxTime time, OfxPointD renderScale)
+{
+  ++_paramChangedCount;
+  return OHIE::Instance::paramInstanceChangedAction(paramName, why, time, renderScale);
 }
 
 OfxStatus PyEffectInstance::editBegin(const std::string &name)

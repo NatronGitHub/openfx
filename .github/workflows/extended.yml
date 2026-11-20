@@ -2,7 +2,8 @@ name: Extended builds
 
 # Variants that must not run on every pull request (policy for all
 # Natron-related repos): CMake on Linux/macOS, MSVC, debug builds, extension
-# flags OFF, C++20 and C++23. Runs nightly, but only if master changed in the
+# flags OFF, C++20 and C++23, and the ofxh module installed with pip on macOS
+# (MacPorts Python). Runs nightly, but only if master changed in the
 # last 25 hours (C++20 coverage is nightly per the C++ standard policy), and on
 # demand.
 
@@ -143,3 +144,50 @@ jobs:
           gsed --version | head -1
       - name: Build and test
         run: .github/scripts/make-build-test.sh
+
+  macos-ofxh:
+    name: macOS 15 arm64 nightly (the ofxh module from pip install, MacPorts Python 3.11)
+    # The HostSupport Python bindings as a package (HostSupport/python/pyproject.toml,
+    # scikit-build-core), built with MacPorts' nanobind and scikit-build-core, and their tests
+    # against the sample plug-ins and hostDemo of a CMake build (same extension options)
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MacPorts
+        uses: melusina-org/setup-macports@v1
+        with:
+          parameters: .github/macports-python.yaml
+      - name: Remove Homebrew from PATH
+        run: |
+          echo "PATH=/opt/local/bin:/opt/local/sbin:$(echo "$PATH" | tr ':' '\n' | grep -v -e homebrew -e '^/usr/local/' | paste -sd: -)" >> "$GITHUB_ENV"
+      - name: Toolchain
+        run: |
+          ! command -v brew
+          test "$(command -v c++)" = /usr/bin/c++
+          python3.11 -c "import nanobind, scikit_build_core, numpy, pytest; print(nanobind.__version__, scikit_build_core.__version__, numpy.__version__)"
+      - name: Build the sample plug-ins and hostDemo (CMake, the extensions off)
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON \
+            -DOFX_EXTENSIONS_NATRON=OFF -DOFX_EXTENSIONS_NUKE=OFF -DOFX_EXTENSIONS_VEGAS=OFF \
+            -DOFX_EXTENSIONS_TUTTLE=OFF -DOFX_EXTENSIONS_RESOLVE=OFF
+          cmake --build build --parallel
+      - name: pip install ./HostSupport/python (the same options)
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '14.0'  # (as the CMake build: VFX Reference Platform CY2027)
+        run: |
+          python3.11 -m venv --system-site-packages venv
+          venv/bin/python -m pip install -v --no-build-isolation \
+            -C cmake.define.OFX_EXTENSIONS_NATRON=OFF -C cmake.define.OFX_EXTENSIONS_NUKE=OFF \
+            -C cmake.define.OFX_EXTENSIONS_VEGAS=OFF -C cmake.define.OFX_EXTENSIONS_TUTTLE=OFF \
+            -C cmake.define.OFX_EXTENSIONS_RESOLVE=OFF ./HostSupport/python
+          (cd /tmp && "$GITHUB_WORKSPACE/venv/bin/python" -c "import ofxh; print(ofxh.__file__, ofxh.build_config)")
+      - name: ofxh tests (HostSupport/python/tests) against the installed module
+        run: |
+          # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
+          export OFXH_REQUIRE=1 OFX_TEST_PLUGIN_PATH="$PWD/build/Plugins" \
+            OFXHOST_HOSTDEMO="$(find "$PWD/build/HostSupport/examples" -name hostDemo -type f -perm -u+x | head -1)"
+          venv/bin/python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
