@@ -50,6 +50,13 @@ the tests when hostDemo isn't built.
 `hostDemo.py` is a small command line wrapper: it saves the outputs as
 `<prefix>.<frame>.npy`, and prints the report as JSON (`python hostDemo.py -h`).
 
+`minimal_host.py` is not a hostDemo wrapper: it is a minimal OFX host in Python, in-process, on
+the HostSupport Python bindings (the `ofxh` module, built with `-DOFX_PYTHON_BINDINGS=ON`;
+NatronGitHub/openfx#136). It renders one frame of a plug-in on one input, and is a template:
+which classes to subclass, and what each override does
+(`PYTHONPATH=<build>/HostSupport/python python minimal_host.py <plugin dir> <plugin id> in.npy out.npy`).
+Its tests are in `HostSupport/python/tests`.
+
 ## hostDemo file formats
 
 - `--format ppm` (default): plain PPM (P3), 8 bits, top row first. Short and float images are

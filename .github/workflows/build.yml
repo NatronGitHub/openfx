@@ -6,7 +6,8 @@ name: Build
 #   - Linux (ubuntu-24.04): CMake (.github/scripts/cmake-build-test.sh: build, install, the hostDemo
 #     checks, a plug-in project built against the installed package, and a host project using
 #     HostSupport with add_subdirectory and the system expat), plus the header and
-#     property metadata checks and the Python tests (HostSupport/examples/python, Support/Plugins/tests)
+#     property metadata checks and the Python tests (HostSupport/examples/python, Support/Plugins/tests,
+#     and the HostSupport Python bindings: HostSupport/python/tests)
 #   - macOS 15 arm64: CMake, system (Xcode) clang, MacPorts tools and libomp, no Homebrew
 #   - Windows: MSYS2 UCRT64, CMake, the plug-in and host projects
 # The plug-in repositories build with CMake (Natron#1181), so the per-PR builds do too. Other
@@ -56,7 +57,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev
-          pip install pyyaml
+          pip install pyyaml "nanobind>=2.0,<4" numpy pytest
       - name: Property metadata (@propdef)
         run: python scripts/check-props.py
       - name: Generated Python modules (ofxhost.constants, ofxhost.props) are up to date
@@ -92,6 +93,9 @@ jobs:
             done
           done
       - name: Build and test
+        # (with the HostSupport Python bindings, the ofxh module: nanobind from pip)
+        env:
+          OFX_CMAKE_EXTRA_ARGS: -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE=${{ env.pythonLocation }}/bin/python
         run: .github/scripts/cmake-build-test.sh
       - name: DrawSuite self-tests with the Natron extensions (the DrawSuite shadows property)
         run: |
@@ -99,15 +103,23 @@ jobs:
           # DrawSuite self-tests with OFX_EXTENSIONS_NATRON (no GL context here: the property
           # reading and the backend state, and the drawing with the fake OpenGL table)
           set -eo pipefail
+          # (and the ofxh module, so that its code for the Natron, Nuke and Vegas extensions compiles)
           cmake -S . -B build-ci-natron -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLE_PLUGINS=ON \
-            -DBUILD_EXAMPLE_HOSTS=OFF -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON > /dev/null
-          cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test
+            -DBUILD_EXAMPLE_HOSTS=OFF -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON \
+            -DOFX_EXTENSIONS_VEGAS=ON -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
+          cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test ofxh
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test)
       - name: Python wrapper and sample plug-in tests (ofxhost)
         run: |
-          pip install numpy pytest
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" \
             python -m pytest -q -p no:cacheprovider HostSupport/examples/python/tests Support/Plugins/tests
+      - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
+        if: success() || failure()
+        run: |
+          # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
+          export PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1
+          python -c "import ofxh; print(ofxh.__file__)"
+          python -X faulthandler -m pytest -q -p no:cacheprovider HostSupport/python/tests
 
   macos:
     name: macOS 15 arm64 (CMake, Xcode clang, MacPorts)
