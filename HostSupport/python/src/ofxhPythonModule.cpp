@@ -19,6 +19,7 @@
 
 #include "ofxMessage.h"
 #include "ofxParametricParam.h"  // kOfxParamTypeParametric
+#include "ofxhHost.h"  // kOfxHostSupportHostPointer
 #ifdef OFX_EXTENSIONS_NUKE
 #include "nuke/fnOfxExtensions.h"  // kFnOfxImagePlaneColour
 #endif
@@ -46,9 +47,13 @@ static const char *kModuleDoc =
   "RuntimeError, except a plug-in's worker thread inside a callback (it called the host), which\n"
   "may call the bindings that run no action and change no value (get_param(), the getters, the\n"
   "defaults...), but not the actions, press() or set_param().\n\n"
-  "Parts 1 and 2 of NatronGitHub/openfx#136. Planned for part 3: the OFX 1.4 host profile\n"
-  "(hostDemo's --ofx14), the JSON report of hostDemo, and lifting the one-host-per-process limit\n"
-  "where HostSupport allows it.";
+  "One host per process: HostSupport's plug-in cache and image effect host are process-wide, so\n"
+  "ofxh.init() raises RuntimeError while a host is initialized. shutdown() then init() again works\n"
+  "(another host, other plug-in directories, another profile); the plug-ins are unloaded in between,\n"
+  "but a binary the system doesn't unload keeps its static state. init(profile=\"ofx14\") is an OFX\n"
+  "1.4 host (hostDemo's --ofx14).\n\n"
+  "Parts 1 to 3 of NatronGitHub/openfx#136. HostSupport/examples/python/ofxhost has hostDemo's test\n"
+  "host on ofxh (ofxhost.render(..., backend=\"inprocess\"), with hostDemo's JSON report).";
 
 // What Python defines (exec'd in the module namespace)
 static const char *kPrelude = R"PY(
@@ -119,6 +124,7 @@ def _raise_callback_error(where, exc, status=None):
 
 struct State {
   bool initialized = false;
+  std::string profile;  ///< "default" or "ofx14" (ofxh.init()), "" when not initialized
   PyHost *host = nullptr;
   OHIE::PluginCache *pluginCache = nullptr;
   unsigned generation = 0;  ///< incremented by shutdown(): Plugin views become invalid
@@ -451,6 +457,7 @@ static void shutdown()
   PyHost *host = st.host;
   st.host = nullptr;
   st.initialized = false;
+  st.profile.clear();
   ++st.generation;
   delete host;
   scope.check("shutdown");
@@ -482,13 +489,17 @@ static OH::PluginCache *makePluginCache(bool useEnvPath)
   return pc;
 }
 
-static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnvPath)
+static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnvPath, const std::string &profile)
 {
   State &st = state();
   if (st.initialized) {
-    raiseError(PyExc_RuntimeError, "ofxh is already initialized: call ofxh.shutdown() first");
+    raiseError(PyExc_RuntimeError, "ofxh is already initialized: one host per process (HostSupport's plug-in cache "
+                                   "and image effect host are process-wide); call ofxh.shutdown() first");
   }
   requireNoAction("ofxh.init()");
+  if (profile != "default" && profile != "ofx14") {
+    raiseError(PyExc_ValueError, "ofxh.init(): profile \"" + profile + "\": expected \"default\" or \"ofx14\"");
+  }
   if (!nb::isinstance<HostBase>(host)) {
     raiseError(PyExc_TypeError, "ofxh.init(): host must be an ofxh.Host");
   }
@@ -515,6 +526,7 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
   }
   st.host = new PyHost(host, hb.ref);
   st.initialized = true;
+  st.profile = profile;
   try {
     {
       ActionScope scope;
@@ -523,6 +535,10 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
     }
     if (!st.initialized || st.host == nullptr) {
       raiseError(PyExc_RuntimeError, "ofxh.init(): the host was shut down during init_properties()");
+    }
+    if (profile == "ofx14") {
+      // (after init_properties(): as hostDemo, only the OFX 1.4 properties remain)
+      st.host->restrictToOFX14();
     }
     st.pluginCache = new OHIE::PluginCache(st.host);
     st.pluginCache->registerInCache(*pc);
@@ -645,6 +661,25 @@ void bindModule(nb::module_ &m)
       checkThread("PropertySet[]=", true);
       OFXH_SCOPED("PropertySet[]=", setProp(v.get(), name, value));
     })
+    .def("__delitem__", [](const PropertySetView &v, const std::string &name) {
+      checkThread("del PropertySet[]", true);
+      OH::Property::Set &s = v.get();
+      if (v.kind != 0) {
+        // (HostSupport reads the properties of instances, clips and parameters itself, and a
+        // missing one throws where it doesn't expect it)
+        raiseError(PyExc_TypeError, "del PropertySet[" + name + "]: only the host's properties can be deleted");
+      }
+      if (name == kOfxHostSupportHostPointer) {
+        raiseError(PyExc_ValueError, "del PropertySet[" + name + "]: HostSupport needs this property (fetchSuite)");
+      }
+      if (!s.fetchProperty(name, false)) {
+        raiseKey(name);
+      }
+      s.removeProperty(name);
+    }, "name"_a,
+       "Delete a host property (e.g. in Host.init_properties(), before the plug-in scan): a plug-in that\n"
+       "reads it then gets kOfxStatErrUnknown. Only the host's properties (TypeError for the others, which\n"
+       "HostSupport reads itself), not kOfxHostSupportHostPointer (ValueError). KeyError if it doesn't exist.")
     .def("__contains__", [](const PropertySetView &v, const std::string &name) { return v.get().fetchProperty(name, true) != NULL; })
     .def("names", [](const PropertySetView &v) {
       std::vector<std::string> r;
@@ -819,6 +854,10 @@ void bindModule(nb::module_ &m)
   });
   overridable(inst, "default_output_fielding", [](InstanceBase &) { return nb::cast(std::string("none")); });
   overridable(inst, "view_count", [](InstanceBase &) { return nb::cast(1); });
+  overridable(inst, "default_output_depth", [](InstanceBase &) { return nb::none(); },
+              "The output clip's depth (byte, short, half, float, or the OFX string; the best one the plug-in\n"
+              "supports) in the default clip preferences when no input is connected (e.g. a generator), or\n"
+              "None (the default): HostSupport's, float. hostDemo uses its -d depth.");
 
   // --- information
   inst.def_prop_ro("alive", [](InstanceBase &s) { checkThread("ofxh", false); return s.ref->p != nullptr; })
@@ -893,6 +932,16 @@ void bindModule(nb::module_ &m)
       PyParamCore *c = dynamic_cast<PyParamCore *>(p);
       return c ? c->_py : nb::none();
     }, "name"_a, "The ofxh.Param that new_param() made for this parameter, or None (a C++ parameter).")
+    .def("param_props", [](InstanceBase &s, const std::string &name) {
+      OH::Param::Instance *p = s.get()->getParam(name);
+      if (!p) {
+        raiseKey(name);
+      }
+      return propsDict(p->getProperties());
+    }, "name"_a,
+       "The properties of a parameter instance, {name: tuple of values} (a copy): what the plug-in may change\n"
+       "after describe, e.g. kOfxParamPropEnabled and kOfxParamPropSecret (param_descriptor() has the\n"
+       "described values).")
     .def("param_initial", [](InstanceBase &s, const std::string &name) {
       PyEffectInstance *p = s.get();
       OH::Param::Instance *param = p->getParam(name);
@@ -1453,14 +1502,23 @@ void bindModule(nb::module_ &m)
 
   // ------------------------------------------------------------------------- functions
   m.def("init", &init, "host"_a, "plugin_dirs"_a.none() = nb::none(), "use_std_paths"_a = false,
-        "use_env_path"_a = true,
+        "use_env_path"_a = true, "profile"_a = "default",
         "Initialize HostSupport with this host (an ofxh.Host), and scan the plug-ins of plugin_dirs, of\n"
         "OFX_PLUGIN_PATH if use_env_path, and of the standard locations if use_std_paths. One host per\n"
-        "process: call shutdown() before another init(). If it raises, it shuts down first.");
+        "process: RuntimeError if one is initialized; call shutdown() before another init(). If it raises,\n"
+        "it shuts down first.\n"
+        "profile: \"default\", or \"ofx14\" for an OFX 1.4 host, as hostDemo --ofx14: after\n"
+        "Host.init_properties(), only the OFX 1.4 host properties remain (a plug-in reading another one, e.g.\n"
+        "kOfxParamHostPropSupportsStrChoice, gets kOfxStatErrUnknown), fetch_suite() gives only the OFX 1.4\n"
+        "suites, OfxSetHost isn't called, and paramDefine of a StrChoice or Bytes parameter fails. One\n"
+        "view: the ofxhost in-process backend renders one view in this profile, whatever the build.");
   m.def("shutdown", &shutdown,
         "Close the open instances, unload the plug-ins and delete the plug-in cache and the host. Also\n"
         "called at exit. Not in an action or a callback.");
   m.def("initialized", []() { return state().initialized; });
+  m.def("profile", []() -> nb::object {
+    return state().initialized ? nb::object(nb::str(state().profile.c_str())) : nb::none();
+  }, "The profile of the initialized host (\"default\" or \"ofx14\", see init()), or None.");
   m.def("host", []() -> nb::object { return state().host ? state().host->_py : nb::none(); });
   m.def("plugins", []() {
     requireInit();
