@@ -40,6 +40,9 @@ def main(argv=None) -> int:
     ap.add_argument("-d", "--depth", default="float", choices=ofxhost.DEPTHS)
     ap.add_argument("-o", "--output", default="Output", help="output prefix")
     ap.add_argument("--host", help="hostDemo binary (default: $OFXHOST_HOSTDEMO, build tree)")
+    ap.add_argument("--backend", choices=ofxhost.BACKENDS,
+                    help="hostDemo in a subprocess, or in-process on the ofxh module (default: "
+                         "$OFXHOST_BACKEND, else subprocess)")
     ap.add_argument("params", nargs="*", metavar="name=value")
     args = ap.parse_args(argv)
     if bool(args.plugin) == bool(args.graph):
@@ -55,7 +58,8 @@ def main(argv=None) -> int:
         try:
             images = ofxhost.graph.execute(out, args.bundles, frames=frames or [0],
                                            scale=args.scale or 1.0, window=window,
-                                           depth=args.depth, host_binary=args.host)
+                                           depth=args.depth, host_binary=args.host,
+                                           backend=args.backend)
         except (ofxhost.HostDemoError, ValueError, NotImplementedError) as e:  # failed run, cycle, frame range
             print(e, file=sys.stderr)
             return 1
@@ -83,7 +87,7 @@ def main(argv=None) -> int:
     try:
         r = ofxhost.render(args.bundles, args.plugin, context=args.context, inputs=inputs,
                            params=params, depth=args.depth, frames=frames, scale=args.scale,
-                           window=window, host_binary=args.host)
+                           window=window, host_binary=args.host, backend=args.backend)
     except ofxhost.HostDemoError as e:
         print(e, file=sys.stderr)
         return 1

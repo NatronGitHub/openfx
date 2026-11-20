@@ -3,6 +3,11 @@
 This is the file to adapt when copying the tests to a plug-in repo: set OPENFX (the openfx
 checkout, usually a submodule) and BUNDLE_DIRS (the directories holding your .ofx.bundle
 directories). Tests that need hostDemo or the bundles are skipped if they aren't built.
+
+The render and describe fixtures run each test on both ofxhost backends (ofxhost.testing's backend
+fixture): hostDemo in a subprocess, and in-process on the HostSupport Python bindings (the ofxh
+module: PYTHONPATH=<openfx build>/HostSupport/python). A backend that isn't built is skipped
+($OFXHOST_TEST_BACKENDS=subprocess runs only hostDemo).
 """
 
 import functools
@@ -26,7 +31,7 @@ BUNDLE_DIRS = ([Path(d) for d in os.environ["OFX_TEST_PLUGIN_PATH"].split(os.pat
 sys.path.insert(0, str(OPENFX / "HostSupport" / "examples" / "python"))
 
 import ofxhost  # noqa: E402
-from ofxhost.testing import hostdemo  # noqa: E402,F401  (the hostDemo fixture: skips if not built)
+from ofxhost.testing import backend, pytest_configure  # noqa: E402,F401  (each backend in turn; the marker)
 
 
 @pytest.fixture(scope="session")
@@ -40,13 +45,13 @@ def bundles():
     return dirs
 
 
-@pytest.fixture(scope="session")
-def render(hostdemo, bundles):
-    """ofxhost.render with our bundles and hostDemo: render(plugin_id, inputs=..., params=...)."""
-    return functools.partial(ofxhost.render, bundles, host_binary=hostdemo)
+@pytest.fixture
+def render(backend, bundles):
+    """ofxhost.render with our bundles, on each backend: render(plugin_id, inputs=..., params=...)."""
+    return functools.partial(ofxhost.render, bundles, backend=backend)
 
 
-@pytest.fixture(scope="session")
-def describe(hostdemo, bundles):
-    """ofxhost.describe with our bundles and hostDemo: describe(plugin_id)."""
-    return functools.partial(ofxhost.describe, bundles, host_binary=hostdemo)
+@pytest.fixture
+def describe(backend, bundles):
+    """ofxhost.describe with our bundles, on each backend: describe(plugin_id)."""
+    return functools.partial(ofxhost.describe, bundles, backend=backend)
