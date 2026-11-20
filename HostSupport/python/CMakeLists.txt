@@ -1,9 +1,31 @@
-# Python bindings of HostSupport (nanobind): the ofxh module (-DOFX_PYTHON_BINDINGS=ON).
+# Python bindings of HostSupport (nanobind): the ofxh module.
+# Two ways to build it:
+# - in the openfx tree, with -DOFX_PYTHON_BINDINGS=ON (the top-level CMakeLists.txt adds this
+#   directory): the module is <build>/HostSupport/python/ofxh.*;
+# - as its own project, which adds the openfx tree (../..) with the options it needs: this is
+#   what pyproject.toml does (scikit-build-core: pip install ./HostSupport/python), and the
+#   module is installed at the top of the wheel. The other openfx options (the extensions...)
+#   keep their defaults; set them with -C cmake.define.OFX_EXTENSIONS_VEGAS=OFF, for example.
 # Needs Python >= 3.10 (Interpreter and Development.Module) and nanobind, found from the Python
 # interpreter (pip install nanobind; or set nanobind_DIR). The module links OfxHost, so it is
 # compiled with the same OFX_* definitions (PUBLIC usage requirements of OfxHost).
-# (a subdirectory: no cmake_minimum_required, which would reset the policies of the top level;
-# the top level's minimum version is enough for nanobind)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  # (the policies and the minimum of the openfx tree)
+  cmake_minimum_required(VERSION 3.21...3.31)
+  project(ofxh LANGUAGES C CXX)
+  set(_ofxh_standalone ON)
+  # HostSupport only: no examples, no install of openfx, and not this directory again
+  set(OFX_BUILD_HOSTSUPPORT ON CACHE BOOL "" FORCE)
+  set(OFX_PYTHON_BINDINGS OFF CACHE BOOL "" FORCE)
+  set(OFX_INSTALL OFF CACHE BOOL "" FORCE)
+  set(BUILD_EXAMPLE_PLUGINS OFF CACHE BOOL "" FORCE)
+  set(BUILD_EXAMPLE_HOSTS OFF CACHE BOOL "" FORCE)
+  add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../.." openfx EXCLUDE_FROM_ALL)
+else()
+  # (a subdirectory of the openfx tree: no cmake_minimum_required, which would reset the policies
+  # of the top level; the top level's minimum version is enough for nanobind)
+  set(_ofxh_standalone OFF)
+endif()
 
 # the host functions that these options make pure virtual are not implemented
 if(OFX_SUPPORTS_MULTITHREAD OR OFX_SUPPORTS_DIALOG)
@@ -39,4 +61,9 @@ if(APPLE)
   target_link_options(ofxh PRIVATE "LINKER:-exported_symbol,_PyInit_ofxh")
 elseif(NOT WIN32)
   target_link_options(ofxh PRIVATE "LINKER:--exclude-libs,ALL")
+endif()
+
+if(_ofxh_standalone)
+  # the wheel (scikit-build-core): the module at its top
+  install(TARGETS ofxh LIBRARY DESTINATION .)
 endif()
