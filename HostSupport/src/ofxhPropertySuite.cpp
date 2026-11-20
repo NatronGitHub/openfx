@@ -1093,14 +1093,20 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PROPERTIES
         std::cout << "OFX: propGetDimension - " << properties << ' ' << property << " ...";
 #       endif
-        if (!properties) {
+        // ofxProperty.h, propGetDimension "@returns ::kOfxStatOK, ::kOfxStatErrBadHandle,
+        // ::kOfxStatErrUnknown", where kOfxStatErrBadHandle is the "Status error code for an
+        // operation on a bad handle" (ofxCore.h): check the magic number, as the other property
+        // suite functions do, so that NULL or a pointer that is not a property set is rejected
+        // (a deleted set is not detected: Set::_magic is not cleared by ~Set). A NULL count is
+        // rejected the same way, as HostSupport does for NULL return pointers (clipGetHandle)
+        Set *thisSet = reinterpret_cast<Set*>(properties);
+        if (!thisSet || !thisSet->verifyMagic() || !count) {
 #         ifdef OFX_DEBUG_PROPERTIES
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
           return kOfxStatErrBadHandle;
         }
         try {            
-          Set *thisSet = reinterpret_cast<Set*>(properties);
           Property *prop = thisSet->fetchProperty(property, true);
           if(!prop) {
 #           ifdef OFX_DEBUG_PROPERTIES

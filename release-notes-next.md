@@ -71,6 +71,7 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 - Fixed the Test example failing `kOfxImageEffectActionGetClipPreferences` with `kOfxStatErrBadHandle` because it required `inArgs`, which the spec passes as NULL for that action; it now answers `kOfxStatReplyDefault`, since it sets no preferences.
 - Fixed the DepthConverter example asking for an output depth different from its input's on a host that does not support multiple clip depths, and claiming clip preferences it had not set.
 - HostSupport: `OFX::IsNaN()` and `OFX::IsInfinite()` (`ofxhUtilities.h`) now test the bits of the value, so the property suite still rejects NaN values, and the host still validates the times, frame ranges and values it gets, when HostSupport is built with `-ffast-math` or `-Ofast`, which fold `std::isnan()` to false. hostDemo counts unwritten (NaN) output pixels and writes `null` for non-finite and missing values in its JSON report the same way, and no longer uses NaN as an "unset" value.
+- HostSupport: `propGetDimension()` checks the magic number of the property set, like the other property suite functions, so NULL or a handle that is not a property set gives `kOfxStatErrBadHandle` ("Status error code for an operation on a bad handle") instead of being dereferenced; a NULL `count` gives `kOfxStatErrBadHandle` too, instead of a crash. A deleted property set is not detected (its magic number is not cleared) (NatronGitHub/Natron#1385).
 
 ## Documentation Improvements
 

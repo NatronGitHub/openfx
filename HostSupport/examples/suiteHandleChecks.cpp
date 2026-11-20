@@ -399,6 +399,20 @@ int main()
   // The C++ API, as the param suite's paramDefine refuses Bytes if the host doesn't support them.
   const OfxPropertySuiteV1 *propSuite = (const OfxPropertySuiteV1 *)Property::GetSuite(1);
   check("property suite", propSuite != NULL);
+  if (propSuite) {
+    // propGetDimension checks the magic number of the set, as the other property functions do:
+    // a handle that is not a property set (here zeroed memory) gives kOfxStatErrBadHandle
+    std::vector<unsigned char> notASet(2 * sizeof(Property::Set), 0);
+    int dim = -1;
+    check("propGetDimension(NULL) = kOfxStatErrBadHandle", propSuite->propGetDimension(NULL, kOfxParamPropDefault, &dim) == kOfxStatErrBadHandle && dim == -1);
+    check("propGetDimension(NULL count) = kOfxStatErrBadHandle", propSuite->propGetDimension(intDesc->getPropHandle(), kOfxParamPropDefault, NULL) == kOfxStatErrBadHandle);
+    check("propGetDimension(not a property set) = kOfxStatErrBadHandle",
+          propSuite->propGetDimension((OfxPropertySetHandle)&notASet[0], kOfxParamPropDefault, &dim) == kOfxStatErrBadHandle && dim == -1);
+    check("propGetDimension(param descriptor, kOfxParamPropDefault) = kOfxStatOK",
+          propSuite->propGetDimension(intDesc->getPropHandle(), kOfxParamPropDefault, &dim) == kOfxStatOK && dim == 1);
+    check("propGetDimension(param descriptor, unknown property) = kOfxStatErrUnknown",
+          propSuite->propGetDimension(intDesc->getPropHandle(), "OfxNoSuchProperty", &dim) == kOfxStatErrUnknown);
+  }
   Param::Descriptor *bytesDesc = setDesc.paramDefine(kOfxParamTypeBytes, "bytes");
   check("paramDefine(Bytes)", bytesDesc != NULL);
   if (propSuite && bytesDesc) {
