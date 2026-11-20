@@ -1,0 +1,15 @@
+# MacPorts for the nightly ofxh job (extended.yml, macos-ofxh): the build tools of macports.yaml,
+# expat, and Python 3.11 with nanobind, scikit-build-core, NumPy and pytest
+version: '2.11.5'
+prefix: '/opt/local'
+ports:
+  - name: gsed
+  - name: cmake
+  - name: libomp
+  - name: expat
+  - name: python311
+  - name: py311-pip
+  - name: py311-nanobind
+  - name: py311-scikit-build-core
+  - name: py311-numpy
+  - name: py311-pytest

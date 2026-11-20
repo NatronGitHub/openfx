@@ -9,7 +9,8 @@ name: Build
 #     property metadata checks and the Python tests (HostSupport/examples/python, Support/Plugins/tests,
 #     and the HostSupport Python bindings: HostSupport/python/tests)
 #   - macOS 15 arm64: CMake, system (Xcode) clang, MacPorts tools and libomp, no Homebrew
-#   - Windows: MSYS2 UCRT64, CMake, the plug-in and host projects
+#   - Windows: MSYS2 UCRT64, CMake, the plug-in and host projects, and the ofxh module (built and
+#     imported only: no renders on Windows, as for hostDemo)
 # The plug-in repositories build with CMake (Natron#1181), so the per-PR builds do too. Other
 # variants (the Makefiles, C++20/23, MSVC, debug builds) are in extended.yml, which runs nightly
 # and on demand.
@@ -173,6 +174,9 @@ jobs:
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-expat
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-numpy
+            mingw-w64-ucrt-x86_64-nanobind
       - name: Configure
         run: |
           set -eo pipefail
@@ -181,6 +185,7 @@ jobs:
             -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON -DOFX_EXTENSIONS_VEGAS=ON \
             -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON \
             -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins" \
+            -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$(command -v python)" \
             -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF
           # strict -std=c++17 (C++ standard policy): no GNU dialect, so the compiler defines _WIN32 but not
           # WIN32, which is how plug-ins are built by the consumers
@@ -188,6 +193,12 @@ jobs:
         run: |
           set -eo pipefail
           cmake --build build --parallel
+      - name: The ofxh module imports (HostSupport Python bindings, MSYS2 Python and nanobind)
+        run: |
+          set -eo pipefail
+          # (only the import: no renders on Windows, as for hostDemo; its DLLs, expat and the GCC
+          # runtime, are next to MSYS2's python.exe)
+          PYTHONPATH="$PWD/build/HostSupport/python" python -c "import ofxh; print(ofxh.__file__, ofxh.build_config)"
       - name: Self-test of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows)
         run: |
           set -eo pipefail
