@@ -482,6 +482,14 @@ int main()
       check("propSetInt(instance, kOfxParamPropPersistent) = kOfxStatErrValue", ps1->propSetInt(ip, kOfxParamPropPersistent, 0, 0) == kOfxStatErrValue);
       check("propSetString(instance, kOfxParamPropParent) = kOfxStatErrValue", ps1->propSetString(ip, kOfxParamPropParent, 0, "g") == kOfxStatErrValue);
       check("propSetInt(instance, kOfxParamPropIsAnimating) = kOfxStatErrValue", ps1->propSetInt(ip, kOfxParamPropIsAnimating, 0, 1) == kOfxStatErrValue);
+      // under ePluginReadOnlyWarn (Natron's policy), the write is accepted (with a warning)
+      const Property::PluginReadOnlyPolicyEnum policy = Property::getPluginReadOnlyPolicy();
+      Property::setPluginReadOnlyPolicy(Property::ePluginReadOnlyWarn);
+      check("ePluginReadOnlyWarn: propSetInt(instance, kOfxParamPropCanUndo) = kOfxStatOK",
+            ps1->propSetInt(ip, kOfxParamPropCanUndo, 0, 0) == kOfxStatOK);
+      Property::setPluginReadOnlyPolicy(policy);
+      check("policy restored: propSetInt(instance, kOfxParamPropCanUndo) = kOfxStatErrValue",
+            ps1->propSetInt(ip, kOfxParamPropCanUndo, 0, 1) == kOfxStatErrValue);
       // the plug-in-writable instance properties stay writable
       check("propSetInt(instance, kOfxParamPropEnabled) = kOfxStatOK", ps1->propSetInt(ip, kOfxParamPropEnabled, 0, 1) == kOfxStatOK);
       check("propSetString(instance, kOfxPropLabel) = kOfxStatOK", ps1->propSetString(ip, kOfxPropLabel, 0, "label") == kOfxStatOK);
