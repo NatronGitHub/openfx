@@ -312,6 +312,7 @@ namespace MyHost {
     p.updates = 0;
     p.lastValue = 0.;
     p.ended = false;
+    p.ends = 0;
     _progress.push_back(p);
   }
   
@@ -320,6 +321,7 @@ namespace MyHost {
   {
     if (!_progress.empty()) {
       _progress.back().ended = true;
+      ++_progress.back().ends;
     }
   }
   

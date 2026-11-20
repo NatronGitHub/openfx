@@ -2557,11 +2557,13 @@ namespace OFX {
     /// Start doing progress.
     void progressStart(const std::string &message, const std::string &messageid = "");
 
-    /// finish yer progress
+    /// finish yer progress. After it, progressUpdate() and progressEnd() don't call the host
+    /// until the next progressStart().
     void progressEnd();
 
     /// set the progress to some level of completion, returns
     /// false if you should abandon processing, true to continue
+    /// (also true if there is no progress: no progressStart(), or after progressEnd())
     bool progressUpdate(double t);   
 
     /// get the current time on the timeline. This is not necessarily the same
