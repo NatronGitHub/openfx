@@ -25,6 +25,7 @@ find_package(nanobind CONFIG REQUIRED)
 nanobind_add_module(ofxh NB_STATIC
   src/ofxhPython.h
   src/ofxhPythonAdapters.cpp
+  src/ofxhPythonDescribe.cpp
   src/ofxhPythonModule.cpp
   src/ofxhPythonParams.cpp)
 target_link_libraries(ofxh PRIVATE OfxHost)

@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <sstream>
+#include <thread>
 
 #include "ofxMessage.h"
 #include "ofxParametricParam.h"  // kOfxParamTypeParametric
@@ -91,6 +92,13 @@ static int &scopeDepth()
 
 int ActionScope::depth() { return scopeDepth(); }
 
+/// the thread of the open scopes (the actions run there, with the GIL released)
+static std::thread::id &scopeThread()
+{
+  static std::thread::id t;
+  return t;
+}
+
 /// a callback failed outside any action: nobody can raise its error, report it
 static void reportUnraisable(nb::handle exc)
 {
@@ -120,9 +128,18 @@ void saveError(const char *message)
 }
 
 ActionScope::ActionScope()
-  : _saved(std::move(pendingError()))
-  , _done(false)
+  : _done(false)
 {
+  // ofxh is single-threaded: the GIL is released during the actions, so another Python thread
+  // may run, but not call into HostSupport
+  if (scopeDepth() > 0 && scopeThread() != std::this_thread::get_id()) {
+    raiseError(PyExc_RuntimeError, "ofxh: an action is running in another thread (ofxh is not thread-safe: call it "
+                                   "from one thread)");
+  }
+  if (scopeDepth() == 0) {
+    scopeThread() = std::this_thread::get_id();
+  }
+  _saved = std::move(pendingError());
   pendingError() = nb::object();
   ++scopeDepth();
 }
@@ -459,8 +476,9 @@ PyHost::PyHost(nb::object py, RefPtr ref)
   _properties.setIntProperty(kOfxImageEffectPropSetableFielding, 0);
   _properties.setIntProperty(kOfxParamHostPropSupportsCustomInteract, 0);
   _properties.setIntProperty(kOfxParamHostPropSupportsStringAnimation, 0);
-  _properties.setIntProperty(kOfxParamHostPropSupportsChoiceAnimation, 0);   // part 1: no keys
-  _properties.setIntProperty(kOfxParamHostPropSupportsBooleanAnimation, 0);  // part 1: no keys
+  // as hostDemo: the C++ parameters have keys (Curve), held for choices and booleans
+  _properties.setIntProperty(kOfxParamHostPropSupportsChoiceAnimation, 1);
+  _properties.setIntProperty(kOfxParamHostPropSupportsBooleanAnimation, 1);
   _properties.setIntProperty(kOfxParamHostPropSupportsCustomAnimation, 0);
   _properties.setIntProperty(kOfxParamHostPropMaxParameters, -1);
   _properties.setIntProperty(kOfxParamHostPropMaxPages, 0);
@@ -471,7 +489,7 @@ PyHost::PyHost(nb::object py, RefPtr ref)
 
 /// drop the last reference of an adapter to its Python object: after its Refs are cleared, so
 /// that what the Python object's deletion runs (e.g. a __del__) sees a deleted object
-static void dropLast(nb::object &py)
+void dropLast(nb::object &py)
 {
   nb::object last = std::move(py);
   if (!nb::is_alive()) {
@@ -558,7 +576,7 @@ PyImage::PyImage(OHIE::ClipInstance &clip, nb::object pixels, void *data, const 
 PyImage::~PyImage()
 {
   // HostSupport deletes the image when its last reference is released, usually in a plug-in's
-  // clipReleaseImage (with the GIL, part 1 renders on the Python thread)
+  // clipReleaseImage, during an action, without the GIL: dropLast() takes it
   dropLast(_pixels);
 }
 
@@ -988,21 +1006,38 @@ PyEffectInstance::PyEffectInstance(OHIE::ImageEffectPlugin *plugin, OHIE::Descri
 
 PyEffectInstance::~PyEffectInstance()
 {
+  // (close() and shutdown() send it first; ~Instance() would send it after the clips and
+  // parameters are deleted)
+  if (_created) {
+    destroyInstanceAction();
+  }
   openInstances().erase(this);
-  // first, the Python objects of the instance and of its clips become deleted
+  // first, the Python objects of the instance, of its clips and of its parameters become deleted
   _ref->p = nullptr;
   for (std::map<std::string, OHIE::ClipInstance *>::iterator it = _clips.begin(); it != _clips.end(); ++it) {
     if (PyClipInstance *c = dynamic_cast<PyClipInstance *>(it->second)) {
       c->_ref->p = nullptr;
     }
   }
-  // then the clips are deleted (here, not by ~Instance(), so that the instance's Python object
-  // goes last)
+  for (std::list<OH::Param::Instance *>::iterator it = _paramList.begin(); it != _paramList.end(); ++it) {
+    if (PyParamCore *c = dynamic_cast<PyParamCore *>(*it)) {
+      c->_ref->p = nullptr;
+    }
+  }
+  // then the clips and parameters are deleted (here, not by ~Instance() and ~SetInstance(), so
+  // that the instance's Python object goes last)
   if (_ownsData) {
     for (std::map<std::string, OHIE::ClipInstance *>::iterator it = _clips.begin(); it != _clips.end(); ++it) {
       delete it->second;
       it->second = NULL;
     }
+  }
+  if (_ownsParams) {
+    for (std::list<OH::Param::Instance *>::iterator it = _paramList.begin(); it != _paramList.end(); ++it) {
+      delete *it;
+    }
+    _paramList.clear();
+    _params.clear();
   }
   dropLast(_py);
 }
@@ -1120,10 +1155,26 @@ OfxStatus PyEffectInstance::getViewName(int viewIndex, const char **name) const
 OH::Param::Instance *PyEffectInstance::newParam(const std::string &name, OH::Param::Descriptor &descriptor)
 {
   OFXH_CALL((OH::Param::Instance *)NULL,
-    OH::Param::Instance *p = newStoredParam(this, descriptor);
+    // new_param(descriptor): an ofxh.Param, or None for a C++ parameter that stores its value
+    nb::object py = _py.attr("new_param")(makeParamDescriptor(descriptor, &getDescriptor()));
+    OH::Param::Instance *p = NULL;
+    if (py.is_none()) {
+      p = newStoredParam(this, descriptor);
+    } else {
+      if (!nb::isinstance<ParamBase>(py)) {
+        raiseError(PyExc_TypeError, "parameter " + name + ": new_param() must return an ofxh.Param or None, not " +
+                                    typeName(py));
+      }
+      ParamBase &pb = nb::cast<ParamBase &>(py);
+      if (pb.ref->p) {
+        raiseError(PyExc_ValueError, "parameter " + name + ": new_param() returned a parameter that is already bound");
+      }
+      p = newPyParam(this, descriptor, py, pb.ref);
+    }
     if (!p) {
       raiseError(PyExc_NotImplementedError, "parameter " + name + ": type " + shortName("param_type", descriptor.getType()) +
-                                            " is not supported (part 1)");
+                                            " is not supported (parametric parameters need OFX_SUPPORTS_PARAMETRIC "
+                                            "and a host implementation)");
     }
     return p;
   )

@@ -18,8 +18,12 @@
 //   Python binding that called into HostSupport re-raises as ofxh.CallbackError (ActionScope).
 //   A callback that fails outside any ActionScope (e.g. called by a plug-in through ctypes)
 //   reports its error with sys.unraisablehook.
-// - The GIL: the Python side calls HostSupport with the GIL held, and every callback acquires it
-//   (part 1 renders on the calling thread only).
+// - The GIL: the bindings release it around the HostSupport calls that run plug-in code (the
+//   actions, the plug-in scan, create_instance), and every callback (OFXH_CALL) and every adapter
+//   destructor that drops a Python object (dropLast) takes it again: no adapter touches a Python
+//   object without it. ofxh is still single-threaded: everything runs on the thread that called
+//   the binding, and a binding called from another thread while an action runs raises
+//   RuntimeError (ActionScope).
 
 #ifndef OFXH_PYTHON_H
 #define OFXH_PYTHON_H
@@ -67,6 +71,7 @@ typedef std::shared_ptr<Ref> RefPtr;
 class PyHost;
 class PyEffectInstance;
 class PyClipInstance;
+class PyParamCore;
 
 /// the C++ part of ofxh.Host
 struct HostBase {
@@ -84,6 +89,20 @@ struct InstanceBase {
 struct ClipBase {
   RefPtr ref = std::make_shared<Ref>();
   PyClipInstance *get() const;
+};
+
+/// the C++ part of ofxh.Param (Ref::p is the OH::Param::Instance of the adapter)
+struct ParamBase {
+  RefPtr ref = std::make_shared<Ref>();
+  OH::Param::Instance *get() const;
+  PyParamCore *core() const;
+};
+
+/// ofxh.PropertySet: the properties of the host, an instance, a clip or a parameter instance
+struct PropertySetView {
+  RefPtr ref;
+  int kind;  ///< 0: host, 1: instance, 2: clip, 3: parameter
+  OH::Property::Set &get() const;
 };
 
 /// ofxh.ImageData: what ClipInstance.get_image() returns
@@ -118,7 +137,9 @@ void saveError(const char *message);
 
 /// Saves the pending error of an enclosing action when a Python binding calls into HostSupport,
 /// and re-raises the first error saved by the callbacks, as ofxh.CallbackError, in check().
-/// The scopes nest: depth() > 0 inside an action or a callback.
+/// The scopes nest: depth() > 0 inside an action or a callback. Made with the GIL. Its
+/// constructor raises RuntimeError on a thread other than the one of the open scopes (an action
+/// runs there, with the GIL released).
 class ActionScope {
   nb::object _saved;
   bool _done;
@@ -137,13 +158,21 @@ public:
 };
 
 /// evaluate an expression that may call the Python callbacks in its own ActionScope, and raise
-/// their first error (used by the bindings that don't run an action)
+/// their first error (used by the bindings that don't run an action). If the expression raises
+/// after a callback failed (e.g. a bad status), the callback's error is raised instead.
 #define OFXH_SCOPED(where, ...)                                                        \
   ([&]() {                                                                             \
     ::ofxh::ActionScope ofxh_s_;                                                       \
-    auto ofxh_r_ = (__VA_ARGS__);                                                      \
-    ofxh_s_.check(where);                                                              \
-    return ofxh_r_;                                                                    \
+    try {                                                                              \
+      auto ofxh_r_ = (__VA_ARGS__);                                                    \
+      ofxh_s_.check(where);                                                            \
+      return ofxh_r_;                                                                  \
+    } catch (::nanobind::python_error &) {                                             \
+      if (ofxh_s_.failed()) {                                                          \
+        ofxh_s_.check(where);                                                          \
+      }                                                                                \
+      throw;                                                                           \
+    }                                                                                  \
   }())
 
 /// fallback tag for the functions that return an OfxStatus: ofxh.OfxError(status) gives status
@@ -189,6 +218,18 @@ template <class T> T onCxxError(const char *what, T fb)
 
 /// a status from what a Python callback returned: None or anything but an int is kOfxStatOK
 OfxStatus statusFromResult(nb::handle r);
+
+/// drop the last reference of an adapter to its Python object (with the GIL; leaked if the
+/// interpreter is gone)
+void dropLast(nb::object &py);
+
+/// call f() without the GIL: the HostSupport calls that run plug-in code (every callback takes
+/// the GIL again). The caller holds the GIL, and keeps its Python objects alive.
+template <class F> auto withoutGil(F &&f) -> decltype(f())
+{
+  nb::gil_scoped_release release;
+  return f();
+}
 
 // ---------------------------------------------------------------------------------------------
 // Names: Python reads short names (depth "byte", components "rgba", context "filter"...) and
@@ -372,6 +413,24 @@ public:
   virtual void timeLineGetBounds(double &t1, double &t2);
 };
 
+/// what the Python parameters (ofxh.Param subclasses, made by new_param()) share: the adapter of
+/// each parameter type derives from its HostSupport instance class and from this
+class PyParamCore {
+public:
+  PyEffectInstance *_effect;
+  nb::object _py;
+  RefPtr _ref;
+  OH::Param::Instance *_self;
+
+  PyParamCore(PyEffectInstance *effect, OH::Param::Instance *self, nb::object py, RefPtr ref);
+  virtual ~PyParamCore();
+};
+
+/// the Python parameter (an ofxh.Param subclass) of a descriptor's type, bound to py, or NULL if
+/// the type is not supported
+OH::Param::Instance *newPyParam(PyEffectInstance *effect, OH::Param::Descriptor &descriptor, nb::object py,
+                                RefPtr ref);
+
 /// the open instances, closed by shutdown()
 std::set<PyEffectInstance *> &openInstances();
 
@@ -382,15 +441,49 @@ std::string formatMessage(const char *format, va_list args);
 nb::object makeClipDescriptor(const OHIE::ClipDescriptor &desc);
 
 // ---------------------------------------------------------------------------------------------
-// Parameters (part 1: C++ parameters that store their value; Python sees get/set)
+// Descriptors (ofxhPythonDescribe.cpp): read-only copies, and hostDemo's --describe JSON
 
+/// ofxh.ParamDescriptor: a copy of a parameter descriptor (effect: its effect descriptor, for the
+/// page of the parameter; may be NULL)
+nb::object makeParamDescriptor(const OH::Param::Descriptor &desc, const OHIE::Descriptor *effect);
+/// ofxh.EffectDescriptor: a copy of the plug-in's descriptor in a context ("" : the descriptor of
+/// the describe action)
+nb::object makeEffectDescriptor(OHIE::ImageEffectPlugin *plugin, const std::string &context);
+/// the properties of a set, as a dict {name: tuple of values} (a copy)
+nb::dict propsDict(const OH::Property::Set &props);
+/// the default (kOfxParamPropDefault) of a parameter (descriptor or instance) of this type, in the
+/// form of getParamValue() (a tuple for several dimensions, bytes...), or None
+nb::object defaultValue(const OH::Property::Set &props, const std::string &type);
+/// the page parameter that lists name as a child, or ""
+std::string pageOf(const OHIE::Descriptor &effect, const std::string &name);
+/// ofxh.describe(): hostDemo's --describe JSON, as Python objects
+nb::dict describePlugin(OHIE::ImageEffectPlugin *plugin, const std::string &context);
+/// ofxh.param_template(): the defaults of the parameters with a value, {name: value}, as
+/// JSON-serialisable data (normalised spatial defaults in canonical coordinates for this project)
+nb::dict paramTemplate(OHIE::ImageEffectPlugin *plugin, const std::string &context, double w, double h, double ox,
+                       double oy);
+/// a Python value as JSON-serialisable data: tuples become lists, bytes lists of ints
+nb::object jsonValue(nb::handle v);
+void bindDescriptors(nb::module_ &m);
+
+// ---------------------------------------------------------------------------------------------
+// Parameters (ofxhPythonParams.cpp): the C++ parameters that store their value (with keys and
+// linear interpolation, as hostDemo's MyCurve), and the Python parameters (ofxh.Param)
+
+/// the spatial default of a double parameter in canonical coordinates (for normalised
+/// defaults, kOfxParamPropDefaultCoordinateSystem), with this project size and offset
+void defaultToCanonical(const OH::Param::Descriptor &descriptor, double w, double h, double ox, double oy,
+                        double *v, int n);
 /// a C++ parameter instance of the descriptor's type, with the default value
 /// (kOfxParamPropDefault), or NULL if the type is not supported
 OH::Param::Instance *newStoredParam(PyEffectInstance *effect, OH::Param::Descriptor &descriptor);
 /// the value of a parameter, as a Python object (a tuple for multi-dimensional parameters)
 nb::object getParamValue(OH::Param::Instance *param, const double *time);
-/// set the value of a parameter from a Python object
-OfxStatus setParamValue(OH::Param::Instance *param, nb::handle value);
+/// set the value of a parameter from a Python object (at a time: a key if it animates)
+OfxStatus setParamValue(OH::Param::Instance *param, nb::handle value, const double *time = NULL);
+/// the key times of a parameter (empty if it has none, or no keys)
+std::vector<double> paramKeyTimes(OH::Param::Instance *param);
+void bindParams(nb::module_ &m);
 
 // ---------------------------------------------------------------------------------------------
 /// bind the module (ofxhPythonModule.cpp)
