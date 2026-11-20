@@ -52,6 +52,7 @@ namespace MyHost {
     int         updates;    ///< the number of progressUpdate calls
     double      lastValue;  ///< the last progressUpdate value (only meaningful if updates > 0)
     bool        ended;      ///< progressEnd was called
+    int         ends;       ///< the number of progressEnd calls (a test hook: more than 1 is a plug-in bug)
   };
 
   // class definition

@@ -21,9 +21,10 @@ its docstring:
 | test_tester.py | the host's report: the progress calls that reached the host |
 | test_ofx14.py | an OFX 1.4 host (hostDemo `--ofx14`): the plug-in's fallbacks for the OFX 1.5 features |
 
-The Tester sample only has describe checks and a progress check (its render is an invert, and
-its push buttons need an interactive host). Support/PropTester isn't tested: it writes no pixels (hostDemo
-would fail on the unwritten output), and it only dumps properties to its log.
+The Tester sample only has describe checks (its render is an invert, and its push buttons
+need an interactive host), and a check of the progress calls of its render (test_tester.py).
+Support/PropTester isn't tested: it writes no pixels (hostDemo would fail on the unwritten
+output), and it only dumps properties to its log.
 
 Run them (after `make -C HostSupport && make -C HostSupport/examples && make -C
 Support/Plugins CONFIG=release`):

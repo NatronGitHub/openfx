@@ -151,7 +151,7 @@ outputPremultiplication, outputFielding, outputFrameRate, continuousSamples, fra
 `timeDomain` {ok, status, range} (null outside the general context), `renders`, `params`
 {name: {type, value, enabled, secret[, keys]}} (after the run; value at time 0, keys
 [[time, value]...] for the numeric parameters), `messages` [{kind, type, id, text}],
-`progress` [{message, id, started, ended, updates, lastValue}].
+`progress` [{message, id, started, ended, ends (the number of progressEnd calls), updates, lastValue}].
 
 Each `renders` item is one time and view: {time, view, renderScale, params {name: value} (at
 that time, for the parameters with keys), inputs {Clip: {connected,

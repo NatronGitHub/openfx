@@ -712,6 +712,7 @@ static void fillMessagesJson(const MyHost::MyEffectInstance& instance, Json& rep
     j["id"] = p[i].id;
     j["started"] = true;
     j["ended"] = p[i].ended;
+    j["ends"] = p[i].ends;
     j["updates"] = p[i].updates;
     j["lastValue"] = (p[i].updates > 0) ? Json(p[i].lastValue) : Json(); // null if there was no update
   }
