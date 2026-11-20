@@ -522,6 +522,33 @@ namespace OFX {
         }
       }
 
+      /// copy the data of a Bytes default (kOfxParamPropDefault, "pointer to OfxBytes struct of one
+      /// dimension, or nullptr") into storage; used by Descriptor::BytesDefaultHook and BytesInstance.
+      /// Returns kOfxStatOK, or kOfxStatErrValue ({NULL, length > 0}, as BytesInstance::setV) or
+      /// kOfxStatErrMemory (the copy failed, e.g. bad_alloc or length_error for a garbage length),
+      /// with an empty storage. Alias-safe: def may point into storage (the host's own copy).
+      /// Never throws.
+      static OfxStatus copyBytesDefault(const OfxBytes *def, std::vector<unsigned char> &storage)
+      {
+        OfxStatus stat = kOfxStatOK;
+        try {
+          if (def && !def->data && def->length > 0) {
+            stat = kOfxStatErrValue; // no data, but a length
+          } else if (def && def->data && def->length > 0) {
+            std::vector<unsigned char> copy(def->data, def->data + def->length);
+            storage.swap(copy);
+          } else {
+            storage.clear();
+          }
+        } catch (...) {
+          stat = kOfxStatErrMemory;
+        }
+        if (stat != kOfxStatOK) {
+          storage.clear();
+        }
+        return stat;
+      }
+
       /// copy the plug-in's default of a Bytes param, and point the property to the copy
       void Descriptor::BytesDefaultHook::notify(const std::string &/*name*/, bool /*single*/, int /*num*/) OFX_EXCEPTION_SPEC
       {
@@ -534,21 +561,9 @@ namespace OFX {
           return; // already the copy
         }
         _copying = true;
-        OfxStatus stat = kOfxStatOK;
-        try {
-          if (def && !def->data && def->length > 0) {
-            stat = kOfxStatErrValue; // no data, but a length: as BytesInstance::setV
-          } else if (def && def->data && def->length > 0) {
-            _descriptor._bytesDefaultData.assign(def->data, def->data + def->length);
-          } else {
-            _descriptor._bytesDefaultData.clear();
-          }
-        } catch (...) {
-          stat = kOfxStatErrMemory; // e.g. bad_alloc or length_error for a garbage length
-        }
+        const OfxStatus stat = copyBytesDefault(def, _descriptor._bytesDefaultData);
         if (stat != kOfxStatOK) {
           // never keep the plug-in's pointer, which may be freed: the default becomes NULL
-          _descriptor._bytesDefaultData.clear();
           def = NULL;
         }
         _descriptor._bytesDefault.data = _descriptor._bytesDefaultData.empty() ? NULL : &_descriptor._bytesDefaultData[0];
@@ -2140,21 +2155,9 @@ namespace OFX {
         if (def == &_bytesDefault) {
           return kOfxStatOK; // already the copy
         }
-        OfxStatus stat = kOfxStatOK;
-        try {
-          if (def && !def->data && def->length > 0) {
-            stat = kOfxStatErrValue; // no data, but a length: as setV
-          } else if (def && def->data && def->length > 0) {
-            _defaultValue.assign(def->data, def->data + def->length);
-          } else {
-            _defaultValue.clear();
-          }
-        } catch (...) {
-          stat = kOfxStatErrMemory; // e.g. bad_alloc or length_error for a garbage length
-        }
+        const OfxStatus stat = copyBytesDefault(def, _defaultValue);
         if (stat != kOfxStatOK) {
           // never keep the plug-in's pointer, which may be freed: the default becomes NULL
-          _defaultValue.clear();
           def = NULL;
         }
         _bytesDefault.data = _defaultValue.empty() ? NULL : &_defaultValue[0];

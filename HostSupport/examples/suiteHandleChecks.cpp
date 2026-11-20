@@ -119,6 +119,15 @@ namespace {
             bytes->setDefaultCalls == calls + 1 && bytes->seenDefault == def && bytes->seenGetDefault == bytes->getDefault());
     }
 
+    // the plug-in may pass a pointer into the host's copy (alias-safe copy)
+    if (def && def->data && def->length == sizeof(orig)) {
+      OfxBytes alias = { def->data + 1, 2 };
+      check((std::string(what) + ": propSetPointer(default, into the host's copy) = kOfxStatOK").c_str(),
+            propSuite->propSetPointer(h, kOfxParamPropDefault, 0, &alias) == kOfxStatOK);
+      check((std::string(what) + ": a default into the host's copy is copied").c_str(),
+            sameBytes(getBytesDefault(propSuite, h), orig + 1, 2) && (!bytes || bytes->getDefault().size() == 2));
+    }
+
     check((std::string(what) + ": propSetPointer(default, NULL) = kOfxStatOK").c_str(),
           propSuite->propSetPointer(h, kOfxParamPropDefault, 0, NULL) == kOfxStatOK);
     check((std::string(what) + ": a NULL default stays NULL").c_str(), getBytesDefault(propSuite, h) == NULL && (!bytes || bytes->getDefault().empty()));

@@ -754,7 +754,9 @@ namespace OFX {
         const std::vector<unsigned char>& getDefault() const { return _defaultValue; }
 
         /// overridden from Instance: copies the default (see getDefault()), then calls Instance::notify(),
-        /// so setDefault() sees the copy, in getDefault() and in kOfxParamPropDefault
+        /// so setDefault() sees the copy, in getDefault() and in kOfxParamPropDefault.
+        /// A host subclass that overrides notify() must call BytesInstance::notify(), not
+        /// Instance::notify(), or the default is not copied.
         virtual void notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC;
 
         // Deriving implementation needs to override these. In set(), the data is only valid
