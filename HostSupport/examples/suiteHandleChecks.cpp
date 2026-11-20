@@ -177,9 +177,16 @@ namespace {
   /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
   void checkEffectInstance(MyHost::Host &host)
   {
+    // SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 (hostdemo-checks.sh): the checks must run
+    const char *require = std::getenv("SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN");
+    const bool required = require && std::string(require) == "1";
     const char *path = std::getenv("OFX_PLUGIN_PATH");
     if (!path || !*path) {
-      std::printf("suiteHandleChecks: OFX_PLUGIN_PATH is not set: the effect instance checks are skipped\n");
+      if (required) {
+        check("OFX_PLUGIN_PATH is set (SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1)", false);
+      } else {
+        std::printf("suiteHandleChecks: OFX_PLUGIN_PATH is not set: the effect instance checks are skipped\n");
+      }
       return;
     }
     const char *pluginId = "net.sf.openfx.invertPlugin"; // Support/Plugins/Invert, as hostDemo
@@ -198,6 +205,7 @@ namespace {
       const OfxProgressSuiteV1 *progress1 = (const OfxProgressSuiteV1 *)host.fetchSuite(kOfxProgressSuite, 1);
       const OfxProgressSuiteV2 *progress2 = (const OfxProgressSuiteV2 *)host.fetchSuite(kOfxProgressSuite, 2);
       const OfxTimeLineSuiteV1 *timeline = (const OfxTimeLineSuiteV1 *)host.fetchSuite(kOfxTimeLineSuite, 1);
+      check("progress V1/V2 and timeline suites", progress1 && progress2 && timeline);
       if (progress1 && progress2 && timeline) {
         // a NULL label or message id is an empty string
         const size_t n = myInstance->getProgress().size();
