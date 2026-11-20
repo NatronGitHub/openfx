@@ -36,6 +36,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 #include <sstream> // stringstream
 
+#include "ofxCore.h" // OfxStatus, OfxPropertySetHandle
+
 #ifndef WINDOWS
 #if !(__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L))
 #define OFX_EXCEPTION_SPEC throw (OFX::Host::Property::Exception)

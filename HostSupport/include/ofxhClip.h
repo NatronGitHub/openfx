@@ -33,6 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ofxImageEffect.h"
 #include "ofxhUtilities.h"
+#include "ofxhPropertySuite.h" // Property::Set
 
 namespace OFX {
 

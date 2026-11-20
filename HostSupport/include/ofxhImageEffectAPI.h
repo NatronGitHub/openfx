@@ -40,6 +40,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ofxImageEffect.h"
 #include "ofxhImageEffect.h"
 #include "ofxhHost.h"
+#include "ofxhPluginCache.h" // Plugin
 
 namespace OFX {
   

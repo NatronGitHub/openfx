@@ -31,6 +31,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef _ofxhTimeLine_h_
 #define _ofxhTimeLine_h_
 
+#include "ofxCore.h" // OfxStatus (ofxTimeLine.h does not include it)
 #include "ofxTimeLine.h"
 
 namespace OFX {
