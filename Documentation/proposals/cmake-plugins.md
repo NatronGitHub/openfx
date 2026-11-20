@@ -56,6 +56,200 @@ Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-u
 - Drops the include directories that don't exist from imported targets, and from the imported targets they link, recursively. Generation fails otherwise: e.g. Ubuntu 24.04's OpenImageIO config lists `/usr/include/opencv4` without libopencv-dev (openfx-io).
 - Call it after `find_package()`. Entries with generator expressions are kept, and each dropped directory is reported once.
 
+`ofx_plugin_bundle_group(<group> ... PLUGIN <name> ... [PLUGIN <name> ...])`: combined or separate bundles, the CMake equivalent of `make nomulti`, with other bundle names (see **Names**). Generic: any repository, several groups per project, plug-ins in any directory, any number of plug-ins per bundle, and per-bundle Info.plist and resources. Combining bundles and `REGISTER` are for plug-ins built on the Support library: raw C-API plug-ins each define `OfxGetPlugin` and `OfxGetNumberOfPlugins`, so two of them can't share a binary.
+
+```cmake
+ofx_plugin_bundle_group(<group>
+  [COMBINED_NAME <bundle>]            # default <group>; also the combined target and install component
+  [COMBINED_ID <identifier>]          # CFBundleIdentifier of a generated combined Info.plist (default org.openeffects.plugins.<bundle>)
+  [COMBINED_INFO_PLIST <file>]        # default: generated
+  [COMBINED_RESOURCES <item>...]      # only in the combined bundle
+  [COMBINED_SOURCES <file>...]        # only in the combined bundle
+  [ID_PREFIX <prefix>]                # a plug-in's identifier, without ID: <prefix><name>
+  [VERSION <x.y.z>]                   # generated Info.plists (default PROJECT_VERSION, else 1.0.0)
+  [ALSO_SEPARATE <plugin>...]         # COMBINED mode: these also get their own bundle
+  [NO_DEPLOY]                         # don't call ofx_deploy_bundle()
+  [COMMON_SOURCES <file>...]          # helpers only (no self-registering factory): one OBJECT library, PIC, in every bundle
+  [COMMON_LINK_LIBRARIES <lib>...] [COMMON_COMPILE_DEFINITIONS <def>...]
+  [COMMON_COMPILE_OPTIONS <opt>...] [COMMON_INCLUDE_DIRECTORIES <dir>...]
+  [COMMON_RPATH <dir>...]             # add_ofx_plugin(RPATH) of every bundle
+  [COMMON_EXPORT_SYMBOLS <symbol>...] # add_ofx_plugin(EXPORT_SYMBOLS) of every bundle
+  [OUT_TARGETS <var>]                 # all the bundle targets
+  [OUT_COMMON_TARGET <var>]           # the OBJECT library of COMMON_SOURCES (<group>_common), if any
+  PLUGIN <name>
+    SOURCES <file>...
+    [ID <identifier>]                 # names its separate bundle (default <ID_PREFIX><name>)
+    [REGISTER <function>...]          # `void f(OFX::PluginFactoryArray&)`, for manual registration
+    [RESOURCES <item>...] [INFO_PLIST <file>]
+    [LINK_LIBRARIES <lib>...] [COMPILE_DEFINITIONS <def>...] [COMPILE_OPTIONS <opt>...] [INCLUDE_DIRECTORIES <dir>...]
+    [OPENMP]
+    [COMBINED_ONLY | SEPARATE_ONLY]
+    [NO_ID_CHECK]                     # no warning about the ID (see Registration)
+    [PROPERTIES <property> <value>...]...  # custom properties, appended to the targets that contain the plug-in
+    [OUT_TARGET <var>]                # the targets that contain the plug-in
+  [PLUGIN <name> ...]...)
+```
+
+- **Mode:** the cache variable `OFX_PLUGIN_BUNDLES`, `COMBINED` (default) or `SEPARATE`; the variable `OFX_PLUGIN_BUNDLES_<group>` overrides it for one group.
+  - `COMBINED`: one `add_ofx_plugin(<COMBINED_NAME>)` with every plug-in except the `SEPARATE_ONLY` ones, plus `COMBINED_SOURCES` and `COMBINED_RESOURCES`. The `ALSO_SEPARATE` and `SEPARATE_ONLY` plug-ins also get their own bundle.
+  - `SEPARATE`: one `add_ofx_plugin(<name>)` per plug-in, except the `COMBINED_ONLY` ones (e.g. a debug-only test plug-in), which still go into a combined bundle (with `COMBINED_SOURCES` and `COMBINED_RESOURCES`), so that no plug-in is lost.
+  - `ALSO_SEPARATE` plug-ins are in both bundles. This is for separate downloads: openfx-misc ships Misc.ofx.bundle and a standalone DenoiseSharpen, and a user installs one or the other. The plug-in's OFX identifier is then in two bundles, and a host must not load both. A host that finds both keeps one: HostSupport keeps the higher version, and for the same version the bundle in the earlier `OFX_PLUGIN_PATH` entry; within one folder, the choice is unspecified. The helper gives no error or warning.
+- **Names:**
+  - a separate bundle is named after its plug-in's identifier, `ID` or `<ID_PREFIX><name>`: `net.sf.openfx.Merge.ofx.bundle`, with the binary `net.sf.openfx.Merge.ofx`. Two packages then can't overwrite each other's bundles in a shared folder such as `/usr/OFX/Plugins`;
+  - these names differ from `make nomulti`'s, which are `<Dir>.ofx.bundle` (`Merge.ofx.bundle`). The standalone bundle of an `ALSO_SEPARATE` plug-in is ID-named too (`net.sf.openfx.DenoiseSharpen.ofx.bundle`). A packager or user who still has an old Makefile bundle installed (`DenoiseSharpen.ofx.bundle`) gets the same plug-in twice: remove the old one;
+  - an entry that registers several factories is named after that entry's ID, not after one of its factories: openfx-misc's Merge registers 33;
+  - `ID` or `ID_PREFIX` is required, except for `COMBINED_ONLY` plug-ins. A missing one is a configure error in both modes, so that the SEPARATE configuration always works;
+  - names and identifiers must match `[A-Za-z0-9_.+-]+`.
+- **Targets and install components:**
+  - a separate bundle's target and install component are the short PLUGIN `<name>` (e.g. `cmake --install build --component DenoiseSharpen`), the combined bundle's are `<COMBINED_NAME>`;
+  - the dotted bundle name is the target's `OUTPUT_NAME` and `OFX_BUNDLE_NAME`;
+  - a group with one plug-in may use the plug-in's name as the group name (e.g. `Shadertoy`): the target is then `Shadertoy` in both modes. A `COMBINED_NAME` that is also the target of a plug-in's separate bundle in either mode (the plug-in is `ALSO_SEPARATE` or `SEPARATE_ONLY`, or the group has `COMBINED_ONLY` plug-ins) is an error in both modes;
+  - also errors: a target name that already exists, a bundle name made by another group (compared without case), two PLUGINs with the same name or identifier, a PLUGIN without SOURCES, and an unknown `ALSO_SEPARATE` name.
+- **Registration:**
+  - Support plug-ins register their factories with `mRegisterPluginFactoryInstance` (a static `OFX::PluginFactories` object), and the Support library's own `OFX::Plugin::getPluginIDs` does nothing. Linking a plug-in's sources into a bundle is then enough, in both modes, with no generated file. Every plug-in of openfx-misc, openfx-io and openfx-arena works this way.
+  - `REGISTER <function>...` is for plug-ins that register by hand: functions `void f(OFX::PluginFactoryArray &ids)` that `push_back` their factories (namespaces allowed: `MyNS::getMyPluginIDs`). For each bundle that has such plug-ins, a generated source calls their functions in declaration order, at static initialization, into the Support library's automatic registration (`OFX::PluginFactories::plugIDs()`, the list that `mRegisterPluginFactoryInstance` fills).
+  - The generated source doesn't define `OFX::Plugin::getPluginIDs`, which the Support library already defines (the CMake build never uses `OFXS_MANUAL_REGISTRATION`). So it needs `openfx::Support`, and works with the installed library as it is. `REGISTER OFX::Plugin::getPluginIDs` is an error.
+  - REGISTER and self-registering plug-ins may be mixed in one bundle. The order between the two kinds is the static initialization order, which is unspecified; hosts don't depend on it.
+  - A plug-in source that defines `getPluginIDs` (the old manual registration) gives a configure warning, since it would be a duplicate symbol with the Support library's: rename the function and pass it to `REGISTER`. There is no warning when the plug-in has a `REGISTER` function of that name in another namespace (`MyNS::getPluginIDs`).
+  - An explicit `ID` with which no string literal of the plug-in's sources, or of the headers in their directories (e.g. openfx-misc's `CImg/Erode/CImgErodeDilate.h`), starts gives a warning. `NO_ID_CHECK` skips it for that plug-in. `"net.sf.openfx.MergePlugin"` matches the ID `net.sf.openfx.Merge`. Both checks are best-effort text searches.
+- **Sources:**
+  - a plug-in's sources are compiled into each bundle target that contains it, never through a static archive, whose unreferenced objects (and so the static registrations) the linker would drop;
+  - a source listed by several plug-ins is added once to a combined bundle, e.g. openfx-misc's `CImg/CImgFilter.cpp`, listed by every CImg entry;
+  - `COMMON_SOURCES` go into one OBJECT library, `<group>_common`, linked into every bundle of the group. It is PIC, has the compile settings of `add_ofx_plugin`, and links `COMMON_LINK_LIBRARIES` PUBLIC.
+- **COMMON_SOURCES pitfalls:**
+  - they must not register factories, since they are in every bundle;
+  - they are compiled without OpenMP. If they need it, call `ofx_target_openmp()` on `OUT_COMMON_TARGET`; every bundle then needs OpenMP too;
+  - never call `supportext_add_sources()` (or `ioSupport_add_sources()`) on the common target: each bundle adds its own SupportExt sources, so they would be linked twice (duplicate symbols);
+  - they get no per-plug-in flags. A helper that must be compiled with a plug-in's definitions (e.g. `OFX_EXTENSIONS_*`, or a feature macro that changes a class layout) would break the one-definition rule there: list it in that plug-in's `SOURCES` instead (it is then compiled once per bundle).
+- **Compile and link settings:**
+  - `COMMON_*` apply to every bundle and to the common objects. `COMMON_RPATH` and `COMMON_EXPORT_SYMBOLS` are `add_ofx_plugin`'s `RPATH` and `EXPORT_SYMBOLS` for every bundle, e.g. openfx-io's in-tree SeExpr directory;
+  - a plug-in's `LINK_LIBRARIES` and `INCLUDE_DIRECTORIES` apply to the bundles that contain it (a combined bundle gets the union, each once). So a source shared by plug-ins, such as `CImgFilter.cpp` or `randomGenerator.cpp`, sees all of them. It also means that a combined bundle searches every plug-in's include directories: header names must be unique across them, or the combined build silently uses the first plug-in's header (e.g. two `Common.h`, one in each plug-in's directory). The separate builds, which see one plug-in's directories each, won't show it;
+  - a plug-in's `COMPILE_DEFINITIONS` and `COMPILE_OPTIONS` apply to its own `SOURCES` only, in both modes, as source file properties:
+    - other targets of the same directory that compile these files see them too;
+    - sources added to the target later (e.g. by `supportext_add_sources`) don't;
+    - a source listed by several plug-ins gets them once, and these plug-ins must give it the same ones (an error otherwise);
+    - a generator-expression source gets none (a warning);
+    - with the Xcode generator, per-source settings are per file of the whole project, and per-source options that Xcode can't express per file may be ignored. Prefer `COMMON_COMPILE_DEFINITIONS` there;
+  - `OPENMP`: `ofx_target_openmp()` on the bundles that contain the plug-in (a combined bundle, if any of its plug-ins has it);
+  - the helper links through the `LINK_LIBRARIES` property, so the caller may use either form of `target_link_libraries` on the targets.
+- **Resources:**
+  - `RESOURCES` and `COMBINED_RESOURCES` items are:
+    - files;
+    - directories, copied with their contents under their own name: Shadertoy's `presets` gives `Contents/Resources/presets/default/*.frag.glsl`;
+    - `<file-or-directory> DESTINATION <subdir>`, under `Contents/Resources/<subdir>`;
+  - nothing goes outside `Contents/Resources`: an absolute `DESTINATION`, or one with `..`, is an error. There is no localisation;
+  - relative paths are relative to the calling directory. The items must exist at configure time: configure a generated file first;
+  - they are installed with `ofx_plugin_resources()`;
+  - a combined bundle gets the union of its plug-ins' resources and `COMBINED_RESOURCES`. An item listed by several plug-ins is copied once. Two different files with the same destination are an error, and destinations are compared without case (case-insensitive file systems on macOS and Windows).
+- **Info.plist:**
+  - a separate bundle's Info.plist is generated, with `CFBundleExecutable` `<ID>.ofx`, `CFBundleIdentifier` `<ID>` and `CFBundleVersion` `VERSION` (default `PROJECT_VERSION`, else 1.0.0);
+  - a plug-in's `INFO_PLIST` is used only if, after `configure_file(@ONLY)`, its `CFBundleExecutable` and `CFBundleIdentifier` are these: use `@PLUGIN_EXE@` and `@BUNDLE_IDENTIFIER@`;
+  - otherwise, e.g. with the Makefiles' per-directory plists that hard-code `<Dir>.ofx`, a warning says so and the generated one is used. The check runs in both modes, so a COMBINED build warns too;
+  - a combined bundle's Info.plist is `COMBINED_INFO_PLIST`, or generated with `COMBINED_ID`. `COMBINED_INFO_PLIST`'s `CFBundleExecutable` must be `<COMBINED_NAME>.ofx` after `configure_file(@ONLY)`, e.g. openfx-misc's `Misc/Info.plist`; it's an error otherwise.
+- **Target properties:**
+  - every bundle target gets `OFX_BUNDLE_PLUGINS` (the PLUGIN names in that bundle, in declaration order) and `OFX_BUNDLE_GROUP`;
+  - each `PROPERTIES <property> <value>...` of a plug-in is appended to the targets that contain it, with duplicates removed. A combined bundle gets the union, so the caller can derive per-bundle settings, e.g. the SupportExt components to add;
+  - only custom properties with a project prefix are allowed, e.g. `OFXMISC_SUPPORTEXT`. These names are errors: a keyword of the function, an `OFX_*` name, a property that the target already has after `add_ofx_plugin` (`CXX_STANDARD`, `OUTPUT_NAME`...), and `SUPPORTEXT_COMPONENTS` and `IOSUPPORT_COMPONENTS`;
+  - never reuse a helper's own bookkeeping property. `supportext_add_sources()` records the components it has added in `SUPPORTEXT_COMPONENTS`, and `ioSupport_add_sources()` in `IOSUPPORT_COMPONENTS`, and both skip the components already listed there. Setting such a property beforehand silently drops every source of these components.
+- **Deployment and signing order:** `ofx_deploy_bundle()` is called on each bundle after its resources (macOS signs the installed bundle). With `NO_DEPLOY`, the caller adds its own resources first (e.g. generated license files, with `ofx_plugin_resources()`), then calls `ofx_deploy_bundle()` on each target of `OUT_TARGETS`.
+- **Install layout:** the same as `add_ofx_plugin`.
+- **OUT_TARGET** is a list: the combined target, plus the separate one for an `ALSO_SEPARATE` plug-in (one target otherwise). Use `foreach()` on it, or on `OUT_TARGETS`, to add per-bundle sources.
+- **Parsing:** the arguments are split at each `PLUGIN` keyword, a property value can't be one of the PLUGIN keywords, and empty arguments are dropped.
+
+Migration example (openfx-misc, abridged; see its `CMakeLists.txt` for the full lists):
+
+```cmake
+# Misc.ofx.bundle (Misc/Makefile). randomGenerator.cpp is used by several plug-ins: it is a
+# COMMON_SOURCE (no factory). TestRender is only in the combined bundle (and compiled out unless
+# DEBUG).
+ofx_plugin_bundle_group(Misc
+  COMBINED_INFO_PLIST Misc/Info.plist           # CFBundleExecutable Misc.ofx
+  COMBINED_SOURCES Test/TestRender.cpp
+  ID_PREFIX net.sf.openfx.
+  ALSO_SEPARATE DenoiseSharpen                  # Misc.ofx.bundle, and net.sf.openfx.DenoiseSharpen.ofx.bundle
+  COMMON_SOURCES Misc/randomGenerator.cpp
+  COMMON_LINK_LIBRARIES openfx::Support
+  COMMON_INCLUDE_DIRECTORIES Misc ${OFXMISC_GLEXT_INCLUDE_DIR}
+  OUT_TARGETS _misc_targets
+  PLUGIN Merge                                  # 33 factories: net.sf.openfx.Merge.ofx.bundle
+    SOURCES Merge/Merge.cpp
+    RESOURCES Merge/net.sf.openfx.MergePlugin.png Merge/net.sf.openfx.MergePlugin.svg
+              Merge/net.sf.openfx.MergePlus.png # ... one icon per operator
+    INCLUDE_DIRECTORIES Merge
+    PROPERTIES OFXMISC_SUPPORTEXT MULTIPLANE    # not SUPPORTEXT_COMPONENTS: see Target properties
+  PLUGIN DenoiseSharpen
+    SOURCES DenoiseSharpen/DenoiseSharpen.cpp
+    INCLUDE_DIRECTORIES DenoiseSharpen
+    OPENMP
+    PROPERTIES OFXMISC_SUPPORTEXT MULTIPLANE THREADS
+  # PLUGIN ... (every directory of Misc/Makefile)
+  )
+foreach(_t IN LISTS _misc_targets)
+  get_target_property(_components ${_t} OFXMISC_SUPPORTEXT)
+  supportext_add_sources(${_t} COMPONENTS ${_components})
+endforeach()
+
+# CImg.ofx.bundle (CImg/Makefile): CImgFilter.cpp is listed by each plug-in (added once to the
+# combined bundle); OpenMP as CImg/Makefile's OPENMP=1, with cimg_use_openmp only if it is found
+if(BUILD_CIMG_PLUGINS)
+  set(_cimg_omp "")
+  if(NOT MSVC) # MSVC has OpenMP 2.0 only
+    set(_cimg_omp OPENMP)
+  endif()
+  ofx_plugin_bundle_group(CImg
+    COMBINED_INFO_PLIST CImg/Info.plist
+    ID_PREFIX net.sf.cimg.CImg                  # PLUGIN Blur: net.sf.cimg.CImgBlur.ofx.bundle
+    COMMON_LINK_LIBRARIES openfx::Support
+    COMMON_INCLUDE_DIRECTORIES CImg
+    COMMON_COMPILE_DEFINITIONS "$<$<AND:$<BOOL:${OFX_USE_OPENMP}>,$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<TARGET_EXISTS:OpenMP::OpenMP_CXX>>:cimg_use_openmp>"
+    OUT_TARGETS _cimg_targets
+    PLUGIN Blur                                 # 14 factories (CImgBlur, CImgLaplacian, CImgSharpen...)
+      SOURCES CImg/Blur/CImgBlur.cpp CImg/CImgFilter.cpp
+      RESOURCES CImg/Blur/net.sf.cimg.CImgBlur.png CImg/Blur/net.sf.cimg.CImgBlur.svg # ...
+      ${_cimg_omp}
+    PLUGIN Erode                                # CImgErode and CImgDilate
+      SOURCES CImg/Erode/CImgErode.cpp CImg/Erode/CImgDilate.cpp CImg/CImgFilter.cpp
+      RESOURCES CImg/Erode/net.sf.cimg.CImgErode.png CImg/Erode/net.sf.cimg.CImgErode.svg
+                CImg/Erode/net.sf.cimg.CImgDilate.png CImg/Erode/net.sf.cimg.CImgDilate.svg
+      ${_cimg_omp}
+    # PLUGIN ... (every directory of CImg/Makefile)
+    )
+  foreach(_t IN LISTS _cimg_targets)
+    supportext_add_sources(${_t} COMPONENTS THREADS LUT)
+  endforeach()
+endif()
+
+# Shadertoy.ofx.bundle (Shadertoy/Makefile): a group of one plug-in, so the target is Shadertoy
+# in both modes (net.sf.openfx.Shadertoy.ofx.bundle in SEPARATE mode). NO_DEPLOY: OSMesa is set
+# up on the target first.
+if(BUILD_SHADERTOY)
+  ofx_plugin_bundle_group(Shadertoy
+    COMBINED_INFO_PLIST Shadertoy/Info.plist
+    NO_DEPLOY
+    COMMON_LINK_LIBRARIES openfx::Support OpenGL::GL ${CMAKE_DL_LIBS}
+    COMMON_INCLUDE_DIRECTORIES ${OFXMISC_GLEXT_INCLUDE_DIR}
+    PLUGIN Shadertoy
+      ID net.sf.openfx.Shadertoy
+      SOURCES Shadertoy/Shadertoy.cpp Shadertoy/ShadertoyParse.cpp
+              Shadertoy/ShadertoyRenderGL.cpp Shadertoy/ShadertoyRenderMesa.cpp
+      RESOURCES Shadertoy/net.sf.openfx.Shadertoy.png Shadertoy/net.sf.openfx.Shadertoy.svg
+                Shadertoy/presets               # Contents/Resources/presets/default/*.frag.glsl
+      OUT_TARGET _shadertoy)
+  supportext_add_sources(${_shadertoy} COMPONENTS THREADS)
+  if(USE_OSMESA)
+    target_compile_definitions(${_shadertoy} PRIVATE HAVE_OSMESA)
+    set_property(SOURCE Shadertoy/ShadertoyRenderMesa.cpp APPEND PROPERTY INCLUDE_DIRECTORIES ${_osmesa_includes})
+    target_link_libraries(${_shadertoy} PRIVATE OSMesa::OSMesa)
+  endif()
+  ofx_deploy_bundle(${_shadertoy})
+endif()
+
+# Test.ofx.bundle (Test/Makefile, debug builds): one bundle that is never split, so it stays an
+# add_ofx_plugin(Test INFO_PLIST Test/Info.plist SOURCES Test/TestRender.cpp Test/TestPosition.cpp ...)
+```
+
+`cmake -DOFX_PLUGIN_BUNDLES=SEPARATE` then gives `net.sf.openfx.Merge.ofx.bundle`, `net.sf.openfx.DenoiseSharpen.ofx.bundle`, `net.sf.cimg.CImgBlur.ofx.bundle`, `net.sf.cimg.CImgErode.ofx.bundle`, `net.sf.openfx.Shadertoy.ofx.bundle`... (no `Misc.ofx.bundle`, since Misc has no `COMBINED_ONLY` plug-in; `COMBINED_SOURCES` such as TestRender are then not built). `cmake --install build --component DenoiseSharpen` installs one bundle; in COMBINED mode that is the standalone `net.sf.openfx.DenoiseSharpen.ofx.bundle`, next to `Misc.ofx.bundle` (component `Misc`).
+
 **macOS deployment target**
 - Every plug-in bundle targets macOS 14.0 (VFX Reference Platform CY2027). CMake reads `CMAKE_OSX_DEPLOYMENT_TARGET` at the first `project()`, so the plug-in project sets it before that: `set(CMAKE_OSX_DEPLOYMENT_TARGET 14.0 CACHE STRING "Minimum macOS version")`, or `-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0`, or the `MACOSX_DEPLOYMENT_TARGET` environment variable. `cmake/OpenFX.cmake` warns if it is empty or newer than 14.0. The plug-in Makefiles (`Makefile.master`) default to 14.0.
 
@@ -112,6 +306,7 @@ Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-u
   - Resources, with a subdirectory;
   - the exported symbols (exactly OfxGetPlugin and OfxGetNumberOfPlugins) and the rpath;
   - on macOS, deployment: libomp bundled, `codesign --verify --strict`, and nothing referenced outside the bundle.
+- `cmake/tests/plugin-project/bundle-group` has two groups of tiny Support plug-ins for `ofx_plugin_bundle_group()`: self-registering ones (two in one directory, one in another, with an explicit dotted ID), REGISTER ones (a namespaced function, two functions in one plug-in) mixed with a self-registering one, a shared source and a shared resource, a resources directory, a `DESTINATION` item, `COMMON_SOURCES`, per-plug-in compile settings checked with `#error`, `PROPERTIES`, `ALSO_SEPARATE`, `COMBINED_ONLY`, `SEPARATE_ONLY`, `NO_DEPLOY`, `COMMON_RPATH` and `COMMON_EXPORT_SYMBOLS`. `cmake-plugin-project.sh` builds them in COMBINED mode (with the rest of the project) and in SEPARATE mode (a second build of the group targets only, each installed through its install component), and checks the bundles, their resources and Info.plist, an install component, and, on Linux and macOS, that cacheDemo loads every plug-in from the expected bundle. `cmake/tests/bundle-group-errors` checks the configure errors and warnings (configure only).
 - It runs the Support self-tests `drawsuite-opengl-test` (the OpenGL DrawSuite core with a fake OpenGL table, also on Windows) and `drawcontext-opengl-test` (macOS in an offscreen CGL context, Linux without a context, to test the run-time loading of OpenGL).
 - On Linux, `cmake-plugin-project.sh` checks that `OFX_LINUX_CHECK_BUNDLE` points to the installed or the source-tree script, and that `linuxCheckBundle.sh` reports the test plug-ins' deliberate absolute rpath entries, then accepts them once they are in `OFX_ABI_RPATH_ALLOW`. On macOS it builds with `CMAKE_OSX_DEPLOYMENT_TARGET=14.0`.
 - On Linux, it runs `linuxCheckBundle.sh` on the installed examples: no system library bundled and no other library needed (they need only system libraries), with the symbol-version limits disabled (`OFX_ABI_*=99`: the Ubuntu builder is newer than EL9; the baseline is checked where the releases are built). Finding no bundle fails.

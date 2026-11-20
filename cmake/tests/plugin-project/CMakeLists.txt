@@ -87,6 +87,9 @@ if(OFX_TEST_SDK_LIBRARY)
   target_link_libraries(TestOmpNoDeploy PRIVATE TestSdkDep)
 endif()
 
+# ofx_plugin_bundle_group(): combined or separate bundles (OFX_PLUGIN_BUNDLES)
+add_subdirectory(bundle-group)
+
 # OFX_LINUX_CHECK_BUNDLE is set (the installed or the source-tree linuxCheckBundle.sh), for
 # cmake-plugin-project.sh to run on the installed bundles
 if(NOT EXISTS "${OFX_LINUX_CHECK_BUNDLE}")
