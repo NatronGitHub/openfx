@@ -55,6 +55,17 @@ def default_backend(backend: str | None = None) -> str:
     return b
 
 
+def _backend_for(backend: str | None, host_binary) -> str:
+    """The backend of a call: a host_binary means hostDemo (subprocess), whatever $OFXHOST_BACKEND,
+    and can't go with backend="inprocess"."""
+    if host_binary is not None:
+        if backend == "inprocess":
+            raise ValueError("host_binary is hostDemo's: it can't be given with backend=\"inprocess\"")
+        if backend is None:
+            return "subprocess"
+    return default_backend(backend)
+
+
 class HostDemoError(RuntimeError):
     """hostDemo failed (non-zero exit, timeout, or unreadable output); in-process: the run failed
     (returncode 1, with hostDemo's error message in stderr)."""
@@ -352,12 +363,12 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
     query: only run the query actions (--query): no output, see .report["renders"].
     check: raise HostDemoError on a non-zero exit status (default).
     backend: "subprocess" (hostDemo) or "inprocess" (ofxhost.inprocess, on the ofxh module; it
-        ignores host_binary and timeout, and supports only some extra_args); default
-        $OFXHOST_BACKEND, else "subprocess".
+        ignores timeout, and supports only some extra_args); default: "subprocess" if host_binary
+        is given (ValueError with "inprocess"), else $OFXHOST_BACKEND, else "subprocess".
     """
     if depth not in DEPTHS:
         raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
-    if default_backend(backend) == "inprocess":
+    if _backend_for(backend, host_binary) == "inprocess":
         from . import inprocess
         return inprocess.render(bundle_paths, plugin_id, context, inputs, params, depth, frames, scale, window,
                                 query, extra_args, check)
@@ -427,7 +438,7 @@ def describe(bundle_paths, plugin_id: str, context: str | None = None,
              extra_args: Sequence[str] = (), backend: str | None = None) -> dict:
     """Return hostDemo's --describe JSON for a plug-in (params, clips, contexts, flags).
     backend: as render()."""
-    if default_backend(backend) == "inprocess":
+    if _backend_for(backend, host_binary) == "inprocess":
         from . import inprocess
         return inprocess.describe(bundle_paths, plugin_id, context, extra_args)
     host = find_hostdemo(host_binary)

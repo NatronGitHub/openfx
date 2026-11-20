@@ -105,7 +105,8 @@ jobs:
           # self-tests with OFX_EXTENSIONS_NATRON (no GL context here: the property reading and the
           # backend state, and the drawing with the fake OpenGL table), and the ofxh module with the
           # plug-ins and hostDemo that its tests use, so that its code for the extensions compiles
-          # and runs (not the ofxhost tests: hostDemo renders two views with Nuke or Vegas)
+          # and runs; and test_backends.py, which compares the in-process backend with hostDemo
+          # there (two views per frame with Nuke or Vegas; the other ofxhost tests expect one)
           set -eo pipefail
           cmake -S . -B build-ci-natron -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLE_PLUGINS=ON \
             -DBUILD_EXAMPLE_HOSTS=ON -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON \
@@ -113,16 +114,23 @@ jobs:
             -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
           cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test ofxh \
             hostDemo example-Basic-support example-ChoiceParams-support example-Generator-support \
-            example-Invert-support example-Tester-support example-Rectangle
+            example-Invert-support example-Tester-support example-Retimer-support example-MultiBundle-support \
+            example-Rectangle
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test)
           # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
           PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" OFXH_REQUIRE=1 \
             python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
+          OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
+            OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" OFXH_REQUIRE=1 \
+            python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 \
+            HostSupport/examples/python/tests/test_backends.py
       - name: Python wrapper and sample plug-in tests (ofxhost, on both backends)
+        if: success() || failure()
         run: |
           # each render test runs with hostDemo and in-process on the ofxh module (OFXH_REQUIRE=1: a
           # backend that isn't built fails the tests instead of skipping them)
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1 \
+            OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
             python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/examples/python/tests Support/Plugins/tests
       - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
         if: success() || failure()

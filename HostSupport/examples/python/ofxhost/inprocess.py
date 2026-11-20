@@ -13,19 +13,25 @@ run() and renderFrame() (HostSupport/examples/hostDemo.cpp) and of its clips and
 ofxh: Host, ImageEffectInstance and ClipInstance subclasses, and the actions in a host's order.
 
 Differences from the subprocess backend:
-- the images aren't written to files: inputs are NumPy arrays given to the plug-in without a copy
-  (a view of the input converted once to the clip's depth), and outputs are the arrays the plug-in
+- the images aren't written to files: each fetch of an input gives the plug-in a new contiguous
+  NumPy array at the clip's depth, made from the input (as hostDemo makes a new image per fetch;
+  ofxh passes the array itself, without another copy), and outputs are the arrays the plug-in
   rendered into. The report's output "files" is [], and an array input's "spec" is
   "array:WxHxC[@x1,y1][#premult]";
 - the report's host name is ofxh's ("net.sf.openfx.ofxh"), not hostDemo's;
 - ofxh's string choice parameters refuse a value that is not one of their enums (hostDemo's accept it);
-- timeout is not applied (a hang hangs the caller), and a plug-in crash kills the interpreter;
+- timeout is not applied (a hang hangs the caller), and a plug-in crash kills the interpreter. Its
+  last output (e.g. an assert message) is then lost with the captured stdout and stderr, which are
+  unlinked temporary files: set OFXHOST_CAPTURE=0 to leave the file descriptors 1 and 2 alone;
 - one host per process (ofxh): the backend keeps its ofxh host between renders with the same
   plug-in directories and profile, so the plug-ins stay loaded (hostDemo loads them in each run),
   and refuses to run if another ofxh host is initialized (RuntimeError). shutdown() releases it;
 - stdout and stderr are captured at the file-descriptor level (the plug-ins' printf and
   std::cerr), for the duration of each call, which runs in a temporary current directory (as
   hostDemo's);
+- a plug-in whose worker thread is the first to fetch the output image of a render gets none: the
+  fetch asks for the output clip's RoD, which runs the RoD action, and ofxh refuses actions on a
+  worker thread (part 2);
 - extra_args: only --ofx14, --allow-unwritten and -m MAJOR (and the no-ops --quiet, --no-cache,
   --no-std-paths); anything else raises ValueError.
 """
@@ -201,7 +207,7 @@ _NCOMPS = {"rgba": 4, "rgb": 3, "alpha": 1}
 
 # --- stdout and stderr ----------------------------------------------------------------------
 
-_fflush = None
+_fflush: Any = None  # the C fflush (ctypes), False if there is none, None until looked up
 
 
 def _flush_c() -> None:
@@ -227,36 +233,55 @@ def _write(fd: int, text: str) -> None:
         data = data[n:]
 
 
-@contextlib.contextmanager
-def _capture():
-    """Capture the file descriptors 1 and 2 (what hostDemo's stdout and stderr would get) into
-    out["stdout"] and out["stderr"], in a temporary current directory (as the subprocess backend
-    runs hostDemo: the files that plug-ins write there, e.g. logs, are deleted)."""
-    out = {"stdout": "", "stderr": ""}
-    cwd = os.getcwd()
-    tmp = tempfile.TemporaryDirectory(prefix="ofxhost-")
-    os.chdir(tmp.name)
+def _flush_python() -> None:
     for f in (sys.stdout, sys.stderr):
         try:
             f.flush()
         except (AttributeError, ValueError, OSError):
             pass
-    _flush_c()
-    files = {fd: tempfile.TemporaryFile() for fd in (1, 2)}
-    saved = {fd: os.dup(fd) for fd in (1, 2)}
+
+
+def capture_enabled() -> bool:
+    """Is stdout and stderr captured ($OFXHOST_CAPTURE, default 1)? 0 leaves the file descriptors 1
+    and 2 alone: what a crashing plug-in writes there before the interpreter dies (e.g. an assert
+    message) is then not lost in an unlinked temporary file, and RenderResult.stdout and .stderr
+    are empty (hostDemo's messages go to the real stderr)."""
+    return os.environ.get("OFXHOST_CAPTURE", "1") != "0"
+
+
+@contextlib.contextmanager
+def _capture():
+    """Capture the file descriptors 1 and 2 (what hostDemo's stdout and stderr would get) into
+    out["stdout"] and out["stderr"] (unless $OFXHOST_CAPTURE=0), in a temporary current directory
+    (as the subprocess backend runs hostDemo: the files that plug-ins write there, e.g. logs, are
+    deleted)."""
+    out = {"stdout": "", "stderr": ""}
+    capture = capture_enabled()
+    cwd = os.getcwd()
+    tmp = tempfile.TemporaryDirectory(prefix="ofxhost-")
+    files: dict = {}
+    saved: dict = {}
     try:
-        for fd, f in files.items():
-            os.dup2(f.fileno(), fd)
+        os.chdir(tmp.name)
+        _flush_python()
+        _flush_c()
+        if capture:
+            for fd in (1, 2):
+                files[fd] = tempfile.TemporaryFile()
+                saved[fd] = os.dup(fd)
+                os.dup2(files[fd].fileno(), fd)
         yield out
     finally:
+        _flush_python()
         _flush_c()
-        for fd in (1, 2):
-            os.dup2(saved[fd], fd)
-            os.close(saved[fd])
+        for fd, d in saved.items():
+            os.dup2(d, fd)
+            os.close(d)
         for fd, name in ((1, "stdout"), (2, "stderr")):
-            files[fd].seek(0)
-            out[name] = files[fd].read().decode("utf-8", "replace")
-            files[fd].close()
+            if fd in files:
+                files[fd].seek(0)
+                out[name] = files[fd].read().decode("utf-8", "replace")
+                files[fd].close()
         os.chdir(cwd)
         tmp.cleanup()
 
@@ -374,8 +399,9 @@ def _parse_spec(s: str) -> _Spec:
         at = path.rfind("@")
         if at >= 0:
             x1, comma, y1 = path[at + 1:].partition(",")
-            if comma and _parse_int(x1) is not None and _parse_int(y1) is not None:
-                fx, fy = _parse_int(x1), _parse_int(y1)
+            px, py = (_parse_int(x1), _parse_int(y1)) if comma else (None, None)
+            if px is not None and py is not None:
+                fx, fy = px, py
                 if not (-1000000 <= fx <= 1000000 and -1000000 <= fy <= 1000000):
                     raise _SpecError("file position out of range")
                 path = path[:at]
@@ -650,7 +676,7 @@ class _Clip(ofxh.ClipInstance):
                     f'and components "{_ofx("components", comps)}"')
             run.image_errors += 1
             return None
-        rs = run.render_scale
+        rs = tuple(run.instance.render_scale)  # (the current action's: the image's render scale)
         par = self.aspect_ratio
         rod_c = self.region_of_definition(time, view)
         rod = _to_pixels(rod_c, rs, par)
@@ -698,11 +724,10 @@ class _Clip(ofxh.ClipInstance):
         """MyImage refuses images of more than 2^28 pixels (an image fetch error): empty bounds."""
         b = (b[0], b[1], max(b[2], b[0]), max(b[3], b[1]))
         if not _fits(b, _NCOMPS[comps] * _BPC[depth]):
-            if (b, time) not in self.run.refused:
-                self.run.refused.add((b, time))
-                self.run.err(f"Error: image of {b[2] - b[0]}x{b[3] - b[1]} pixels at time {_g(time)}: too large "
-                             f"(more than {MAX_IMAGE_PIXELS} pixels)")
-                self.run.image_errors += 1
+            # (each refused image is an error, as in hostDemo)
+            self.run.err(f"Error: image of {b[2] - b[0]}x{b[3] - b[1]} pixels at time {_g(time)}: too large "
+                         f"(more than {MAX_IMAGE_PIXELS} pixels)")
+            self.run.image_errors += 1
             b = (b[0], b[1], b[0], b[1])
         return b
 
@@ -816,12 +841,10 @@ class _Run:
         self.instance: _Instance | None = None
         # the render state (setRenderState)
         self.rendering = False
-        self.render_scale = (1., 1.)
         self.rois: dict = {}
         self.image_errors = 0
         self.warned_clips: set = set()
         self.warned_window = self.warned_large = False
-        self.refused: set = set()
         self.outputs: dict = {}  # key -> (bottom-up pixels, bounds)
 
     @staticmethod
@@ -833,7 +856,9 @@ class _Run:
         try:
             return f(*args, **kw)
         except ofxh.CallbackError as e:
-            self.err(f"Error: {what}: {e}\n" + "".join(traceback.format_exception(e.__cause__)).rstrip())
+            cause = e.__cause__
+            tb = "".join(traceback.format_exception(type(cause), cause, cause.__traceback__)) if cause else ""
+            self.err(f"Error: {what}: {e}" + ("\n" + tb.rstrip() if tb else ""))
             return e.status if e.status is not None else ofxh.Stat.Failed
 
     def call2(self, what: str, f, *args):
@@ -1057,7 +1082,7 @@ def _render_frame(run: _Run, inst, out_clip, t: float, view: int, sequential: bo
         return True
 
     # setRenderState: each render gets a new output image (ofxh's render_action)
-    run.rendering, run.render_scale, run.rois = True, rs, dict(rois)
+    run.rendering, run.rois = True, dict(rois)
     errors = run.image_errors
     rview = view if (_NUKE or _VEGAS) else 0
     try:

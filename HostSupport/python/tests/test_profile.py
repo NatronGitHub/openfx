@@ -165,3 +165,16 @@ def test_default_output_depth(plugin_dir, depth, expected):
         assert inst.create_instance_action() in (ofxh.Stat.OK, ofxh.Stat.ReplyDefault)
         assert inst.get_clip_preferences_action() == ofxh.Stat.OK
         assert inst.clip("Output").pixel_depth == expected
+
+
+def test_default_output_depth_invalid(plugin_dir):
+    class Instance(ofxh.ImageEffectInstance):
+        default_output_depth = "double"
+
+    ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False)
+    inst = ofxh.create_instance(ofxh.get_plugin(BASIC), "filter", Instance())
+    with inst:
+        inst.clip("Source").connected = False
+        with pytest.raises(ofxh.CallbackError) as e:
+            inst.create_instance_action()
+        assert isinstance(e.value.__cause__, ValueError) and "default_output_depth" in str(e.value.__cause__)

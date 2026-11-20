@@ -1269,6 +1269,11 @@ void PyEffectInstance::setDefaultClipPreferences()
       nb::object d = _py.attr("default_output_depth");
       if (!d.is_none()) {
         depth = depthName(nb::cast<std::string>(d));
+        if (depth != kOfxBitDepthByte && depth != kOfxBitDepthShort && depth != kOfxBitDepthHalf &&
+            depth != kOfxBitDepthFloat) {
+          raiseError(PyExc_ValueError, "default_output_depth " + nb::cast<std::string>(nb::repr(d)) +
+                                       ": expected byte, short, half or float (or the kOfxBitDepth* value), or None");
+        }
       }
     )
   }

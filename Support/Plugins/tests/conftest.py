@@ -7,7 +7,8 @@ directories). Tests that need hostDemo or the bundles are skipped if they aren't
 The render and describe fixtures run each test on both ofxhost backends (ofxhost.testing's backend
 fixture): hostDemo in a subprocess, and in-process on the HostSupport Python bindings (the ofxh
 module: PYTHONPATH=<openfx build>/HostSupport/python). A backend that isn't built is skipped
-($OFXHOST_TEST_BACKENDS=subprocess runs only hostDemo).
+($OFXHOST_TEST_BACKENDS=subprocess runs only hostDemo). render and describe are function-scoped
+fixtures (the backend fixture is): a fixture that uses them must be function-scoped too.
 """
 
 import functools

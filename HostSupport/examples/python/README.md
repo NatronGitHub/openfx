@@ -10,8 +10,9 @@ have the same API and the same JSON report (NatronGitHub/openfx#136):
 - `"inprocess"`: `ofxhost.inprocess`, hostDemo's test host ported to Python on the HostSupport
   bindings (the `ofxh` module, built with `-DOFX_PYTHON_BINDINGS=ON`; `PYTHONPATH=<build>/HostSupport/python`,
   else ofxhost looks for it in `build*/HostSupport/python`). Same inputs, actions, render windows,
-  errors and report, without files: input arrays are given to the plug-in as they are (converted
-  once to the clip's depth), outputs are the arrays it rendered into.
+  errors and report, without files: each fetch of an input gives the plug-in a new contiguous NumPy
+  array at the clip's depth, made from the input (as hostDemo makes a new image per fetch; ofxh
+  passes that array itself, without another copy), and outputs are the arrays it rendered into.
 
 Choose with `backend=` (`render()`, `describe()`, and `ofxhost.graph.execute()` through its
 render arguments) or `$OFXHOST_BACKEND`. Needs Python 3.10 or later and NumPy (and pytest for the
@@ -54,8 +55,16 @@ assert np.allclose(r.outputs[0][..., :3], 1 - src, atol=1e-6)
     `"array:WxHxC[@x1,y1][#premult]"`; the report's `host.name` is ofxh's (`net.sf.openfx.ofxh`);
   - ofxh's string choice parameters refuse a value outside their enums (`could not set parameter`),
     hostDemo's accept it;
-  - `timeout` and `host_binary` are ignored (a hang hangs the caller, and a plug-in crash kills
-    the interpreter: large test runs keep the subprocess backend, or run in worker processes);
+  - `timeout` is ignored (a hang hangs the caller), and a plug-in crash kills the interpreter: large
+    test runs keep the subprocess backend, or run in worker processes. The crash's last output (an
+    assert message, for example) is then lost with the captured stdout and stderr, which are
+    unlinked temporary files: `OFXHOST_CAPTURE=0` leaves the file descriptors 1 and 2 alone (then
+    `RenderResult.stdout` and `.stderr` are empty, and hostDemo's messages go to the real stderr);
+  - `host_binary` is hostDemo's: with it, a call without `backend=` uses the subprocess backend
+    whatever `$OFXHOST_BACKEND` says, and `backend="inprocess"` with it is a `ValueError`;
+  - a plug-in whose worker thread (e.g. OpenMP) is the first to fetch the output image of a render
+    gets no image: that fetch asks for the output clip's RoD, which runs the RoD action, and ofxh
+    refuses to run an action from a worker thread (part 2);
   - `extra_args`: only `--ofx14`, `--allow-unwritten` and `-m MAJOR` (and the no-ops `--quiet`,
     `--no-cache`, `--no-std-paths`); anything else raises `ValueError`;
   - stdout and stderr are captured from the file descriptors 1 and 2 during the call (the
@@ -79,8 +88,13 @@ each backend (`test_x[subprocess]`, `test_x[inprocess]`: it sets `$OFXHOST_BACKE
 skips a backend that isn't built, or fails with `OFXH_REQUIRE=1`, and `$OFXHOST_TEST_BACKENDS`
 restricts them, e.g. `subprocess`); the `backends` marker, for a test that depends on one
 backend's behaviour (`@pytest.mark.backends("subprocess", reason="...")`: skipped on the others with
-the reason; import `pytest_configure` from `ofxhost.testing` in conftest.py to register it); and a
-`hostdemo` fixture (the hostDemo binary; it skips the tests when hostDemo isn't built).
+the reason; without `reason=`, the test fails); and a `hostdemo` fixture (the hostDemo binary; it
+skips the tests when hostDemo isn't built). To get them: `pytest_plugins = ["ofxhost.testing"]` in
+the top-level conftest.py (pytest refuses `pytest_plugins` in the others), or
+`from ofxhost.testing import backend, pytest_configure` in any conftest.py (a conftest.py with its
+own `pytest_configure` calls `ofxhost.testing.pytest_configure(config)` from it instead). The
+fixtures that depend on `backend` must be function-scoped (as `render` and `describe` in
+Support/Plugins/tests/conftest.py).
 
 `hostDemo.py` is a small command line wrapper: it saves the outputs as
 `<prefix>.<frame>.npy`, and prints the report as JSON (`python hostDemo.py -h`; `--backend inprocess` for the in-process backend).

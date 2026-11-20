@@ -14,8 +14,14 @@ backend's behaviour says so, with the reason:
 
     @pytest.mark.backends("subprocess", reason="hostDemo's exit status after a crash")
 
-(import pytest_configure in the conftest.py to register the marker). The hostdemo fixture is the
-hostDemo binary, for the subprocess backend only.
+The hostdemo fixture is the hostDemo binary, for the subprocess backend only.
+
+Two ways to get the fixtures and the marker:
+- in the top-level conftest.py (the rootdir's: pytest refuses pytest_plugins elsewhere), once
+  ofxhost is importable: pytest_plugins = ["ofxhost.testing"];
+- in any conftest.py: from ofxhost.testing import backend, pytest_configure. If that conftest has
+  its own pytest_configure, the import clashes with it: call ofxhost.testing.pytest_configure(config)
+  from yours instead.
 """
 
 from __future__ import annotations
@@ -29,7 +35,7 @@ import pytest
 from . import BACKENDS, HostDemoNotFound, find_hostdemo
 
 __all__ = ["assert_close", "find_hostdemo_or_skip", "hostdemo", "backend", "backend_available",
-           "test_backends", "pytest_configure"]
+           "selected_backends", "check_backend", "pytest_configure"]
 
 
 def assert_close(actual, expected, atol: float = 0.0, rtol: float = 0.0, *,
@@ -89,7 +95,7 @@ def hostdemo() -> Path:
     return find_hostdemo_or_skip()
 
 
-def test_backends() -> list[str]:
+def selected_backends() -> list[str]:
     """The backends the tests run on: $OFXHOST_TEST_BACKENDS (comma-separated), else all."""
     env = os.environ.get("OFXHOST_TEST_BACKENDS")
     b = [x.strip() for x in env.split(",") if x.strip()] if env else list(BACKENDS)
@@ -97,9 +103,6 @@ def test_backends() -> list[str]:
     if bad:
         raise ValueError(f"OFXHOST_TEST_BACKENDS: unknown backends {bad} (expected {BACKENDS})")
     return b
-
-
-test_backends.__test__ = False  # (not a test)
 
 
 def backend_available(name: str) -> str | None:
@@ -124,20 +127,27 @@ def pytest_configure(config):
         "says why); it is skipped on the others, with the reason")
 
 
-@pytest.fixture(params=test_backends())
-def backend(request, monkeypatch) -> str:
-    """Each backend in turn ("subprocess", "inprocess"), as $OFXHOST_BACKEND for the test."""
-    name = request.param
-    m = request.node.get_closest_marker("backends")
-    if m is not None and name not in m.args:
-        reason = m.kwargs.get("reason")
+def check_backend(name: str, marker=None) -> None:
+    """Skip (or fail) a test on the backend name: the backends marker's (a pytest Mark, or None)
+    other backends are skipped with its reason (a marker without reason= fails), and an unavailable
+    backend is skipped, or fails with OFXH_REQUIRE=1."""
+    if marker is not None:
+        reason = marker.kwargs.get("reason")
         if not reason:
             pytest.fail("@pytest.mark.backends(...) needs a reason=")
-        pytest.skip(f"only on the {', '.join(m.args)} backend: {reason}")
+        if name not in marker.args:
+            pytest.skip(f"only on the {', '.join(marker.args)} backend: {reason}")
     why = backend_available(name)
     if why is not None:
         if os.environ.get("OFXH_REQUIRE") == "1":
             pytest.fail(f"backend {name}: {why} (OFXH_REQUIRE=1)")
         pytest.skip(f"backend {name}: {why}")
+
+
+@pytest.fixture(params=selected_backends())
+def backend(request, monkeypatch) -> str:
+    """Each backend in turn ("subprocess", "inprocess"), as $OFXHOST_BACKEND for the test."""
+    name = request.param
+    check_backend(name, request.node.get_closest_marker("backends"))
     monkeypatch.setenv("OFXHOST_BACKEND", name)
     return name

@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 import ofxhost
-from ofxhost.testing import backend_available
+from ofxhost.testing import backend_available, check_backend
 
 INVERT = "net.sf.openfx.invertPlugin"
 BASIC = "net.sf.openfx.basicPlugin"
@@ -142,7 +142,7 @@ def test_params_mask_keys(both):
 
 def test_generator(both):
     """No input: the output gets the -d depth (default_output_depth); an infinite RoD."""
-    _compare(both, NOISE, "general", inputs={"Source": "none"}, depth="byte", frames=[0], pixels=False)
+    _compare(both, NOISE, "general", inputs={"Source": "none"}, depth="byte", frames=[0, 1])
     _compare(both, NOISE, "general", inputs={"Source": "none"}, depth="float", frames=[0], query=True)
 
 
@@ -169,6 +169,17 @@ def test_ofx14(both):
 def test_buttons_and_messages(both):
     s, i = _compare(both, TESTER, params={"keysTest": None}, frames=[0], query=True)
     assert [m["text"] for m in i.report["messages"]] == ["Keys test passed"]
+
+
+def test_refused_images(both):
+    """Each image too large for hostDemo (more than 2^28 pixels) is an image fetch error, with its
+    message, as in hostDemo: the Tester's analyse button fetches its Source at each frame of its
+    range (0 to 24) outside a render, where the whole RoD is fetched. (During a render, the fetches
+    are clipped to the render window, so the samples can't make refused images there.)"""
+    s, i = _compare(both, TESTER, inputs={"Source": "rod:0,0,40000,40000"}, params={"analyseButton": None},
+                    frames=[0], query=True)
+    for r in (s, i):
+        assert r.stderr.count("too large (more than 268435456 pixels)") == 25, r.stderr
 
 
 def test_describe(both):
@@ -249,3 +260,19 @@ def test_inprocess_one_host_per_process(both):
     assert ofxh.host() is not host and ofxh.profile() == "ofx14"
     inprocess.shutdown()
     assert not ofxh.initialized()
+
+
+def test_backends_marker(monkeypatch):
+    """The backends marker skips the other backends with its reason; a marker without reason= fails
+    (with OFXH_REQUIRE=1 too)."""
+    m = pytest.mark.backends("subprocess", reason="why").mark
+    with pytest.raises(pytest.skip.Exception, match="only on the subprocess backend: why"):
+        check_backend("inprocess", m)
+    monkeypatch.setenv("OFXH_REQUIRE", "1")
+    with pytest.raises(pytest.fail.Exception, match="needs a reason"):
+        check_backend("subprocess", pytest.mark.backends("subprocess").mark)
+
+
+@pytest.mark.backends("subprocess", reason="a check of the marker itself")
+def test_marked_subprocess_only(backend):
+    assert backend == "subprocess"

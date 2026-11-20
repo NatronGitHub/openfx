@@ -857,7 +857,8 @@ void bindModule(nb::module_ &m)
   overridable(inst, "default_output_depth", [](InstanceBase &) { return nb::none(); },
               "The output clip's depth (byte, short, half, float, or the OFX string; the best one the plug-in\n"
               "supports) in the default clip preferences when no input is connected (e.g. a generator), or\n"
-              "None (the default): HostSupport's, float. hostDemo uses its -d depth.");
+              "None (the default): HostSupport's, float. hostDemo uses its -d depth. Another value is a ValueError,\n"
+              "raised by the action that sets the default clip preferences (as ofxh.CallbackError).");
 
   // --- information
   inst.def_prop_ro("alive", [](InstanceBase &s) { checkThread("ofxh", false); return s.ref->p != nullptr; })

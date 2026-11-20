@@ -45,6 +45,8 @@ def main(argv=None) -> int:
                          "$OFXHOST_BACKEND, else subprocess)")
     ap.add_argument("params", nargs="*", metavar="name=value")
     args = ap.parse_args(argv)
+    if args.host and args.backend == "inprocess":
+        ap.error("--host is hostDemo's: not with --backend inprocess")
     if bool(args.plugin) == bool(args.graph):
         ap.error("give one of -p PLUGIN or -g GRAPH")
     frames = [float(f) for f in args.frames.split(",")] if args.frames else None
