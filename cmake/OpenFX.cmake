@@ -15,7 +15,7 @@ endif()
 # The policies of this module and of its functions, whatever the project's cmake_minimum_required:
 # a function runs with the policies recorded when it was defined (cmake_policy() documentation),
 # and so do the modules it includes, e.g. FindOpenMP in ofx_target_openmp(). The policies up to
-# CMake 3.31 are NEW when this CMake knows them: CMP0126 (set(CACHE) doesn't remove a normal
+# CMake 3.31 are NEW when this CMake knows them (later policies stay OLD: raise the upper bound after testing a newer CMake): CMP0126 (set(CACHE) doesn't remove a normal
 # variable of the same name, 3.21), CMP0177 (install(DESTINATION) paths are normalized, 3.31).
 cmake_policy(PUSH)
 cmake_policy(VERSION 3.21...3.31)

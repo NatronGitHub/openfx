@@ -6,7 +6,7 @@
 # expat, and the fork's examples. It is also the reference for the CMake build of the plug-in
 # repositories (openfx-misc, openfx-io, ...: cmake/OpenFX.cmake and
 # Documentation/proposals/cmake-plugins.md); the Makefiles are kept until Natron's build switches.
-# The policies up to CMake 3.31 are NEW when this CMake knows them, e.g. CMP0177 (install(DESTINATION)
+# The policies up to CMake 3.31 are NEW when this CMake knows them (later policies stay OLD: raise the upper bound after testing a newer CMake), e.g. CMP0177 (install(DESTINATION)
 # paths are normalized; e.g. PLUGIN_INSTALLDIR=.). cmake/OpenFX.cmake sets the same policies for its
 # functions.
 cmake_minimum_required(VERSION 3.21...3.31)
