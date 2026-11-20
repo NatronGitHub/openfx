@@ -147,13 +147,16 @@ void saveError(const char *message);
 /// thread other than the owner's while a scope is open there, unless fromWorker (OFXH_SCOPED: the
 /// bindings that don't run an action) and that thread is inside a callback (checkThread()).
 class ActionScope {
-  PyObject *_saved;  ///< the pending error of the enclosing scope (a reference)
-  PyObject **_slot;  ///< the pending error of this thread's scopes
+  PyObject *_saved;      ///< the pending error of the enclosing scope (a reference)
+  PyObject **_slot;      ///< the pending error of this thread's scopes
+  PyObject **_prevSlot;  ///< this thread's current slot before this scope (restored by discard())
   bool _owner;
   bool _done;
 public:
   explicit ActionScope(bool fromWorker = false);
   ~ActionScope();
+  ActionScope(const ActionScope &) = delete;
+  ActionScope &operator=(const ActionScope &) = delete;
   /// raise ofxh.CallbackError("<where>: ...") from the first error, if a callback failed (with
   /// the action's status, if given)
   void check(const char *where, const OfxStatus *status = NULL);
@@ -394,7 +397,7 @@ public:
   double _timeLineTime;           ///< the default timeline (timeline_get_time/goto_time)
   std::atomic<int> _abort;        ///< ImageEffectInstance.aborted
   bool _outputFailed;             ///< the host made the output image of the render (abort() is 1)
-  int _paramChangedCount;      ///< the kOfxActionInstanceChanged sent for parameters
+  int _paramChangedCount;         ///< the kOfxActionInstanceChanged sent for parameters
   mutable std::string _fielding;  ///< getDefaultOutputFielding()
   mutable std::map<int, std::string> _viewNames;  ///< getViewName()
 

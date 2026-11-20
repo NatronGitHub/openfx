@@ -149,7 +149,11 @@ def test_other_threads_run_during_render(plugin_dir):
             t = threading.Thread(target=watch)
             t.start()
             try:
-                stat, outputs = _render_frame(inst)
+                h, w = inst.image.shape[:2]
+                assert inst.begin_sequence_render_action(0., 0.) in OK
+                stat, outputs = inst.render_action(0., (0, 0, w, h))
+                state["phase"] = "done"  # (the render returned: the watcher's checks no longer count)
+                assert inst.end_sequence_render_action(0., 0.) in OK
             finally:
                 state["stop"] = True
                 t.join()
@@ -279,15 +283,18 @@ def test_worker_errors_stay_in_their_thread(plugin_dir):
     import time as _time
     ev_b_start, ev_a, ev_b = threading.Event(), threading.Event(), threading.Event()
     seen = {}
+    order, waits = [], []
 
     class Workers(Instance):
         @property
         def project_offset(self):
             name = threading.current_thread().name
             if name == "A":
+                order.append("A blocked")
                 ev_b_start.set()
-                ev_a.wait(10)
+                waits.append(ev_a.wait(10))
             elif name == "B":
+                order.append("B raised")
                 raise ValueError("B's error")
             return (0., 0.)
 
@@ -295,7 +302,7 @@ def test_worker_errors_stay_in_their_thread(plugin_dir):
         def project_size(self):
             if threading.current_thread().name == "B":
                 ev_a.set()
-                ev_b.wait(10)
+                waits.append(ev_b.wait(10))
             h, w = self.image.shape[:2]
             return (w, h)
 
@@ -314,6 +321,7 @@ def test_worker_errors_stay_in_their_thread(plugin_dir):
             except ofxh.CallbackError as e:
                 seen[name] = ("error", str(e.__cause__))
             if name == "A":
+                order.append("A done")
                 ev_b.set()
 
     def fetched():
@@ -343,6 +351,7 @@ def test_worker_errors_stay_in_their_thread(plugin_dir):
         stat, _ = _render(inst)  # (no CallbackError)
         assert stat == ofxh.Stat.OK
         assert seen == {"A": ("rect", (0, 0, 8, 8)), "B": ("error", "B's error")}
+        assert waits == [True, True] and order == ["A blocked", "B raised", "A done"]
 
 
 def test_render_actions_dont_nest(plugin_dir):

@@ -434,14 +434,23 @@ def test_python_param_lifetime(plugin_dir):
 
 def test_python_param_wrong_type(plugin_dir):
     """A get() that returns a value of the wrong type: TypeError naming the parameter and get()."""
+    import numpy as np
+
     class Wrong(Value):
+        returns = {}
+
         def get(self, time):
-            return "not a number" if self.name == "keysDouble" else (1., "x", 2.)
+            return self.returns[self.name]
 
     obj = Recorder(python=("keysDouble", "keysRGB"), param_class=Wrong)
     with _tester(plugin_dir, obj) as inst:
-        for name in ("keysDouble", "keysRGB"):
+        for name, value in (("keysDouble", "not a number"), ("keysRGB", (1., "x", 2.)), ("keysRGB", "abc")):
+            Wrong.returns[name] = value
             with pytest.raises(ofxh.CallbackError) as e:
                 inst.get_param(name)
             cause = e.value.__cause__
-            assert isinstance(cause, TypeError) and name in str(cause) and "get()" in str(cause)
+            assert isinstance(cause, TypeError) and name in str(cause) and "get()" in str(cause), value
+        # any sequence but str and bytes: a NumPy array, a list
+        for value in (np.array([1., 2., 3.]), [1., 2., 3.]):
+            Wrong.returns["keysRGB"] = value
+            assert inst.get_param("keysRGB") == (1., 2., 3.)

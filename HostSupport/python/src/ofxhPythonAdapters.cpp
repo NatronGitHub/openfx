@@ -161,11 +161,19 @@ static void reportUnraisable(nb::handle exc)
   PyErr_WriteUnraisable(nb::str("ofxh: a host callback called outside an action").ptr());
 }
 
+/// the pending error of this thread's innermost open scope (NULL: none open)
+static PyObject **&currentSlot()
+{
+  static thread_local PyObject **s = NULL;
+  return s;
+}
+
 void saveError(nb::handle exc)
 {
   PyObject **slot = NULL;
   if (threadDepth() > 0) {
-    slot = foreignThread() ? &workerPending() : &ownerPending();
+    // (the slot of this thread's scope: a worker whose scope outlives the owner's keeps its own)
+    slot = currentSlot();
   } else if (ownerDepth() > 0) {
     slot = &ownerPending();  // (a worker's callback outside its own scopes: the action raises it)
   } else {
@@ -191,6 +199,7 @@ void saveError(const char *message)
 ActionScope::ActionScope(bool fromWorker)
   : _saved(NULL)
   , _slot(NULL)
+  , _prevSlot(NULL)
   , _owner(true)
   , _done(false)
 {
@@ -208,6 +217,8 @@ ActionScope::ActionScope(bool fromWorker)
   }
   _saved = *_slot;
   *_slot = NULL;
+  _prevSlot = currentSlot();
+  currentSlot() = _slot;
   ++threadDepth();
 }
 
@@ -218,6 +229,7 @@ void ActionScope::discard()
   if (!_done) {
     _done = true;
     --threadDepth();
+    currentSlot() = _prevSlot;
     if (_owner) {
       --ownerDepth();
     }
@@ -904,7 +916,12 @@ OfxRectD PyClipInstance::defaultRoD(OfxTime time, int view) const
     if (inRoDAction.count(this)) {
       return v;
     }
-    inRoDAction.insert(this);
+    struct Guard {  // (exception-safe)
+      std::set<const PyClipInstance *> &s;
+      const PyClipInstance *c;
+      Guard(std::set<const PyClipInstance *> &set, const PyClipInstance *clip) : s(set), c(clip) { s.insert(c); }
+      ~Guard() { s.erase(c); }
+    } guard(inRoDAction, this);
     OfxRectD r = v;
     {
       // (called by the default region_of_definition(), with the GIL: the plug-in runs without it;
@@ -921,7 +938,6 @@ OfxRectD PyClipInstance::defaultRoD(OfxTime time, int view) const
         v = r;
       }
     }
-    inRoDAction.erase(this);
     return v;
   }
   (void)view;

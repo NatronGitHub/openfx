@@ -1367,7 +1367,9 @@ void bindModule(nb::module_ &m)
       return OFXH_SCOPED("region_of_definition()", tuple(c->defaultRoD(time, view)));
     }, "time"_a, "view"_a,
        "The RoD in canonical coordinates. The default: the effect's RoD for the output, the project for\n"
-       "a connected input, (0, 0, 0, 0) for a disconnected one.");
+       "a connected input, (0, 0, 0, 0) for a disconnected one. The output's default runs the plug-in's\n"
+       "RoD action: a plug-in's worker thread that asks for it is refused (RuntimeError, so its call\n"
+       "fails), as it would run the action concurrently with the one in progress.");
   overridable(clip, "connected", [](ClipBase &) { return nb::cast(true); });
   overridable(clip, "unmapped_bit_depth", [](ClipBase &) { return nb::cast(std::string("byte")); });
   overridable(clip, "unmapped_components", [](ClipBase &) { return nb::cast(std::string("rgba")); });

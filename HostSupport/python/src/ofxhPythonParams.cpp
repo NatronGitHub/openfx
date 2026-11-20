@@ -637,8 +637,10 @@ template <class T> static void fromPython(nb::handle r, T *v, int n, const P::In
       v[0] = Conv<T>::from(r);
       return;
     }
-    if (!nb::isinstance<nb::tuple>(r) && !nb::isinstance<nb::list>(r)) {
-      raiseError(PyExc_TypeError, where + "must return a tuple of " + std::to_string(n) + " values, not " +
+    // any sequence (a tuple, a list, a NumPy array...) but a str or bytes
+    if (!PySequence_Check(r.ptr()) || PyUnicode_Check(r.ptr()) || PyBytes_Check(r.ptr()) ||
+        PyByteArray_Check(r.ptr())) {
+      raiseError(PyExc_TypeError, where + "must return a sequence of " + std::to_string(n) + " values, not " +
                                   nb::cast<std::string>(nb::str(r.type())));
     }
     const nb::tuple t = nb::tuple(r);
