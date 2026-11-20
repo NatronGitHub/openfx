@@ -1093,14 +1093,18 @@ namespace OFX {
 #       ifdef OFX_DEBUG_PROPERTIES
         std::cout << "OFX: propGetDimension - " << properties << ' ' << property << " ...";
 #       endif
-        if (!properties) {
+        // ofxProperty.h, propGetDimension "@returns ::kOfxStatOK, ::kOfxStatErrBadHandle,
+        // ::kOfxStatErrUnknown", where kOfxStatErrBadHandle is the "Status error code for an
+        // operation on a bad handle" (ofxCore.h): check the magic number, as the other property
+        // suite functions do, instead of dereferencing a handle that is not a live property set
+        Set *thisSet = reinterpret_cast<Set*>(properties);
+        if (!thisSet || !thisSet->verifyMagic()) {
 #         ifdef OFX_DEBUG_PROPERTIES
           std::cout << ' ' << StatStr(kOfxStatErrBadHandle) << std::endl;
 #         endif
           return kOfxStatErrBadHandle;
         }
         try {            
-          Set *thisSet = reinterpret_cast<Set*>(properties);
           Property *prop = thisSet->fetchProperty(property, true);
           if(!prop) {
 #           ifdef OFX_DEBUG_PROPERTIES
