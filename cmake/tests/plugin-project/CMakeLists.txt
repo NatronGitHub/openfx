@@ -2,7 +2,7 @@
 # A plug-in project built against openfx the two ways plug-in repositories use it: an installed
 # package (find_package(openfx)), or the source tree (add_subdirectory, OFX_VIA_SUBDIRECTORY=ON). It exercises the cmake/OpenFX.cmake API; checked by
 # .github/scripts/cmake-plugin-project.sh.
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21...3.31)
 project(OfxPluginProjectTest CXX)
 
 option(OFX_VIA_SUBDIRECTORY "use openfx with add_subdirectory() instead of find_package()" OFF)
@@ -54,7 +54,7 @@ add_ofx_plugin(TestPlist
 add_library(TestMissingIncInner INTERFACE IMPORTED)
 set_target_properties(TestMissingIncInner PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_BINARY_DIR}/no-such-dir")
-add_library(TestMissingInc INTERFACE IMPORTED GLOBAL) # (GLOBAL: an ALIAS needs it with CMake < 3.18)
+add_library(TestMissingInc INTERFACE IMPORTED)
 set_target_properties(TestMissingInc PROPERTIES
   INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "/no-such-system-dir"
   INTERFACE_INCLUDE_DIRECTORIES "/no-such-dir-either"

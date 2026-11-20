@@ -78,7 +78,7 @@ make -C Examples               # raw C-API examples; HAVE_METAL=0|1 (macOS, defa
 On Linux and FreeBSD, the plug-in Makefiles link with `-Wl,-z,defs` (`NO_UNDEFINED_FLAG`) and put the system
 libraries (`SYSLIBS`) last. On macOS they target 14.0 unless `MACOSX_DEPLOYMENT_TARGET` is set.
 
-With CMake:
+With CMake (3.21 or newer):
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build

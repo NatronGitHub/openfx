@@ -4,7 +4,7 @@
 # the PUBLIC definitions reaching the host's own sources. With OFX_TEST_PARAMETRIC, the host adds
 # its ofxhParametricParam.{h,cpp} (a stub here) to OfxHost, as documented in openfx's CMakeLists.txt.
 # Checked by .github/scripts/cmake-host-project.sh.
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.21...3.31)
 project(OfxHostProjectTest C CXX)
 if(NOT OFX_SOURCE_DIR)
   message(FATAL_ERROR "set OFX_SOURCE_DIR to the openfx source tree")
