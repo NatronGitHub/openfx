@@ -7,7 +7,15 @@ import pytest
 # make the ofxhost package importable without installing it
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ofxhost.testing import hostdemo  # noqa: E402,F401  (pytest fixture)
+from ofxhost import find_hostdemo  # noqa: E402
+from ofxhost.testing import backend, pytest_configure  # noqa: E402,F401  (pytest fixture and hook)
+
+
+@pytest.fixture
+def hostdemo(backend):
+    """The tests that render run on both backends (the backend fixture): this is hostDemo for the
+    subprocess one, None in-process (render() ignores host_binary there)."""
+    return find_hostdemo() if backend == "subprocess" else None
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 

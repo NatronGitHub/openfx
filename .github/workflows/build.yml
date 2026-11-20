@@ -6,8 +6,9 @@ name: Build
 #   - Linux (ubuntu-24.04): CMake (.github/scripts/cmake-build-test.sh: build, install, the hostDemo
 #     checks, a plug-in project built against the installed package, and a host project using
 #     HostSupport with add_subdirectory and the system expat), plus the header and
-#     property metadata checks and the Python tests (HostSupport/examples/python, Support/Plugins/tests,
-#     and the HostSupport Python bindings: HostSupport/python/tests)
+#     property metadata checks and the Python tests (HostSupport/examples/python and
+#     Support/Plugins/tests on both ofxhost backends, hostDemo and in-process, and the HostSupport
+#     Python bindings, HostSupport/python/tests, with the extensions off and on)
 #   - macOS 15 arm64: CMake, system (Xcode) clang, MacPorts tools and libomp, no Homebrew
 #   - Windows: MSYS2 UCRT64, CMake, the plug-in and host projects, and the ofxh module (built and
 #     imported only: no renders on Windows, as for hostDemo)
@@ -98,22 +99,39 @@ jobs:
         env:
           OFX_CMAKE_EXTRA_ARGS: -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE=${{ env.pythonLocation }}/bin/python
         run: .github/scripts/cmake-build-test.sh
-      - name: DrawSuite self-tests with the Natron extensions (the DrawSuite shadows property)
+      - name: The extensions on (Natron, Nuke, Vegas, TuttleOFX, Resolve) - DrawSuite self-tests and the ofxh tests
         run: |
-          # cmake-build-test.sh builds with the extensions off: build and run only the two
-          # DrawSuite self-tests with OFX_EXTENSIONS_NATRON (no GL context here: the property
-          # reading and the backend state, and the drawing with the fake OpenGL table)
+          # cmake-build-test.sh builds with the extensions off: build and run the two DrawSuite
+          # self-tests with OFX_EXTENSIONS_NATRON (no GL context here: the property reading and the
+          # backend state, and the drawing with the fake OpenGL table), and the ofxh module with the
+          # plug-ins and hostDemo that its tests use, so that its code for the extensions compiles
+          # and runs; and test_backends.py, which compares the in-process backend with hostDemo
+          # there (two views per frame with Nuke or Vegas; the other ofxhost tests expect one)
           set -eo pipefail
-          # (and the ofxh module, so that its code for the Natron, Nuke and Vegas extensions compiles)
           cmake -S . -B build-ci-natron -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLE_PLUGINS=ON \
-            -DBUILD_EXAMPLE_HOSTS=OFF -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON \
-            -DOFX_EXTENSIONS_VEGAS=ON -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
-          cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test ofxh
+            -DBUILD_EXAMPLE_HOSTS=ON -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON \
+            -DOFX_EXTENSIONS_VEGAS=ON -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON \
+            -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
+          cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test ofxh \
+            hostDemo example-Basic-support example-ChoiceParams-support example-Generator-support \
+            example-Invert-support example-Tester-support example-Retimer-support example-MultiBundle-support \
+            example-Rectangle
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test)
-      - name: Python wrapper and sample plug-in tests (ofxhost)
+          # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
+          PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" OFXH_REQUIRE=1 \
+            python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
+          OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
+            OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" OFXH_REQUIRE=1 \
+            python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 \
+            HostSupport/examples/python/tests/test_backends.py
+      - name: Python wrapper and sample plug-in tests (ofxhost, on both backends)
+        if: success() || failure()
         run: |
-          OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" \
-            python -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/examples/python/tests Support/Plugins/tests
+          # each render test runs with hostDemo and in-process on the ofxh module (OFXH_REQUIRE=1: a
+          # backend that isn't built fails the tests instead of skipping them)
+          OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1 \
+            OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
+            python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/examples/python/tests Support/Plugins/tests
       - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
         if: success() || failure()
         run: |
@@ -196,10 +214,11 @@ jobs:
       - name: The ofxh module imports (HostSupport Python bindings, MSYS2 Python and nanobind)
         run: |
           set -eo pipefail
-          # (only the import: no renders on Windows, as for hostDemo; its DLLs, expat and the GCC
-          # runtime, are next to MSYS2's python.exe)
-          # (a Windows path: PYTHONPATH is read by the native python.exe)
-          PYTHONPATH="$(cygpath -w "$PWD/build/HostSupport/python")" python -c "import ofxh; print(ofxh.__file__, ofxh.build_config)"
+          # (only the imports, with ofxhost's in-process backend: no renders on Windows, as for
+          # hostDemo; the module's DLLs, expat and the GCC runtime, are next to MSYS2's python.exe)
+          # (Windows paths: PYTHONPATH is read by the native python.exe)
+          PYTHONPATH="$(cygpath -w "$PWD/build/HostSupport/python");$(cygpath -w "$PWD/HostSupport/examples/python")" \
+            python -c "import ofxh, ofxhost.inprocess; print(ofxh.__file__, ofxh.build_config)"
       - name: Self-test of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows)
         run: |
           set -eo pipefail

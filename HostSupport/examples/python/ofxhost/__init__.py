@@ -1,8 +1,12 @@
 """ofxhost: render OFX plug-ins from Python, with the HostSupport demo host (hostDemo).
 
-Each render runs hostDemo in its own process and temporary directory (HostSupport has
-process-wide singletons, plug-ins can't be unloaded, and a crashing plug-in must not take
-down the interpreter). Images are exchanged as PFM files.
+Two backends, with the same API and the same JSON report:
+- "subprocess" (the default): each render runs hostDemo in its own process and temporary
+  directory (HostSupport has process-wide singletons, plug-ins can't be unloaded, and a crashing
+  plug-in must not take down the interpreter). Images are exchanged as PFM files.
+- "inprocess": hostDemo's test host in Python, on the HostSupport bindings (the ofxh module), in
+  this process (ofxhost.inprocess). Images are NumPy arrays, without files.
+Choose with render(..., backend=...) or describe(..., backend=...), or $OFXHOST_BACKEND.
 
 Image contract: NumPy arrays are float32, H x W x C, top-down (row 0 is the top row).
 OFX images and PFM files are bottom-up; the wrapper flips them.
@@ -33,16 +37,38 @@ from .pfm import encode_pfm, parse_pfm, read_pfm, write_pfm
 
 __all__ = [
     "render", "describe", "RenderResult", "Image", "HostDemoError", "HostDemoNotFound",
-    "find_hostdemo",
+    "find_hostdemo", "BACKENDS", "default_backend",
     "read_pfm", "write_pfm", "parse_pfm", "encode_pfm",
 ]
 
 OUTPUT_PREFIX = "Output"
 DEPTHS = ("byte", "short", "float")
+BACKENDS = ("subprocess", "inprocess")
+
+
+def default_backend(backend: str | None = None) -> str:
+    """The backend: the argument, else $OFXHOST_BACKEND, else "subprocess"."""
+    b = backend or os.environ.get("OFXHOST_BACKEND") or "subprocess"
+    if b not in BACKENDS:
+        raise ValueError(f"backend {b!r}: expected one of {BACKENDS}"
+                         + ("" if backend else " ($OFXHOST_BACKEND)"))
+    return b
+
+
+def _backend_for(backend: str | None, host_binary) -> str:
+    """The backend of a call: a host_binary means hostDemo (subprocess), whatever $OFXHOST_BACKEND,
+    and can't go with backend="inprocess"."""
+    if host_binary is not None:
+        if backend == "inprocess":
+            raise ValueError("host_binary is hostDemo's: it can't be given with backend=\"inprocess\"")
+        if backend is None:
+            return "subprocess"
+    return default_backend(backend)
 
 
 class HostDemoError(RuntimeError):
-    """hostDemo failed (non-zero exit, timeout, or unreadable output)."""
+    """hostDemo failed (non-zero exit, timeout, or unreadable output); in-process: the run failed
+    (returncode 1, with hostDemo's error message in stderr)."""
 
     def __init__(self, message: str, *, returncode: int | None = None,
                  stdout: str = "", stderr: str = "", cmd: Sequence[str] = ()):
@@ -313,7 +339,8 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
            frames: Sequence[float] | None = None, scale: float | Sequence[float] | None = None,
            window: Sequence[int] | None = None, query: bool = False,
            host_binary: str | os.PathLike | None = None, timeout: float | None = 60,
-           extra_args: Sequence[str] = (), check: bool = True) -> RenderResult:
+           extra_args: Sequence[str] = (), check: bool = True,
+           backend: str | None = None) -> RenderResult:
     """Render a plug-in with hostDemo (by default at frames 0 and 1); return its output
     images and report.
 
@@ -335,9 +362,16 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
     window: the render window (x1, y1, x2, y2), in pixels at the render scale (--window).
     query: only run the query actions (--query): no output, see .report["renders"].
     check: raise HostDemoError on a non-zero exit status (default).
+    backend: "subprocess" (hostDemo) or "inprocess" (ofxhost.inprocess, on the ofxh module; it
+        ignores timeout, and supports only some extra_args); default: "subprocess" if host_binary
+        is given (ValueError with "inprocess"), else $OFXHOST_BACKEND, else "subprocess".
     """
     if depth not in DEPTHS:
         raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
+    if _backend_for(backend, host_binary) == "inprocess":
+        from . import inprocess
+        return inprocess.render(bundle_paths, plugin_id, context, inputs, params, depth, frames, scale, window,
+                                query, extra_args, check)
     host = find_hostdemo(host_binary)
     env = _env(bundle_paths)
     with tempfile.TemporaryDirectory(prefix="ofxhost-") as tmp:
@@ -401,8 +435,12 @@ def _time_name(t: float) -> str:
 
 def describe(bundle_paths, plugin_id: str, context: str | None = None,
              host_binary: str | os.PathLike | None = None, timeout: float | None = 60,
-             extra_args: Sequence[str] = ()) -> dict:
-    """Return hostDemo's --describe JSON for a plug-in (params, clips, contexts, flags)."""
+             extra_args: Sequence[str] = (), backend: str | None = None) -> dict:
+    """Return hostDemo's --describe JSON for a plug-in (params, clips, contexts, flags).
+    backend: as render()."""
+    if _backend_for(backend, host_binary) == "inprocess":
+        from . import inprocess
+        return inprocess.describe(bundle_paths, plugin_id, context, extra_args)
     host = find_hostdemo(host_binary)
     env = _env(bundle_paths)
     with tempfile.TemporaryDirectory(prefix="ofxhost-") as tmp:

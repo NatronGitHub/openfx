@@ -2,7 +2,10 @@
 
 pytest tests of the Support/Plugins samples, rendered by the demo host `hostDemo` through the
 `ofxhost` Python wrapper (see HostSupport/examples/python/README.md for its API and for
-hostDemo's inputs, report and describe JSON). Each file shows one testing pattern, named in
+hostDemo's inputs, report and describe JSON). Each test runs on both ofxhost backends (the
+`render` and `describe` fixtures of `conftest.py`): hostDemo in a subprocess, and in-process on
+the HostSupport Python bindings (`PYTHONPATH=<build>/HostSupport/python`; skipped if `ofxh` isn't
+built, and `OFXHOST_TEST_BACKENDS=subprocess` runs only hostDemo). Each file shows one testing pattern, named in
 its docstring:
 
 | File | Pattern |
