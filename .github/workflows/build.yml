@@ -83,7 +83,7 @@ jobs:
         run: |
           # a host may include any of them first: each one includes what it uses
           for std in c++98 c++17; do
-            for D in "" "-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC -DOFX_SUPPORTS_PARAMETRIC_V2"; do
+            for D in "" "-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC -DOFX_SUPPORTS_PARAMETRIC_V2 -DOFX_SUPPORTS_MULTITHREAD -DOFX_USE_STATIC_PLUGINS"; do
               echo "== $std $D"
               for h in $(cd HostSupport/include && ls ofxh*.h); do
                 printf '#include "%s"\n' "$h" | g++ -x c++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude -IHostSupport/include - \

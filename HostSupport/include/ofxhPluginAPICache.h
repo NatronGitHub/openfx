@@ -36,6 +36,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <map>
 #include <list>
 
+#include "ofxCore.h" // OfxPlugin
 #include "ofxhPropertySuite.h"
 
 namespace OFX
