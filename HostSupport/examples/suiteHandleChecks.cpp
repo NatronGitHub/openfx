@@ -17,6 +17,7 @@
 #include "ofxParam.h"
 #include "ofxProgress.h"
 #include "ofxTimeLine.h"
+#include "ofxMemory.h"
 
 #include "ofxhPropertySuite.h"
 #include "ofxhParam.h"
@@ -764,6 +765,30 @@ int main()
 
   // std::bad_alloc in the image, image memory and texture functions (no plug-in needed: test clips)
   checkBadAlloc(host);
+
+  // the memory suite: memoryFree of a pointer that memoryAlloc didn't return is kOfxStatErrBadHandle
+  const OfxMemorySuiteV1 *mem = (const OfxMemorySuiteV1 *)host.fetchSuite(kOfxMemorySuite, 1);
+  check("memory suite", mem != NULL);
+  if (mem) {
+    void *p = NULL;
+    check("memoryAlloc(100) = kOfxStatOK", mem->memoryAlloc(NULL, 100, &p) == kOfxStatOK && p != NULL);
+    // "Allocated memory will be aligned for any use."
+    check("memoryAlloc: aligned for any use", p && (size_t)p % 16 == 0);
+    if (p) {
+      std::memset(p, 0, 100);
+      // a pointer inside the block (zeros before it), not returned by memoryAlloc
+      check("memoryFree(inside a block) = kOfxStatErrBadHandle", mem->memoryFree((char *)p + 32) == kOfxStatErrBadHandle);
+      check("memoryFree(memoryAlloc's pointer) = kOfxStatOK", mem->memoryFree(p) == kOfxStatOK);
+    }
+    p = NULL;
+    check("memoryAlloc(0) = kOfxStatOK", mem->memoryAlloc(NULL, 0, &p) == kOfxStatOK && p != NULL && mem->memoryFree(p) == kOfxStatOK);
+    p = &host;
+    check("memoryAlloc(too large) = kOfxStatErrMemory, NULL", mem->memoryAlloc(NULL, (size_t)-1, &p) == kOfxStatErrMemory && p == NULL);
+    check("memoryAlloc(NULL output) = kOfxStatErrBadHandle", mem->memoryAlloc(NULL, 1, NULL) == kOfxStatErrBadHandle);
+    check("memoryFree(NULL) = kOfxStatErrBadHandle", mem->memoryFree(NULL) == kOfxStatErrBadHandle);
+    std::vector<double> notABlock(8, 0.);
+    check("memoryFree(not from memoryAlloc) = kOfxStatErrBadHandle", mem->memoryFree(&notABlock[4]) == kOfxStatErrBadHandle);
+  }
 
   // the C fetchSuite of the host
   OfxHost *ofxHost = host.getHandle();

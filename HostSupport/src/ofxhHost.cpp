@@ -31,6 +31,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <math.h>
 #include <float.h>
 #include <string.h>
+#include <stdlib.h> // malloc, free
+#include <cstddef> // std::max_align_t
 
 // ofx
 #include "ofxCore.h"
@@ -52,19 +54,63 @@ namespace OFX {
     ////////////////////////////////////////////////////////////////////////////////
     /// simple memory suite 
     namespace Memory {
+      // Each block starts with a header that holds a magic number, so that memoryFree() can return
+      // "::kOfxStatErrBadHandle allocatedData was not a valid pointer returned by
+      // OfxMemorySuiteV1::memoryAlloc" (ofxMemory.h) instead of passing any pointer to free().
+      // memoryFree(NULL) is kOfxStatErrBadHandle too: NULL is never returned by memoryAlloc.
+      // A plug-in that frees memoryAlloc's memory with free() (which was already wrong) now passes
+      // a pointer that malloc() didn't return. As with the magic number of property sets, a pointer
+      // that is not a block is still read (the header before it), and a freed block may be
+      // detected (kMemoryFreedMagic) only until its memory is reused.
+      //
+      // "Allocated memory will be aligned for any use." (ofxMemory.h): malloc() returns memory
+      // aligned for any fundamental type, alignof(std::max_align_t), and the header size is a
+      // multiple of that, so that the data keeps the alignment. It is at least 16 bytes, the
+      // alignment of malloc() on 64-bit systems (also where alignof(std::max_align_t) is 8, e.g.
+      // MSVC), for SSE types. Large blocks are no longer page-aligned (they start after the header).
+#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
+      static const size_t kMemoryHeaderSize = alignof(std::max_align_t) > 16 ? alignof(std::max_align_t) : 16;
+      static_assert(kMemoryHeaderSize % alignof(std::max_align_t) == 0,
+                    "the memory suite header must keep the alignment of malloc()");
+      static_assert(kMemoryHeaderSize >= sizeof(unsigned int), "the memory suite header holds the magic number");
+#else
+      static const size_t kMemoryHeaderSize = 16; // (no std::max_align_t before C++11)
+#endif
+      static const unsigned int kMemoryMagic = 0x0f8e3a17; // a live block
+      static const unsigned int kMemoryFreedMagic = 0x0f8e3a18; // a freed block
+
       static OfxStatus memoryAlloc(void */*handle*/, size_t bytes, void **data)
       {
-        *data = malloc(bytes);
-        if (*data) {
-          return kOfxStatOK;
-        } else {
+        if (!data) {
+          return kOfxStatErrBadHandle;
+        }
+        *data = NULL;
+        // "::kOfxStatErrMemory the request could not be met and no memory was allocated"
+        if (bytes > (size_t)-1 - kMemoryHeaderSize) {
           return kOfxStatErrMemory;
         }
+        unsigned char *block = (unsigned char *)malloc(kMemoryHeaderSize + bytes);
+        if (!block) {
+          return kOfxStatErrMemory;
+        }
+        memcpy(block, &kMemoryMagic, sizeof(kMemoryMagic));
+        *data = block + kMemoryHeaderSize;
+        return kOfxStatOK;
       }
       
       static OfxStatus memoryFree(void *data)
       {
-        free(data);
+        if (!data) {
+          return kOfxStatErrBadHandle;
+        }
+        unsigned char *block = (unsigned char *)data - kMemoryHeaderSize;
+        unsigned int magic;
+        memcpy(&magic, block, sizeof(magic));
+        if (magic != kMemoryMagic) {
+          return kOfxStatErrBadHandle;
+        }
+        memcpy(block, &kMemoryFreedMagic, sizeof(kMemoryFreedMagic));
+        free(block);
         return kOfxStatOK;
       }
       
