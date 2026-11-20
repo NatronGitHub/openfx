@@ -9,11 +9,16 @@
 # written into PLUGIN_INSTALLDIR at configure time, and the architecture folder
 # follows the OFX packaging spec.
 
-# install(DESTINATION) paths are normalized (CMake 3.31): for the functions below, also when this
-# module is used through find_package(openfx)
-if(POLICY CMP0177)
-  cmake_policy(SET CMP0177 NEW)
+if(CMAKE_VERSION VERSION_LESS 3.21)
+  message(FATAL_ERROR "openfx's OpenFX.cmake needs CMake 3.21 or newer (found ${CMAKE_VERSION})")
 endif()
+# The policies of this module and of its functions, whatever the project's cmake_minimum_required:
+# a function runs with the policies recorded when it was defined (cmake_policy() documentation),
+# and so do the modules it includes, e.g. FindOpenMP in ofx_target_openmp(). The policies up to
+# CMake 3.31 are NEW when this CMake knows them: CMP0126 (set(CACHE) doesn't remove a normal
+# variable of the same name, 3.21), CMP0177 (install(DESTINATION) paths are normalized, 3.31).
+cmake_policy(PUSH)
+cmake_policy(VERSION 3.21...3.31)
 
 # Where the bundles are installed. A relative path is relative to CMAKE_INSTALL_PREFIX: the
 # default for the plug-in repositories is OFX/Plugins (e.g. /usr/OFX/Plugins with the prefix
@@ -121,13 +126,6 @@ elseif(UNIX)
     set(ARCHDIR "FreeBSD-riscv64")
   elseif(_OFX_OS STREQUAL "FreeBSD" AND _OFX_CPU MATCHES "^powerpc")
     # uname -p: powerpc64, powerpc64le (uname -m only says powerpc)
-    if(NOT DEFINED CMAKE_CXX_BYTE_ORDER) # CMake < 3.20
-      include(TestBigEndian)
-      test_big_endian(_OFX_BIG_ENDIAN)
-      if(NOT _OFX_BIG_ENDIAN)
-        set(CMAKE_CXX_BYTE_ORDER "LITTLE_ENDIAN")
-      endif()
-    endif()
     if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND CMAKE_CXX_BYTE_ORDER STREQUAL "LITTLE_ENDIAN")
       set(ARCHDIR "FreeBSD-powerpc64le")
     elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -779,3 +777,5 @@ function(ofx_deploy_bundle TARGET)
     " COMPONENT ${TARGET})
   endif()
 endfunction()
+
+cmake_policy(POP)

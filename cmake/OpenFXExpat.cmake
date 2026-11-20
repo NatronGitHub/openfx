@@ -5,6 +5,12 @@
 # Homebrew's are not), unless EXPAT_INCLUDE_DIR is already set.
 #
 #   ofx_find_expat([<min version>] [REQUIRED])
+if(CMAKE_VERSION VERSION_LESS 3.21)
+  message(FATAL_ERROR "openfx's OpenFXExpat.cmake needs CMake 3.21 or newer (found ${CMAKE_VERSION})")
+endif()
+# the policies of the macro, whatever the project's cmake_minimum_required (see OpenFX.cmake)
+cmake_policy(PUSH)
+cmake_policy(VERSION 3.21...3.31)
 macro(ofx_find_expat)
   if(NOT TARGET expat::expat)
     list(LENGTH CMAKE_OSX_ARCHITECTURES _ofx_n_archs)
@@ -37,3 +43,4 @@ macro(ofx_find_expat)
     unset(_ofx_sdk)
   endif()
 endmacro()
+cmake_policy(POP)

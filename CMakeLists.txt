@@ -6,12 +6,10 @@
 # expat, and the fork's examples. It is also the reference for the CMake build of the plug-in
 # repositories (openfx-misc, openfx-io, ...: cmake/OpenFX.cmake and
 # Documentation/proposals/cmake-plugins.md); the Makefiles are kept until Natron's build switches.
-cmake_minimum_required(VERSION 3.16.0)
-# install(DESTINATION) paths are normalized (CMake 3.31; e.g. PLUGIN_INSTALLDIR=.). The functions of
-# cmake/OpenFX.cmake keep the policies of where they are defined, so this applies to them too.
-if(POLICY CMP0177)
-  cmake_policy(SET CMP0177 NEW)
-endif()
+# The policies up to CMake 3.31 are NEW when this CMake knows them, e.g. CMP0177 (install(DESTINATION)
+# paths are normalized; e.g. PLUGIN_INSTALLDIR=.). cmake/OpenFX.cmake sets the same policies for its
+# functions.
+cmake_minimum_required(VERSION 3.21...3.31)
 
 # macOS: the CMake-built plug-ins, libraries and hosts need macOS 14.0 (VFX Reference Platform
 # CY2027) unless CMAKE_OSX_DEPLOYMENT_TARGET, the MACOSX_DEPLOYMENT_TARGET environment variable or a
