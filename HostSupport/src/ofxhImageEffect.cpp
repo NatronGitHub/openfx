@@ -600,9 +600,12 @@ namespace OFX {
       // Instance
       //
 
-      /// OFX 1.5.1: kOfxImageEffectPropThumbnailRender is in the inArgs of
-      /// BeginInstanceChanged, InstanceChanged, BeginSequenceRender, Render,
-      /// GetRegionOfDefinition, GetRegionsOfInterest, GetFramesNeeded and IsIdentity.
+      /// kOfxImageEffectPropThumbnailRender, in the inArgs of actions: OFX 1.5.1 lists
+      /// GetRegionOfDefinition, GetRegionsOfInterest, GetFramesNeeded, IsIdentity,
+      /// BeginSequenceRender, Render and EndSequenceRender (and GetClipPreferences,
+      /// inconsistently: its inArgs are NULL); upstream main adds BeginInstanceChanged and
+      /// InstanceChanged, and drops EndSequenceRender. HostSupport sets it in all of them but
+      /// GetClipPreferences.
       /// Hosts that do thumbnail renders set it to "true".
       static const Property::PropSpec ofx15ThumbnailRenderArgs[] = {
         { kOfxImageEffectPropThumbnailRender, Property::eString, 1, true, "false" },
@@ -1729,6 +1732,13 @@ namespace OFX {
         };
 
         Property::Set inArgs(inStuff);
+        // OFX 1.5.1 ofxImageEffect.h, EndSequenceRender inArgs: "kOfxImageEffectPropThumbnailRender
+        // (optional) if the host considers this render a "thumbnail"". The value is
+        // isThumbnailRender() when End is called: it is the value of the BeginSequenceRender only if
+        // the host keeps the same answer from Begin to End (by default, if its ThumbnailRenderScope
+        // spans Begin...End, in the same thread)
+        inArgs.addProperties(ofx15ThumbnailRenderArgs);
+        setThumbnailRenderArg(inArgs, this);
         inArgs.addProperties(ofx15MetalTextureArgs);
 
         inArgs.setDoubleProperty(kOfxImageEffectPropFrameStep,step);

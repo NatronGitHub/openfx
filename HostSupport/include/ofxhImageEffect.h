@@ -493,12 +493,15 @@ namespace OFX {
 
       /// OFX 1.5.1 thumbnail renders (kOfxImageEffectPropThumbnailRender).
       ///
-      /// The spec puts kOfxImageEffectPropThumbnailRender ("true"/"false") in the
-      /// inArgs of BeginInstanceChanged, InstanceChanged, BeginSequenceRender,
-      /// Render, GetRegionOfDefinition, GetRegionsOfInterest, GetFramesNeeded and
-      /// IsIdentity. The action wrappers of Instance (beginInstanceChangedAction,
-      /// paramInstanceChangedAction, ClipInstance::instanceChangedAction,
-      /// beginRenderAction, renderAction, getRegionOfDefinitionAction,
+      /// kOfxImageEffectPropThumbnailRender ("true"/"false") is in the inArgs of
+      /// actions: OFX 1.5.1 lists GetRegionOfDefinition, GetRegionsOfInterest,
+      /// GetFramesNeeded, IsIdentity, BeginSequenceRender, Render and
+      /// EndSequenceRender (and GetClipPreferences, inconsistently: its inArgs are
+      /// NULL); upstream main adds BeginInstanceChanged and InstanceChanged, and
+      /// drops EndSequenceRender. The action wrappers of Instance
+      /// (beginInstanceChangedAction, paramInstanceChangedAction,
+      /// ClipInstance::instanceChangedAction, beginRenderAction, renderAction,
+      /// endRenderAction, getRegionOfDefinitionAction,
       /// getRegionOfInterestAction, getFrameNeededAction, isIdentityAction) set it
       /// according to Instance::isThumbnailRender(), whose default implementation
       /// returns true while a ThumbnailRenderScope(true) is alive in the calling thread.
@@ -507,12 +510,17 @@ namespace OFX {
       ///
       /// The flag is per thread rather than per instance, so that a host can render
       /// a thumbnail of an effect on one thread while the same instance renders full
-      /// images on other threads, without changing the signatures of the wrappers:
+      /// images on other threads, without changing the signatures of the wrappers.
+      /// Each action gets the value at the time it is called: for EndSequenceRender
+      /// to say the same as its BeginSequenceRender, keep the scope alive from
+      /// beginRenderAction to endRenderAction:
       ///
       ///     {
       ///       OFX::Host::ImageEffect::ThumbnailRenderScope thumbnail(true);
       ///       effect->getRegionOfDefinitionAction(...);
+      ///       effect->beginRenderAction(...);
       ///       effect->renderAction(...);
+      ///       effect->endRenderAction(...);
       ///     }
       class ThumbnailRenderScope {
       public:

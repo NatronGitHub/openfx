@@ -26,6 +26,7 @@
 // the interact and draw suites, and an effect instance of a plug-in found in OFX_PLUGIN_PATH
 #include <cstdlib>
 #include <limits>
+#include <map>
 #include "ofxInteract.h"
 #include "ofxDrawSuite.h"
 #include "ofxhInteract.h"
@@ -328,15 +329,63 @@ namespace {
     }
   };
 
-  /// hostDemo's host, with StatusEffectInstance effect instances
+  /// a StatusEffectInstance that also records the kOfxImageEffectPropThumbnailRender of the inArgs
+  /// of each action ("" if absent), as the plug-in sees it
+  class RecordingEffectInstance : public StatusEffectInstance {
+  public:
+    std::map<std::string, std::string> thumbnailArg;
+    RecordingEffectInstance(ImageEffect::ImageEffectPlugin *plugin, ImageEffect::Descriptor &desc, const std::string &context)
+      : StatusEffectInstance(plugin, desc, context) {}
+    virtual void setCustomInArgs(const std::string &action, Property::Set &inArgs)
+    {
+      StatusEffectInstance::setCustomInArgs(action, inArgs);
+      thumbnailArg[action] = inArgs.fetchProperty(kOfxImageEffectPropThumbnailRender) ?
+        inArgs.getStringProperty(kOfxImageEffectPropThumbnailRender) : std::string();
+    }
+  };
+
+  /// hostDemo's host, with RecordingEffectInstance (StatusEffectInstance) effect instances
   class TestHost : public MyHost::Host {
   public:
     virtual ImageEffect::Instance *newInstance(void *, ImageEffect::ImageEffectPlugin *plugin,
                                                ImageEffect::Descriptor &desc, const std::string &context)
     {
-      return new StatusEffectInstance(plugin, desc, context);
+      return new RecordingEffectInstance(plugin, desc, context);
     }
   };
+
+  /// BeginSequenceRender, then EndSequenceRender, of the instance. No Render is called in between,
+  /// unlike the \pre of EndSequenceRender ("kOfxImageEffectActionRender action was called at least
+  /// once on the instance"): harmless with Invert, which does nothing in Begin/End, and enough to
+  /// check their inArgs
+  void beginEndSequenceRender(ImageEffect::Instance *instance)
+  {
+    OfxPointD renderScale = { 1., 1. };
+    instance->beginRenderAction(0., 0., 1., false, renderScale, false, false,
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+                                false,
+# ifdef OFX_EXTENSIONS_NATRON
+                                NULL,
+# endif
+#endif
+                                false
+#ifdef OFX_EXTENSIONS_NUKE
+                                , 0
+#endif
+                                );
+    instance->endRenderAction(0., 0., 1., false, renderScale, false, false,
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+                              false,
+# ifdef OFX_EXTENSIONS_NATRON
+                              NULL,
+# endif
+#endif
+                              false
+#ifdef OFX_EXTENSIONS_NUKE
+                              , 0
+#endif
+                              );
+  }
 
   /// the progress and timeline suites on a valid effect instance handle: a real instance of a
   /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
@@ -366,6 +415,24 @@ namespace {
     if (myInstance) {
       const OfxStatus stat = instance->createInstanceAction();
       check("createInstanceAction", stat == kOfxStatOK || stat == kOfxStatReplyDefault);
+
+      // kOfxImageEffectPropThumbnailRender is in the inArgs of BeginSequenceRender and of
+      // EndSequenceRender (OFX 1.5.1), with the value of the ThumbnailRenderScope
+      RecordingEffectInstance *rec = dynamic_cast<RecordingEffectInstance *>(instance);
+      check("RecordingEffectInstance", rec != NULL);
+      if (rec) {
+        beginEndSequenceRender(instance);
+        check("Begin/EndSequenceRender inArgs: kOfxImageEffectPropThumbnailRender = \"false\"",
+              rec->thumbnailArg[kOfxImageEffectActionBeginSequenceRender] == "false" &&
+              rec->thumbnailArg[kOfxImageEffectActionEndSequenceRender] == "false");
+        {
+          ImageEffect::ThumbnailRenderScope thumbnail(true);
+          beginEndSequenceRender(instance);
+        }
+        check("Begin/EndSequenceRender inArgs in a ThumbnailRenderScope: kOfxImageEffectPropThumbnailRender = \"true\"",
+              rec->thumbnailArg[kOfxImageEffectActionBeginSequenceRender] == "true" &&
+              rec->thumbnailArg[kOfxImageEffectActionEndSequenceRender] == "true");
+      }
       void *h = (void *)instance->getHandle();
       const OfxProgressSuiteV1 *progress1 = (const OfxProgressSuiteV1 *)host.fetchSuite(kOfxProgressSuite, 1);
       const OfxProgressSuiteV2 *progress2 = (const OfxProgressSuiteV2 *)host.fetchSuite(kOfxProgressSuite, 2);
