@@ -45,16 +45,6 @@ Integer (Boolean) Properties
 - **Dimension**: 1
 - **Doc**: For detailed doc, see :c:macro:`kNatronOfxImageEffectPluginUsesMultipleThread`.
 
-.. _prop_NatronOfxImageEffectPropDeprecated:
-
-**NatronOfxImageEffectPropDeprecated**
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-- **C #define**: :c:macro:`kNatronOfxImageEffectPropDeprecated`
-- **Type**: bool
-- **Dimension**: 1
-- **Doc**: For detailed doc, see :c:macro:`kNatronOfxImageEffectPropDeprecated`.
-
 .. _prop_NatronOfxImageEffectPropInViewerContextShortcutHasAltModifier:
 
 **NatronOfxImageEffectPropInViewerContextShortcutHasAltModifier**

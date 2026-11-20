@@ -49,11 +49,13 @@ Natron-specific extensions, among them:
   around ``getDrawContext()`` calls), and OpenGL drawing code keeps its own;
 - dynamic choice parameters (``kNatronOfxParamHostPropSupportsDynamicChoices``,
   ``kOfxParamPropChoiceEnum`` on Choice parameters, cascading menus);
-- markdown descriptions (``kNatronOfxPropDescriptionIsMarkdown``);
-- deprecated plug-ins (``kNatronOfxImageEffectPropDeprecated``; see also the
-  standard ``kOfxImageEffectPluginPropObsolete``).
+- markdown descriptions (``kNatronOfxPropDescriptionIsMarkdown``).
 
 The header itself has the complete description of each extension.
+
+Plug-ins that are superseded (by a newer version, by another plug-in, or by
+a host-internal node) set the standard ``kOfxImageEffectPluginPropObsolete``;
+the former Natron ``NatronOfxImageEffectPropDeprecated`` extension was removed.
 
 The parameter-based cursor extension (``kNatronOfxParamCursorName``,
 ``kNatronOfxImageEffectPropDefaultCursors``) is deprecated in favour of the

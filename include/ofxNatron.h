@@ -454,20 +454,6 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  */
 #define kNatronOfxParamPropIsInstanceSpecific "NatronOfxParamPropIsInstanceSpecific"
 
-/** @brief bool property to indicate that an effect should be considered deprecated
- - Type - int x 1
- - Property Set - image effect descriptor (read/write) image effect (read only)
- - Default - 0
- - Valid Values - 0 or 1
- When set to 1, the host may disable using this plugin in new projects.
-
-    @propdef
-    type: bool
-    dimension: 1
-    extension: natron
-*/
-#define kNatronOfxImageEffectPropDeprecated "NatronOfxImageEffectPropDeprecated"
-
 /** @brief This extension is to allow the Host application to add extra formats 
   (which are a set of 3 values: width, height, pixel aspect ratio) to a choice parameter.
   If the host application finds the following 3 parameters:

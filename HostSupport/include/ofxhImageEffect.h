@@ -386,9 +386,6 @@ namespace OFX {
         /// does this effect handle distortion functions
         bool canDistort() const;
 
-        /// is this effect deprecated
-        bool isDeprecated() const;
-
         // Is the plug-in description string encoded in markdown instead of plain-text ?
         bool isPluginDescriptionInMarkdown() const;
 

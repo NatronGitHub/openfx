@@ -1878,12 +1878,6 @@ namespace OFX {
     }
   }
 
-  /** @brief indicate that this plugin is deprecated */
-  void ImageEffectDescriptor::setIsDeprecated(bool v)
-  {
-    _effectProps.propSetInt(kNatronOfxImageEffectPropDeprecated, (int)v, false);
-  }
-
 
   /** @brief say whether all the planes listed on the output clip in the getClipComponents action should preferably be rendered
    at once or not (e.g: optical flow plug-in that could produce bw/fw planes at once)*/
