@@ -28,6 +28,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include <math.h>
+#include <new> // std::bad_alloc
 
 // ofx
 #include "ofxCore.h"
@@ -3740,6 +3741,12 @@ namespace OFX {
         *h3 = image->getPropHandle();
 
         return kOfxStatOK;
+        } catch (const std::bad_alloc&) {
+        // "::kOfxStatErrMemory - the host had not enough memory to complete the operation, plugin
+        // should abort whatever it was doing." (ofxImageEffect.h, clipGetImage)
+          *h3 = NULL;
+
+          return kOfxStatErrMemory;
         } catch (...) {
           *h3 = NULL;
 
@@ -3779,6 +3786,13 @@ namespace OFX {
         *h3 = image->getPropHandle();
 
         return kOfxStatOK;
+        } catch (const std::bad_alloc&) {
+          // as clipGetImage (ofxSonyVegas.h documents no statuses): "::kOfxStatErrMemory - the host
+          // had not enough memory to complete the operation, plugin should abort whatever it was
+          // doing." (ofxImageEffect.h)
+          *h3 = NULL;
+
+          return kOfxStatErrMemory;
         } catch (...) {
           *h3 = NULL;
 
@@ -3985,6 +3999,11 @@ namespace OFX {
         *returnedPtr = NULL;
 
         return kOfxStatErrBadHandle; 
+        } catch (const std::bad_alloc&) {
+          // "kOfxStatErrMemory if there was not enough memory to satisfy the call, *returnedPtr is
+          // set to NULL" (ofxImageEffect.h, imageMemoryLock)
+          *returnedPtr = NULL;
+          return kOfxStatErrMemory;
         } catch (...) {
           *returnedPtr = NULL;
           return kOfxStatErrBadHandle;
@@ -4066,6 +4085,12 @@ namespace OFX {
           return kOfxStatOK;
 
 
+        } catch (const std::bad_alloc&) {
+          // "::kOfxStatErrMemory - the host had not enough memory to complete the operation,
+          // plugin should abort whatever it was doing." (nuke/fnOfxExtensions.h, clipGetImagePlane,
+          // the same text as clipGetImage in ofxImageEffect.h)
+          *imageHandle = NULL;
+          return kOfxStatErrMemory;
         } catch (...) {
           *imageHandle = NULL;
           return kOfxStatErrBadHandle;
@@ -4235,6 +4260,14 @@ namespace OFX {
         }
         
         return kOfxStatErrBadHandle;
+        } catch (const std::bad_alloc&) {
+          // "::kOfxStatErrMemory - not enough OpenGL memory was available for the effect to load
+          // the texture." (ofxGPURender.h, clipLoadTexture). std::bad_alloc is a failed CPU memory
+          // allocation (e.g. the host's staging buffer), not OpenGL memory, but the plug-in should
+          // react the same way: abort the GL render, so that the host may retry on the CPU
+          *h3 = NULL;
+
+          return kOfxStatErrMemory;
         } catch (...) {
           *h3 = NULL;
 
