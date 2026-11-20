@@ -112,8 +112,15 @@ namespace OFX {
       if(nCPUs == 0)
         nCPUs = OFX::MultiThread::getNumCPUs();
 
-      // if 1 cpu, don't bother with the threading
-      if(nCPUs == 1) {
+      // if 1 cpu, don't bother with the threading.
+      // multiThread must not be called from a thread it spawned (e.g. from the
+      // multiThreadFunction() of another Processor). The spec (ofxMultiThread.h) says
+      // "This function cannot be called recursively." and that it returns
+      // "::kOfxStatErrExists, failed in an attempt to call multiThread recursively",
+      // which would fail the render. multiThreadIsSpawnedThread returns
+      // "1 if the thread was spawned by multiThread": in that case, run in the calling thread.
+      // Without the multithread suite, isSpawnedThread() is false and nothing changes.
+      if(nCPUs == 1 || OFX::MultiThread::isSpawnedThread()) {
         multiThreadFunction(0, 1);
       }
       else {
@@ -145,7 +152,7 @@ namespace OFX {
     /** @brief Has the current thread been spawned from an MP */
     bool isSpawnedThread(void)
     {
-      if(OFX::Private::gThreadSuite){
+      if(OFX::Private::gThreadSuite && OFX::Private::gThreadSuite->multiThreadIsSpawnedThread){
           int v = OFX::Private::gThreadSuite->multiThreadIsSpawnedThread();
           return v != 0;
       }else{
