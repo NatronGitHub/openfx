@@ -18,10 +18,11 @@ its docstring:
 | test_gpugain.py | the CPU path of a plug-in with Metal, CUDA and OpenCL render, float only; an identity |
 | test_choiceparams.py | Choice values are indices whatever the option order; a StrChoice value is its enum |
 | test_describe.py | contexts, clips, parameters and flags, from `describe()` |
+| test_tester.py | the host's report: the progress calls that reached the host |
 | test_ofx14.py | an OFX 1.4 host (hostDemo `--ofx14`): the plug-in's fallbacks for the OFX 1.5 features |
 
-The Tester sample only has describe checks (its render is an invert, and its push buttons
-need an interactive host). Support/PropTester isn't tested: it writes no pixels (hostDemo
+The Tester sample only has describe checks and a progress check (its render is an invert, and
+its push buttons need an interactive host). Support/PropTester isn't tested: it writes no pixels (hostDemo
 would fail on the unwritten output), and it only dumps properties to its log.
 
 Run them (after `make -C HostSupport && make -C HostSupport/examples && make -C

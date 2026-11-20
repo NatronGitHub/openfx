@@ -4058,9 +4058,16 @@ namespace OFX {
     if(_progressStartSuccess) {
       if(OFX::Private::gProgressSuiteV2) {
         OFX::Private::gProgressSuiteV2->progressEnd((void *) _effectHandle);
+#ifdef OFX_EXTENSIONS_VEGAS
+      } else if(OFX::Private::gVegasProgressSuite) {
+        OFX::Private::gVegasProgressSuite->progressEnd((void *) _effectHandle);
+#endif
       } else if(OFX::Private::gProgressSuiteV1) {
         OFX::Private::gProgressSuiteV1->progressEnd((void *) _effectHandle);
       }
+      // "\post - you can no longer call progressUpdate on the instance" (ofxProgress.h):
+      // progressUpdate() and progressEnd() don't call the host again until the next progressStart()
+      _progressStartSuccess = false;
     }
   }
 

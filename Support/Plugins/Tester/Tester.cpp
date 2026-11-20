@@ -547,6 +547,14 @@ void GenericTestPlugin::render(const OFX::RenderArguments &args)
       setPersistentMessage(OFX::Message::eMessageError, "", "render: paramGetValue isn't the value at the render's time");
     }
   }
+  // a test of the Support library: after progressEnd(), no progressUpdate() or progressEnd()
+  // reaches the host ("\post - you can no longer call progressUpdate on the instance")
+  progressStart("Tester render", "TesterRenderProgress");
+  progressUpdate(0.5);
+  progressEnd();
+  progressUpdate(1.);
+  progressEnd();
+
   OFX::BitDepthEnum       dstBitDepth    = dstClip_->getPixelDepth();
   OFX::PixelComponentEnum dstComponents  = dstClip_->getPixelComponents();
 
