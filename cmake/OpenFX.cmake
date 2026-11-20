@@ -784,7 +784,7 @@ function(ofx_deploy_bundle TARGET)
 endfunction()
 
 # A group of OFX plug-ins built as one combined bundle, or as one bundle per plug-in (the CMake
-# equivalent of the Makefiles' `make nomulti`):
+# equivalent of the Makefiles' `make nomulti`, with other bundle names: see below):
 #
 #   ofx_plugin_bundle_group(<group>
 #     [COMBINED_NAME <bundle>] [COMBINED_ID <identifier>] [COMBINED_INFO_PLIST <file>]
@@ -792,7 +792,7 @@ endfunction()
 #     [ID_PREFIX <prefix>] [VERSION <x.y.z>] [ALSO_SEPARATE <plugin>...] [NO_DEPLOY]
 #     [COMMON_SOURCES <file>...] [COMMON_LINK_LIBRARIES <lib>...]
 #     [COMMON_COMPILE_DEFINITIONS <def>...] [COMMON_COMPILE_OPTIONS <opt>...]
-#     [COMMON_INCLUDE_DIRECTORIES <dir>...]
+#     [COMMON_INCLUDE_DIRECTORIES <dir>...] [COMMON_RPATH <dir>...] [COMMON_EXPORT_SYMBOLS <symbol>...]
 #     [OUT_TARGETS <var>] [OUT_COMMON_TARGET <var>]
 #     PLUGIN <name> SOURCES <file>... [ID <identifier>] [REGISTER <function>...]
 #            [RESOURCES <item>...] [INFO_PLIST <file>]
@@ -811,43 +811,53 @@ endfunction()
 #   into a combined bundle (with COMBINED_SOURCES and COMBINED_RESOURCES).
 # - A separate bundle is named after the plug-in's identifier, ID or <ID_PREFIX><name> (e.g.
 #   net.sf.openfx.Merge.ofx.bundle with the binary net.sf.openfx.Merge.ofx), so that the bundles of
-#   different packages can't collide in a shared plug-in folder; its target and its install
-#   component are the short <name>. An ID or ID_PREFIX is required, except for COMBINED_ONLY plug-ins.
+#   different packages can't collide in a shared plug-in folder (`make nomulti` names them
+#   <Dir>.ofx.bundle); its target and its install component are the short <name>. An ID or ID_PREFIX
+#   is required, except for COMBINED_ONLY plug-ins. A COMBINED_NAME that is also the target of a
+#   plug-in's separate bundle, in either mode, is an error.
 # - Registration: Support plug-ins register their factories with mRegisterPluginFactoryInstance,
 #   so linking their sources is enough. REGISTER names functions `void f(OFX::PluginFactoryArray&)`
 #   (namespaces allowed, e.g. MyNS::getMyPluginIDs): a generated source of each bundle calls them,
 #   in declaration order, at static initialization, into the Support library's automatic
 #   registration (it needs openfx::Support, and doesn't define OFX::Plugin::getPluginIDs). REGISTER
-#   and self-registering plug-ins may be mixed in a bundle.
+#   and self-registering plug-ins may be mixed in a bundle. Combining and REGISTER are for
+#   Support-based plug-ins: raw C-API plug-ins each define OfxGetPlugin.
 # - Sources are compiled into each bundle target (never through a static archive, whose unreferenced
 #   objects, and so the static registrations, would be dropped). COMMON_SOURCES (helpers without
 #   self-registering factories) are compiled once into an OBJECT library, `<group>_common`, which
 #   links COMMON_LINK_LIBRARIES PUBLIC and is linked into every bundle of the group.
 # - COMMON_LINK_LIBRARIES, _COMPILE_DEFINITIONS, _COMPILE_OPTIONS and _INCLUDE_DIRECTORIES apply to
-#   every bundle; a plug-in's LINK_LIBRARIES to the bundles that contain it; its COMPILE_DEFINITIONS,
-#   COMPILE_OPTIONS and INCLUDE_DIRECTORIES to its own SOURCES only (source file properties, also
-#   seen by other targets of the directory that compile these files). A source listed by several
-#   plug-ins is compiled once per bundle, and these plug-ins must give it the same settings.
+#   every bundle, COMMON_RPATH and COMMON_EXPORT_SYMBOLS are add_ofx_plugin's RPATH and
+#   EXPORT_SYMBOLS of every bundle; a plug-in's LINK_LIBRARIES and INCLUDE_DIRECTORIES apply to the
+#   bundles that contain it (a combined bundle gets the union); its COMPILE_DEFINITIONS and
+#   COMPILE_OPTIONS to its own SOURCES only (source file properties, also seen by other targets of
+#   the directory that compile these files; not for generator-expression sources). A source listed
+#   by several plug-ins is compiled once per bundle, and these plug-ins must give it the same
+#   COMPILE_DEFINITIONS and COMPILE_OPTIONS.
 # - RESOURCES items: a file, a directory (copied with its contents, under its own name), or
 #   `<file-or-directory> DESTINATION <subdir>` (under Contents/Resources/<subdir>). A combined bundle
 #   gets the union of its plug-ins' resources (an item listed twice is copied once) and
-#   COMBINED_RESOURCES; two different files with the same destination are an error.
+#   COMBINED_RESOURCES; two different files with the same destination (compared without case) are
+#   an error.
 # - Info.plist: a separate bundle's is generated (identifier <ID>, version VERSION, else
 #   PROJECT_VERSION, else 1.0.0), unless INFO_PLIST gives one whose CFBundleExecutable and
 #   CFBundleIdentifier, after configure_file(@ONLY), are <ID>.ofx and <ID> (use @PLUGIN_EXE@ and
-#   @BUNDLE_IDENTIFIER@); another INFO_PLIST gives a warning and is not used. A combined bundle's is
+#   @BUNDLE_IDENTIFIER@); another INFO_PLIST gives a warning (in both modes) and is not used. A combined bundle's is
 #   COMBINED_INFO_PLIST, whose CFBundleExecutable must be <COMBINED_NAME>.ofx, or generated
 #   (identifier COMBINED_ID, default org.openeffects.plugins.<COMBINED_NAME>).
 # - OPENMP: ofx_target_openmp() on the bundles that contain the plug-in.
 # - Each bundle target gets the properties OFX_BUNDLE_PLUGINS (its plug-ins' names) and
 #   OFX_BUNDLE_GROUP, and the union of its plug-ins' PROPERTIES (appended, duplicates removed).
+#   PROPERTIES are custom, project-prefixed properties only: a keyword, a property that the target
+#   already has, an OFX_* name, or the bookkeeping property of a helper (SUPPORTEXT_COMPONENTS,
+#   IOSUPPORT_COMPONENTS: supportext_add_sources would then skip these components) is an error.
 # - ofx_deploy_bundle() is called on every bundle, after its resources, unless NO_DEPLOY: the caller
 #   then adds its own resources (ofx_plugin_resources) and calls ofx_deploy_bundle() itself.
 # - OUT_TARGETS: all the bundle targets; OUT_TARGET: the targets that contain the plug-in (a list:
 #   two with ALSO_SEPARATE); OUT_COMMON_TARGET: the OBJECT library of COMMON_SOURCES, if any.
 # - Best-effort configure-time checks: a warning if a plug-in source defines OFX::Plugin::getPluginIDs
-#   (it would clash with the Support library's), or if an explicit ID is not a string literal in the
-#   plug-in's sources.
+#   (it would clash with the Support library's), or if no string literal of the plug-in's sources
+#   starts with its explicit ID.
 # Documentation/proposals/cmake-plugins.md has an example.
 function(ofx_plugin_bundle_group GROUP)
   set(_ctx "ofx_plugin_bundle_group(${GROUP})")
@@ -873,7 +883,7 @@ function(ofx_plugin_bundle_group GROUP)
   endif()
   cmake_parse_arguments(G "NO_DEPLOY"
     "COMBINED_NAME;COMBINED_ID;COMBINED_INFO_PLIST;ID_PREFIX;VERSION;OUT_TARGETS;OUT_COMMON_TARGET"
-    "COMBINED_RESOURCES;COMBINED_SOURCES;ALSO_SEPARATE;COMMON_SOURCES;COMMON_LINK_LIBRARIES;COMMON_COMPILE_DEFINITIONS;COMMON_COMPILE_OPTIONS;COMMON_INCLUDE_DIRECTORIES"
+    "COMBINED_RESOURCES;COMBINED_SOURCES;ALSO_SEPARATE;COMMON_SOURCES;COMMON_LINK_LIBRARIES;COMMON_COMPILE_DEFINITIONS;COMMON_COMPILE_OPTIONS;COMMON_INCLUDE_DIRECTORIES;COMMON_RPATH;COMMON_EXPORT_SYMBOLS"
     ${_head})
   if(G_UNPARSED_ARGUMENTS)
     message(FATAL_ERROR "${_ctx}: unknown arguments: ${G_UNPARSED_ARGUMENTS}")
@@ -919,6 +929,14 @@ function(ofx_plugin_bundle_group GROUP)
   # the plug-ins: _p<i>_<field>
   set(_kws SOURCES ID REGISTER RESOURCES INFO_PLIST LINK_LIBRARIES COMPILE_DEFINITIONS COMPILE_OPTIONS
            INCLUDE_DIRECTORIES OPENMP COMBINED_ONLY SEPARATE_ONLY PROPERTIES OUT_TARGET)
+  # PROPERTIES may not use these names: the keywords, and the bookkeeping properties of the
+  # helpers that add sources to a target (supportext_add_sources, ioSupport_add_sources), which
+  # skip the components listed there
+  set(_reserved_props ${_kws} PLUGIN DESTINATION COMBINED_NAME COMBINED_ID COMBINED_INFO_PLIST
+      COMBINED_RESOURCES COMBINED_SOURCES ID_PREFIX VERSION ALSO_SEPARATE NO_DEPLOY COMMON_SOURCES
+      COMMON_LINK_LIBRARIES COMMON_COMPILE_DEFINITIONS COMMON_COMPILE_OPTIONS COMMON_INCLUDE_DIRECTORIES
+      COMMON_RPATH COMMON_EXPORT_SYMBOLS OUT_TARGETS OUT_COMMON_TARGET
+      SUPPORTEXT_COMPONENTS IOSUPPORT_COMPONENTS)
   set(_names "")
   set(_ids "")
   foreach(_i RANGE 1 ${_np})
@@ -946,6 +964,9 @@ function(ofx_plugin_bundle_group GROUP)
       if(_a STREQUAL "PROPERTIES")
         set(_state name)
       elseif(_state STREQUAL "name")
+        if(_a IN_LIST _reserved_props OR _a MATCHES "^OFX_")
+          message(FATAL_ERROR "${_ctx}: PLUGIN ${_name}: PROPERTIES ${_a}: a keyword, or a property of OpenFX.cmake or of a helper (e.g. supportext_add_sources' own SUPPORTEXT_COMPONENTS). Use a custom, project-prefixed name, e.g. MYPROJECT_SUPPORTEXT")
+        endif()
         math(EXPR _k "${_k} + 1")
         list(APPEND _p${_i}_props "${_a}")
         set(_p${_i}_pv${_k} "")
@@ -994,6 +1015,9 @@ function(ofx_plugin_bundle_group GROUP)
       if(NOT _f MATCHES "^(::)?[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$")
         message(FATAL_ERROR "${_ctx}: PLUGIN ${_name}: REGISTER ${_f} is not a C++ function name")
       endif()
+      if(_f MATCHES "^(::)?OFX::Plugin::getPluginIDs$")
+        message(FATAL_ERROR "${_ctx}: PLUGIN ${_name}: REGISTER ${_f}: the Support library defines OFX::Plugin::getPluginIDs (a duplicate symbol): rename the plug-in's function")
+      endif()
     endforeach()
     set(_p${_i}_id "${_id}")
     set(_p${_i}_explicit_id "${P_ID}")
@@ -1016,7 +1040,18 @@ function(ofx_plugin_bundle_group GROUP)
     set(_p${_i}_out "${P_OUT_TARGET}")
     set(_p${_i}_plist "")
     if(P_INFO_PLIST)
-      get_filename_component(_p${_i}_plist "${P_INFO_PLIST}" ABSOLUTE)
+      # checked in both modes, so that a COMBINED build warns too
+      get_filename_component(_plist "${P_INFO_PLIST}" ABSOLUTE)
+      if(_id AND NOT P_COMBINED_ONLY)
+        _ofx_group_check_plist(_ok ${_name} ${_id} "${_plist}")
+        if(_ok)
+          set(_p${_i}_plist "${_plist}")
+        else()
+          message(WARNING "${_ctx}: PLUGIN ${_name}: INFO_PLIST ${_plist} is not used: ${_ok_msg} (use @PLUGIN_EXE@ and @BUNDLE_IDENTIFIER@). A separate bundle gets a generated Info.plist.")
+        endif()
+      else()
+        message(WARNING "${_ctx}: PLUGIN ${_name}: INFO_PLIST is not used (a COMBINED_ONLY plug-in has no separate bundle)")
+      endif()
     endif()
     _ofx_group_parse_resources(_p${_i}_rsrc _p${_i}_rsub "${_ctx}: PLUGIN ${_name}: RESOURCES" ${P_RESOURCES})
     _ofx_group_source_checks(${_i})
@@ -1031,6 +1066,22 @@ function(ofx_plugin_bundle_group GROUP)
       message(FATAL_ERROR "${_ctx}: ALSO_SEPARATE ${_a}: the plug-in is COMBINED_ONLY")
     endif()
   endforeach()
+
+  # a combined target named like a plug-in's separate target, in either mode: an error in both
+  set(_has_combined_only FALSE)
+  foreach(_i RANGE 1 ${_np})
+    if(_p${_i}_combined_only)
+      set(_has_combined_only TRUE)
+    endif()
+  endforeach()
+  list(FIND _names "${G_COMBINED_NAME}" _j)
+  if(NOT _j EQUAL -1)
+    math(EXPR _j "${_j} + 1")
+    if(_p${_j}_separate_only OR G_COMBINED_NAME IN_LIST G_ALSO_SEPARATE
+       OR (_has_combined_only AND NOT _p${_j}_combined_only))
+      message(FATAL_ERROR "${_ctx}: the combined bundle's target ${G_COMBINED_NAME} (COMBINED_NAME, default <group>) is also the target of PLUGIN ${G_COMBINED_NAME}'s separate bundle (in COMBINED or SEPARATE mode): rename one of them")
+    endif()
+  endif()
 
   # what goes where
   set(_combined "")
@@ -1161,15 +1212,25 @@ function(_ofx_group_parse_resources SRCS SUBS CTX)
   set(${SUBS} "${_subs}" PARENT_SCOPE)
 endfunction()
 
-# _ofx_group_source_checks(<i>) (in ofx_plugin_bundle_group's scope): the per-plug-in compile
-# settings of plug-in <i>, as source file properties (the same for every plug-in that lists a
-# source), and the best-effort checks of its sources
+# _ofx_group_source_checks(<i>) (in ofx_plugin_bundle_group's scope): the per-plug-in
+# COMPILE_DEFINITIONS and COMPILE_OPTIONS of plug-in <i>, as source file properties (the same for
+# every plug-in that lists a source), and the best-effort checks of its sources
 function(_ofx_group_source_checks I)
   set(_name ${_p${I}_name})
-  set(_sig "D:${_p${I}_defs}|O:${_p${I}_opts}|I:${_p${I}_incs}")
+  set(_sig "D:${_p${I}_defs}|O:${_p${I}_opts}")
   set(_id_found FALSE)
+  # REGISTER functions named getPluginIDs in another namespace: no getPluginIDs warning
+  set(_own_getpluginids FALSE)
+  foreach(_f IN LISTS _p${I}_register)
+    if(_f MATCHES "(^|::)getPluginIDs$")
+      set(_own_getpluginids TRUE)
+    endif()
+  endforeach()
   foreach(_s IN LISTS _p${I}_sources)
     if(_s MATCHES "^\\$<")
+      if(_p${I}_defs OR _p${I}_opts)
+        message(WARNING "${_ctx}: PLUGIN ${_name}: the source ${_s} is a generator expression: it doesn't get the plug-in's COMPILE_DEFINITIONS and COMPILE_OPTIONS")
+      endif()
       continue()
     endif()
     string(MD5 _key "${_s}")
@@ -1178,7 +1239,7 @@ function(_ofx_group_source_checks I)
       get_property(_osig DIRECTORY PROPERTY _OFX_GROUP_SRC_${_key})
       get_property(_owner DIRECTORY PROPERTY _OFX_GROUP_SRC_OWNER_${_key})
       if(NOT _osig STREQUAL _sig)
-        message(FATAL_ERROR "${_ctx}: ${_s} is listed by the plug-ins ${_owner} and ${_name}, with different COMPILE_DEFINITIONS, COMPILE_OPTIONS or INCLUDE_DIRECTORIES (they are properties of the source file)")
+        message(FATAL_ERROR "${_ctx}: ${_s} is listed by the plug-ins ${_owner} and ${_name}, with different COMPILE_DEFINITIONS or COMPILE_OPTIONS (they are properties of the source file)")
       endif()
     else()
       set_property(DIRECTORY PROPERTY _OFX_GROUP_SRC_${_key} "${_sig}")
@@ -1189,12 +1250,10 @@ function(_ofx_group_source_checks I)
       if(_p${I}_opts)
         set_property(SOURCE "${_s}" APPEND PROPERTY COMPILE_OPTIONS ${_p${I}_opts})
       endif()
-      if(_p${I}_incs)
-        set_property(SOURCE "${_s}" APPEND PROPERTY INCLUDE_DIRECTORIES ${_p${I}_incs})
-      endif()
     endif()
-    # best effort: a definition of OFX::Plugin::getPluginIDs (once per source file), and the
-    # explicit ID as a string literal
+    # best effort: a definition of OFX::Plugin::getPluginIDs (once per source file), and a string
+    # literal that starts with the explicit ID (e.g. "net.sf.openfx.MergePlugin" for the ID
+    # net.sf.openfx.Merge of an entry that registers several factories)
     get_property(_read DIRECTORY PROPERTY _OFX_GROUP_READ_${_key} SET)
     if((_read AND NOT _p${I}_explicit_id) OR NOT EXISTS "${_s}" OR IS_DIRECTORY "${_s}")
       continue()
@@ -1202,7 +1261,7 @@ function(_ofx_group_source_checks I)
     file(READ "${_s}" _content)
     if(NOT _read)
       set_property(DIRECTORY PROPERTY _OFX_GROUP_READ_${_key} TRUE)
-      if(_content MATCHES "getPluginIDs[ \t\r\n]*\\([^)]*\\)[ \t\r\n]*{")
+      if(NOT _own_getpluginids AND _content MATCHES "getPluginIDs[ \t\r\n]*\\([^)]*\\)[ \t\r\n]*{")
         message(WARNING "${_ctx}: PLUGIN ${_name}: ${_s} seems to define OFX::Plugin::getPluginIDs. "
           "The Support library registers the factories automatically (mRegisterPluginFactoryInstance) and "
           "defines getPluginIDs itself (a duplicate symbol at link time): use mRegisterPluginFactoryInstance, "
@@ -1210,14 +1269,33 @@ function(_ofx_group_source_checks I)
       endif()
     endif()
     if(_p${I}_explicit_id)
-      string(FIND "${_content}" "\"${_p${I}_explicit_id}\"" _pos)
+      string(FIND "${_content}" "\"${_p${I}_explicit_id}" _pos)
       if(NOT _pos EQUAL -1)
         set(_id_found TRUE)
       endif()
     endif()
   endforeach()
   if(_p${I}_explicit_id AND NOT _id_found)
-    message(WARNING "${_ctx}: PLUGIN ${_name}: the ID \"${_p${I}_explicit_id}\" is not a string literal of its SOURCES (it should be a plug-in identifier, e.g. kPluginIdentifier)")
+    message(WARNING "${_ctx}: PLUGIN ${_name}: no string literal of its SOURCES starts with the ID \"${_p${I}_explicit_id}\" (it should name the plug-in, e.g. the start of its kPluginIdentifier)")
+  endif()
+endfunction()
+
+# _ofx_group_check_plist(<ok var> <target> <bundle> <file>) (in ofx_plugin_bundle_group's scope):
+# whether a plug-in's INFO_PLIST, configured as add_ofx_plugin does, has CFBundleExecutable
+# <bundle>.ofx and CFBundleIdentifier <bundle>; the reason in _ok_msg otherwise
+function(_ofx_group_check_plist OK TGT BUNDLE PLIST)
+  set(PLUGIN_NAME ${BUNDLE})
+  set(PLUGIN_EXE ${BUNDLE}.ofx)
+  set(BUNDLE_IDENTIFIER ${BUNDLE})
+  set(BUNDLE_SIGNATURE "????")
+  set(PLUGIN_VERSION ${G_VERSION})
+  configure_file("${PLIST}" "${CMAKE_CURRENT_BINARY_DIR}/${TGT}.plugin.Info.plist.check" @ONLY)
+  _ofx_group_plist_values(_exe _pid "${CMAKE_CURRENT_BINARY_DIR}/${TGT}.plugin.Info.plist.check")
+  if(_exe STREQUAL "${BUNDLE}.ofx" AND _pid STREQUAL "${BUNDLE}")
+    set(${OK} TRUE PARENT_SCOPE)
+  else()
+    set(${OK} FALSE PARENT_SCOPE)
+    set(_ok_msg "its CFBundleExecutable is '${_exe}' and its CFBundleIdentifier '${_pid}', not ${BUNDLE}.ofx and ${BUNDLE}" PARENT_SCOPE)
   endif()
 endfunction()
 
@@ -1295,7 +1373,9 @@ function(_ofx_group_bundle TGT BUNDLE PLIST KIND)
     set(_ident "${BUNDLE}")
   endif()
   set(_plist_args IDENTIFIER "${_ident}")
-  if(PLIST)
+  if(PLIST AND KIND STREQUAL "SEPARATE")
+    list(APPEND _plist_args INFO_PLIST "${PLIST}") # (checked by _ofx_group_check_plist)
+  elseif(PLIST)
     set(PLUGIN_NAME ${BUNDLE})
     set(PLUGIN_EXE ${BUNDLE}.ofx)
     set(BUNDLE_IDENTIFIER ${_ident})
@@ -1308,15 +1388,12 @@ function(_ofx_group_bundle TGT BUNDLE PLIST KIND)
         message(FATAL_ERROR "${_ctx}: COMBINED_INFO_PLIST ${PLIST}: CFBundleExecutable is '${_exe}', not ${BUNDLE}.ofx (or @PLUGIN_EXE@)")
       endif()
       list(APPEND _plist_args INFO_PLIST "${PLIST}")
-    elseif(_exe STREQUAL "${BUNDLE}.ofx" AND _pid STREQUAL "${BUNDLE}")
-      list(APPEND _plist_args INFO_PLIST "${PLIST}")
-    else()
-      message(WARNING "${_ctx}: PLUGIN ${TGT}: INFO_PLIST ${PLIST} is not used: its CFBundleExecutable is '${_exe}' and its CFBundleIdentifier '${_pid}', not ${BUNDLE}.ofx and ${BUNDLE} (use @PLUGIN_EXE@ and @BUNDLE_IDENTIFIER@). The bundle gets a generated Info.plist.")
     endif()
   endif()
 
   set(_sources "")
   set(_libs "")
+  set(_incs "")
   set(_register "")
   set(_openmp FALSE)
   set(_rsrc "")
@@ -1326,6 +1403,7 @@ function(_ofx_group_bundle TGT BUNDLE PLIST KIND)
     list(APPEND _plugins ${_p${_i}_name})
     list(APPEND _sources ${_p${_i}_sources})
     list(APPEND _libs ${_p${_i}_libs})
+    list(APPEND _incs ${_p${_i}_incs})
     list(APPEND _register ${_p${_i}_register})
     list(APPEND _rsrc ${_p${_i}_rsrc})
     list(APPEND _rsub ${_p${_i}_rsub})
@@ -1340,7 +1418,23 @@ function(_ofx_group_bundle TGT BUNDLE PLIST KIND)
   endif()
   list(REMOVE_DUPLICATES _sources)
 
-  add_ofx_plugin(${TGT} BUNDLE_NAME ${BUNDLE} VERSION ${G_VERSION} ${_plist_args} SOURCES ${_sources})
+  set(_extra_args "")
+  if(G_COMMON_RPATH)
+    list(APPEND _extra_args RPATH ${G_COMMON_RPATH})
+  endif()
+  if(G_COMMON_EXPORT_SYMBOLS)
+    list(APPEND _extra_args EXPORT_SYMBOLS ${G_COMMON_EXPORT_SYMBOLS})
+  endif()
+  add_ofx_plugin(${TGT} BUNDLE_NAME ${BUNDLE} VERSION ${G_VERSION} ${_plist_args} ${_extra_args} SOURCES ${_sources})
+  # PROPERTIES: custom properties only, not one that add_ofx_plugin set
+  foreach(_i IN LISTS _members)
+    foreach(_prop IN LISTS _p${_i}_props)
+      get_property(_set TARGET ${TGT} PROPERTY ${_prop} SET)
+      if(_set)
+        message(FATAL_ERROR "${_ctx}: PLUGIN ${_p${_i}_name}: PROPERTIES ${_prop}: the target ${TGT} already has this property (only custom properties are allowed)")
+      endif()
+    endforeach()
+  endforeach()
   # (the LINK_LIBRARIES property: the caller may use either form of target_link_libraries)
   if(_common_obj)
     set_property(TARGET ${TGT} APPEND PROPERTY LINK_LIBRARIES ${_common_obj})
@@ -1349,6 +1443,12 @@ function(_ofx_group_bundle TGT BUNDLE PLIST KIND)
   endif()
   set_property(TARGET ${TGT} APPEND PROPERTY LINK_LIBRARIES ${_libs})
   _ofx_group_compile_settings(${TGT})
+  # a plug-in's INCLUDE_DIRECTORIES: on the target (a combined bundle gets the union), so that a
+  # source shared by plug-ins (e.g. CImgFilter.cpp) sees them all
+  if(_incs)
+    list(REMOVE_DUPLICATES _incs)
+    target_include_directories(${TGT} PRIVATE ${_incs})
+  endif()
 
   if(_register)
     list(REMOVE_DUPLICATES _register)
@@ -1456,7 +1556,9 @@ function(_ofx_group_resources TGT SRCS SUBS)
       foreach(_k RANGE ${_m})
         list(GET _dests ${_k} _d)
         list(GET _froms ${_k} _f)
-        string(MD5 _key "${_d}")
+        # (case-insensitive: the file systems of macOS and Windows usually are)
+        string(TOLOWER "${_d}" _key)
+        string(MD5 _key "${_key}")
         if(DEFINED _dest_${_key} AND NOT _dest_${_key} STREQUAL _f)
           message(FATAL_ERROR "${_ctx}: ${TGT}: two resources go to Contents/Resources/${_d}: ${_dest_${_key}} and ${_f}")
         endif()

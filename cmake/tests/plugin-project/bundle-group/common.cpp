@@ -22,3 +22,9 @@ void describeInContext(OFX::ImageEffectDescriptor &desc)
   dst->addSupportedComponent(OFX::ePixelComponentRGBA);
 }
 } // namespace tiny
+
+// exported by the TinyReg bundles only (COMMON_EXPORT_SYMBOLS)
+extern "C" {
+OfxExport int OfxTestGroupSymbol(void);
+int OfxTestGroupSymbol(void) { return 1; }
+}

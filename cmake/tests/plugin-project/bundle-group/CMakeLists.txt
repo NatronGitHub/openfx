@@ -27,7 +27,7 @@ ofx_plugin_bundle_group(TinyGroup
     RESOURCES group/org.example.tiny.TinyAPlugin.png group/shared-icon.txt
     COMPILE_DEFINITIONS TINY_AB -DTINY_AB_SHARED
     INCLUDE_DIRECTORIES group/inc
-    PROPERTIES TINY_COMPONENTS alpha beta
+    PROPERTIES TINY_COMPONENTS alpha beta # (a project-prefixed custom property)
     OUT_TARGET _tinyA_target
   PLUGIN TinyB
     SOURCES group/tinyB.cpp group/shared.cpp # shared.cpp: the same settings as in TinyA, compiled once
@@ -56,6 +56,14 @@ endfunction()
 get_target_property(_p TinyGroup_common TYPE)
 _tiny_expect("OUT_COMMON_TARGET" "${_tiny_common}" "TinyGroup_common")
 _tiny_expect("TinyGroup_common TYPE" "${_p}" "OBJECT_LIBRARY")
+# a plug-in's INCLUDE_DIRECTORIES are on the target (the union in a combined bundle)
+if(OFX_PLUGIN_BUNDLES STREQUAL "SEPARATE")
+  get_target_property(_p ExplicitC INCLUDE_DIRECTORIES)
+  _tiny_expect("ExplicitC INCLUDE_DIRECTORIES" "${_p}" "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/other/inc")
+else()
+  get_target_property(_p TinyGroup INCLUDE_DIRECTORIES)
+  _tiny_expect("TinyGroup INCLUDE_DIRECTORIES" "${_p}" "${CMAKE_CURRENT_SOURCE_DIR};${CMAKE_CURRENT_SOURCE_DIR}/group/inc;${CMAKE_CURRENT_SOURCE_DIR}/other/inc")
+endif()
 # a source listed by two plug-ins gets their settings once
 get_source_file_property(_p group/shared.cpp COMPILE_DEFINITIONS)
 _tiny_expect("shared.cpp COMPILE_DEFINITIONS" "${_p}" "TINY_AB;TINY_AB_SHARED")
@@ -84,7 +92,7 @@ endif()
 
 # TinyReg: REGISTER (manual registration, a namespaced function, two functions in one plug-in),
 # mixed with a self-registering plug-in; COMBINED_ONLY and SEPARATE_ONLY; NO_DEPLOY, the caller adds
-# a generated resource and deploys. Its mode is the opposite of OFX_PLUGIN_BUNDLES
+# a generated resource and deploys; COMMON_RPATH and COMMON_EXPORT_SYMBOLS. Its mode is the opposite of OFX_PLUGIN_BUNDLES
 # (OFX_PLUGIN_BUNDLES_TinyReg), so that each build has REGISTER in both kinds of bundles.
 #   COMBINED: TinyReg.ofx.bundle (R1, R3), org.example.reg.R2.ofx.bundle (SEPARATE_ONLY)
 #   SEPARATE: TinyReg.ofx.bundle (R1: COMBINED_ONLY), org.example.reg.R2, org.example.reg.R3
@@ -96,6 +104,8 @@ endif()
 ofx_plugin_bundle_group(TinyReg
   ID_PREFIX org.example.reg.
   NO_DEPLOY
+  COMMON_RPATH /opt/ofx-test-group-rpath
+  COMMON_EXPORT_SYMBOLS OfxTestGroupSymbol
   COMMON_SOURCES common.cpp
   COMMON_LINK_LIBRARIES openfx::Support
   COMMON_COMPILE_DEFINITIONS TINY_COMMON

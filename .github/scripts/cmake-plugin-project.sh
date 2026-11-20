@@ -77,7 +77,7 @@ run() { # mode: package | subdirectory
       *"PATH entry /opt/ofx-test-rpath,"*"PATH entry /usr/local/ofx-test-keep,"*|*"PATH entry /usr/local/ofx-test-keep,"*"PATH entry /opt/ofx-test-rpath,"*) ;; # RUNPATH or RPATH
       *) echo "$out"; fail "linuxCheckBundle.sh: unexpected report" ;;
     esac
-    env $limits OFX_ABI_RPATH_ALLOW="/opt/ofx-test-rpath /usr/local/ofx-test-keep" \
+    env $limits OFX_ABI_RPATH_ALLOW="/opt/ofx-test-rpath /usr/local/ofx-test-keep /opt/ofx-test-group-rpath" \
       "$lcb" "$w/install/OFX/Plugins" || fail "linuxCheckBundle.sh"
   fi
 }
@@ -178,7 +178,11 @@ EOT
 # check_groups MODE BUILD INSTALLED: the bundles of the groups, built and installed, and (Linux,
 # macOS) cacheDemo loads every plug-in from the expected bundle
 check_groups() {
-  local mode=$1 build=$2 installed=$3 line t b ids res strs got want f id
+  local mode=$1 build=$2 installed=$3 line t b ids res strs got want f id arch
+  case $os in
+    Darwin) arch=MacOS ;;
+    *) arch=$(ls "$installed/TinyReg.ofx.bundle/Contents" | grep -v -e Info.plist -e Resources | head -1) ;;
+  esac
   want=$(groups_expected "$mode" | awk -F'|' '{ print $1 " " $2 }' | LC_ALL=C sort)
   got=$(awk '{ print $1 " " $2 }' "$build/ofx_bundle_groups.txt" | LC_ALL=C sort)
   [ "$got" = "$want" ] || fail "$mode: the group targets and bundles are:\n$got\nexpected:\n$want"
@@ -194,6 +198,17 @@ check_groups() {
     if [ "$os" = Darwin ] && [ "$deploy" = ON ]; then
       codesign --verify --strict "$installed/$b.ofx.bundle" || fail "$mode: codesign --verify --strict $b"
     fi
+    # TinyReg: COMMON_RPATH and COMMON_EXPORT_SYMBOLS
+    f="$installed/$b.ofx.bundle/Contents/$arch/$b.ofx"
+    case $b in TinyReg|org.example.reg.*) local reg=1 ;; *) local reg=0 ;; esac
+    case $os in
+      Darwin) exp=$(nm -gU "$f" | awk '$2 == "T" { print $3 }' | grep -c '^_OfxTestGroupSymbol$' || true)
+              rp=$(otool -l "$f" | grep -c ' path /opt/ofx-test-group-rpath ' || true) ;;
+      Linux|FreeBSD) exp=$(nm -D --defined-only "$f" | awk '$2 == "T" { print $3 }' | sed 's/@.*//' | grep -c '^OfxTestGroupSymbol$' || true)
+              rp=$(readelf -d "$f" | grep -c '/opt/ofx-test-group-rpath' || true) ;;
+      *) exp=$reg rp=$reg ;;
+    esac
+    [ "$exp" = "$reg" ] && [ "$rp" = "$reg" ] || fail "$mode: $b: OfxTestGroupSymbol exported $exp, rpath /opt/ofx-test-group-rpath $rp, expected $reg"
   done < <(groups_expected "$mode")
   # cacheDemo loads every plug-in from its bundle (the plug-in cache it writes lists each bundle's
   # plug-ins; its dump, once per identifier, has the described contexts). Not on Windows: the
@@ -217,29 +232,51 @@ check_groups() {
 # the configure-time errors and warnings of ofx_plugin_bundle_group() (one build directory,
 # configured again for each case)
 check_group_errors() {
-  local w="$work/errors" c msg log
+  local w="$work/errors" c msg log prev=""
+  mkdir -p "$w"
+  # <case>|<message>: the configure fails with the message, except the warnings and ok-* cases,
+  # configured once, whose lines check that the message is there, or not (!<message>)
   while IFS='|' read -r c msg; do
     log="$w/$c.log"
-    mkdir -p "$w"
-    if cmake -S "$src/cmake/tests/bundle-group-errors" -B "$w/build" -DCMAKE_PREFIX_PATH="$prefix" \
-         -DOFX_TEST_CASE="$c" $osxtarget ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"} > "$log" 2>&1; then
-      [ "$c" = warnings ] || { cat "$log"; fail "bundle group error case $c: configured"; }
-    elif [ "$c" = warnings ]; then
-      cat "$log"; fail "bundle group warnings: configure failed"
+    if [ "$c" != "$prev" ]; then
+      prev=$c
+      if cmake -S "$src/cmake/tests/bundle-group-errors" -B "$w/build" -DCMAKE_PREFIX_PATH="$prefix" \
+           -DOFX_TEST_CASE="$c" $osxtarget ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"} > "$log" 2>&1; then
+        case $c in warnings|ok-*) ;; *) cat "$log"; fail "bundle group error case $c: configured" ;; esac
+      else
+        case $c in warnings|ok-*) cat "$log"; fail "bundle group case $c: configure failed" ;; esac
+      fi
     fi
-    tr -s ' \n' ' ' < "$log" | grep -qF "$msg" || { cat "$log"; fail "bundle group case $c: no '$msg'"; }
+    case $msg in
+      '!'*) if tr -s ' \n' ' ' < "$log" | grep -qF "${msg#!}"; then cat "$log"; fail "bundle group case $c: '${msg#!}'"; fi ;;
+      *) tr -s ' \n' ' ' < "$log" | grep -qF "$msg" || { cat "$log"; fail "bundle group case $c: no '$msg'"; } ;;
+    esac
   done <<'EOT'
 duplicate-plugin|PLUGIN A is declared twice
 no-sources|PLUGIN A has no SOURCES
 no-id|PLUGIN A has no ID
 resource-clash|two resources go to Contents/Resources/x.txt
+resource-clash-case|two resources go to Contents/Resources/
 destination-outside|must be a relative subdirectory
+destination-missing|DESTINATION without a subdirectory
 target-exists|the target A already exists
 settings-conflict|with different COMPILE_DEFINITIONS
 also-separate-unknown|ALSO_SEPARATE C: no such PLUGIN
+also-separate-combined-only|the plug-in is COMBINED_ONLY
+combined-and-separate-only|COMBINED_ONLY and SEPARATE_ONLY
 combined-plist|CFBundleExecutable is 'Other.ofx', not G.ofx
-warnings|seems to define OFX::Plugin::getPluginIDs
-warnings|is not a string literal of its SOURCES
+combined-name-clash|is also the target of PLUGIN G's separate bundle
+register-invalid|is not a C++ function name
+register-getpluginids|the Support library defines OFX::Plugin::getPluginIDs
+property-reserved|PROPERTIES SUPPORTEXT_COMPONENTS: a keyword
+property-set|already has this property
+ok-same-name|!CMake Error
+warnings|warn.cpp seems to define OFX::Plugin::getPluginIDs
+warnings|!warn3.cpp seems to define
+warnings|starts with the ID "t.NotInTheSources"
+warnings|!starts with the ID "t.B"
+warnings|A.plist is not used
+warnings|is a generator expression
 EOT
   echo "bundle group errors and warnings: OK"
 }
