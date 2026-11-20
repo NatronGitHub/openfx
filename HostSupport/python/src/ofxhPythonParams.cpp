@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "ofxParametricParam.h"  // kOfxParamTypeParametric
+#include "ofxhUtilities.h"  // OFX::IsNaN, OFX::IsInfinite
 
 using namespace nanobind::literals;
 
@@ -34,7 +35,7 @@ namespace P = OFX::Host::Param;
 // ---------------------------------------------------------------------------------------------
 // Defaults
 
-void defaultToCanonical(const P::Descriptor &descriptor, double w, double h, double ox, double oy, double *v, int n)
+void defaultToCanonical(const P::Base &descriptor, double w, double h, double ox, double oy, double *v, int n)
 {
   if (descriptor.getDefaultCoordinateSystem() != kOfxParamCoordinatesNormalised) {
     return;
@@ -94,7 +95,8 @@ static std::vector<double> numericDefault(const P::Descriptor &d, const PyEffect
 // two key times closer than this are the same key ("some small delta", paramGetKeyIndex)
 static const double kKeyTimeEpsilon = 1e-4;
 
-static bool isFinite(double v) { return std::isfinite(v); }
+// (bit tests, which -ffast-math doesn't remove, as hostDemo)
+static bool isFinite(double v) { return !OFX::IsNaN(v) && !OFX::IsInfinite(v); }
 
 class Curve {
 public:
@@ -111,7 +113,14 @@ public:
   {
   }
 
-  void getCurrent(double *v) const { get(currentTime(), v); }
+  void getCurrent(double *v) const
+  {
+    if (_keys.empty()) {
+      std::copy(_value.begin(), _value.end(), v);  // (without asking Python the current time)
+      return;
+    }
+    get(currentTime(), v);
+  }
 
   void get(OfxTime time, double *v) const
   {
@@ -387,11 +396,32 @@ public:
 class StoredStrChoice : public P::StrChoiceInstance {
   std::string _v;
 public:
+  /// one of the enums (kOfxParamPropChoiceEnum), if there are any
+  bool valid(const std::string &v)
+  {
+    const OH::Property::Set &p = getProperties();
+    const int n = p.fetchProperty(kOfxParamPropChoiceEnum) ? p.getDimension(kOfxParamPropChoiceEnum) : 0;
+    for (int i = 0; i < n; ++i) {
+      if (p.getStringProperty(kOfxParamPropChoiceEnum, i) == v) {
+        return true;
+      }
+    }
+    return n == 0;
+  }
+public:
   StoredStrChoice(PyEffectInstance *e, P::Descriptor &d) : P::StrChoiceInstance(d, e) { _v = getDefaultEnum(); }
   virtual OfxStatus get(std::string &v) { v = _v; return kOfxStatOK; }
   virtual OfxStatus get(OfxTime, std::string &v) { v = _v; return kOfxStatOK; }
-  virtual OfxStatus set(const char *v) { _v = v ? v : ""; return kOfxStatOK; }
-  virtual OfxStatus set(OfxTime, const char *v) { _v = v ? v : ""; return kOfxStatOK; }
+  virtual OfxStatus set(const char *v)
+  {
+    const std::string s = v ? v : "";
+    if (!valid(s)) {
+      return kOfxStatErrValue;
+    }
+    _v = s;
+    return kOfxStatOK;
+  }
+  virtual OfxStatus set(OfxTime, const char *v) { return set(v); }
 };
 
 class StoredString : public P::StringInstance {
@@ -582,6 +612,12 @@ template <> struct Conv<std::string> {
 
 static nb::object timeArg(const OfxTime *t) { return t ? nb::object(nb::float_(*t)) : nb::none(); }
 
+/// the time of get(): always a time, the current one (timeLineGetTime()) for paramGetValue
+static nb::object getTime(const PyParamCore &c, const OfxTime *t)
+{
+  return nb::float_(t ? *t : c._effect->timeLineGetTime());
+}
+
 /// n values from what a Python method returned (a scalar for n == 1, else a sequence of n)
 template <class T> static void fromPython(nb::handle r, T *v, int n, const P::Instance &p, const char *method)
 {
@@ -615,7 +651,7 @@ template <class T> static nb::object toPython(const T *v, int n)
 template <class T> static OfxStatus pyGet(const PyParamCore &c, const OfxTime *t, T *v, int n)
 {
   OFXH_CALL(StatusFallback{kOfxStatFailed},
-    fromPython(c._py.attr("get")(timeArg(t)), v, n, *c._self, "get");
+    fromPython(c._py.attr("get")(getTime(c, t)), v, n, *c._self, "get");
     return kOfxStatOK;
   )
 }
@@ -760,7 +796,7 @@ class PyBytes : public P::BytesInstance, public PyParamCore {
   OfxStatus getAt(const OfxTime *t, std::vector<unsigned char> &v)
   {
     OFXH_CALL(StatusFallback{kOfxStatFailed},
-      v = bytesFrom(_py.attr("get")(timeArg(t)));
+      v = bytesFrom(_py.attr("get")(getTime(*this, t)));
       return kOfxStatOK;
     )
   }
@@ -1063,17 +1099,38 @@ static OfxStatus hostSupportDeriveStatus(const std::string &type)
   return kOfxStatErrMissingHostFeature;
 }
 
+nb::object initialValue(P::Instance *p, const PyEffectInstance *effect)
+{
+  nb::object v = defaultValue(p->getProperties(), p->getType());
+  const std::string &t = p->getType();
+  if (effect && (t == kOfxParamTypeDouble || t == kOfxParamTypeDouble2D)) {
+    const int n = t == kOfxParamTypeDouble ? 1 : 2;
+    double dv[2];
+    for (int k = 0; k < n; ++k) {
+      dv[k] = p->getProperties().getDoubleProperty(kOfxParamPropDefault, k);
+    }
+    double w, h, ox, oy;
+    effect->getProjectSize(w, h);
+    effect->getProjectOffset(ox, oy);
+    defaultToCanonical(*p, w, h, ox, oy, dv, n);
+    v = n == 1 ? nb::object(nb::float_(dv[0])) : nb::object(nb::make_tuple(dv[0], dv[1]));
+  }
+  return v;
+}
+
 void bindParams(nb::module_ &m)
 {
   nb::class_<ParamBase> c(m, "Param",
     "A parameter whose value Python holds. Subclass it, and return one from\n"
     "ImageEffectInstance.new_param(descriptor) (None: ofxh's C++ parameter, which stores its value\n"
-    "and keys). The adapter of the descriptor's type calls (time is None for the calls without one,\n"
-    "e.g. paramGetValue):\n"
-    "- get(time=None): the value: int (integer, choice), float (double), bool, str (string, custom,\n"
-    "  string choice), bytes, or a tuple for colours, 2D and 3D parameters. Required.\n"
-    "- set(value, time=None): set it; at a time, a key if the parameter animates, else the value.\n"
-    "  Required. Return None or a Stat.\n"
+    "and keys). The adapter of the descriptor's type calls:\n"
+    "- get(time): the value at time, which is always a time: the current one (the instance's\n"
+    "  timeline_get_time()) when the plug-in called paramGetValue without one. The value is an int\n"
+    "  (integer, choice), float (double), bool, str (string, custom, string choice), bytes, or a\n"
+    "  tuple for colours, 2D and 3D parameters. Required.\n"
+    "- set(value, time=None): time None (paramSetValue): set the value, or the key at the current\n"
+    "  time if the parameter has keys; at a time (paramSetValueAtTime): a key if the parameter\n"
+    "  animates, else the value. Required. Return None or a Stat.\n"
     "- derive(time), integrate(t1, t2): the defaults raise OfxError with HostSupport's status\n"
     "  (Stat.ErrUnsupported for integers, Stat.ErrMissingHostFeature for doubles).\n"
     "- num_keys(), key_time(nth), key_index(time, direction) (-1 or None: no key), delete_key(time),\n"
@@ -1085,9 +1142,9 @@ void bindParams(nb::module_ &m)
     "have no value: only changed() (and the keyframe methods for push buttons) are called.",
     nb::dynamic_attr());
   c.def(nb::init<>())
-    .def("get", [](ParamBase &, nb::handle) -> nb::object {
-      raiseError(PyExc_NotImplementedError, "ofxh.Param.get(time=None): subclasses implement it");
-    }, "time"_a.none() = nb::none())
+    .def("get", [](ParamBase &, double) -> nb::object {
+      raiseError(PyExc_NotImplementedError, "ofxh.Param.get(time): subclasses implement it");
+    }, "time"_a)
     .def("set", [](ParamBase &, nb::handle, nb::handle) -> nb::object {
       raiseError(PyExc_NotImplementedError, "ofxh.Param.set(value, time=None): subclasses implement it");
     }, "value"_a.none(), "time"_a.none() = nb::none())
@@ -1117,7 +1174,15 @@ void bindParams(nb::module_ &m)
     .def_prop_ro("default", [](ParamBase &s) {
       P::Instance *p = s.get();
       return defaultValue(p->getProperties(), p->getType());
-    }, "The default (kOfxParamPropDefault), in the form of get(); None for the parameters without a value.")
+    }, "The default (kOfxParamPropDefault, as the plug-in set it: normalised spatial defaults stay\n"
+       "normalised), in the form of get(); None for the parameters without a value. See initial.")
+    .def_prop_ro("initial", [](ParamBase &s) {
+      PyParamCore *c = s.core();
+      P::Instance *p = s.get();
+      return OFXH_SCOPED("Param.initial", initialValue(p, c ? c->_effect : NULL));
+    }, "The value a parameter starts with: the default, with the normalised spatial defaults\n"
+       "(kOfxParamPropDefaultCoordinateSystem) in canonical coordinates for the instance's project, as\n"
+       "ofxh's C++ parameters and param_template() have them. Return it from get() until set().")
     .def_prop_ro("props", [](ParamBase &s) { s.get(); return PropertySetView{s.ref, 3}; },
                  "The properties of the parameter instance (kOfxParamProp*), which the plug-in may change.")
     .def_prop_ro("instance", [](ParamBase &s) -> nb::object {

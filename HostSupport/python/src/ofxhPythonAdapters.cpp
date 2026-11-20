@@ -92,6 +92,12 @@ static int &scopeDepth()
 
 int ActionScope::depth() { return scopeDepth(); }
 
+int &CallbackDepth::depth()
+{
+  static thread_local int d = 0;
+  return d;
+}
+
 /// the thread of the open scopes (the actions run there, with the GIL released)
 static std::thread::id &scopeThread()
 {
@@ -132,7 +138,7 @@ ActionScope::ActionScope()
 {
   // ofxh is single-threaded: the GIL is released during the actions, so another Python thread
   // may run, but not call into HostSupport
-  if (scopeDepth() > 0 && scopeThread() != std::this_thread::get_id()) {
+  if (scopeDepth() > 0 && scopeThread() != std::this_thread::get_id() && CallbackDepth::depth() == 0) {
     raiseError(PyExc_RuntimeError, "ofxh: an action is running in another thread (ofxh is not thread-safe: call it "
                                    "from one thread)");
   }
@@ -831,11 +837,14 @@ OfxRectD PyClipInstance::defaultRoD(OfxTime time, int view) const
     }
     _inRoDAction = true;
     OfxRectD r = v;
-    const OfxStatus st = _effect->getRegionOfDefinitionAction(time, _effect->_renderScale,
+    // (called by the default region_of_definition(), with the GIL: the plug-in runs without it)
+    const OfxStatus st = withoutGil([&] {
+      return _effect->getRegionOfDefinitionAction(time, _effect->_renderScale,
 #ifdef OFX_EXTENSIONS_NUKE
-                                                              view,
+                                                  view,
 #endif
-                                                              r);
+                                                  r);
+    });
     _inRoDAction = false;
     if (st == kOfxStatOK || st == kOfxStatReplyDefault) {
       v = r;
@@ -997,6 +1006,7 @@ PyEffectInstance::PyEffectInstance(OHIE::ImageEffectPlugin *plugin, OHIE::Descri
   , _timeLineTime(0.)
   , _abort(0)
   , _outputFailed(false)
+  , _instanceChangedCount(0)
 {
   _renderScale.x = _renderScale.y = 1.;
   _renderWindow.x1 = _renderWindow.y1 = _renderWindow.x2 = _renderWindow.y2 = 0;
@@ -1006,8 +1016,11 @@ PyEffectInstance::PyEffectInstance(OHIE::ImageEffectPlugin *plugin, OHIE::Descri
 
 PyEffectInstance::~PyEffectInstance()
 {
-  // (close() and shutdown() send it first; ~Instance() would send it after the clips and
-  // parameters are deleted)
+  // A safety net, which ofxh doesn't reach: close() and shutdown() send kOfxActionDestroyInstance
+  // before they delete the instance, and HostSupport deletes an instance itself only when
+  // populate() fails, before kOfxActionCreateInstance. Without it, ~Instance() would send the
+  // action after the clips and parameters are deleted below. (It runs with the GIL of the caller:
+  // the callbacks take it anyway.)
   if (_created) {
     destroyInstanceAction();
   }
@@ -1178,6 +1191,13 @@ OH::Param::Instance *PyEffectInstance::newParam(const std::string &name, OH::Par
     }
     return p;
   )
+}
+
+OfxStatus PyEffectInstance::paramInstanceChangedAction(const std::string &paramName, const std::string &why,
+                                                       OfxTime time, OfxPointD renderScale)
+{
+  ++_instanceChangedCount;
+  return OHIE::Instance::paramInstanceChangedAction(paramName, why, time, renderScale);
 }
 
 OfxStatus PyEffectInstance::editBegin(const std::string &name)

@@ -139,7 +139,8 @@ void saveError(const char *message);
 /// and re-raises the first error saved by the callbacks, as ofxh.CallbackError, in check().
 /// The scopes nest: depth() > 0 inside an action or a callback. Made with the GIL. Its
 /// constructor raises RuntimeError on a thread other than the one of the open scopes (an action
-/// runs there, with the GIL released).
+/// runs there, with the GIL released), unless that thread is inside a callback of the action
+/// (a plug-in's worker thread that called the host).
 class ActionScope {
   nb::object _saved;
   bool _done;
@@ -175,6 +176,14 @@ public:
     }                                                                                  \
   }())
 
+/// counts the callbacks (OFXH_CALL) that run on this thread: a thread inside a callback of the
+/// running action (e.g. a plug-in's worker thread) may call the bindings (ActionScope)
+struct CallbackDepth {
+  CallbackDepth() { ++depth(); }
+  ~CallbackDepth() { --depth(); }
+  static int &depth();
+};
+
 /// fallback tag for the functions that return an OfxStatus: ofxh.OfxError(status) gives status
 struct StatusFallback {
   OfxStatus status;
@@ -206,6 +215,7 @@ template <class T> T onCxxError(const char *what, T fb)
 /// value to return. Nothing propagates to the caller (HostSupport or the plug-in).
 #define OFXH_CALL(fallback, ...)                                                       \
   ::nanobind::gil_scoped_acquire ofxh_gil_;                                            \
+  ::ofxh::CallbackDepth ofxh_depth_;                                                   \
   try {                                                                                \
     __VA_ARGS__                                                                        \
   } catch (::nanobind::python_error & ofxh_e_) {                                       \
@@ -367,6 +377,7 @@ public:
   double _timeLineTime;           ///< the default timeline (timeline_get_time/goto_time)
   std::atomic<int> _abort;        ///< ImageEffectInstance.aborted
   bool _outputFailed;             ///< the host made the output image of the render (abort() is 1)
+  int _instanceChangedCount;      ///< the kOfxActionInstanceChanged sent for parameters
   mutable std::string _fielding;  ///< getDefaultOutputFielding()
   mutable std::map<int, std::string> _viewNames;  ///< getViewName()
 
@@ -403,6 +414,9 @@ public:
   virtual OH::Param::Instance *newParam(const std::string &name, OH::Param::Descriptor &descriptor);
   virtual OfxStatus editBegin(const std::string &name);
   virtual OfxStatus editEnd();
+  // (counts them: instance_changed_count)
+  virtual OfxStatus paramInstanceChangedAction(const std::string &paramName, const std::string &why, OfxTime time,
+                                               OfxPointD renderScale);
   // Progress::ProgressI
   virtual void progressStart(const std::string &message, const std::string &messageid);
   virtual void progressEnd();
@@ -472,7 +486,7 @@ void bindDescriptors(nb::module_ &m);
 
 /// the spatial default of a double parameter in canonical coordinates (for normalised
 /// defaults, kOfxParamPropDefaultCoordinateSystem), with this project size and offset
-void defaultToCanonical(const OH::Param::Descriptor &descriptor, double w, double h, double ox, double oy,
+void defaultToCanonical(const OH::Param::Base &descriptor, double w, double h, double ox, double oy,
                         double *v, int n);
 /// a C++ parameter instance of the descriptor's type, with the default value
 /// (kOfxParamPropDefault), or NULL if the type is not supported
@@ -481,6 +495,9 @@ OH::Param::Instance *newStoredParam(PyEffectInstance *effect, OH::Param::Descrip
 nb::object getParamValue(OH::Param::Instance *param, const double *time);
 /// set the value of a parameter from a Python object (at a time: a key if it animates)
 OfxStatus setParamValue(OH::Param::Instance *param, nb::handle value, const double *time = NULL);
+/// the value a parameter starts with: its default, with the normalised spatial defaults in
+/// canonical coordinates for the effect's project (as the C++ parameters)
+nb::object initialValue(OH::Param::Instance *param, const PyEffectInstance *effect);
 /// the key times of a parameter (empty if it has none, or no keys)
 std::vector<double> paramKeyTimes(OH::Param::Instance *param);
 void bindParams(nb::module_ &m);

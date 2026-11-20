@@ -39,16 +39,18 @@ class Recorder(ofxh.ImageEffectInstance):
 
 
 class Value(ofxh.Param):
-    """A Python parameter that holds one value (no keys), and logs the calls."""
+    """A Python parameter that holds one value (no keys), and logs the calls. Until set(), the
+    value is initial: the default, with normalised spatial defaults in canonical coordinates (the
+    parameter isn't bound in __init__ yet)."""
 
     def __init__(self, desc, log):
         super().__init__()
-        self.value = desc.default
+        self.value = None
         self.log = log
 
-    def get(self, time=None):
+    def get(self, time):
         self.log.append(("get", self.name, time))
-        return self.value
+        return self.initial if self.value is None else self.value
 
     def set(self, value, time=None):
         self.log.append(("set", self.name, value, time))
@@ -79,11 +81,11 @@ class Curve(Value):
     def _now(self):
         return self.instance.timeline_get_time()
 
-    def get(self, time=None):
-        t = self._now() if time is None else time
+    def get(self, time):
+        t = time  # (always a time: the current one for paramGetValue)
         times = self._times()
         if not times:
-            return self.value
+            return self.initial if self.value is None else self.value
         i = bisect.bisect_right(times, t)
         if i == 0:
             return self.keys[times[0]]
@@ -149,7 +151,7 @@ class Curve(Value):
 
     def delete_all_keys(self):
         if self.keys:
-            self.value = self.get()
+            self.value = self.get(self._now())
             self.keys.clear()
 
 
@@ -229,13 +231,17 @@ def test_project_load_sends_no_instance_changed(plugin_dir):
         assert inst.set_param("messageText", "loaded") == ofxh.Stat.OK
         assert inst.set_param("keysDouble", 2., time=1.) == ofxh.Stat.OK
         assert inst.create_instance_action() == ofxh.Stat.OK
-        assert inst.messages == []  # no instanceChanged: Tester sends messageText from it
+        # no instanceChanged, counted host-side, and none seen by the plug-in (Tester sends
+        # messageText as a message from instanceChanged)
+        assert inst.instance_changed_count == 0 and inst.messages == []
         assert inst.get_param("messageText") == "loaded" and inst.param_keys("keysDouble") == [1.]
-        # a user edit after the create instance action: the host sends it
+        # the same checks see a user edit after the create instance action, which the host sends
+        assert inst.set_param("messageText", "edited") == ofxh.Stat.OK
         inst.begin_instance_changed_action()
         assert inst.param_changed_action("messageText") in OK
         inst.end_instance_changed_action()
-        assert inst.messages[0] == ("message", "loaded")
+        assert inst.instance_changed_count == 1
+        assert inst.messages[0] == ("message", "edited")
 
 
 def test_press(plugin_dir):
@@ -256,6 +262,18 @@ def test_param_values_and_descriptor(plugin_dir):
         d = inst.param_descriptor("enableTest")
         assert d.type == "choice" and len(d.choices) >= 2 and d.default == 0
         assert inst.param_type("keys2D") == "double2d"
+        assert inst.param_default("widgetPos") == (384., 288.) == inst.get_param("widgetPos")
+
+
+def test_strchoice_values_are_checked(plugin_dir):
+    _init(plugin_dir)
+    plugin = ofxh.get_plugin("org.openeffects.support.choiceParamsPlugin")
+    desc = [p for p in plugin.descriptor("filter").params if p.type == "strchoice"][0]
+    with ofxh.create_instance(plugin, "filter", ofxh.ImageEffectInstance()) as inst:
+        assert inst.set_param(desc.name, desc.choice_enums[-1]) == ofxh.Stat.OK
+        assert inst.get_param(desc.name) == desc.choice_enums[-1]
+        assert inst.set_param(desc.name, "no such enum") == ofxh.Stat.ErrValue
+        assert inst.get_param(desc.name) == desc.choice_enums[-1]
 
 
 # ---------------------------------------------------------------------------- Python parameters
@@ -271,6 +289,11 @@ def test_python_params(plugin_dir):
             assert isinstance(p, Value) and p.alive and p.name == name
             assert p.type == inst.param_type(name) and p.instance is inst
         assert inst.param("keysRGB").default == (0., 0., 0.) and inst.param("keysBool").default is False
+        # a normalised spatial default (Tester's widgetPos, at the middle): default is as the plug-in
+        # set it, initial in canonical coordinates for the project, as the C++ parameters
+        w = inst.param("widgetPos")
+        assert w.default == (.5, .5) and w.initial == (384., 288.) == inst.param_default("widgetPos")
+        assert inst.get_param("widgetPos") == (384., 288.)
         # get_param() and set_param() call get() and set()
         obj.log.clear()
         assert inst.set_param("keysDouble", 4., time=2.) == ofxh.Stat.OK
@@ -284,7 +307,7 @@ def test_python_params(plugin_dir):
         inst.begin_instance_changed_action()
         assert inst.param_changed_action("messageText") in OK
         inst.end_instance_changed_action()
-        assert ("get", "messageText", None) in obj.log
+        assert ("get", "messageText", 0.) in obj.log  # (paramGetValue: the current time)
         assert inst.messages[0] == ("message", "from Python")
         # a push button that is a Python parameter
         assert inst.press("pbButton") in OK
@@ -342,12 +365,12 @@ def test_python_param_defaults(plugin_dir):
         assert e.value.status == ofxh.Stat.ErrUnsupported
         assert inst.param_keys("keysDouble") == []
         with pytest.raises(NotImplementedError):
-            ofxh.Param.get(p)
+            ofxh.Param.get(p, 0.)
 
 
 def test_python_param_errors(plugin_dir):
     class Bad(Value):
-        def get(self, time=None):
+        def get(self, time):
             raise ValueError("bad get")
 
     obj = Recorder(python=("messageText",), param_class=Bad)

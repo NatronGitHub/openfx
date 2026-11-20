@@ -2,6 +2,7 @@
 values) during a render, other Python threads run while the plug-in works, and calling ofxh from
 another thread while an action runs is refused."""
 
+import ctypes
 import threading
 
 import numpy as np
@@ -59,9 +60,21 @@ class Instance(ofxh.ImageEffectInstance):
         self.messages.append((type, text))
 
 
-def _render(inst, time=0.):
+def _prepare(inst):
     assert inst.create_instance_action() == ofxh.Stat.OK
     assert inst.get_clip_preferences_action() in OK
+
+
+def _render_frame(inst, time=0.):
+    h, w = inst.image.shape[:2]
+    assert inst.begin_sequence_render_action(time, time) in OK
+    stat, outputs = inst.render_action(time, (0, 0, w, h))
+    assert inst.end_sequence_render_action(time, time) in OK
+    return stat, outputs
+
+
+def _render(inst, time=0.):
+    _prepare(inst)
     h, w = inst.image.shape[:2]
     assert inst.begin_sequence_render_action(time, time) in OK
     stat, outputs = inst.render_action(time, (0, 0, w, h))
@@ -71,17 +84,18 @@ def _render(inst, time=0.):
 
 def test_callbacks_during_render(plugin_dir):
     """Tester's render reads keysDouble with paramGetValue and paramGetValueAtTime, and sends a
-    persistent message if they differ: here they do (a Python parameter), so the render calls
-    the parameter and the message callbacks."""
+    persistent message if they differ: here they do (a Python parameter whose value changes at each
+    call), so the render calls the parameter and the message callbacks. get() always gets a time:
+    the render's, for paramGetValue too (the timeline is at the render's time)."""
 
     class Keys(ofxh.Param):
         def __init__(self):
             super().__init__()
             self.times = []
 
-        def get(self, time=None):
+        def get(self, time):
             self.times.append(time)
-            return 1. if time is None else 2.
+            return float(len(self.times))
 
         def set(self, value, time=None):
             pass
@@ -96,18 +110,23 @@ def test_callbacks_during_render(plugin_dir):
         keys = inst.param("keysDouble")
         stat, outputs = _render(inst, time=3.)
         assert stat == ofxh.Stat.OK and outputs["Colour"].pixels.shape == (32, 48, 4)
-        assert None in keys.times and 3. in keys.times
+        assert len(keys.times) >= 2 and set(keys.times) == {3.}
         assert ("error", "render: paramGetValue isn't the value at the render's time") in inst.messages
 
 
 def test_other_threads_run_during_render(plugin_dir):
     """While the plug-in processes the image (after the last Python callback of the render), a
-    Python thread runs: the GIL is released. (With the GIL held, no Python code could run there:
-    the input's get_image() is the only Python code of the render.)"""
-    state = {"phase": None, "observed": False, "stop": False}
+    Python thread runs: the GIL is released. (With the GIL held, no Python code could run there.)
+
+    This relies on the fetch order of the Support Invert (Support/Plugins/Invert): it fetches the
+    output image, then the source, then processes the pixels, and the source's get_image() is the
+    only Python code of the render (the output's is the C++ default, the other clip values are
+    plain attributes). A few renders: the watcher must be scheduled while one is processing."""
     image = np.random.default_rng(1).random((2048, 2048, 4), dtype=np.float32)
+    state = {"phase": None, "observed": False, "stop": False}
     ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False)
     with ofxh.create_instance(ofxh.get_plugin(INVERT), "filter", Instance(image, state=state)) as inst:
+        _prepare(inst)
 
         def watch():
             while not state["stop"]:
@@ -115,15 +134,19 @@ def test_other_threads_run_during_render(plugin_dir):
                     state["observed"] = True
                     return
 
-        t = threading.Thread(target=watch)
-        t.start()
-        try:
-            stat, outputs = _render(inst)
-        finally:
-            state["stop"] = True
-            t.join()
-        assert stat == ofxh.Stat.OK
-        np.testing.assert_array_equal(outputs["Colour"].pixels[..., :3], 1. - image[..., :3])
+        for _ in range(5):
+            state.update(phase=None, stop=False)
+            t = threading.Thread(target=watch)
+            t.start()
+            try:
+                stat, outputs = _render_frame(inst)
+            finally:
+                state["stop"] = True
+                t.join()
+            assert stat == ofxh.Stat.OK
+            np.testing.assert_array_equal(outputs["Colour"].pixels[..., :3], 1. - image[..., :3])
+            if state["observed"]:
+                break
         assert state["observed"]
 
 
@@ -152,3 +175,67 @@ def test_no_calls_from_another_thread_during_an_action(plugin_dir):
         # outside the actions, other threads may call ofxh
         call()
         assert len(errors) == 1
+
+
+# OfxMessageSuiteV1.message, called as a plug-in's worker thread does (the text has no %)
+_MESSAGE = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p)
+
+
+def test_plugin_worker_thread_may_call_back(plugin_dir):
+    """A thread of the plug-in (e.g. OpenMP) that calls the host during an action: inside that
+    callback, the bindings may be called (here project_pixel_rect(), a scoped binding). The thread is
+    a Python thread started in a callback and joined there, which calls the message suite through
+    ctypes, as a plug-in's thread would; a plain Python thread is refused (the test above)."""
+    seen = []
+
+    class Worker(Instance):
+        def message(self, type, id, text):
+            try:
+                seen.append(("rect", self.project_pixel_rect()))
+            except RuntimeError as e:
+                seen.append(("error", str(e)))
+
+    def fetched():
+        suite = ofxh.fetch_suite("OfxMessageSuite", 1)
+        message = _MESSAGE(ctypes.c_void_p.from_address(suite).value)
+        handle = inst_ref[0].handle
+
+        def worker():
+            seen.append(("status", message(handle, b"OfxMessageLog", b"worker", b"from a worker")))
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+
+    inst_ref = []
+    image = np.zeros((8, 8, 4), np.float32)
+    ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False)
+    with ofxh.create_instance(ofxh.get_plugin(INVERT), "filter", Worker(image, fetched)) as inst:
+        inst_ref.append(inst)
+        stat, _ = _render(inst)
+        assert stat == ofxh.Stat.OK
+        assert seen == [("rect", (0, 0, 8, 8)), ("status", ofxh.Stat.OK)]
+
+
+def test_nested_action_restores_the_timeline(plugin_dir):
+    """An action called by a callback of another one (a RoD at time 5 during the render at time
+    10) restores the outer action's time; a top-level action leaves the timeline at its time."""
+    seen = []
+
+    def fetched():
+        inst = inst_ref[0]
+        seen.append(inst.timeline_get_time())
+        stat, _ = inst.get_region_of_definition_action(5.)
+        seen.append((stat, inst.timeline_get_time()))
+
+    inst_ref = []
+    image = np.zeros((8, 8, 4), np.float32)
+    ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False)
+    with ofxh.create_instance(ofxh.get_plugin(INVERT), "filter", Instance(image, fetched)) as inst:
+        inst_ref.append(inst)
+        stat, _ = _render(inst, time=10.)
+        assert stat == ofxh.Stat.OK
+        assert seen == [10., (ofxh.Stat.OK, 10.)] or seen == [10., (ofxh.Stat.ReplyDefault, 10.)]
+        assert inst.timeline_get_time() == 10.
+        inst.get_region_of_definition_action(7.)
+        assert inst.timeline_get_time() == 7.

@@ -349,6 +349,26 @@ struct RenderScaleScope {
   ~RenderScaleScope() { p->_renderScale = saved; }
 };
 
+/// The default timeline at the time of an action (as hostDemo, which sets it before each
+/// action): a top-level action leaves it there, an action nested in another one (called by a
+/// callback) restores the time of the outer action. Made after the action's ActionScope.
+struct TimeLineScope {
+  PyEffectInstance *p;
+  double saved;
+  bool nested;
+  TimeLineScope(PyEffectInstance *inst, double time)
+    : p(inst), saved(inst->_timeLineTime), nested(ActionScope::depth() > 1)
+  {
+    p->_timeLineTime = time;
+  }
+  ~TimeLineScope()
+  {
+    if (nested) {
+      p->_timeLineTime = saved;
+    }
+  }
+};
+
 /// the render state, for the duration of a render action
 struct RenderScope : RenderScaleScope {
   RenderScope(PyEffectInstance *inst, const OfxPointD &scale, const OfxRectI &window) : RenderScaleScope(inst, scale)
@@ -674,8 +694,9 @@ void bindModule(nb::module_ &m)
       return makeEffectDescriptor(p, context ? ofxName("context", *context) : std::string());
     }, "context"_a.none() = nb::none(),
        "What the plug-in described (an ofxh.EffectDescriptor, a copy) in a context (filter, general...;\n"
-       "runs the describe in context action the first time), or None: in the describe action (no clips,\n"
-       "no parameters).")
+       "runs the describe in context action the first time). context None: the descriptor of the\n"
+       "describe action, before any context (no clips, no parameters); not all the contexts, as in\n"
+       "ofxh.describe(plugin, None).")
     .def("__repr__", [](const PluginView &v) {
       return "<ofxh.Plugin " + v.get()->getIdentifier() + " " + std::to_string(v.get()->getVersionMajor()) + "." +
              std::to_string(v.get()->getVersionMinor()) + ">";
@@ -751,7 +772,8 @@ void bindModule(nb::module_ &m)
     "default) for ofxh's C++ parameter, which stores its value and keys.\n\n"
     "Actions: the *_action() methods, named after HostSupport's. They return an ofxh.Stat, or\n"
     "(Stat, result). Those with a time move the default timeline there first (as hostDemo), so that\n"
-    "paramGetValue and paramSetValue, which use the current time, use the action's.",
+    "paramGetValue and paramSetValue, which use the current time, use the action's. A top-level action\n"
+    "leaves it there; an action called by a callback of another one restores the outer action's time.",
     nb::dynamic_attr());
   inst.def(nb::init<>())
     // --- callbacks (defaults)
@@ -777,7 +799,9 @@ void bindModule(nb::module_ &m)
     .def("progress_end", [](InstanceBase &) {})
     .def("progress_update", [](InstanceBase &, double) { return true; }, "t"_a)
     .def("timeline_get_time", [](InstanceBase &s) { return s.get()->_timeLineTime; })
-    .def("timeline_goto_time", [](InstanceBase &s, double t) { s.get()->_timeLineTime = t; }, "t"_a)
+    .def("timeline_goto_time", [](InstanceBase &s, double t) { s.get()->_timeLineTime = t; }, "t"_a,
+         "The default stores the time (no callback: nothing to raise). The actions with a time also\n"
+         "move it there (see the class docstring).")
     .def("timeline_get_bounds", [](InstanceBase &s) {
       PyEffectInstance *p = s.get();
       return OFXH_SCOPED("timeline_get_bounds()", Point(0., p->getEffectDuration()));
@@ -867,6 +891,19 @@ void bindModule(nb::module_ &m)
       PyParamCore *c = dynamic_cast<PyParamCore *>(p);
       return c ? c->_py : nb::none();
     }, "name"_a, "The ofxh.Param that new_param() made for this parameter, or None (a C++ parameter).")
+    .def("param_default", [](InstanceBase &s, const std::string &name) {
+      PyEffectInstance *p = s.get();
+      OH::Param::Instance *param = p->getParam(name);
+      if (!param) {
+        raiseKey(name);
+      }
+      return OFXH_SCOPED("param_default()", initialValue(param, p));
+    }, "name"_a,
+       "The value a parameter starts with: its default, with the normalised spatial defaults in\n"
+       "canonical coordinates for the project (as the C++ parameters and param_template()).")
+    .def_prop_ro("instance_changed_count", [](InstanceBase &s) { return s.get()->_instanceChangedCount; },
+                 "The number of kOfxActionInstanceChanged sent for parameters so far (the plug-in's own\n"
+                 "changes too): a diagnostic, e.g. to check that a project load sends none.")
     .def("param_descriptor", [](InstanceBase &s, const std::string &name) {
       PyEffectInstance *p = s.get();
       const std::map<std::string, OH::Param::Descriptor *> &d = p->getDescriptor().getParams();
@@ -913,7 +950,7 @@ void bindModule(nb::module_ &m)
       const std::string why(kOfxChangeUserEdited);
       ActionScope scope;
       OfxStatus st;
-      p->_timeLineTime = t;
+      TimeLineScope tl(p, t);
       {
         RenderScaleScope rs(p, toPoint(renderScale));
         st = withoutGil([&] {
@@ -972,7 +1009,7 @@ void bindModule(nb::module_ &m)
       rod.x1 = rod.y1 = rod.x2 = rod.y2 = 0.;
       ActionScope scope;
       OfxStatus st;
-      p->_timeLineTime = time;
+      TimeLineScope tl(p, time);
       {
         RenderScaleScope rs(p, toPoint(renderScale));
         st = withoutGil([&] { return p->getRegionOfDefinitionAction(time, toPoint(renderScale),
@@ -990,7 +1027,7 @@ void bindModule(nb::module_ &m)
       std::map<OHIE::ClipInstance *, OfxRectD> rois;
       ActionScope scope;
       OfxStatus st;
-      p->_timeLineTime = time;
+      TimeLineScope tl(p, time);
       {
         RenderScaleScope rs(p, toPoint(renderScale));
         st = withoutGil([&] { return p->getRegionOfInterestAction(time, toPoint(renderScale),
@@ -1023,7 +1060,7 @@ void bindModule(nb::module_ &m)
 #endif
       ActionScope scope;
       OfxStatus st;
-      p->_timeLineTime = time;
+      TimeLineScope tl(p, time);
       {
         RenderScaleScope rs(p, toPoint(renderScale));
         st = withoutGil([&] { return p->isIdentityAction(t, fieldName(field), toRectI(window), toPoint(renderScale),
@@ -1050,7 +1087,7 @@ void bindModule(nb::module_ &m)
       PyEffectInstance *p = s.get();
       OHIE::RangeMap ranges;
       ActionScope scope;
-      p->_timeLineTime = time;
+      TimeLineScope tl(p, time);
       const OfxStatus st = withoutGil([&] { return p->getFrameNeededAction(time, ranges); });
       scope.check("getFramesNeeded", &st);
       nb::dict d;
@@ -1130,7 +1167,7 @@ void bindModule(nb::module_ &m)
       OfxStatus st;
       ActionScope scope;
       p->_outputFailed = false;
-      p->_timeLineTime = time;
+      TimeLineScope tl(p, time);
       {
         RenderScope rs(p, toPoint(renderScale), toRectI(window));
         st = withoutGil([&] { return p->renderAction(time, fieldName(field), toRectI(window), toPoint(renderScale), sequential, interactiveRender,
@@ -1226,7 +1263,7 @@ void bindModule(nb::module_ &m)
       PyEffectInstance *p = s.get();
       ActionScope scope;
       OfxStatus st;
-      p->_timeLineTime = time;
+      TimeLineScope tl(p, time);
       {
         RenderScaleScope rs(p, toPoint(renderScale));
         st = withoutGil([&] { return p->paramInstanceChangedAction(name, ofxName("change", why), time, toPoint(renderScale)); });
@@ -1239,7 +1276,7 @@ void bindModule(nb::module_ &m)
       PyEffectInstance *p = s.get();
       ActionScope scope;
       OfxStatus st;
-      p->_timeLineTime = time;
+      TimeLineScope tl(p, time);
       {
         RenderScaleScope rs(p, toPoint(renderScale));
         st = withoutGil([&] { return p->clipInstanceChangedAction(name, ofxName("change", why), time, toPoint(renderScale)); });
@@ -1441,7 +1478,8 @@ void bindModule(nb::module_ &m)
   }, "plugin"_a, "context"_a.none() = nb::none(),
      "hostDemo's --describe JSON of a plug-in, as Python objects (what ofxhost.describe() reads):\n"
      "{schema, schemaVersion, ok, plugin, contexts: {context: {ok, flags, clips, params}}}, with the OFX\n"
-     "names (OfxParamTypeDouble...). All the contexts, or only this one (filter, general, ...).");
+     "names (OfxParamTypeDouble...). context None: all the contexts (as hostDemo); else only this one\n"
+     "(filter, general, ...). (Plugin.descriptor(None) is the describe action's descriptor instead.)");
   m.def("param_template", [](const PluginView &v, const std::string &context, const Point &projectSize,
                              const Point &projectOffset) {
     requireInit();
