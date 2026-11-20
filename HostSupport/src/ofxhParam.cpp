@@ -611,7 +611,8 @@ namespace OFX {
 
         _properties.addProperties(allNumeric);
 
-        /// OFX 1.5: default interpolation of 1D integer and double params
+        /// default interpolation of 1D integer and double params (kOfxParamInterpType: not in OFX
+        /// 1.5 or 1.5.1; upstream main c91cce7b, for the next release)
         /// ("Default - kOfxParamInterpTypeLinear")
         if (dim == 1 && (isDoubleParam(type) || isIntParam(type))) {
           static const Property::PropSpec all1DInterp[] = {
@@ -766,12 +767,69 @@ namespace OFX {
       /// the description of a plugin parameter
       Instance::~Instance() {}
 
+      /// The parameter properties that OFX 1.5.1 ofxParam.h and ofxParametricParam.h document as
+      /// "plugin parameter descriptor (read/write) and instance (read only)", or "plugin parameter
+      /// instance (read only)" (kOfxParamPropInteractSize, kOfxParamPropIsAnimating,
+      /// kOfxParamPropIsAutoKeying, which the host sets). 1.5.1 is the authority: upstream main
+      /// dropped the per-property "Property Set" lines. An instance copies them from its
+      /// descriptor, where the plug-in may write them, and they are read-only for the plug-in on
+      /// the instance. What a plug-in write through the property suite does is decided by
+      /// Property::PluginReadOnlyPolicyEnum (refused with kOfxStatErrValue by default); the host's
+      /// C++ setters are not restricted. kOfxParamPropType is not listed: it is read-only on the
+      /// descriptor too. Two more properties are documented the same way in this fork's headers:
+      /// kOfxParamInterpType (not in OFX 1.5 or 1.5.1; upstream main c91cce7b, for the next
+      /// release) and kOfxParamParametricInterpolationCustomInterpCallbackV1 (Natron's parametric
+      /// suite V2, only defined with OFX_SUPPORTS_PARAMETRIC_V2).
+      /// kOfxParamPropGroupOpen is also "descriptor (read/write) and instance (read only)", but it
+      /// stays writable on instances: the Natron toolbar and dialog extensions (ofxNatron.h,
+      /// extensions 4 and 9) let plug-ins open or close a group instance, e.g. openfx-misc's
+      /// Shadertoy with the Support library's OFX::GroupParam::setOpen(); the host is told through
+      /// the notify hook, GroupInstance::setOpen().
+      static const char* const gInstanceReadOnlyProps[] = {
+        kOfxParamPropInteractV1,
+        kOfxParamPropInteractSize,
+        kOfxParamPropInteractSizeAspect,
+        kOfxParamPropInteractMinimumSize,
+        kOfxParamPropInteractPreferedSize,
+        kOfxParamPropAnimates,
+        kOfxParamPropCanUndo,
+        kOfxParamPropIsAnimating,
+        kOfxParamPropPluginMayWrite,
+        kOfxParamPropPersistent,
+        kOfxParamPropScriptName,
+        kOfxParamPropCacheInvalidation,
+        kOfxParamPropDoubleType,
+        kOfxParamPropUseHostOverlayHandle,
+        kOfxPluginPropParamPageOrder,
+        kOfxParamPropPageChild,
+        kOfxParamPropParent,
+        kOfxParamPropDimensionLabel,
+        kOfxParamPropIsAutoKeying,
+        kOfxParamPropCustomInterpCallbackV1,
+        kOfxParamPropStringMode,
+        kOfxParamPropStringFilePathExists,
+        kOfxParamPropParametricDimension,
+        kOfxParamPropParametricUIColour,
+        kOfxParamPropParametricInteractBackground,
+        kOfxParamPropParametricRange,
+        kOfxParamInterpType,
+#ifdef OFX_SUPPORTS_PARAMETRIC_V2
+        kOfxParamParametricInterpolationCustomInterpCallbackV1,
+#endif
+        NULL
+      };
+
       /// make a parameter, with the given type and name
       Instance::Instance(Descriptor& descriptor, Param::SetInstance* paramSet) 
         : Base(descriptor.getName(), descriptor.getType(), descriptor.getProperties())
         , _paramSetInstance(paramSet)
         , _parentInstance(NULL)
       {
+        for (int i = 0; gInstanceReadOnlyProps[i]; ++i) {
+          if (Property::Property *prop = _properties.fetchProperty(gInstanceReadOnlyProps[i])) {
+            prop->setPluginReadOnly(true);
+          }
+        }
         _properties.addNotifyHook(kOfxParamPropEnabled, this);
         _properties.addNotifyHook(kOfxParamPropSecret, this);
         _properties.addNotifyHook(kOfxPropLabel, this);

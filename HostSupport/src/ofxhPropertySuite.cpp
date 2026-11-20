@@ -39,6 +39,10 @@
 
 #include <iostream>
 #include <set>
+#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
+#include <mutex>
+#define OFXH_PROPERTY_WARN_MUTEX 1
+#endif
 #include <string.h>
 
 namespace OFX {
@@ -244,6 +248,12 @@ namespace OFX {
           return false;
         case ePluginReadOnlyWarn: {
           static std::set<std::string> warned; // only touched when the warn policy is set
+          // plug-ins may write read-only properties from several threads (e.g. render threads);
+          // no lock before C++11 (no std::mutex)
+#ifdef OFXH_PROPERTY_WARN_MUTEX
+          static std::mutex warnedMutex;
+          std::lock_guard<std::mutex> lock(warnedMutex);
+#endif
           if (warned.insert(prop->getName()).second) {
             std::cerr << "OFX: warning: a plug-in wrote the read-only property " << prop->getName() << std::endl;
           }

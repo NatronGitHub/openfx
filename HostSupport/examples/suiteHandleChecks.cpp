@@ -160,6 +160,14 @@ namespace {
     }
   }
 
+  /// a group instance that counts the setOpen() calls (the host is told of kOfxParamPropGroupOpen)
+  class TestGroup : public Param::GroupInstance {
+  public:
+    int opens;
+    TestGroup(Param::Descriptor &d, Param::SetInstance *s) : Param::GroupInstance(d, s), opens(0) {}
+    virtual void setOpen() { ++opens; }
+  };
+
   class TestSetInstance : public Param::SetInstance {
     Property::Set _props;
   public:
@@ -453,6 +461,55 @@ int main()
   check("paramCopy(instance, descriptor) = kOfxStatErrBadHandle", ps->paramCopy(instParam, descParam, 0., NULL) == kOfxStatErrBadHandle);
   props = NULL;
   check("paramGetPropertySet(descriptor) = kOfxStatOK", ps->paramGetPropertySet(descParam, &props) == kOfxStatOK && props == intDesc->getPropHandle());
+
+  // the "descriptor (read/write) and instance (read only)" properties are read-only on instances
+  // (refused with kOfxStatErrValue: the default ePluginReadOnlyEnforce policy), but writable on
+  // descriptors; kOfxParamPropGroupOpen stays writable on instances (ofxNatron.h, 4 and 9)
+  {
+    const OfxPropertySuiteV1 *ps1 = (const OfxPropertySuiteV1 *)Property::GetSuite(1);
+    OfxPropertySetHandle ip = NULL, dp = NULL;
+    check("paramGetPropertySet(instance), (descriptor)", ps1 &&
+          ps->paramGetPropertySet(instParam, &ip) == kOfxStatOK && ps->paramGetPropertySet(descParam, &dp) == kOfxStatOK);
+    if (ps1 && ip && dp) {
+      check("propSetInt(descriptor, kOfxParamPropAnimates) = kOfxStatOK", ps1->propSetInt(dp, kOfxParamPropAnimates, 0, 1) == kOfxStatOK);
+      int animates = -1;
+      check("propSetInt(instance, kOfxParamPropAnimates) = kOfxStatErrValue, unchanged",
+            ps1->propSetInt(ip, kOfxParamPropAnimates, 0, 0) == kOfxStatErrValue &&
+            ps1->propGetInt(ip, kOfxParamPropAnimates, 0, &animates) == kOfxStatOK && animates == 1);
+      check("propReset(instance, kOfxParamPropAnimates) = kOfxStatErrValue", ps1->propReset(ip, kOfxParamPropAnimates) == kOfxStatErrValue);
+      check("propSetString(instance, kOfxParamPropScriptName) = kOfxStatErrValue", ps1->propSetString(ip, kOfxParamPropScriptName, 0, "x") == kOfxStatErrValue);
+      check("propSetInt(instance, kOfxParamPropCanUndo) = kOfxStatErrValue", ps1->propSetInt(ip, kOfxParamPropCanUndo, 0, 0) == kOfxStatErrValue);
+      check("propSetInt(instance, kOfxParamPropPersistent) = kOfxStatErrValue", ps1->propSetInt(ip, kOfxParamPropPersistent, 0, 0) == kOfxStatErrValue);
+      check("propSetString(instance, kOfxParamPropParent) = kOfxStatErrValue", ps1->propSetString(ip, kOfxParamPropParent, 0, "g") == kOfxStatErrValue);
+      check("propSetInt(instance, kOfxParamPropIsAnimating) = kOfxStatErrValue", ps1->propSetInt(ip, kOfxParamPropIsAnimating, 0, 1) == kOfxStatErrValue);
+      // under ePluginReadOnlyWarn (Natron's policy), the write is accepted (with a warning)
+      const Property::PluginReadOnlyPolicyEnum policy = Property::getPluginReadOnlyPolicy();
+      Property::setPluginReadOnlyPolicy(Property::ePluginReadOnlyWarn);
+      check("ePluginReadOnlyWarn: propSetInt(instance, kOfxParamPropCanUndo) = kOfxStatOK",
+            ps1->propSetInt(ip, kOfxParamPropCanUndo, 0, 0) == kOfxStatOK);
+      Property::setPluginReadOnlyPolicy(policy);
+      check("policy restored: propSetInt(instance, kOfxParamPropCanUndo) = kOfxStatErrValue",
+            ps1->propSetInt(ip, kOfxParamPropCanUndo, 0, 1) == kOfxStatErrValue);
+      // the plug-in-writable instance properties stay writable
+      check("propSetInt(instance, kOfxParamPropEnabled) = kOfxStatOK", ps1->propSetInt(ip, kOfxParamPropEnabled, 0, 1) == kOfxStatOK);
+      check("propSetString(instance, kOfxPropLabel) = kOfxStatOK", ps1->propSetString(ip, kOfxPropLabel, 0, "label") == kOfxStatOK);
+      // the host's C++ setters are not restricted
+      Param::Instance *inst = setInst.getParams().find("i")->second;
+      inst->getProperties().setIntProperty(kOfxParamPropIsAnimating, 1);
+      check("host setIntProperty(instance, kOfxParamPropIsAnimating)", inst->getProperties().getIntProperty(kOfxParamPropIsAnimating) == 1);
+    }
+    // kOfxParamPropGroupOpen on a group instance: writable, and the host is told
+    Param::Descriptor *groupDesc = setDesc.paramDefine(kOfxParamTypeGroup, "group");
+    check("paramDefine(group)", groupDesc != NULL);
+    if (ps1 && groupDesc) {
+      TestGroup group(*groupDesc, &setInst);
+      check("propSetInt(group instance, kOfxParamPropGroupOpen) = kOfxStatOK, setOpen() called",
+            ps1->propSetInt(group.getPropHandle(), kOfxParamPropGroupOpen, 0, 0) == kOfxStatOK && group.opens == 1 &&
+            group.getProperties().getIntProperty(kOfxParamPropGroupOpen) == 0);
+      check("propSetString(group instance, kOfxParamPropParent) = kOfxStatErrValue",
+            ps1->propSetString(group.getPropHandle(), kOfxParamPropParent, 0, "g") == kOfxStatErrValue);
+    }
+  }
 
   // Bytes params (OFX 1.5) copy their default, which the plug-in owns (#188 for the descriptor).
   // The C++ API, as the param suite's paramDefine refuses Bytes if the host doesn't support them.

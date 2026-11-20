@@ -1877,6 +1877,8 @@ display-referred user-interface colours such as Draw Suite overlays. */
 
 /** @brief Sets the default interpolation type of a Integer or Double parameter.
 
+   Not in OFX 1.5 or 1.5.1: upstream main (c91cce7b), for the next release.
+
    - Type - C string X 1
    - Default - ::kOfxParamInterpTypeLinear
    - Property Set - 1D integer and double plugin parameter descriptor (read/write) and instance (read only)

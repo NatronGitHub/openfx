@@ -611,6 +611,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  A shortcut can be set on the group parameters which are represented as toolbuttons so that the user can cycle through the actions with the keyboard.
  
  The selected toolbutton in the toolbar will have the property kOfxParamPropGroupOpen set to 1. 
+ kOfxParamPropGroupOpen on instances: ofxParam.h documents kOfxParamPropGroupOpen as "plugin parameter descriptor (read/write) and instance (read only)". A host supporting this extension lets plug-ins write kOfxParamPropGroupOpen on any group parameter instance to open or close it; for toolbar groups this selects the toolbutton, and for dialog groups (kNatronOfxGroupParamPropIsDialog, see 9) it shows the dialog.
  The selected tool action in a toolbutton will have its parameter value set to true.
  To find out the active tool, retrieve the active action of the selected toolbutton.
  The host should always make sure that there is a selected toolbutton and that it has an active action.
@@ -647,6 +648,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  
  9) It may be useful to show a dialog to a user to request a little information before doing a task such as an analysis.
  Instead of embedding the parameters in the settings of an image effect, the host could display a temporary dialog with the parameters requested. If the property kNatronOfxGroupParamPropIsDialog is set to 1, then whenever the property kOfxParamPropGroupOpen is set to 1, the dialog should be displayed by the host.
+ The plug-in shows the dialog by setting kOfxParamPropGroupOpen to 1 on the group parameter instance (see "kOfxParamPropGroupOpen on instances" in 4).
 
  10) If the property kNatronOfxPropDescriptionIsMarkdown is set to 1 on a parameter descriptor or on an image effect descriptor, then their corresponding description (kOfxParamPropHint for a parameter descriptor and kOfxPropPluginDescription for an image effect descriptor) may be interpreted as markdown by the host.
 
