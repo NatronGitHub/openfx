@@ -54,6 +54,12 @@ run() { # mode: package | subdirectory
   # (nor the example hosts, nor expat)
   if [ "$mode" = subdirectory ] && [ "$(ls "$w/install")" != OFX ]; then fail "add_subdirectory(openfx) installed openfx itself: $(ls "$w/install")"; fi
   check "$w/build/Plugins" "$w/install/OFX/Plugins"
+  check_groups COMBINED "$w/build" "$w/install/OFX/Plugins"
+  # one group bundle's install component (its short target name) installs that bundle only
+  rm -rf "$w/component"
+  DESTDIR="$w/component" cmake --install "$w/build" --component TinyB > /dev/null
+  bundles=$(find "$w/component" -name '*.ofx.bundle' -type d | sed 's|.*/||' | sort | tr '\n' ' ')
+  [ "$bundles" = "org.example.tiny.TinyB.ofx.bundle " ] || fail "install --component TinyB installed: $bundles"
   # Linux: OFX_LINUX_CHECK_BUNDLE (the installed script with find_package, the source tree's with
   # add_subdirectory) passes on the installed bundles, with the build machine's limits
   if [ "$os" = Linux ]; then
@@ -146,5 +152,108 @@ if [ "$deploy" = ON ]; then
 fi
 echo "plugin-project ($installed): OK (exports: $exports; rpath: $rpath)"
 }
+# expected bundles of cmake/tests/plugin-project/bundle-group, one per line:
+#   <target = install component>|<bundle>|<plug-in identifiers>|<resources>|<Info.plist strings>
+# (TinyReg's mode is the opposite of OFX_PLUGIN_BUNDLES)
+groups_expected() {
+  case $1 in
+    COMBINED) cat <<'EOT'
+TinyGroup|TinyGroup|org.example.tiny.TinyAPlugin org.example.tiny.TinyBPlugin org.example.tiny.ExplicitC|org.example.tiny.TinyAPlugin.png shared-icon.txt presets/default/b.frag.glsl shaders/c/c.txt combined.txt|TinyGroup.ofx combined-plist 3.2.1
+TinyB|org.example.tiny.TinyB|org.example.tiny.TinyBPlugin|presets/default/b.frag.glsl shared-icon.txt|org.example.tiny.TinyB.ofx org.example.tiny.TinyB 3.2.1
+TinyReg|TinyReg|org.example.reg.R1Plugin|LICENSE-generated.txt|TinyReg.ofx org.openeffects.plugins.TinyReg 1.0.0
+R2|org.example.reg.R2|org.example.reg.R2Plugin org.example.reg.R2bPlugin|LICENSE-generated.txt|org.example.reg.R2.ofx org.example.reg.R2
+R3|org.example.reg.R3|org.example.reg.R3Plugin|LICENSE-generated.txt|org.example.reg.R3.ofx org.example.reg.R3
+EOT
+    ;;
+    SEPARATE) cat <<'EOT'
+TinyA|org.example.tiny.TinyA|org.example.tiny.TinyAPlugin|org.example.tiny.TinyAPlugin.png shared-icon.txt|org.example.tiny.TinyA.ofx org.example.tiny.TinyA 3.2.1
+TinyB|org.example.tiny.TinyB|org.example.tiny.TinyBPlugin|presets/default/b.frag.glsl shared-icon.txt|org.example.tiny.TinyB.ofx org.example.tiny.TinyB 3.2.1
+ExplicitC|org.example.tiny.ExplicitC|org.example.tiny.ExplicitC|shaders/c/c.txt|org.example.tiny.ExplicitC.ofx org.example.tiny.ExplicitC explicit-plist 3.2.1
+TinyReg|TinyReg|org.example.reg.R1Plugin org.example.reg.R3Plugin|LICENSE-generated.txt|TinyReg.ofx org.openeffects.plugins.TinyReg
+R2|org.example.reg.R2|org.example.reg.R2Plugin org.example.reg.R2bPlugin|LICENSE-generated.txt|org.example.reg.R2.ofx org.example.reg.R2
+EOT
+    ;;
+  esac
+}
+# check_groups MODE BUILD INSTALLED: the bundles of the groups, built and installed, and (Linux,
+# macOS) cacheDemo loads every plug-in from the expected bundle
+check_groups() {
+  local mode=$1 build=$2 installed=$3 line t b ids res strs got want f id
+  want=$(groups_expected "$mode" | awk -F'|' '{ print $1 " " $2 }' | LC_ALL=C sort)
+  got=$(awk '{ print $1 " " $2 }' "$build/ofx_bundle_groups.txt" | LC_ALL=C sort)
+  [ "$got" = "$want" ] || fail "$mode: the group targets and bundles are:\n$got\nexpected:\n$want"
+  while IFS='|' read -r t b ids res strs; do
+    for root in "$build/Plugins" "$installed"; do
+      c="$root/$b.ofx.bundle/Contents"
+      [ -f "$c/$arch/$b.ofx" ] || fail "$mode: no $c/$arch/$b.ofx"
+      for f in $res; do [ -f "$c/Resources/$f" ] || fail "$mode: no $c/Resources/$f"; done
+      n=$(cd "$c/Resources" && find . -type f | wc -l)
+      [ "$n" -eq "$(echo $res | wc -w)" ] || fail "$mode: $c/Resources has $n files, expected: $res"
+      for f in $strs; do grep -q "<string>$f</string>" "$c/Info.plist" || fail "$mode: $c/Info.plist: no $f"; done
+    done
+    if [ "$os" = Darwin ] && [ "$deploy" = ON ]; then
+      codesign --verify --strict "$installed/$b.ofx.bundle" || fail "$mode: codesign --verify --strict $b"
+    fi
+  done < <(groups_expected "$mode")
+  # cacheDemo loads every plug-in from its bundle (the plug-in cache it writes lists each bundle's
+  # plug-ins; its dump, once per identifier, has the described contexts). Not on Windows: the
+  # example hosts are only compiled there.
+  case $os in MINGW*|MSYS*|CYGWIN*) return ;; esac
+  local cachedemo="$prefix/bin/cacheDemo" dir
+  [ -x "$cachedemo" ] || fail "no $cachedemo"
+  dir=$(mktemp -d "$work/cachedemo.XXXXXX")
+  (cd "$dir" && OFX_PLUGIN_PATH="$installed" "$cachedemo" > cachedemo.log 2>&1) || { cat "$dir/cachedemo.log"; fail "$mode: cacheDemo"; }
+  got=$(awk 'match($0, /bundle_path="[^"]*"/) { b = substr($0, RSTART, RLENGTH); sub(/\.ofx\.bundle"$/, "", b); sub(/.*\//, "", b) }
+             match($0, /<plugin name="[^"]*"/) { print substr($0, RSTART + 14, RLENGTH - 15) " " b }' "$dir/newCache.xml" |
+        grep -E '^org\.example\.(tiny|reg)\.' | LC_ALL=C sort)
+  want=$(groups_expected "$mode" | awk -F'|' '{ n = split($3, ids, " "); for (i = 1; i <= n; i++) print ids[i] " " $2 }' | LC_ALL=C sort)
+  [ "$got" = "$want" ] || { cat "$dir/cachedemo.log"; fail "$mode: cacheDemo loaded:\n$got\nexpected:\n$want"; }
+  got=$(awk '/^Plug-in:/ { id = substr($0, 9) } /\* OfxImageEffectContextFilter/ { print id }' "$dir/cachedemo.log" | grep -E '^org\.example\.(tiny|reg)\.' | LC_ALL=C sort)
+  want=$(echo "$want" | awk '{ print $1 }' | LC_ALL=C sort -u)
+  [ "$got" = "$want" ] || { cat "$dir/cachedemo.log"; fail "$mode: cacheDemo described:\n$got\nexpected:\n$want"; }
+  echo "bundle groups ($mode): OK ($(echo "$want" | wc -l | tr -d ' ') plug-ins loaded)"
+  rm -rf "$dir"
+}
+# the configure-time errors and warnings of ofx_plugin_bundle_group() (one build directory,
+# configured again for each case)
+check_group_errors() {
+  local w="$work/errors" c msg log
+  while IFS='|' read -r c msg; do
+    log="$w/$c.log"
+    mkdir -p "$w"
+    if cmake -S "$src/cmake/tests/bundle-group-errors" -B "$w/build" -DCMAKE_PREFIX_PATH="$prefix" \
+         -DOFX_TEST_CASE="$c" $osxtarget ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"} > "$log" 2>&1; then
+      [ "$c" = warnings ] || { cat "$log"; fail "bundle group error case $c: configured"; }
+    elif [ "$c" = warnings ]; then
+      cat "$log"; fail "bundle group warnings: configure failed"
+    fi
+    tr -s ' \n' ' ' < "$log" | grep -qF "$msg" || { cat "$log"; fail "bundle group case $c: no '$msg'"; }
+  done <<'EOT'
+duplicate-plugin|PLUGIN A is declared twice
+no-sources|PLUGIN A has no SOURCES
+no-id|PLUGIN A has no ID
+resource-clash|two resources go to Contents/Resources/x.txt
+destination-outside|must be a relative subdirectory
+target-exists|the target A already exists
+settings-conflict|with different COMPILE_DEFINITIONS
+also-separate-unknown|ALSO_SEPARATE C: no such PLUGIN
+combined-plist|CFBundleExecutable is 'Other.ofx', not G.ofx
+warnings|seems to define OFX::Plugin::getPluginIDs
+warnings|is not a string literal of its SOURCES
+EOT
+  echo "bundle group errors and warnings: OK"
+}
+
 run package
+# the same project with OFX_PLUGIN_BUNDLES=SEPARATE: the group bundles only (a second, small build),
+# each installed through its install component
+w="$work/separate"
+cmake -S "$src/cmake/tests/plugin-project" -B "$w/build" -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$prefix" -DOFX_SOURCE_DIR="$src" -DOFX_PLUGIN_BUNDLES=SEPARATE -DOFX_TEST_REQUIRE_OPENMP=$openmp \
+  -DCMAKE_INSTALL_PREFIX="$w/install" -DOFX_DEPLOY_BUNDLES=$deploy $osxtarget "${sdkopt[@]}" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
+targets=$(awk '{ print $1 }' "$w/build/ofx_bundle_groups.txt" | tr '\n' ' ')
+cmake --build "$w/build" --parallel --target $targets
+for t in $targets; do cmake --install "$w/build" --component "$t" > /dev/null; done
+check_groups SEPARATE "$w/build" "$w/install/OFX/Plugins"
+check_group_errors
 run subdirectory
