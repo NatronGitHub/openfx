@@ -390,7 +390,7 @@ def test_renders_outside_the_sequence(sample_plugins):
     acts = r.report["nodes"]["inv"]["actions"]
     names = [a["action"] for a in acts]
     assert names[:2] == ["createInstance", "getClipPreferences"]
-    # the analyse renders: 24 frames (the Tester's loop over the range 0 to 24), each in its own sequence
+    # the analyse renders: 24 frames, 0 to 23 (the Tester's loop over its range), each in its own sequence
     wrapped = acts[2:2 + 3 * 24]
     assert [a["action"] for a in wrapped] == ["beginSequenceRender", "render", "endSequenceRender"] * 24
     assert [(a["first"], a["last"], a["sequential"]) for a in wrapped[::3]] == [(float(f), float(f), False)

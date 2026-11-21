@@ -38,7 +38,10 @@ host's order. What it does, as a real host:
   outside a begun sequence that covers its time (for a push button pressed during the setup, or a
   fetch that wasn't planned) gets its own begin and end over [t, t], not sequential, as Natron's
   analysis renders: the render action's precondition is "kOfxImageEffectActionBeginSequenceRender
-  has been called on the instance".
+  has been called on the instance". These sequences may nest: an unplanned fetch at a time outside
+  the node's open [first, last] sequence gets its [t, t] begin and end inside the open one. The
+  spec says nothing about nested sequence renders, and Natron's analysis renders nest the same way.
+  A time inside [first, last] but off the sequence's step counts as covered (no nested sequence).
 - Images in memory: each node renders the window it is asked for (its output, or what the nodes
   that use it need), at the render scale. Before the render action, it asks the plug-in which
   frames (kOfxImageEffectActionGetFramesNeeded) and regions (GetRegionsOfInterest) of its inputs
@@ -72,6 +75,13 @@ host's order. What it does, as a real host:
   parameter or clip, or a failed action: the run ends with ok False and the report's "error" (the
   report is written too). It raises RuntimeError only if another ofxh host is initialized.
 
+- Components: an image sequence or a test pattern input is RGBA, unless it has a "#rgb", "#alpha" (or
+  "#rgba") suffix ({"file": "in.####.pfm#rgb"}, "ramp#alpha"): that is the clip's unmapped
+  components, and the clip preferences choose the clip's (see ofxhost.inprocess).
+- Worker threads: during a render action, the output's RoD at the render's time and view is the one
+  computed before it, so a plug-in's worker thread may ask for it, or be the first to fetch the
+  output image, without an action (ofxh refuses actions on worker threads).
+
 Limits: one view (view 0, which ofxh names "main": "%V" gives "main", where Natron's first view is
 "Main"); the colour plane only; no host frame threading (single-threaded renders), so a plug-in that
 fetches its inputs on its own worker threads (e.g. OpenMP) can't get the images that weren't rendered
@@ -94,7 +104,7 @@ from typing import Any
 
 import numpy as np
 
-from . import Image, resolve_file_spec
+from . import Image, resolve_file_spec, split_components
 from . import inprocess as _ip
 from . import sequences
 from .graph import Files, Graph, Node, Project, load, topological_order, _json_value, _keys, _scale
@@ -287,6 +297,7 @@ class Instance(ofxh.ImageEffectInstance):
         self.effect_duration = p.frame_range[1] - p.frame_range[0] + 1.
         self.default_output_depth = run.depth
         self.rois: dict = {}  # the regions of interest of the current render (canonical), by clip
+        self.render_rod = None  # (time, view, RoD) during a render action: see Clip.region_of_definition()
 
     def timeline_get_bounds(self):
         return tuple(self.run.project.frame_range)
@@ -328,6 +339,9 @@ class Clip(ofxh.ClipInstance):
         self.child: _NodeState | None = src if isinstance(src, _NodeState) else None
         self.files: _Files | None = src if isinstance(src, _Files) else None
         self.spec = src if isinstance(src, _ip._Spec) else _ip._Spec(type="none", text="none")
+        # what is connected, for an image sequence or a test pattern: RGBA, unless the input has a
+        # "#rgb" or "#alpha" suffix (another node: its output's components)
+        self.input_components = self.files.components if self.files is not None else self.spec.components
 
     # what the clip is connected to: the properties a host sets
     @property
@@ -351,7 +365,9 @@ class Clip(ofxh.ClipInstance):
             return "rgba"
         if self.child is not None:
             return self._out().components
-        return "rgba"  # (image files too: RGB is opaque RGBA, grey is r = g = b = a, as hostDemo's files)
+        # (image files too: RGB is opaque RGBA, grey is r = g = b = a, as hostDemo's files, unless the
+        # input has a components suffix)
+        return self.input_components
 
     @property
     def premult(self):
@@ -359,7 +375,7 @@ class Clip(ofxh.ClipInstance):
             return self.instance.output_premultiplication
         if self.child is not None:
             return self.child.instance.output_premultiplication
-        if not self.connected or self.components == "rgb":
+        if not self.connected or self.components == "rgb" or self.input_components == "rgb":
             return "opaque"
         if self.files is not None:
             return self.files.premult or "unpremult"
@@ -427,7 +443,13 @@ class Clip(ofxh.ClipInstance):
 
     def region_of_definition(self, time, view):
         if self.is_output:
-            return super().region_of_definition(time, view)  # the plug-in's RoD action
+            # during the render action, at its time and view: the RoD the host computed before it, so
+            # that a plug-in's worker thread that asks for it (or fetches the output image first, which
+            # needs it) runs no action (ofxh refuses actions on worker threads); else the RoD action
+            rod = self.instance.render_rod
+            if rod is not None and rod[0] == time and rod[1] == view:
+                return rod[2]
+            return super().region_of_definition(time, view)
         return self._rod(time, view, tuple(self.instance.render_scale))
 
     def image(self, time, view, region=None, rs=None):
@@ -461,7 +483,8 @@ class Clip(ofxh.ClipInstance):
             return ofxh.ImageData(_convert(r.pixels, depth, comps), r.bounds, rod=rod)
         if depth not in _ip._BPC or comps not in _ip._NCOMPS:
             raise GraphError(f"{inst.node.name}.{self.name}: can't make {depth} {comps} images")
-        pixels = _ip._to_depth(_ip._pattern(self._spec_at(time), time, view, b, rod, rs), depth, comps)
+        pixels = _ip._to_depth(_ip._from_components(_ip._pattern(self._spec_at(time), time, view, b, rod, rs),
+                                                    self.input_components), depth, comps)
         return ofxh.ImageData(pixels, b, rod=rod)
 
     def get_image(self, time, view, bounds, plane="Colour"):
@@ -474,9 +497,10 @@ class _Files:
     """An image sequence input: its frames, and the files read (as hostDemo's file inputs, pixels
     at scale 1: the render scale samples them). Raises GraphError for a missing or unreadable file."""
 
-    def __init__(self, path: str, premult: str | None):
+    def __init__(self, path: str, premult: str | None, components: str = "rgba"):
         self.path = path
         self.premult = premult
+        self.components = components  # (a "#rgb" or "#alpha" suffix: what the files give the clip)
         self.still = not sequences.has_pattern(path)
         try:
             self.frames = [] if self.still else sequences.frames(path)
@@ -552,7 +576,9 @@ class _Run:
             return self.files(v)
         try:
             if isinstance(v, str):
-                spec = _ip._parse_spec(resolve_file_spec(v, self.graph.base) if v.startswith("file:") else v)
+                body, comps = split_components(v)
+                spec = _ip._parse_spec(resolve_file_spec(body, self.graph.base) if body.startswith("file:") else body)
+                spec.components = comps or "rgba"
             else:
                 spec = _ip._array_spec(clip, v)
         except (ValueError, TypeError) as e:
@@ -562,10 +588,11 @@ class _Run:
 
     def files(self, f: Files) -> _Files:
         pattern, premult = f.split()
+        comps = f.components
         path = os.path.abspath(self.graph.path(pattern))
-        if (path, premult) not in self._files:
-            self._files[(path, premult)] = _Files(path, premult)
-        return self._files[(path, premult)]
+        if (path, premult, comps) not in self._files:
+            self._files[(path, premult, comps)] = _Files(path, premult, comps)
+        return self._files[(path, premult, comps)]
 
     @staticmethod
     def check(ns: _NodeState, action: str, st, **more) -> None:
@@ -761,6 +788,7 @@ class _Run:
                                                                 rs, False),
                            first=t, last=t, step=1., sequential=False)
             rec["sequential"] = sequential
+            inst.render_rod = (float(t), view, tuple(rod))
             try:
                 st, planes = self.call(ns, "render", inst.render_action, t, win, rs, "none", sequential, False,
                                        False, view)
@@ -776,6 +804,7 @@ class _Run:
                                                  "status": _stat_str(st_end)})
         finally:
             inst.rois = {}
+            inst.render_rod = None
         image = planes.get("Colour")
         rec.update(ok=int(st) == 0, status=_stat_str(st))
         if int(st) != 0 or image is None:
@@ -815,14 +844,31 @@ def _frames(run: _Run, outputs: list[_NodeState]) -> list[float]:
     return [first + k for k in range(max(n, 1))]
 
 
-def _plan(r: _Run, ns: _NodeState, t: float, window, seen: set) -> None:
+def _plan(r: _Run, ns: _NodeState, t: float, window, seen: dict) -> None:
     """Add t to the frames the node will render if its RoD meets window (pixels at the render scale:
     the output's window, or the region of interest of the node that uses it; its whole RoD without
     tiles), and plan the frames its inputs will render for it: the frames needed over its regions of
-    interest, or the identity's clip and time. Only actions that don't render."""
-    if (ns.name, t, tuple(window)) in seen:
-        return
-    seen.add((ns.name, t, tuple(window)))
+    interest, or the identity's clip and time. Only actions that don't render.
+
+    seen: the union of the windows already planned for each (node, time). A window inside it isn't
+    planned again, and a larger one plans the new union: in a deep DAG whose regions of interest
+    differ along each path (diamonds), the plans of a node are bounded by the growths of its unions,
+    not by the number of paths that reach it."""
+    key = (ns.name, t)
+    window = tuple(window)
+    if _empty(window):
+        return  # (nothing is asked: an empty window doesn't grow the union)
+    old = seen.get(key)
+    if old is not None:
+        if _contains(old, window):
+            return
+        window = _union(old, window)
+    seen[key] = window
+    _plan_window(r, ns, t, window, seen)
+
+
+def _plan_window(r: _Run, ns: _NodeState, t: float, window, seen: dict) -> None:
+    """_plan() of a window that isn't planned yet."""
     inst = ns.instance
     out = inst.clip("Output")
     st, rod = r.call(ns, "getRegionOfDefinition", inst.get_region_of_definition_action, t, r.scale, 0)
@@ -957,7 +1003,7 @@ def _execute(graph: Graph, r: _Run, report: dict, images: dict, written: list, w
             p.pixel_aspect_ratio))
         window = tuple(graph.window) if graph.window is not None else r.project_window
         # the frames each node will render, then its sequence render
-        seen: set = set()
+        seen: dict = {}  # (node name, time) -> the union of the windows planned
         for t in fs:
             for ns in outs:
                 _plan(r, ns, t, window, seen)

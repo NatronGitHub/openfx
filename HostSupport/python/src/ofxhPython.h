@@ -293,6 +293,7 @@ public:
   RefPtr _ref;
 
   bool _ofx14 = false;  ///< the OFX 1.4 host profile (ofxh.init(profile="ofx14")), see restrictToOFX14()
+  bool _keepLoaded = false;  ///< ofxh.init(keep_loaded=True): keepPluginsLoadedAfterScan()
 
   PyHost(nb::object py, RefPtr ref);
   virtual ~PyHost();
@@ -306,6 +307,10 @@ public:
   /// kOfxParamPropColourManagement on RGB and RGBA params (so that the tests exercise it); false
   /// with the OFX 1.4 profile
   virtual bool supportsParamColourManagement() const { return !_ofx14; }
+  /// ofxh.init(keep_loaded=True), as hostDemo with OFX_HOSTDEMO_KEEP_LOADED=1: the scanned
+  /// plug-ins stay loaded (one Load and Describe), instead of being unloaded after the scan and
+  /// loaded again at their first use
+  virtual bool keepPluginsLoadedAfterScan() const { return _keepLoaded; }
 
   virtual OHIE::Instance *newInstance(void *clientData, OHIE::ImageEffectPlugin *plugin,
                                       OHIE::Descriptor &desc, const std::string &context);

@@ -742,6 +742,12 @@ namespace OFX {
             return rgba;
           if(isSupportedComponent(rgb))
             return rgb;
+        } else if(s == rgb) {
+          // an RGB input of a clip that doesn't support RGB (as Natron's OfxClipInstance)
+          if(isSupportedComponent(rgba))
+            return rgba;
+          if(isSupportedComponent(alpha))
+            return alpha;
         }
 
         /// wierd, must be some custom bit , if only one, choose that, otherwise no idea

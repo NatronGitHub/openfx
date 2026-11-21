@@ -125,6 +125,7 @@ def _raise_callback_error(where, exc, status=None):
 struct State {
   bool initialized = false;
   std::string profile;  ///< "default" or "ofx14" (ofxh.init()), "" when not initialized
+  bool keepLoaded = false;  ///< ofxh.init(keep_loaded=...)
   PyHost *host = nullptr;
   OHIE::PluginCache *pluginCache = nullptr;
   unsigned generation = 0;  ///< incremented by shutdown(): Plugin views become invalid
@@ -458,6 +459,7 @@ static void shutdown()
   st.host = nullptr;
   st.initialized = false;
   st.profile.clear();
+  st.keepLoaded = false;
   ++st.generation;
   delete host;
   scope.check("shutdown");
@@ -489,7 +491,8 @@ static OH::PluginCache *makePluginCache(bool useEnvPath)
   return pc;
 }
 
-static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnvPath, const std::string &profile)
+static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnvPath, const std::string &profile,
+                 bool keepLoaded)
 {
   State &st = state();
   if (st.initialized) {
@@ -525,8 +528,10 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
     pc->addFileToPath(pluginDirs[i]);
   }
   st.host = new PyHost(host, hb.ref);
+  st.host->_keepLoaded = keepLoaded;
   st.initialized = true;
   st.profile = profile;
+  st.keepLoaded = keepLoaded;
   try {
     {
       ActionScope scope;
@@ -1521,7 +1526,7 @@ void bindModule(nb::module_ &m)
 
   // ------------------------------------------------------------------------- functions
   m.def("init", &init, "host"_a, "plugin_dirs"_a.none() = nb::none(), "use_std_paths"_a = false,
-        "use_env_path"_a = true, "profile"_a = "default",
+        "use_env_path"_a = true, "profile"_a = "default", "keep_loaded"_a = false,
         "Initialize HostSupport with this host (an ofxh.Host), and scan the plug-ins of plugin_dirs, of\n"
         "OFX_PLUGIN_PATH if use_env_path, and of the standard locations if use_std_paths. One host per\n"
         "process: RuntimeError if one is initialized; call shutdown() before another init(). If it raises,\n"
@@ -1530,7 +1535,11 @@ void bindModule(nb::module_ &m)
         "Host.init_properties(), only the OFX 1.4 host properties remain (a plug-in reading another one, e.g.\n"
         "kOfxParamHostPropSupportsStrChoice, gets kOfxStatErrUnknown), fetch_suite() gives only the OFX 1.4\n"
         "suites, OfxSetHost isn't called, and paramDefine of a StrChoice or Bytes parameter fails. One\n"
-        "view: the ofxhost in-process backend renders one view in this profile, whatever the build.");
+        "view: the ofxhost in-process backend renders one view in this profile, whatever the build.\n"
+        "keep_loaded: keep the scanned plug-ins loaded (Host::keepPluginsLoadedAfterScan(), as hostDemo with\n"
+        "OFX_HOSTDEMO_KEEP_LOADED=1): one kOfxActionLoad and Describe per plug-in, and Unload at shutdown().\n"
+        "By default the scan sends Load, Describe and Unload and unloads the binary, and the first use of a\n"
+        "plug-in loads it again.");
   m.def("shutdown", &shutdown,
         "Close the open instances, unload the plug-ins and delete the plug-in cache and the host. Also\n"
         "called at exit. Not in an action or a callback.");
@@ -1538,6 +1547,9 @@ void bindModule(nb::module_ &m)
   m.def("profile", []() -> nb::object {
     return state().initialized ? nb::object(nb::str(state().profile.c_str())) : nb::none();
   }, "The profile of the initialized host (\"default\" or \"ofx14\", see init()), or None.");
+  m.def("keep_loaded", []() -> nb::object {
+    return state().initialized ? nb::object(nb::bool_(state().keepLoaded)) : nb::none();
+  }, "Whether the initialized host keeps the scanned plug-ins loaded (see init()), or None.");
   m.def("host", []() -> nb::object { return state().host ? state().host->_py : nb::none(); });
   m.def("plugins", []() {
     requireInit();

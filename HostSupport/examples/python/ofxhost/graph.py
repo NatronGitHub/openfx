@@ -75,7 +75,7 @@ from typing import Any
 
 import numpy as np
 
-from . import DEPTHS, HostDemoError, Image, describe, render, resolve_file_spec
+from . import DEPTHS, HostDemoError, Image, describe, render, resolve_file_spec, split_components
 from .sequences import expand, frame_of
 
 __all__ = ["Node", "Keys", "Files", "FilePath", "Project", "Graph", "topological_order", "load", "loads", "execute",
@@ -123,13 +123,21 @@ class Files:
     """An input read from image files: a file name pattern (ofxhost.sequences: "in.####.pfm"), one
     file per frame, or a still image (the same at all times). Relative to the graph's directory.
     A "#premult", "#unpremult" or "#opaque" suffix gives the premultiplication of the files
-    (default: unpremultiplied, as hostDemo's file inputs)."""
+    (default: unpremultiplied, as hostDemo's file inputs); then a "#rgb", "#alpha" or "#rgba" suffix
+    the components they give the clip (its unmapped components, default RGBA: an RGB file is opaque
+    RGBA, a grey one r = g = b = a), e.g. "in.####.pfm#rgb", "matte.pfm#premult#alpha"."""
     pattern: str
 
     def split(self) -> tuple[str, str | None]:
-        """(the file name pattern, the premultiplication suffix or None)."""
-        head, sep, tail = self.pattern.rpartition("#")
-        return (head, tail) if sep and tail in _PREMULTS else (self.pattern, None)
+        """(the file name pattern, the premultiplication suffix or None), without the components."""
+        pattern = split_components(self.pattern)[0]
+        head, sep, tail = pattern.rpartition("#")
+        return (head, tail) if sep and tail in _PREMULTS else (pattern, None)
+
+    @property
+    def components(self) -> str:
+        """The components suffix: "rgb", "alpha", or "rgba" (the default)."""
+        return split_components(self.pattern)[1] or "rgba"
 
 
 class FilePath(str):
@@ -317,12 +325,17 @@ class Graph:
                     inputs[clip] = {"node": names[id(v)]}
                 elif isinstance(v, Files):
                     pattern, premult = v.split()
-                    inputs[clip] = {"file": path(pattern) + ("#" + premult if premult else "")}
+                    comps = split_components(v.pattern)[1]
+                    inputs[clip] = {"file": path(pattern) + ("#" + premult if premult else "") +
+                                    ("#" + comps if comps else "")}
                 elif isinstance(v, str):
                     # (a hostDemo "file:" spec is made absolute when the base changes)
                     rebase = v.startswith("file:") and dst is not None and \
                         os.path.abspath(self.base or os.getcwd()) != dst
-                    inputs[clip] = resolve_file_spec(v, self.base) if rebase else v
+                    if rebase:
+                        body, comps = split_components(v)
+                        v = resolve_file_spec(body, self.base) + ("#" + comps if comps else "")
+                    inputs[clip] = v
                 else:
                     raise ValueError(f"{name}.{clip}: an input of type {type(v).__name__} can't be saved "
                                      "(write the image to a file, and use Files or \"file:x.pfm\")")
@@ -542,9 +555,12 @@ def execute(graph: Graph | Node, bundles, frames: Sequence[float] | None = None,
         frame; the paths are relative to the graph's directory."""
         if isinstance(v, Files):
             pattern, premult = v.split()
-            return "file:" + os.path.abspath(g.path(expand(pattern, frame_of(t)))) + ("#" + premult if premult else "")
+            comps = split_components(v.pattern)[1]
+            return "file:" + os.path.abspath(g.path(expand(pattern, frame_of(t)))) + ("#" + premult if premult else "") \
+                + ("#" + comps if comps else "")
         if isinstance(v, str) and v.startswith("file:"):
-            return resolve_file_spec(v, g.base)
+            body, comps = split_components(v)
+            return resolve_file_spec(body, g.base) + ("#" + comps if comps else "")
         return v
 
     described: dict = {}
