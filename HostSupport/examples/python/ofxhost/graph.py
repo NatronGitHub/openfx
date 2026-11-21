@@ -147,9 +147,9 @@ def stem(plugin_id: str) -> str:
 
 def _rebase(p: str, src: str | None, dst: str | None) -> str:
     """A path of a graph whose base is src (None: the current directory), for a graph whose base is
-    dst: the same if it is absolute or the bases are the same, else relative to dst, or absolute if
-    there is no relative path (another drive)."""
-    if dst is None or os.path.isabs(p):
+    dst: the same if it is empty or absolute or the bases are the same, else relative to dst, or
+    absolute if there is no relative path (another drive)."""
+    if not p or dst is None or os.path.isabs(p):  # (an empty path stays empty: "no file")
         return p
     src = os.path.abspath(src or os.getcwd())
     if src == os.path.abspath(dst):

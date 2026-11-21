@@ -32,8 +32,13 @@ host's order. What it does, as a real host:
   image, and the test patterns: the project's frame range).
 - The sequence renders: each node gets kOfxImageEffectActionBeginSequenceRender with the frames it
   will render (planned from the outputs' frames, the frames needed and the identities), sequential
-  if they increase by a constant step, and EndSequenceRender if its begin succeeded. A render
-  action is sequential if its node's sequence is and its time comes after the node's last render.
+  if they increase by a constant step, and EndSequenceRender if its begin succeeded (the frames of an
+  input are planned over the regions of interest of the nodes that use it). A render action is
+  sequential if its node's sequence is and its time comes after the node's last render. A render
+  outside a begun sequence that covers its time (for a push button pressed during the setup, or a
+  fetch that wasn't planned) gets its own begin and end over [t, t], not sequential, as Natron's
+  analysis renders: the render action's precondition is "kOfxImageEffectActionBeginSequenceRender
+  has been called on the instance".
 - Images in memory: each node renders the window it is asked for (its output, or what the nodes
   that use it need), at the render scale. Before the render action, it asks the plug-in which
   frames (kOfxImageEffectActionGetFramesNeeded) and regions (GetRegionsOfInterest) of its inputs
@@ -519,6 +524,7 @@ class _NodeState:
     sources: dict = dataclasses.field(default_factory=dict)  # input clip -> _NodeState | _Files | _ip._Spec
     planned: set = dataclasses.field(default_factory=set)  # the frames it will render (beginSequenceRender)
     sequential: bool = False  # its beginSequenceRender's
+    seq: tuple | None = None  # (first, last) of its begun sequence render, None outside
     last_render: float | None = None
     report: dict = dataclasses.field(default_factory=dict)
 
@@ -740,12 +746,34 @@ class _Run:
                 if clip.child is not None and not clip.is_output and name in rois:
                     for f in _frames_in(ranges.get(name), t):
                         clip.image(f, view, rois[name], rs)
-            # sequential: the node's sequence is, and this render comes after its last one
-            sequential = ns.sequential and (ns.last_render is None or t > ns.last_render)
-            ns.last_render = t if ns.last_render is None else max(ns.last_render, t)
+            # "kOfxImageEffectActionBeginSequenceRender has been called on the instance" (the render
+            # action's precondition): outside a begun sequence that covers t (a render for a push
+            # button, a fetch that wasn't planned), the render gets its own sequence, [t, t], not
+            # sequential, as Natron's analysis renders
+            covered = ns.seq is not None and ns.seq[0] - 1e-9 <= t <= ns.seq[1] + 1e-9
+            if covered:  # sequential: the node's sequence is, and this render comes after its last one
+                sequential = ns.sequential and (ns.last_render is None or t > ns.last_render)
+                ns.last_render = t if ns.last_render is None else max(ns.last_render, t)
+            else:
+                sequential = False
+                self.check(ns, "beginSequenceRender", self.call(ns, "beginSequenceRender",
+                                                                inst.begin_sequence_render_action, t, t, 1., False,
+                                                                rs, False),
+                           first=t, last=t, step=1., sequential=False)
             rec["sequential"] = sequential
-            st, planes = self.call(ns, "render", inst.render_action, t, win, rs, "none", sequential, False, False,
-                                   view)
+            try:
+                st, planes = self.call(ns, "render", inst.render_action, t, win, rs, "none", sequential, False,
+                                       False, view)
+                ns.report["actions"].append({"action": "render", "ok": int(st) == 0, "status": _stat_str(st),
+                                             "time": float(t), "sequential": sequential})
+            finally:
+                if not covered:
+                    try:
+                        st_end = inst.end_sequence_render_action(t, t, 1., False, rs, False)
+                    except ofxh.CallbackError:
+                        st_end = ofxh.Stat.Failed
+                    ns.report["actions"].append({"action": "endSequenceRender", "ok": _ok(st_end),
+                                                 "status": _stat_str(st_end)})
         finally:
             inst.rois = {}
         image = planes.get("Colour")
@@ -788,33 +816,40 @@ def _frames(run: _Run, outputs: list[_NodeState]) -> list[float]:
 
 
 def _plan(r: _Run, ns: _NodeState, t: float, window, seen: set) -> None:
-    """Add t to the frames the node will render, and the frames its inputs will render for it: the
-    frames needed, or the identity's clip and time (with the RoD clipped to window, or to the
-    project for an input). Only actions that don't render."""
-    if (ns.name, t) in seen:
+    """Add t to the frames the node will render if its RoD meets window (pixels at the render scale:
+    the output's window, or the region of interest of the node that uses it; its whole RoD without
+    tiles), and plan the frames its inputs will render for it: the frames needed over its regions of
+    interest, or the identity's clip and time. Only actions that don't render."""
+    if (ns.name, t, tuple(window)) in seen:
         return
-    seen.add((ns.name, t))
+    seen.add((ns.name, t, tuple(window)))
     inst = ns.instance
+    out = inst.clip("Output")
     st, rod = r.call(ns, "getRegionOfDefinition", inst.get_region_of_definition_action, t, r.scale, 0)
     if not _ok(st):
         raise GraphError(f"{ns.name}: the getRegionOfDefinition action failed at time {t} ({_stat_str(st)})")
-    win = _intersect(_to_pixels(rod, r.scale, inst.clip("Output").aspect_ratio), window)
+    par = out.aspect_ratio
+    rod_px = _to_pixels(rod, r.scale, par)
+    win = rod_px if not (inst.supports_tiles and out.supports_tiles) else _intersect(rod_px, window)
     if _empty(win):
         return  # (nothing to render)
     st, idr = r.call(ns, "isIdentity", inst.is_identity_action, t, win, r.scale, "none", 0)
     if int(st) == 0 and idr.get("clip") in inst.clips:
         clip = inst.clip(idr["clip"])
         if clip.child is not None:
-            _plan(r, clip.child, float(idr["time"]), r.project_window, seen)
+            _plan(r, clip.child, float(idr["time"]), win, seen)
         return
     ns.planned.add(t)
     st, ranges = r.call(ns, "getFramesNeeded", inst.get_frames_needed_action, t)
-    if not _ok(st):
-        raise GraphError(f"{ns.name}: the getFramesNeeded action failed at time {t} ({_stat_str(st)})")
+    st2, rois = r.call(ns, "getRegionsOfInterest", inst.get_regions_of_interest_action, t,
+                       _canonical(win, r.scale, par), r.scale, 0)
+    if not (_ok(st) and _ok(st2)):
+        raise GraphError(f"{ns.name}: the getFramesNeeded or getRegionsOfInterest action failed at time {t}")
     for name, clip in inst.clips.items():
-        if clip.child is not None and not clip.is_output:
+        if clip.child is not None and not clip.is_output and name in rois:
+            roi = _to_pixels(rois[name], r.scale, clip.aspect_ratio)
             for f in _frames_in(ranges.get(name), t):
-                _plan(r, clip.child, f, r.project_window, seen)
+                _plan(r, clip.child, f, roi, seen)
 
 
 def _sequence(frames) -> tuple[float, float, float, bool]:
@@ -860,7 +895,12 @@ def run(graph: Graph | str | os.PathLike, plugin_dirs: Sequence = (), *, frames:
     written: list[str] = []
     try:
         if not isinstance(graph, Graph):
-            graph = load(graph)
+            try:
+                graph = load(graph)
+            except ValueError as e:  # (json.JSONDecodeError, UnicodeDecodeError: not a JSON file)
+                if isinstance(e, (json.JSONDecodeError, UnicodeDecodeError)):
+                    raise GraphError(f"{os.fspath(graph)}: not a JSON graph ({e})") from None
+                raise
         r = _Run(graph, frames if frames is not None else graph.frames, scale)
         report.update(project=r.project.to_json(), renderScale=list(r.scale))
         _validate(graph, r)
@@ -904,6 +944,7 @@ def _execute(graph: Graph, r: _Run, report: dict, images: dict, written: list, w
         for ns in order:  # inputs first
             made.append(ns)
             r.setup(ns)
+        r.cache.clear()  # (the images rendered for the push buttons)
         fs = report["frames"] = _frames(r, outs)
         for ns in outs:
             pattern = graph.outputs[ns.name]
@@ -929,6 +970,7 @@ def _execute(graph: Graph, r: _Run, report: dict, images: dict, written: list, w
                             False, r.scale, ns.sequential)
                 r.check(ns, "beginSequenceRender", st, first=first, last=last, step=step, sequential=ns.sequential)
                 begun.append(ns)
+                ns.seq = (first, last)
             for t in fs:
                 for ns in outs:
                     img = r.render(ns, t, window, r.scale)
@@ -937,6 +979,7 @@ def _execute(graph: Graph, r: _Run, report: dict, images: dict, written: list, w
                 r.cache.clear()  # (the images are kept for the current frame only)
         finally:
             for ns in begun:
+                ns.seq = None
                 first, last, step, _ = _sequence(ns.planned)
                 try:
                     st = ns.instance.end_sequence_render_action(first, last, step, False, r.scale, ns.sequential)

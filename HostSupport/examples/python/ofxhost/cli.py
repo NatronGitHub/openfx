@@ -33,6 +33,7 @@ import sys
 
 from . import graph as g
 from . import sequences
+from ._ofxh import OfxhNotFound
 from .imageio import check_format, read_image
 
 __all__ = ["main", "parse_frames"]
@@ -181,12 +182,16 @@ def cmd_filter(args) -> int:
     with graphhost.host(graphhost.plugin_dirs_of(args.bundles), use_env_path=True):
         plugin = _plugin(args.plugin)
         context = _context(plugin, args.context)
-        clips = [c.name for c in plugin.descriptor(context).clips if not c.is_output]
+        d = plugin.descriptor(context)
+        clips = [c.name for c in d.clips if not c.is_output]
+        files = {p.name for p in d.params if graphhost.is_file_param(p, plugin.contexts)}
         pid = plugin.id
     params = {}
     for s in args.set or []:
         name, eq, value = s.partition("=")
         params[name] = _value(value) if eq else None  # (no value: press a push button)
+        if name in files and isinstance(params[name], str):
+            params[name] = g.FilePath(params[name])  # (a file parameter: saved graphs rewrite it)
     src = "Source" if "Source" in clips else (clips[0] if clips else None)
     if src is None:
         raise Failure(f"{pid} has no input clip")
@@ -276,7 +281,7 @@ def main(argv=None) -> int:
             with graphhost.host(dirs, use_env_path=True):
                 return args.func(args)
         return args.func(args)
-    except ImportError as e:  # (ofxh not found: ofxhost.inprocess.OfxhNotFound)
+    except OfxhNotFound as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     except Failure as e:

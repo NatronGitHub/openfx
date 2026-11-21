@@ -89,7 +89,7 @@ def test_report(sample_plugins, tmp_path):
     n = j["nodes"]["b"]
     assert n["plugin"]["id"] == BASIC and n["context"] == "general" and n["paramChangedCount"] == 0
     assert [a["action"] for a in n["actions"]] == ["createInstance", "getClipPreferences", "beginSequenceRender",
-                                                   "endSequenceRender"]
+                                                   "render", "render", "endSequenceRender"]
     assert n["timeDomain"] == {"action": "kOfxStatReplyDefault", "range": [0., 24.]}  # (the Source's: the project's)
     assert [x["time"] for x in n["renders"]] == [0., 1.] and all(x["ok"] for x in n["renders"])
     assert n["renders"][0]["renderWindow"] == [0, 0, 720, 576]
@@ -326,7 +326,7 @@ def test_errors(sample_plugins, tmp_path):
     for g, message in graphs:
         r = graphhost.run(g, sample_plugins)
         assert not r.ok and message in r.report["error"], (message, r.report["error"])
-    for path, message in ((tmp_path / "missing.json", "No such file"), (tmp_path / "bad.npy", "UnicodeDecodeError")):
+    for path, message in ((tmp_path / "missing.json", "No such file"), (tmp_path / "bad.npy", "not a JSON graph")):
         r = graphhost.run(path, sample_plugins)
         assert not r.ok and message in r.report["error"], (message, r.report["error"])
     r = graphhost.run(Graph.of(Node(INVERT, inputs=ramp), frames=[0]), [tmp_path / "no-such-dir"])
@@ -376,3 +376,26 @@ def test_one_host(sample_plugins):
     ofxh.init(ofxh.Host(), [], use_env_path=False)
     with pytest.raises(RuntimeError, match="one host per process"):
         graphhost.run(Graph.of(Node(INVERT)), sample_plugins)
+
+
+def test_renders_outside_the_sequence(sample_plugins):
+    """A render outside a begun sequence (here, for a push button pressed during the setup: the
+    Tester's analyse fetches its Source, an Invert node, at each frame of its range) gets its own
+    sequence: beginSequenceRender [t, t] (not sequential), the render, endSequenceRender, as
+    kOfxImageEffectActionRender requires ("kOfxImageEffectActionBeginSequenceRender has been called
+    on the instance")."""
+    inv = Node(INVERT, inputs={"Source": "ramp"}, name="inv")
+    tester = Node(TESTER, params={"analyseButton": None}, inputs={"Source": inv}, name="t")
+    r = run(Graph(nodes={"inv": inv, "t": tester}, outputs={"t": None}, frames=[0]), sample_plugins)
+    acts = r.report["nodes"]["inv"]["actions"]
+    names = [a["action"] for a in acts]
+    assert names[:2] == ["createInstance", "getClipPreferences"]
+    # the analyse renders: 24 frames (the Tester's loop over the range 0 to 24), each in its own sequence
+    wrapped = acts[2:2 + 3 * 24]
+    assert [a["action"] for a in wrapped] == ["beginSequenceRender", "render", "endSequenceRender"] * 24
+    assert [(a["first"], a["last"], a["sequential"]) for a in wrapped[::3]] == [(float(f), float(f), False)
+                                                                              for f in range(24)]
+    assert all(a["ok"] for a in wrapped)
+    # then the planned sequence of the output's frame
+    assert names[2 + 3 * 24:] == ["beginSequenceRender", "render", "endSequenceRender"]
+    assert acts[2 + 3 * 24]["first"] == 0. and acts[2 + 3 * 24 + 1]["sequential"] is True

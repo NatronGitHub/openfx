@@ -351,8 +351,13 @@ What it does (see its docstring):
   node's time domain, or the frames of its image sequence.
 - **Sequence renders:** each node gets `beginSequenceRender` with the frames it will render
   (planned from the outputs' frames, the frames needed and the identities), sequential if they
-  increase by a constant step, and `endSequenceRender` if its begin succeeded. A render action is
-  sequential if its node's sequence is and it comes after the node's last render.
+  increase by a constant step, and `endSequenceRender` if its begin succeeded (an input's frames
+  are planned over the regions of interest of the nodes that use it). A render action is
+  sequential if its node's sequence is and it comes after the node's last render. A render outside
+  a begun sequence that covers its time (for a push button pressed during the setup, or an
+  unplanned fetch) gets its own begin and end over [t, t], not sequential, as Natron's analysis
+  renders, since the render action requires "kOfxImageEffectActionBeginSequenceRender has been
+  called on the instance". Each render is also in the node's `actions` of the report.
 - **Renders:** before each render action, the frames needed and the regions of interest of its
   inputs are rendered (in memory, kept for the current frame), so temporal effects (e.g. Retimer)
   work. A node without tiles renders its whole RoD. An identity (isIdentity) isn't rendered: its
@@ -379,7 +384,8 @@ What it does (see its docstring):
   the failure: a bad graph, an unknown plug-in, parameter or clip, a missing or unreadable file, an
   unsupported output format, a failed action; the run stops there, and `run()` doesn't raise), `host`, `project`, `frames`, `renderScale`, `nodes` {name: {plugin {id, version,
   label}, context, actions [{action, ok, status[, param, time]}] (createInstance,
-  getClipPreferences, instanceChanged for the presses, begin/endSequenceRender),
+  getClipPreferences, instanceChanged for the presses, begin/endSequenceRender[, first, last, step,
+  sequential], render [, time, sequential]),
   paramChangedCount, clipPreferences {clips {Clip: {depth, components, pixelAspectRatio,
   connected}}, outputPremultiplication, frameRate}, timeDomain {action (its status, null outside
   the general context), range (null: infinite)}, renders [{time, renderWindow, identity (null, or

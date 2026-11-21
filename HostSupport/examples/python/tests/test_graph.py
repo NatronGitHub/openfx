@@ -231,6 +231,7 @@ def test_save_elsewhere(tmp_path):
     g = _graph()
     g.base = str(tmp_path / "a")
     g.nodes["out"].params["lut"] = FilePath("luts/x.cube")
+    g.nodes["out"].params["proxy"] = FilePath("")  # (no file: stays empty)
     g.nodes["out"].inputs["Mask"] = "file:m.pfm#premult"
     (tmp_path / "a").mkdir()
     (tmp_path / "b" / "c").mkdir(parents=True)
@@ -240,6 +241,7 @@ def test_save_elsewhere(tmp_path):
     assert doc["nodes"]["seq"]["inputs"]["Source"] == {"file": "../../a/in.####.pfm"}
     assert doc["outputs"]["out"] == "../../a/out.####.pfm"
     assert doc["nodes"]["out"]["params"]["lut"] == {"file": "../../a/luts/x.cube"}
+    assert doc["nodes"]["out"]["params"]["proxy"] == {"file": ""}
     assert doc["nodes"]["out"]["inputs"]["Mask"] == "file:" + str((tmp_path / "a" / "m.pfm").resolve()) + "#premult"
     h = load(tmp_path / "b" / "c" / "g.json")
     assert h.path(h.nodes["seq"].inputs["Source"].pattern) == os.path.join(str(tmp_path / "b" / "c"), "../../a/in.####.pfm")
