@@ -303,6 +303,9 @@ public:
   void restrictToOFX14();
   virtual const void *fetchSuite(const char *suiteName, int suiteVersion);
   virtual bool supportsOfxSetHost() const { return !_ofx14; }
+  /// kOfxParamPropColourManagement on RGB and RGBA params (so that the tests exercise it); false
+  /// with the OFX 1.4 profile
+  virtual bool supportsParamColourManagement() const { return !_ofx14; }
 
   virtual OHIE::Instance *newInstance(void *clientData, OHIE::ImageEffectPlugin *plugin,
                                       OHIE::Descriptor &desc, const std::string &context);

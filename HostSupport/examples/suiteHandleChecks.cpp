@@ -4,9 +4,11 @@
 ////////////////////////////////////////////////////////////////////////////////
 /// suiteHandleChecks: checks that the HostSupport param, progress and timeline suites, and the
 /// host's fetchSuite(), reject NULL and describe-time (descriptor) handles, NULL names and NULL
-/// return pointers with the statuses of the spec, instead of crashing; and that Bytes params copy
-/// their default (descriptor and instance). Run by .github/scripts/hostdemo-checks.sh; exits with 1
-/// if a check fails.
+/// return pointers with the statuses of the spec, instead of crashing; that Bytes params copy
+/// their default (descriptor and instance); that RGB and RGBA params have
+/// kOfxParamPropColourManagement; and that the render inArgs have the
+/// kOfxImageEffectPropBehaviourWhenUnlicensed the host sets. Run by
+/// .github/scripts/hostdemo-checks.sh; exits with 1 if a check fails.
 
 #include <cstdio>
 #include <cstring>
@@ -174,6 +176,16 @@ namespace {
     }
   }
 
+  /// an RGBA instance with a constant value, (0, 0, 0, 1)
+  class TestRGBA : public Param::RGBAInstance {
+  public:
+    TestRGBA(Param::Descriptor &d, Param::SetInstance *s) : Param::RGBAInstance(d, s) {}
+    virtual OfxStatus get(double &r, double &g, double &b, double &a) { r = g = b = 0.; a = 1.; return kOfxStatOK; }
+    virtual OfxStatus get(OfxTime, double &r, double &g, double &b, double &a) { return get(r, g, b, a); }
+    virtual OfxStatus set(double, double, double, double) { return kOfxStatOK; }
+    virtual OfxStatus set(OfxTime, double, double, double, double) { return kOfxStatOK; }
+  };
+
   /// a group instance that counts the setOpen() calls (the host is told of kOfxParamPropGroupOpen)
   class TestGroup : public Param::GroupInstance {
   public:
@@ -330,18 +342,25 @@ namespace {
     }
   };
 
-  /// a StatusEffectInstance that also records the kOfxImageEffectPropThumbnailRender of the inArgs
-  /// of each action ("" if absent), as the plug-in sees it
+  /// a StatusEffectInstance that also records, host-side (in setCustomInArgs(), just before the
+  /// action is passed to the plug-in), the kOfxImageEffectPropThumbnailRender of the inArgs of each
+  /// action ("" if absent), and their kOfxImageEffectPropBehaviourWhenUnlicensed ("absent" if
+  /// absent), which is getBehaviourWhenUnlicensed(): unlicensedBehaviour
   class RecordingEffectInstance : public StatusEffectInstance {
   public:
     std::map<std::string, std::string> thumbnailArg;
+    std::map<std::string, std::string> unlicensedArg;
+    std::string unlicensedBehaviour;
     RecordingEffectInstance(ImageEffect::ImageEffectPlugin *plugin, ImageEffect::Descriptor &desc, const std::string &context)
       : StatusEffectInstance(plugin, desc, context) {}
+    virtual std::string getBehaviourWhenUnlicensed() const { return unlicensedBehaviour; }
     virtual void setCustomInArgs(const std::string &action, Property::Set &inArgs)
     {
       StatusEffectInstance::setCustomInArgs(action, inArgs);
       thumbnailArg[action] = inArgs.fetchProperty(kOfxImageEffectPropThumbnailRender) ?
         inArgs.getStringProperty(kOfxImageEffectPropThumbnailRender) : std::string();
+      unlicensedArg[action] = inArgs.fetchProperty(kOfxImageEffectPropBehaviourWhenUnlicensed) ?
+        inArgs.getStringProperty(kOfxImageEffectPropBehaviourWhenUnlicensed) : std::string("absent");
     }
   };
 
@@ -353,6 +372,13 @@ namespace {
     {
       return new RecordingEffectInstance(plugin, desc, context);
     }
+  };
+
+  /// a host that doesn't implement kOfxParamPropColourManagement (the HostSupport default; hostDemo,
+  /// and so TestHost, opt in)
+  class NoParamColourManagementHost : public TestHost {
+  public:
+    virtual bool supportsParamColourManagement() const { return false; }
   };
 
   /// BeginSequenceRender, then EndSequenceRender, of the instance. No Render is called in between,
@@ -386,6 +412,44 @@ namespace {
                               , 0
 #endif
                               );
+  }
+
+  /// a Render of the instance, at time 0, scale 1, on a 16x16 window (the status is not checked:
+  /// only its inArgs are)
+  void render(ImageEffect::Instance *instance)
+  {
+    OfxPointD renderScale = { 1., 1. };
+    OfxRectI window = { 0, 0, 16, 16 };
+    std::map<ImageEffect::ClipInstance *, OfxRectD> rois;
+    MyHost::MyEffectInstance *myInstance = dynamic_cast<MyHost::MyEffectInstance *>(instance);
+    if (myInstance) {
+      myInstance->setRenderState(renderScale, window, rois);
+    }
+#ifdef OFX_EXTENSIONS_NUKE
+    std::list<std::string> planes;
+    planes.push_back(kFnOfxImagePlaneColour);
+#endif
+    instance->renderAction(0., kOfxImageFieldNone, window, renderScale, false, false,
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+                           false,
+# ifdef OFX_EXTENSIONS_NATRON
+                           NULL,
+# endif
+#endif
+                           false
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+                           , 0
+#endif
+#ifdef OFX_EXTENSIONS_VEGAS
+                           , 1
+#endif
+#ifdef OFX_EXTENSIONS_NUKE
+                           , planes
+#endif
+                           );
+    if (myInstance) {
+      myInstance->clearRenderState();
+    }
   }
 
   /// the progress and timeline suites on a valid effect instance handle: a real instance of a
@@ -433,6 +497,35 @@ namespace {
         check("Begin/EndSequenceRender inArgs in a ThumbnailRenderScope: kOfxImageEffectPropThumbnailRender = \"true\"",
               rec->thumbnailArg[kOfxImageEffectActionBeginSequenceRender] == "true" &&
               rec->thumbnailArg[kOfxImageEffectActionEndSequenceRender] == "true");
+
+        // kOfxImageEffectPropBehaviourWhenUnlicensed (next OFX release) is in the inArgs of
+        // BeginSequenceRender and Render if the host sets it (Instance::getBehaviourWhenUnlicensed()),
+        // and absent by default: "not set (indicating the host has not implemented this
+        // functionality)"
+        instance->getClipPreferences();
+        beginEndSequenceRender(instance);
+        render(instance);
+        check("BeginSequenceRender and Render inArgs: no kOfxImageEffectPropBehaviourWhenUnlicensed by default",
+              rec->unlicensedArg[kOfxImageEffectActionBeginSequenceRender] == "absent" &&
+              rec->unlicensedArg[kOfxImageEffectActionRender] == "absent");
+        const char *const behaviours[] = { kOfxUnlicensedFail, kOfxUnlicensedContinue };
+        for (int i = 0; i < 2; ++i) {
+          rec->unlicensedBehaviour = behaviours[i];
+          beginEndSequenceRender(instance);
+          render(instance);
+          check((std::string("BeginSequenceRender and Render inArgs: kOfxImageEffectPropBehaviourWhenUnlicensed = ") + behaviours[i]).c_str(),
+                rec->unlicensedArg[kOfxImageEffectActionBeginSequenceRender] == behaviours[i] &&
+                rec->unlicensedArg[kOfxImageEffectActionRender] == behaviours[i]);
+          check("EndSequenceRender inArgs: no kOfxImageEffectPropBehaviourWhenUnlicensed",
+                rec->unlicensedArg[kOfxImageEffectActionEndSequenceRender] == "absent");
+        }
+        rec->unlicensedBehaviour = "OfxUnlicensedNoSuchValue";
+        beginEndSequenceRender(instance);
+        render(instance);
+        check("BeginSequenceRender and Render inArgs: no kOfxImageEffectPropBehaviourWhenUnlicensed for an invalid value",
+              rec->unlicensedArg[kOfxImageEffectActionBeginSequenceRender] == "absent" &&
+              rec->unlicensedArg[kOfxImageEffectActionRender] == "absent");
+        rec->unlicensedBehaviour.clear();
       }
       void *h = (void *)instance->getHandle();
       const OfxProgressSuiteV1 *progress1 = (const OfxProgressSuiteV1 *)host.fetchSuite(kOfxProgressSuite, 1);
@@ -686,6 +779,76 @@ int main()
             group.getProperties().getIntProperty(kOfxParamPropGroupOpen) == 0);
       check("propSetString(group instance, kOfxParamPropParent) = kOfxStatErrValue",
             ps1->propSetString(group.getPropHandle(), kOfxParamPropParent, 0, "g") == kOfxStatErrValue);
+    }
+
+    // kOfxParamPropColourManagement (next OFX release) on RGB and RGBA param descriptors, with a
+    // host that opts in (TestHost, as hostDemo: Host::supportsParamColourManagement()): "It
+    // defaults to ::kOfxParamColourManagementNone", and "A host that supports this property MUST
+    // accept all three values"; "A plug-in MUST NOT change it on a parameter instance"; "The
+    // property is ignored on parameter types other than RGB and RGBA"
+    check("TestHost::supportsParamColourManagement()", host.supportsParamColourManagement());
+    const char *const colourTypes[] = { kOfxParamTypeRGBA, kOfxParamTypeRGB };
+    const char *const colourNames[] = { "rgba", "rgb" };
+    const char *const managements[] = { kOfxParamColourManagementManaged, kOfxParamColourManagementSRGB,
+                                        kOfxParamColourManagementNone, kOfxParamColourManagementManaged };
+    for (int t = 0; ps1 && t < 2; ++t) {
+      const std::string what = std::string("paramDefine(") + colourTypes[t] + ")";
+      OfxPropertySetHandle cp = NULL;
+      check((what + " = kOfxStatOK").c_str(), ps->paramDefine(descSet, colourTypes[t], colourNames[t], &cp) == kOfxStatOK && cp != NULL);
+      if (!cp) {
+        continue;
+      }
+      const char *value = NULL;
+      check((what + ": kOfxParamPropColourManagement = kOfxParamColourManagementNone").c_str(),
+            ps1->propGetString(cp, kOfxParamPropColourManagement, 0, &value) == kOfxStatOK && value &&
+            std::string(value) == kOfxParamColourManagementNone);
+      for (int m = 0; m < 4; ++m) {
+        value = NULL;
+        check((what + ": propSetString(kOfxParamPropColourManagement, " + managements[m] + ") = kOfxStatOK, reads back").c_str(),
+              ps1->propSetString(cp, kOfxParamPropColourManagement, 0, managements[m]) == kOfxStatOK &&
+              ps1->propGetString(cp, kOfxParamPropColourManagement, 0, &value) == kOfxStatOK && value &&
+              std::string(value) == managements[m]);
+      }
+    }
+    Param::Descriptor *rgbaDesc = setDesc.getParams().count("rgba") ? setDesc.getParams().find("rgba")->second : NULL;
+    if (ps1 && rgbaDesc) {
+      TestRGBA rgba(*rgbaDesc, &setInst);
+      const char *value = NULL;
+      check("RGBA instance: kOfxParamPropColourManagement = kOfxParamColourManagementManaged, from the descriptor",
+            ps1->propGetString(rgba.getPropHandle(), kOfxParamPropColourManagement, 0, &value) == kOfxStatOK && value &&
+            std::string(value) == kOfxParamColourManagementManaged);
+      check("RGBA instance: propSetString(kOfxParamPropColourManagement) = kOfxStatErrValue",
+            ps1->propSetString(rgba.getPropHandle(), kOfxParamPropColourManagement, 0, kOfxParamColourManagementSRGB) == kOfxStatErrValue);
+    }
+    if (ps1 && dp) {
+      const char *value = NULL;
+      check("integer descriptor: no kOfxParamPropColourManagement (kOfxStatErrUnknown)",
+            ps1->propGetString(dp, kOfxParamPropColourManagement, 0, &value) == kOfxStatErrUnknown);
+    }
+
+    // a host that doesn't opt in (the HostSupport default): "A host that does not implement it
+    // will fail the set; in that case the plug-in MUST fall back to
+    // ::kOfxParamColourManagementNone behaviour"
+    {
+      NoParamColourManagementHost noColourHost;
+      ImageEffect::gImageEffectHost = &noColourHost;
+      const char *const noNames[] = { "rgbaNoCM", "rgbNoCM" };
+      for (int t = 0; ps1 && t < 2; ++t) {
+        const std::string what = std::string("host without param colour management: paramDefine(") + colourTypes[t] + ")";
+        OfxPropertySetHandle cp = NULL;
+        check((what + " = kOfxStatOK").c_str(), ps->paramDefine(descSet, colourTypes[t], noNames[t], &cp) == kOfxStatOK && cp != NULL);
+        if (!cp) {
+          continue;
+        }
+        const char *value = NULL;
+        int dim = -1;
+        check((what + ": no kOfxParamPropColourManagement").c_str(),
+              ps1->propGetString(cp, kOfxParamPropColourManagement, 0, &value) == kOfxStatErrUnknown &&
+              ps1->propGetDimension(cp, kOfxParamPropColourManagement, &dim) == kOfxStatErrUnknown);
+        check((what + ": propSetString(kOfxParamPropColourManagement, Managed) = kOfxStatErrUnknown").c_str(),
+              ps1->propSetString(cp, kOfxParamPropColourManagement, 0, kOfxParamColourManagementManaged) == kOfxStatErrUnknown);
+      }
+      ImageEffect::gImageEffectHost = &host;
     }
   }
 

@@ -705,6 +705,23 @@ namespace OFX {
           if (dim == 4) {
             _properties.setStringProperty(kOfxParamPropDimensionLabel, "a", 3);
           }
+
+          /// kOfxParamPropColourManagement (next OFX release, after 1.5.1), only if the host opts
+          /// in (ImageEffect::Host::supportsParamColourManagement()): "A host that does not
+          /// implement it will fail the set; in that case the plug-in MUST fall back to
+          /// ::kOfxParamColourManagementNone behaviour". If it does: "A host that supports this
+          /// property MUST accept all three values" (kOfxParamColourManagementNone, Managed and
+          /// SRGB; like the other string properties, the value is not checked), and "It defaults
+          /// to ::kOfxParamColourManagementNone, so existing plug-ins are unaffected." "The
+          /// property is ignored on parameter types other than RGB and RGBA": it is only on these.
+          /// Hosts that convert colours read it from the param descriptor or instance.
+          if (ImageEffect::gImageEffectHost && ImageEffect::gImageEffectHost->supportsParamColourManagement()) {
+            static const Property::PropSpec colourManagement[] = {
+              { kOfxParamPropColourManagement, Property::eString, 1, false, kOfxParamColourManagementNone },
+              Property::propSpecEnd
+            };
+            _properties.addProperties(colourManagement);
+          }
         }
       }
 
@@ -779,7 +796,9 @@ namespace OFX {
       /// descriptor too. Two more properties are documented the same way in this fork's headers:
       /// kOfxParamInterpType (not in OFX 1.5 or 1.5.1; upstream main c91cce7b, for the next
       /// release) and kOfxParamParametricInterpolationCustomInterpCallbackV1 (Natron's parametric
-      /// suite V2, only defined with OFX_SUPPORTS_PARAMETRIC_V2).
+      /// suite V2, only defined with OFX_SUPPORTS_PARAMETRIC_V2). kOfxParamPropColourManagement
+      /// (next release) has no "Property Set" line, but the spec says "A plug-in MUST NOT change
+      /// it on a parameter instance".
       /// kOfxParamPropGroupOpen is also "descriptor (read/write) and instance (read only)", but it
       /// stays writable on instances: the Natron toolbar and dialog extensions (ofxNatron.h,
       /// extensions 4 and 9) let plug-ins open or close a group instance, e.g. openfx-misc's
@@ -813,6 +832,7 @@ namespace OFX {
         kOfxParamPropParametricInteractBackground,
         kOfxParamPropParametricRange,
         kOfxParamInterpType,
+        kOfxParamPropColourManagement,
 #ifdef OFX_SUPPORTS_PARAMETRIC_V2
         kOfxParamParametricInterpolationCustomInterpCallbackV1,
 #endif

@@ -134,6 +134,17 @@ namespace OFX {
         /// kOfxImageEffectPluginPropOverlayInteractV2 are used. Default: false.
         virtual bool supportsDrawSuite() const;
 
+        /// Override this and return true if the host implements kOfxParamPropColourManagement
+        /// (next OFX release, after 1.5.1) on RGB and RGBA params, i.e. if it converts the
+        /// kOfxParamColourManagementManaged (ACES2065-1) and kOfxParamColourManagementSRGB values
+        /// for its swatches and colour pickers, stores them as such in its projects, and converts
+        /// the values of legacy projects. Then RGB and RGBA param descriptors have the property
+        /// (default kOfxParamColourManagementNone, all three values accepted, read-only for the
+        /// plug-in on instances). Default: false: the property is absent, a plug-in's set fails
+        /// (kOfxStatErrUnknown), and the plug-in falls back to None ("A host that does not
+        /// implement it will fail the set"). Asked when each RGB or RGBA param is described.
+        virtual bool supportsParamColourManagement() const;
+
         /// Override this and return true if the host draws overlays with OpenGL (it makes an
         /// OpenGL context current around kOfxInteractActionDraw) and prefers that to the
         /// DrawSuite. Then, when a plug-in sets both kOfxImageEffectPluginPropOverlayInteractV1
@@ -1169,6 +1180,28 @@ namespace OFX {
         /// set kOfxImageEffectPropNoSpatialAwareness in inArgs (which must contain it), according
         /// to isNoSpatialAwarenessRender() and the plug-in descriptor.
         void setNoSpatialAwarenessArg(Property::Set &inArgs) const;
+
+        /// next OFX release (after 1.5.1): the host's behaviour when the plug-in is unlicensed,
+        /// kOfxImageEffectPropBehaviourWhenUnlicensed in the inArgs of BeginSequenceRender and Render:
+        /// kOfxUnlicensedContinue ("render an image (typically watermarked or a placeholder) and
+        /// return kOfxStatUnlicensed") or kOfxUnlicensedFail ("return kOfxStatUnlicensed and may do
+        /// this without any rendering, because it knows the host will fail the render").
+        ///
+        /// Called by beginRenderAction() and renderAction() each time they build their inArgs, so
+        /// it may be called from render threads, concurrently: it must be thread-safe. The
+        /// default returns "": the property is then not in the inArgs, which the spec allows ("not
+        /// set (indicating the host has not implemented this functionality)": the plug-in "should
+        /// render an image (typically watermarked or a placeholder) and return kOfxStatOK"). Hosts
+        /// override it, e.g. to return kOfxUnlicensedFail for offline renders. Any other value is
+        /// not sent either. A host that returns kOfxUnlicensedContinue or kOfxUnlicensedFail must
+        /// handle kOfxStatUnlicensed from beginRenderAction() and renderAction(): with Continue,
+        /// the plug-in rendered (e.g. a watermarked image), so the host may warn the user or fail
+        /// an offline render; with Fail, the plug-in may not have rendered anything.
+        virtual std::string getBehaviourWhenUnlicensed() const;
+
+        /// add kOfxImageEffectPropBehaviourWhenUnlicensed to inArgs if getBehaviourWhenUnlicensed()
+        /// returns kOfxUnlicensedContinue or kOfxUnlicensedFail; leave inArgs unchanged otherwise.
+        void setBehaviourWhenUnlicensedArg(Property::Set &inArgs) const;
       };
 
       ////////////////////////////////////////////////////////////////////////////////

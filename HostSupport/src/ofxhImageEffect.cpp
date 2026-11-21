@@ -677,6 +677,31 @@ namespace OFX {
         return ThumbnailRenderScope::isActive();
       }
 
+      std::string Instance::getBehaviourWhenUnlicensed() const
+      {
+        return std::string();
+      }
+
+      /// next OFX release (after 1.5.1): kOfxImageEffectPropBehaviourWhenUnlicensed is in the
+      /// inArgs of BeginSequenceRender and Render only if the host sets it: "If
+      /// kOfxImageEffectPropBehaviourWhenUnlicensed is not set (indicating the host has not
+      /// implemented this functionality): plug-in should render an image (typically watermarked
+      /// or a placeholder) and return kOfxStatOK."
+      static const Property::PropSpec unlicensedBehaviourArgs[] = {
+        { kOfxImageEffectPropBehaviourWhenUnlicensed, Property::eString, 1, true, "" },
+        Property::propSpecEnd
+      };
+
+      void Instance::setBehaviourWhenUnlicensedArg(Property::Set &inArgs) const
+      {
+        const std::string behaviour = getBehaviourWhenUnlicensed();
+        if (behaviour != kOfxUnlicensedContinue && behaviour != kOfxUnlicensedFail) {
+          return;
+        }
+        inArgs.addProperties(unlicensedBehaviourArgs);
+        inArgs.setStringProperty(kOfxImageEffectPropBehaviourWhenUnlicensed, behaviour);
+      }
+
       /// next OFX release, after 1.5.1: kOfxImageEffectPropMetalTextureEnabled is in the inArgs of
       /// Render, BeginSequenceRender and EndSequenceRender (0: images are not Metal textures).
       static const Property::PropSpec ofx15MetalTextureArgs[] = {
@@ -1502,6 +1527,7 @@ namespace OFX {
         inArgs.addProperties(ofx15MetalTextureArgs);
         inArgs.addProperties(ofx151NoSpatialAwarenessArgs);
         setNoSpatialAwarenessArg(inArgs);
+        setBehaviourWhenUnlicensedArg(inArgs);
 
         // set up second dimension for frame range and render scale
         inArgs.setDoubleProperty(kOfxImageEffectPropFrameRange,startFrame, 0);
@@ -1614,6 +1640,7 @@ namespace OFX {
         inArgs.addProperties(ofx15MetalTextureArgs);
         inArgs.addProperties(ofx151NoSpatialAwarenessArgs);
         setNoSpatialAwarenessArg(inArgs);
+        setBehaviourWhenUnlicensedArg(inArgs);
         
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
         inArgs.setDoubleProperty(kOfxPropTime,time);
@@ -4936,6 +4963,11 @@ namespace OFX {
       }
 
       bool Host::supportsDrawSuite() const
+      {
+        return false;
+      }
+
+      bool Host::supportsParamColourManagement() const
       {
         return false;
       }

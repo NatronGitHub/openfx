@@ -59,6 +59,10 @@ namespace MyHost {
     /// scan and loaded again at their first use (for the checks of both behaviours)
     virtual bool keepPluginsLoadedAfterScan() const { return _keepLoaded; }
 
+    /// kOfxParamPropColourManagement on RGB and RGBA params (a test-host hook: hostDemo doesn't
+    /// convert colours); false with restrictToOFX14()
+    virtual bool supportsParamColourManagement() const { return !_ofx14; }
+
     /// Create a new instance of an image effect plug-in.
     ///
     /// It is called by ImageEffectPlugin::createInstance which the
