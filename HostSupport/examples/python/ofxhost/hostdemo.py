@@ -20,17 +20,24 @@ directory, one run per process, so a test harness gets the same crash isolation,
 timeouts work the same way; the plug-ins are unloaded at the end (kOfxActionUnload), after the
 report is written.
 
-What differs from hostDemo:
-- the report's host name is ofxh's ("net.sf.openfx.ofxh"), and the numbers in the JSON are
-  written by Python (0.0, not 0);
+What differs from hostDemo (README.md has the list):
+- the report's host name is ofxh's ("net.sf.openfx.ofxh"), and its plugin.filePath is absolute;
+- the numbers in the JSON are written by Python (0.0, not 0); NaN and infinities are null, as in
+  hostDemo; the means can differ in their last bits (NumPy's pairwise summation);
+- during a render, an output image fetch runs no nested RoD action (the host's RoD of the render
+  is used), so a plug-in that traces its actions prints fewer RoD actions;
 - --no-cache is a no-op: ofxh has no plug-in cache file; without --quiet, the list of the
   plug-ins found is shorter than hostDemo's dump (Plug-in:id and its contexts);
 - ofxh's string choice parameters refuse a value outside their enums (hostDemo's accept it);
+- a bug of the Python host (an uncaught exception) exits with status 1, a traceback, and no report;
 - beyond hostDemo, an input spec may end with a components suffix, "#rgb", "#alpha" or "#rgba"
   ("-i Source=ramp#rgb"): the clip's unmapped components (see ofxhost.inprocess);
 - $OFXHOST_PRELOAD: libraries (os.pathsep-separated) loaded with RTLD_GLOBAL before the plug-in
   scan, e.g. MacPorts' libtbbmalloc for IO.ofx (oneTBB 2023.2 can crash at exit when OpenImageIO
   loaded it, see NatronGitHub/openfx#136).
+As hostDemo, the whole command line is read before ofxh is imported: -h and the usage errors work
+without the bindings. Windows (a native python.exe): python -m ofxhost.hostdemo, with Windows paths
+in PYTHONPATH separated by ";" (the hostdemo-inprocess script does that when cygpath exists).
 """
 
 from __future__ import annotations
@@ -102,7 +109,7 @@ def _write_json(path: str, doc: dict) -> bool:
     """writeJson: False (after an error message) if it couldn't be written."""
     try:
         with open(path, "w", encoding="utf-8") as f:
-            json.dump(doc, f, indent=2)
+            json.dump(doc, f, indent=2, allow_nan=False)
             f.write("\n")
         return True
     except (OSError, ValueError):
@@ -121,7 +128,7 @@ def _preload() -> None:
 
 def _parse(argv: list[str], prog: str) -> dict:
     """hostDemo's command line (run() in hostDemo.cpp), parsed as hostDemo parses it."""
-    from . import inprocess as ip  # (imports ofxh, after -h)
+    from . import _specs as ip  # (not ofxh: it is imported after the command line, as hostDemo loads plug-ins)
     o = {"plugin": "net.sf.openfx.invertPlugin", "major": -1, "context": "OfxImageEffectContextFilter",
          "prefix": "Output", "depth": "byte", "assignments": [], "inputs": [], "report": "", "describe": "",
          "std_paths": True, "quiet": False, "ofx14": False, "allow_unwritten": False, "format": "ppm",
@@ -161,8 +168,11 @@ def _parse(argv: list[str], prog: str) -> dict:
                     raise _Exit(1)
                 o["major"] = m
             elif arg == "-c":
-                if v in ("filter", "general", "OfxImageEffectContextFilter", "OfxImageEffectContextGeneral"):
-                    o["context"] = ip._context(v)
+                c = {"filter": "OfxImageEffectContextFilter", "general": "OfxImageEffectContextGeneral",
+                     "OfxImageEffectContextFilter": "OfxImageEffectContextFilter",
+                     "OfxImageEffectContextGeneral": "OfxImageEffectContextGeneral"}.get(v)
+                if c is not None:
+                    o["context"] = c
                 else:
                     _err(f'Error: unsupported context "{v}", expected filter or general')
                     raise _Exit(1)
@@ -269,19 +279,16 @@ def _dump(ofxh) -> None:
 def run(argv: list[str], prog: str = "hostdemo") -> int:
     """Run hostDemo's command line (argv without the program name): the exit status."""
     try:
-        if any(a in ("-h", "--help") for a in argv[:1]):
-            sys.stdout.write(USAGE.format(prog=prog))
-            return 0
-        dirs = [d for d in os.environ.get("OFX_PLUGIN_PATH", "").split(os.pathsep) if d]
-        from ._ofxh import OfxhNotFound, import_ofxh
-        try:
-            import_ofxh(os.pathsep.join(dirs), for_cli=True)
-        except OfxhNotFound as e:
-            _err(f"Error: {e}")
-            return 1
-        o = _parse(argv, prog)
+        o = _parse(argv, prog)  # (-h and the usage errors without ofxh, as hostDemo's)
     except _Exit as e:
         return e.status
+    dirs = [d for d in os.environ.get("OFX_PLUGIN_PATH", "").split(os.pathsep) if d]
+    from ._ofxh import OfxhNotFound, import_ofxh
+    try:
+        import_ofxh(os.pathsep.join(dirs), for_cli=True)
+    except OfxhNotFound as e:
+        _err(f"Error: {e}")
+        return 1
     _preload()
     from . import inprocess as ip
     keep = os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1"
@@ -300,7 +307,7 @@ def run(argv: list[str], prog: str = "hostdemo") -> int:
                 return 1
             d = ip.ofxh.describe(plugin, None)
             ret = 0 if d.get("ok") else 1
-            if not _write_json(o["describe"], d):
+            if not _write_json(o["describe"], ip.json_safe(d)):
                 ret = 1
             return ret
         if not o["quiet"]:
@@ -322,8 +329,10 @@ def run(argv: list[str], prog: str = "hostdemo") -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    return run(sys.argv[1:] if argv is None else list(argv),
-               os.path.basename(sys.argv[0]) if argv is None and sys.argv and sys.argv[0] else "hostdemo")
+    prog = os.path.basename(sys.argv[0]) if argv is None and sys.argv and sys.argv[0] else "hostdemo"
+    if prog == "hostdemo.py":
+        prog = "python -m ofxhost.hostdemo"
+    return run(sys.argv[1:] if argv is None else list(argv), prog)
 
 
 if __name__ == "__main__":

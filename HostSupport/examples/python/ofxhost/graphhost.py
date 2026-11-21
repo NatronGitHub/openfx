@@ -856,6 +856,8 @@ def _plan(r: _Run, ns: _NodeState, t: float, window, seen: dict) -> None:
     not by the number of paths that reach it."""
     key = (ns.name, t)
     window = tuple(window)
+    if _empty(window):
+        return  # (nothing is asked: an empty window doesn't grow the union)
     old = seen.get(key)
     if old is not None:
         if _contains(old, window):

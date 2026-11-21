@@ -100,7 +100,10 @@ assert np.allclose(r.outputs[0][..., :3], 1 - src, atol=1e-6)
     fetch the output image of a render, or ask for the output's RoD during it. During a render, the
     output clip's `region_of_definition()` at the render's time and view returns the RoD computed
     before the render action, so no RoD action runs on the worker (ofxh refuses actions there, part
-    2). Another time or view still runs the action, and is refused on a worker thread. The sample
+    2). Another time or view still runs the action, and is refused on a worker thread. Several
+    worker threads may first-fetch the output at once: the bindings keep one output image per
+    render (a `get_image()` that returns after another thread made the image is dropped), so no
+    image is leaked and every thread writes into the same pixels. The sample
     host does the same; a host on ofxh should too (the default `ClipInstance.region_of_definition()`
     of the output runs the action).
 - `read_pfm` / `write_pfm`: top-down float32 arrays; files are bottom-up, little-endian
@@ -478,13 +481,40 @@ runs the consumers' command lines with both and compares the files byte for byte
 the error messages. The `ofxh` module is that of `PYTHONPATH`, else of the build tree that holds
 the `$OFX_PLUGIN_PATH` directories.
 
-What differs: the report's `host.name` (`net.sf.openfx.ofxh`); numbers in the JSON are written by
-Python (`0.0`, not `0`); `--no-cache` is a no-op (ofxh has no cache file); without `--quiet`, the
-list of plug-ins is shorter than hostDemo's dump; ofxh's string choice parameters refuse a value
-outside their enums; an input spec may end with `#rgb`, `#alpha` or `#rgba` (the components, as
-above). `$OFXHOST_PRELOAD` lists libraries (`os.pathsep`-separated) to load with `RTLD_GLOBAL`
-before the plug-in scan: e.g. MacPorts' `libtbbmalloc` for IO.ofx, since oneTBB 2023.2 can crash at
-exit when OpenImageIO loaded it (#136).
+What differs from hostDemo (the complete list; `tests/test_hostdemo_cli.py` checks the rest):
+- the report's `host.name` is ofxh's (`net.sf.openfx.ofxh`);
+- the report's `plugin.filePath` is absolute (ofxh's plug-in paths are; hostDemo's is the path as
+  found in `$OFX_PLUGIN_PATH`);
+- numbers in the JSON are written by Python: `0.0`, not `0`, and the shortest repr instead of
+  `%.17g`. NaN and infinities are `null`, as in hostDemo, and the JSON is strict;
+- the `mean` statistics can differ from hostDemo's in their last bits (NumPy's pairwise summation;
+  `min`, `max`, `nan`, `crc32` and the files are the same);
+- during a render, an output image fetch, and the output's RoD asked for at the render's time, run
+  no nested RoD action: the host uses the RoD it computed before the render action (see the worker
+  threads above). hostDemo runs the plug-in's RoD action again, so a plug-in that traces its actions
+  (e.g. the property tester with `OFX_PROPTESTER_TRACE=1`) prints fewer RoD actions;
+- `--no-cache` is a no-op (ofxh has no cache file), and without `--quiet` the list of the plug-ins
+  is shorter than hostDemo's dump;
+- ofxh's string choice parameters refuse a value outside their enums (hostDemo's accept it);
+- an error in the Python host itself (a bug: an uncaught Python exception) exits with status 1 and a
+  traceback on stderr, and writes no report;
+- beyond hostDemo: an input spec may end with `#rgb`, `#alpha` or `#rgba` (the components, as
+  above), and `$OFXHOST_PRELOAD` lists libraries (`os.pathsep`-separated) to load with
+  `RTLD_GLOBAL` before the plug-in scan: e.g. MacPorts' `libtbbmalloc` for IO.ofx, since oneTBB
+  2023.2 can crash at exit when OpenImageIO loaded it (#136).
+
+As hostDemo, it reads the whole command line before it imports `ofxh`: `-h` and the usage errors
+behave the same where `ofxh` isn't built.
+
+**Windows** (MSYS2 UCRT64, a native `python.exe`): run `python -m ofxhost.hostdemo ARGS...` with
+Windows paths in `PYTHONPATH`, separated by `;`:
+`PYTHONPATH="$(cygpath -w <build>/HostSupport/python);$(cygpath -w <openfx>/HostSupport/examples/python)"`,
+and `OFX_PLUGIN_PATH` as for hostDemo (`cygpath -w -p`). From an MSYS2 shell script, the
+`hostdemo-inprocess` script works too (`OFXHOST_PYTHON=python`): it converts its own directory with
+`cygpath -w` and joins `PYTHONPATH` with `;` when `cygpath` exists. A native program (CMake's
+`execute_process`, Python's `subprocess`) can't run the sh script: give it the
+`python -m ofxhost.hostdemo` command. CI runs a describe and a small render both ways on UCRT64,
+and compares them with hostDemo.exe.
 
 ## MIGRATION: from hostDemo to the Python host
 
@@ -499,10 +529,17 @@ today, the equivalent:
 | openfx-misc `smoketest.sh` (also run by openfx-supportext) | `--describe describe.json -p ID -m N`, then `-p ID -m N -c CTX -d DEPTH --format pfm -o out --report report.json -i ...` per plug-in, `[--ofx14]`, under a `perl alarm` timeout, `xargs -P` jobs | the same lines with `python -m ofxhost.hostdemo` (one process per run, so the timeout and the jobs work as before); RGB inputs for the RGB-source paths: `-i Source=ramp#rgb` |
 | openfx-misc `render-shadertoy-osmesa.sh` | `-p net.sf.openfx.Shadertoy --describe d.json`, then `-c general --format pfm -o out --frames 0` | the same lines |
 | openfx-io `tests/hostdemo/run.sh` (ctest `io-hostdemo`, `io-hostdemo-ofx14`) | `env OFX_PLUGIN_PATH=... "$HD" --quiet --no-std-paths --no-cache $HOSTDEMO_ARGS -p ID -c CTX -o OUT/name --report OUT/name.json -s filename=...` (PPM outputs, the default input; `-d float -i Source=solid:...`, `-s choice@t=N`, `-s button@t`, `--window`, `--frames 1,2`) | `run.sh`'s first argument (`$HD`) is the `hostdemo-inprocess` script instead of `$<TARGET_FILE:hostDemo>`, the same arguments; the log grep for `OfxMessageError\|OfxMessageFatal` on stdout works the same; `OFXHOST_PRELOAD=<libtbbmalloc>` if oneTBB crashes at exit |
-| openfx-arena `tests/hostdemo/run.cmake` (`render_Arena`, `_ofx14`, `_keep_loaded`), `readsvg/dpi.cmake`, `readpsd/test_layers.py` | `hostDemo --quiet --no-std-paths --no-cache -p ID -m N -c CTX --frames 0 -o PREFIX [--ofx14] [-s filename=...] [name=value]`, `OFX_HOSTDEMO_KEEP_LOADED=1`; `--report` with `renders[].output.{w,h,crc32}`; `--format pfm -d float -i Source=none` with `clipPreferences.outputPremultiplication` and `messages[].text` | `COMMAND ${Python_EXECUTABLE} -m ofxhost.hostdemo ...` (with `PYTHONPATH` in the test `ENVIRONMENT`), the same arguments; `OFX_HOSTDEMO_KEEP_LOADED=1` works; in test_layers.py, `[sys.executable, "-m", "ofxhost.hostdemo", ...]` |
-| openfx-gmic `render_plugins.py` | `[host] + host_args + ['--no-std-paths', '--no-cache', '--quiet', '--allow-unwritten', '--format', 'pfm', '-d', 'float', '-p', ID, '-c', CTX, '--frames', '0', '-o', 'out', '--report', 'report.json', '-i', 'Clip=file:../input.pfm', ...]` | `host = [sys.executable, "-m", "ofxhost.hostdemo"]`, the same arguments (`--host-arg=--ofx14` too) |
+| openfx-arena `tests/hostdemo/run.cmake` (`render_Arena`, `_ofx14`, `_keep_loaded`), `readsvg/dpi.cmake` (ctests that run `cmake -DHOSTDEMO=$<TARGET_FILE:hostDemo> ... -P run.cmake`), `readpsd/test_layers.py` (`--hostdemo $<TARGET_FILE:hostDemo>`) | the scripts make `HOSTDEMO` absolute (`get_filename_component(... ABSOLUTE)`) and run `COMMAND "${HOSTDEMO}" --quiet --no-std-paths --no-cache -p ID -m N -c CTX --frames 0 -o PREFIX [--ofx14] [-s filename=...] [name=value]`, `OFX_HOSTDEMO_KEEP_LOADED=1`; `--report` with `renders[].output.{w,h,crc32}`; test_layers.py runs `[hostdemo, ...]` after `os.path.abspath(--hostdemo)`, with `--format pfm -d float -i Source=none`, and reads `clipPreferences.outputPremultiplication` and `messages[].text` | Unix: no script change: pass `-DHOSTDEMO=<openfx>/HostSupport/examples/python/hostdemo-inprocess` (one absolute path, which the quoted `COMMAND` runs) and `--hostdemo <same>`, with `OFXHOST_PYTHON` and `PYTHONPATH=<build>/HostSupport/python` in the tests' `ENVIRONMENT`; `OFX_HOSTDEMO_KEEP_LOADED=1` works. Windows (or to run the module without the sh script): the scripts must take a command instead of a path, e.g. a `HOSTDEMO_PYTHON` variable used unquoted, `COMMAND ${HOSTDEMO_PYTHON} -m ofxhost.hostdemo ...` (a CMake list), skipping the `ABSOLUTE` conversion for it, and test_layers.py a `--hostdemo-python` option giving `[python, "-m", "ofxhost.hostdemo", ...]` instead of the `abspath`ed `--hostdemo` |
+| openfx-gmic `render_plugins.py` | `--host <build dir>` reads `hostDemo-path.txt` (written by CMake from `$<TARGET_FILE:hostDemo>`); `[host] + host_args + ['--no-std-paths', '--no-cache', '--quiet', '--allow-unwritten', '--format', 'pfm', '-d', 'float', '-p', ID, '-c', CTX, '--frames', '0', '-o', 'out', '--report', 'report.json', '-i', 'Clip=file:../input.pfm', ...]` | `host = [sys.executable, "-m", "ofxhost.hostdemo"]` (a new option, or that file holding a command), the same arguments (`--host-arg=--ofx14` too) |
 | C++ test hosts (io and arena `reader_window.cpp`, arena `mt_unload.cpp`), which compile hostDemo's `MyHost::*` classes | `MyHost::Host`, `MyEffectInstance`, `MyClipInstance`, `MyImage`, `gImageErrors`... | not covered by the Python host: they stay on the C++ classes until part 5b decides what hostDemo keeps (their own small HostSupport host, or Python on `ofxh` with `ofxh.init(keep_loaded=...)` and a multithread suite) |
 | openfx-gmic `describe_plugins.sh` | patches two comment lines of HostSupport and builds its own describer | `python -m ofxhost.hostdemo -p ID --describe d.json` or `ofxh.describe(plugin)` give the descriptors without a patch |
+
+**What the move costs.** The consumers' CI then needs the bindings: nanobind and NumPy, and an
+openfx build with `-DOFX_PYTHON_BINDINGS=ON` (Python 3.10 or later), instead of, or besides,
+hostDemo. Each run of the CLI starts Python and imports NumPy and `ofxh` before the plug-in scan,
+which adds time to every run: about 0.2 s more than hostDemo for a `--describe` here (macOS arm64), and openfx-misc's `rendertest.sh` (225 renders, run serially) took 77 s instead of 56 s: for the large runs (openfx-misc's
+smoketest over all its plug-ins), keep one CLI process per render with `xargs -P`, as today with
+hostDemo, rather than one pytest process for everything, which also loses the crash isolation.
 
 In pytest, `ofxhost.render(..., backend="inprocess")` runs in the test process (no crash isolation:
 run large suites under the CLI, or in worker processes), and `ofxhost.testing`'s `backend` fixture

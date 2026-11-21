@@ -24,6 +24,7 @@ TESTER = "net.sf.openfx.GenericTestPlugin"
 CHOICES = "org.openeffects.support.choiceParamsPlugin"
 RETIMER = "net.sf.openfx.retimer"
 PROPTESTER = "net.sf.openfx.propertyTester"
+MULTIPLY = "net.sf.openfx.MultiplyGPU"
 
 
 @pytest.fixture(scope="module")
@@ -100,6 +101,13 @@ def _same(a, b):
         assert a == b, (a, b)
 
 
+def _strict(text):
+    """JSON without NaN or Infinity (hostDemo writes them as null)."""
+    def refuse(c):
+        raise ValueError(f"non-finite JSON number {c}")
+    return json.loads(text, parse_constant=refuse)
+
+
 def _files(d: Path) -> dict:
     return {p.name: p.read_bytes() for p in sorted(d.iterdir()) if p.suffix in (".ppm", ".pfm")}
 
@@ -109,7 +117,7 @@ def _compare(tmp_path, hosts, plugins, args, files=(), report=True, **env):
     assert s.returncode == i.returncode, (s.stderr, i.stderr)
     assert _files(sd) == _files(idir)
     if report:
-        _same(_normalized(json.loads((sd / "r.json").read_text())), _normalized(json.loads((idir / "r.json").read_text())))
+        _same(_normalized(_strict((sd / "r.json").read_text())), _normalized(_strict((idir / "r.json").read_text())))
     # the plug-ins' messages on stdout ("<type> <id> <text>"), with --quiet
     assert s.stdout == i.stdout
     return s, i, sd, idir
@@ -133,6 +141,9 @@ Q = ["--no-std-paths", "--no-cache", "--quiet"]
     [*Q, "-p", TESTER, "-d", "float", "--format", "pfm", "-o", "out", "--report", "r.json", "--frames", "0",
      "-i", "Source=ramp", "-s", "analyseButton"],
     [*Q, "-p", CHOICES, "--format", "pfm", "-o", "out", "--report", "r.json", "--frames", "0", "-d", "float"],
+    # an output with infinite values: null statistics in both reports
+    [*Q, "-p", MULTIPLY, "--format", "pfm", "-o", "out", "--report", "r.json", "--frames", "0", "-d", "float",
+     "-i", "Source=solid:3e38,0.5,0.25,1", "--window", "0,0,4,4", "value=10,1,1,1"],
     # openfx-gmic render_plugins.py (the host arguments first)
     ["--ofx14", *Q, "--allow-unwritten", "--format", "pfm", "-d", "float", "-p", INVERT, "-c", "filter", "--frames",
      "0", "-o", "out", "--report", "r.json", "-i", "Source=file:in.pfm"],
@@ -140,7 +151,7 @@ Q = ["--no-std-paths", "--no-cache", "--quiet"]
     [*Q, "-p", INVERT, "-c", "filter", "-o", "out", "--report", "r.json"],
     [*Q, "-p", INVERT, "-c", "filter", "--frames", "0", "-o", "out", "-d", "float", "--report", "r.json"],
 ], ids=["misc-invert", "misc-basic", "misc-file-window", "misc-window-outside", "misc-keys", "misc-button",
-        "misc-choices", "gmic-ofx14", "io-ppm", "arena-ppm"])
+        "misc-choices", "inf", "gmic-ofx14", "io-ppm", "arena-ppm"])
 def test_same_as_hostdemo(tmp_path, hosts, sample_plugins, args):
     rgb = np.random.default_rng(0).random((24, 32, 3), dtype=np.float32)
     s, i, sd, idir = _compare(tmp_path, hosts, sample_plugins, args, files=[("in.pfm", ofxhost.encode_pfm(rgb))])
@@ -151,7 +162,7 @@ def test_same_as_hostdemo(tmp_path, hosts, sample_plugins, args):
 def test_describe(tmp_path, hosts, sample_plugins):
     (s, sd), (i, idir) = both(tmp_path, hosts, sample_plugins, [*Q, "-p", BASIC, "-m", "1", "--describe", "d.json"])
     assert s.returncode == i.returncode == 0, (s.stderr, i.stderr)
-    _same(json.loads((sd / "d.json").read_text()), json.loads((idir / "d.json").read_text()))
+    _same(_strict((sd / "d.json").read_text()), _strict((idir / "d.json").read_text()))
 
 
 @pytest.mark.parametrize("args", [

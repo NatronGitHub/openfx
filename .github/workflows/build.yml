@@ -116,7 +116,7 @@ jobs:
           cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test ofxh \
             hostDemo example-Basic-support example-ChoiceParams-support example-Generator-support \
             example-Invert-support example-Tester-support example-Retimer-support example-MultiBundle-support \
-            example-Rectangle example-PropTester
+            example-Rectangle example-PropTester example-MultiplyGPU-support
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test)
           # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
           PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" OFXH_REQUIRE=1 \
@@ -221,6 +221,44 @@ jobs:
           # (Windows paths: PYTHONPATH is read by the native python.exe)
           PYTHONPATH="$(cygpath -w "$PWD/build/HostSupport/python");$(cygpath -w "$PWD/HostSupport/examples/python")" \
             python -c "import ofxh, ofxhost.inprocess, ofxhost.graphhost, ofxhost.cli; print(ofxh.__file__, ofxh.build_config)"
+      - name: Smoke run of hostDemo's command line in-process (ofxhost.hostdemo), against hostDemo
+        run: |
+          set -eo pipefail
+          # one --describe and one small render of Invert, with hostDemo.exe and with
+          # python -m ofxhost.hostdemo (and the hostdemo-inprocess script, which converts its path
+          # for the native python.exe): the same exit status, describe JSON, files and crc32
+          root=$PWD
+          hd=$root/$(find build -name hostDemo.exe -type f | head -1)
+          export OFX_PLUGIN_PATH="$(cygpath -w "$root/build/Plugins")"
+          export PYTHONPATH="$(cygpath -w "$root/build/HostSupport/python")"
+          args=(--no-std-paths --no-cache --quiet -p net.sf.openfx.invertPlugin -d float --frames 0
+                --window 0,0,16,8 -i Source=ramp --format pfm -o out --report r.json)
+          for h in hd py sh; do
+            mkdir -p "smoke/$h" && cd "smoke/$h"
+            case $h in
+              hd) run=("$hd") ;;
+              py) run=(python -m ofxhost.hostdemo) ;;
+              sh) run=(env OFXHOST_PYTHON=python "$root/HostSupport/examples/python/hostdemo-inprocess") ;;
+            esac
+            [ $h = hd ] || export PYTHONPATH="$PYTHONPATH;$(cygpath -w "$root/HostSupport/examples/python")"
+            "${run[@]}" --no-std-paths --no-cache --quiet -p net.sf.openfx.invertPlugin --describe d.json
+            "${run[@]}" "${args[@]}"
+            ls out.0*.pfm
+            cd "$root"
+          done
+          for h in py sh; do
+            for f in smoke/hd/out.0*.pfm; do cmp "$f" "smoke/$h/${f##*/}"; done
+          done
+          python - <<'PY'
+          import json
+          def load(p):
+              return json.load(open(p), parse_constant=lambda c: (_ for _ in ()).throw(ValueError(c)))
+          for h in ("py", "sh"):
+              assert load(f"smoke/{h}/d.json") == load("smoke/hd/d.json"), h
+              crc = lambda p: [r["output"]["crc32"] for r in load(p)["renders"]]
+              assert crc(f"smoke/{h}/r.json") == crc("smoke/hd/r.json"), h
+          print("ofxhost.hostdemo: same as hostDemo")
+          PY
       - name: Self-test of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows)
         run: |
           set -eo pipefail

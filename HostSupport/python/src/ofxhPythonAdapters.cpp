@@ -851,6 +851,14 @@ static void fillSentinel(unsigned char *data, long long rowBytes, int width, int
 static PyImage *makeImage(PyClipInstance &clip, nb::object r, OfxTime time, int view)
 {
   PyEffectInstance *const effect = clip._effect;
+  if (clip.isOutput() && clip._outputImage) {
+    // another fetch of this render made the output image while get_image() ran (several worker
+    // threads that fetch the output first: get_image() may let another thread take the GIL). There
+    // is one output image per render: return it (r is dropped), never overwrite it (its pixels
+    // would be lost, and the image leaked)
+    clip._outputImage->addReference();
+    return clip._outputImage;
+  }
   if (!nb::isinstance<ImageData>(r)) {
     raiseError(PyExc_TypeError, "clip " + clip.getName() + ": get_image() must return an ofxh.ImageData or None, not " +
                                 typeName(r));
@@ -975,6 +983,12 @@ OHIE::Image *PyClipInstance::fetchFromPython(OfxTime time, int view, const OfxRe
                                   : nb::none();
     // (part 1: the colour plane only; the keyword is there for the planes of a later part)
     nb::object r = _py.attr("get_image")(time, view, b, nb::arg("plane") = "Colour");
+    if (isOutput() && _outputImage) {
+      // (another thread's fetch made the render's output image meanwhile, still under the GIL
+      // here: that one, see makeImage())
+      _outputImage->addReference();
+      return (OHIE::Image *)_outputImage;
+    }
     if (r.is_none()) {
       return (OHIE::Image *)NULL;
     }

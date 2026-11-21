@@ -90,6 +90,14 @@ def test_alpha_input(sample_plugins):
                params={"value": [1, 1, 1, 0.5]}, frames=[0], window=(0, 0, 8, 6))
     assert r.report["clipPreferences"]["clips"]["Source"]["components"] == "OfxImageComponentAlpha"
     assert r.report["inputs"]["Source"]["spec"] == "ramp#alpha"
+    # components= overrides a spec's suffix, and the report says so
+    r = render(sample_plugins, MULTIPLY, inputs={"Source": "ramp#rgb"}, components={"Source": "alpha"},
+               frames=[0], window=(0, 0, 8, 6))
+    assert r.report["inputs"]["Source"]["spec"] == "ramp#alpha"
+    r = render(sample_plugins, MULTIPLY, inputs={"Source": "ramp#rgb"}, components={"Source": "rgba"},
+               frames=[0], window=(0, 0, 8, 6))
+    assert r.report["inputs"]["Source"]["spec"] == "ramp"
+    assert r.report["inputs"]["Source"]["unmappedComponents"] == "OfxImageComponentRGBA"
     seen = r.report["clipPreferences"]["clips"]["Output"]["components"]
     assert r.output.shape[2] == {"OfxImageComponentRGBA": 4, "OfxImageComponentAlpha": 1}[seen]
 
@@ -186,19 +194,37 @@ def _suite_function(index, proto):
     return proto(ctypes.c_void_p.from_address(suite + index * ctypes.sizeof(ctypes.c_void_p)).value)
 
 
+_PROP_GET_POINTER = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int,
+                                     ctypes.POINTER(ctypes.c_void_p))
+
+
+def _prop_get_pointer():
+    """OfxPropertySuiteV1.propGetPointer (the 9th function)."""
+    suite = ofxh.fetch_suite("OfxPropertySuite", 1)
+    return _PROP_GET_POINTER(ctypes.c_void_p.from_address(suite + 8 * ctypes.sizeof(ctypes.c_void_p)).value)
+
+
 @pytest.mark.parametrize("host", ["inprocess", "graphhost"])
-def test_worker_thread_fetches_the_output_first(sample_plugins, monkeypatch, host):
-    """A plug-in's worker thread (here a Python thread that calls the image effect suite through
+def test_worker_threads_fetch_the_output_first(sample_plugins, monkeypatch, host):
+    """Several worker threads of a plug-in (here Python threads that call the image effect suite through
     ctypes, started and joined in the first fetch of the output image, as a plug-in's OpenMP loop
-    would) is the first to fetch the output image, and asks for the output's RoD: both work, without
-    a RoD action on the worker (which ofxh refuses). The worker's image is then replaced by the main
-    thread's (the test leaks it: one 8x6 image)."""
-    seen = {}
+    would) are the first to fetch the output image, concurrently (each one's get_image() sleeps, so
+    that they all run it before one of them returns), and ask for the output's RoD. Each fetch works,
+    without a RoD action on a worker (which ofxh refuses), and there is one output image in the render:
+    the same image (handle and pixel data) for every fetch, the main thread's too. The arrays that the
+    other get_image() calls made are dropped, not leaked: none is alive after the render."""
+    import gc
+    import time as _time
+    import weakref
+    n = 4
+    seen = {"images": [], "data": [], "rods": []}
+    made = []  # weak references to the pixel arrays of the output's get_image() calls
     clip_class = inprocess._Clip if host == "inprocess" else graphhost.Clip
     original = clip_class.get_image
 
     def get_image(self, time, view, bounds, plane="Colour"):
-        if self.is_output and "image" not in seen and threading.current_thread() is threading.main_thread():
+        main = threading.current_thread() is threading.main_thread()
+        if self.is_output and main and not seen["images"]:
             handle = ctypes.c_void_p()
             st = _suite_function(3, _CLIP_HANDLE)(ctypes.c_void_p(self.instance.handle), b"Output", ctypes.byref(handle),
                                                  None)
@@ -206,27 +232,46 @@ def test_worker_thread_fetches_the_output_first(sample_plugins, monkeypatch, hos
 
             def worker():
                 img = ctypes.c_void_p()
-                seen["image"] = _suite_function(5, _GET_IMAGE)(handle, time, None, ctypes.byref(img))
-                if seen["image"] == 0:
-                    _suite_function(6, _RELEASE)(img)
+                st = _suite_function(5, _GET_IMAGE)(handle, time, None, ctypes.byref(img))
+                data = ctypes.c_void_p()
+                if st == 0:
+                    _prop_get_pointer()(img, b"OfxImagePropData", 0, ctypes.byref(data))
+                seen["images"].append((st, img.value))
+                seen["data"].append(data.value)
                 rod = (ctypes.c_double * 4)()
-                seen["rod"] = (_suite_function(7, _ROD)(handle, time, ctypes.byref(rod)), tuple(rod))
+                seen["rods"].append((_suite_function(7, _ROD)(handle, time, ctypes.byref(rod)), tuple(rod)))
+                if st == 0:
+                    _suite_function(6, _RELEASE)(img)
 
-            t = threading.Thread(target=worker)
-            t.start()
-            t.join()
-        return original(self, time, view, bounds, plane)
+            threads = [threading.Thread(target=worker) for _ in range(n)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        elif self.is_output and not main:
+            _time.sleep(0.05)  # (lets the other workers into get_image(): they race)
+        r = original(self, time, view, bounds, plane)
+        if self.is_output and r is not None:
+            made.append(weakref.ref(r.pixels))
+        return r
 
     monkeypatch.setattr(clip_class, "get_image", get_image)
     if host == "inprocess":
         r = render(sample_plugins, INVERT, inputs={"Source": "rod:0,0,768,576"}, frames=[0], window=(0, 0, 8, 6))
         assert r.report["ok"]
+        assert np.all(r.output == 1.)  # (Invert of transparent black: the plug-in rendered into the image)
     else:
         r = graphhost.run(Graph.of(Node(INVERT, inputs={"Source": "ramp"}), frames=[0], window=(0, 0, 8, 6)),
                           sample_plugins, write=False)
         assert r.ok, r.report["error"]
-    assert seen["image"] == 0  # kOfxStatOK
-    assert seen["rod"] == (0, (0., 0., 768., 576.))
+    assert [st for st, _ in seen["images"]] == [0] * n  # kOfxStatOK
+    assert len({h for _, h in seen["images"]}) == 1  # one image
+    assert len(set(seen["data"])) == 1 and seen["data"][0]
+    assert seen["rods"] == [(0, (0., 0., 768., 576.))] * n
+    assert len(made) == n + 1  # (each worker's get_image(), then the main thread's)
+    del r
+    gc.collect()
+    assert [w for w in made if w() is not None] == []  # (none leaked)
 
 
 # --- the sample host's planning -----------------------------------------------------------------
@@ -256,7 +301,7 @@ def test_plan_bounded(sample_plugins, monkeypatch):
 
 def test_plan_union():
     """_plan() plans a window inside the union of those planned at a (node, time) once, and the union
-    when a window grows it."""
+    when a window grows it; an empty window plans nothing and doesn't grow the union."""
     calls = []
 
     class Ns:
@@ -268,9 +313,25 @@ def test_plan_union():
     old, graphhost._plan_window = graphhost._plan_window, spy
     try:
         seen = {}
-        for w in [(0, 0, 10, 10), (2, 2, 8, 8), (5, 5, 20, 12), (0, 0, 20, 12)]:
+        for w in [(5, 5, 5, 9), (0, 0, 10, 10), (2, 2, 8, 8), (30, 30, 30, 30), (5, 5, 20, 12), (0, 0, 20, 12)]:
             graphhost._plan(None, Ns(), 0., w, seen)
     finally:
         graphhost._plan_window = old
     assert calls == [(0, 0, 10, 10), (0, 0, 20, 12)]
     assert seen == {("n", 0.): (0, 0, 20, 12)}
+
+
+def test_non_finite_statistics_are_null(sample_plugins, tmp_path):
+    """An output with infinite values (3e38 * 10 overflows float): its min, max and mean are null in
+    the report, as hostDemo writes NaN and infinities (hostDemoJson.h), and the report written with
+    --report is strict JSON."""
+    r = render(sample_plugins, MULTIPLY, inputs={"Source": "solid:3e38,0.5,0.25,1"}, params={"value": [10, 1, 1, 1]},
+               frames=[0], window=(0, 0, 4, 4), extra_args=["--report", "r.json"])
+    out = r.report["renders"][0]["output"]
+    assert out["min"][0] is None and out["max"][0] is None and out["mean"][0] is None
+    assert out["mean"][1] == 0.5
+    json.dumps(r.report, allow_nan=False)
+
+    def strict(c):
+        raise ValueError(c)
+    assert json.loads((tmp_path / "r.json").read_text(), parse_constant=strict) == json.loads(json.dumps(r.report))
