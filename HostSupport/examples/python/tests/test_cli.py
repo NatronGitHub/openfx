@@ -14,6 +14,8 @@ from ofxhost.testing import assert_close, backend_available
 
 why = backend_available("inprocess")
 if why is not None:
+    if os.environ.get("OFXH_REQUIRE") == "1":
+        pytest.fail(f"ofxh: {why} (OFXH_REQUIRE=1)", pytrace=False)
     pytestmark = pytest.mark.skip(reason=f"ofxh: {why}")
 else:
     import ofxh
@@ -27,8 +29,6 @@ BASIC = "net.sf.openfx.basicPlugin"
 def _cwd(tmp_path, monkeypatch):
     """In a temporary directory (PropTester writes ofxTestLog.txt there in the plug-in scan), without
     $OFX_PLUGIN_PATH, and without an ofxh host."""
-    if os.environ.get("OFXH_REQUIRE") == "1" and why is not None:
-        pytest.fail(f"ofxh: {why} (OFXH_REQUIRE=1)")
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OFX_PLUGIN_PATH", raising=False)
     yield
@@ -82,7 +82,7 @@ def test_params(ofx, tmp_path):
     assert node["plugin"] == BASIC and node["version"] == [1, 0] and node["context"] == "general"
     assert node["params"] == {"scale": 1.0, "scaleComponents": True, "scaleR": 1.0, "scaleG": 1.0, "scaleB": 1.0,
                               "scaleA": 1.0}
-    assert node["inputs"] == {"Source": "default", "Mask": "none"}
+    assert node["inputs"] == {"Source": "default"}  # (the optional Mask left out: disconnected)
     assert doc["outputs"] == {"basicPlugin": "basicPlugin.####.pfm"}
     (tmp_path / "g.json").write_text(out)
     status, out, _ = ofx("render", "g.json")
@@ -126,21 +126,39 @@ def test_render_dump(ofx, tmp_path):
     assert json.loads(out)["outputs"] == {"a": None} and not list(tmp_path.glob("*.pfm"))
 
 
-def test_errors(ofx, tmp_path):
-    status, _, err = ofx("params", "no.such.plugin")
-    assert status == 2 and "no.such.plugin not found" in err
-    status, _, err = ofx("params", INVERT, "-c", "general")
-    assert status == 2 and "no general context" in err
-    status, _, err = ofx("filter", INVERT, "missing.####.pfm", "o.####.pfm")
-    assert status == 2 and "no files" in err
+def test_errors(ofx, tmp_path, capsys):
+    """A failed run is "error: ..." and exit status 1 (no traceback); a usage error is status 2."""
     np.save(tmp_path / "in.0001.npy", rgba())
-    status, _, err = ofx("filter", INVERT, "in.####.npy", "o.npy")
-    assert status == 2 and "needs a frame number" in err
-    status, _, err = ofx("filter", INVERT, "in.0001.npy", "o.npy", "-s", "nope=1")
-    assert status == 1 and "no parameter 'nope'" in err
-    status, _, err = ofx("render", "missing.json")
-    assert status == 2 and "missing.json" in err
-    assert cli.main(["-b", str(tmp_path / "nope"), "list"]) == 2
+    (tmp_path / "bad.pfm").write_bytes(b"PF\n2 2\n-1\n")
+    a = {"plugin": INVERT, "inputs": {"Source": {"node": "b"}}}
+    b = {"plugin": INVERT, "inputs": {"Source": {"node": "a"}}}
+    (tmp_path / "cycle.json").write_text(json.dumps({"outputs": {"a": None}, "nodes": {"a": a, "b": b}}))
+    (tmp_path / "bad.json").write_text(json.dumps({"outputs": {"a": None}, "nodes": {"a": {"plugin": INVERT, "x": 1}}}))
+    failures = [
+        (("params", "no.such.plugin"), "no.such.plugin not found"),
+        (("params", INVERT, "-c", "general"), "no general context"),
+        (("filter", "no.such.plugin", "in.0001.npy", "o.npy"), "no.such.plugin not found"),
+        (("filter", INVERT, "missing.####.pfm", "o.####.pfm"), "no files"),
+        (("filter", INVERT, "in.####.npy", "o.npy"), "needs a frame number"),
+        (("filter", INVERT, "in.0001.npy", "o.png"), "unsupported image format"),
+        (("filter", INVERT, "bad.pfm", "o.pfm"), "bytes of pixel data"),
+        (("filter", INVERT, "in.0001.npy", "o.npy", "-s", "nope=1"), "no parameter 'nope'"),
+        (("filter", BASIC, "in.0001.npy", "o.npy", "-s", "scale=NaN", "--save-graph", "g.json"), "not finite"),
+        (("render", "missing.json"), "missing.json"),
+        (("render", "cycle.json"), "cycle"),
+        (("render", "bad.json"), "unknown key 'x'"),
+        (("render", "bad.json", "--dump"), "unknown key 'x'"),
+    ]
+    for args, message in failures:
+        status, out, err = ofx(*args)
+        assert status == 1 and err.startswith("error: ") and message in err and "Traceback" not in err, (args, err)
+    assert not (tmp_path / "g.json").exists()  # (the NaN graph wasn't written)
+    assert cli.main(["-b", str(tmp_path / "nope"), "list"]) == 1
+    for args in (["render", "g.json", "--scale", "0"], ["render", "g.json", "--frames", "3-1"], ["nope"]):
+        with pytest.raises(SystemExit) as e:
+            cli.main(args)
+        assert e.value.code == 2
+    capsys.readouterr()
 
 
 def test_python_m(sample_plugins, monkeypatch, capsys):

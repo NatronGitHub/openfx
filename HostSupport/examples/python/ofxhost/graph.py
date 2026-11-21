@@ -26,7 +26,7 @@ every key but "nodes" and "outputs" is optional):
      "render": {"frames": [0.0, 1.0], "renderScale": [1.0, 1.0], "window": null, "depth": "float"},
      "outputs": {"b": "out.####.pfm"},
      "nodes": {"a": {"plugin": "net.sf.openfx.invertPlugin", "version": [1, 0], "context": "filter",
-                     "params": {}, "inputs": {"Source": {"file": "in.####.pfm"}}},
+                     "params": {}, "inputs": {"Source": {"file": "in.####.pfm#premult"}}},
                "b": {"plugin": "net.sf.openfx.basicPlugin", "context": "general",
                      "params": {"scale": {"keys": [[0.0, 1.0], [10.0, 2.0]], "interpolation": "linear"},
                                 "scaleComponents": true},
@@ -42,15 +42,25 @@ every key but "nodes" and "outputs" is optional):
   ("output": "b" is read as {"b": null}.)
 - "params": a value (as ofxh.param_template() gives them: numbers, booleans, strings, lists; a
   choice's index or option label), keys {"keys": [[time, value]...], "interpolation": "linear"},
+  a file path {"file": path} (FilePath: the value of a file parameter, which may be a pattern),
   or null to press a push button (after the instance is created, as a user would).
   "interpolation" is that of hostDemo and ofxh, the only one: linear, rounded for integers, held for
   booleans and choices.
-- "inputs": {"node": name}, {"file": pattern} (an image sequence, see ofxhost.sequences; or a still
-  image), or a string for ofxhost.render() ("ramp", "none", "file:x.pfm"...). Relative paths
-  (inputs and outputs) are relative to the graph file's directory.
+- "inputs": {"node": name}, {"file": pattern} (an image sequence, see ofxhost.sequences, or a still
+  image; "#premult", "#unpremult" or "#opaque" at the end gives the files' premultiplication), or a
+  string for ofxhost.render(): a test pattern ("default", "ramp", "checker:16", "solid:r,g,b,a",
+  "rod:x1,y1,x2,y2"), "none", or "file:x.pfm". An input clip that the graph doesn't give is
+  disconnected, as in a real host: the test patterns must be asked for.
+- Relative paths (file inputs, outputs and file parameters) are relative to the graph file's
+  directory (Graph.base). save() rewrites them for the directory it saves to (as absolute paths if
+  there is no relative one), so that a graph saved elsewhere still finds its files.
 "version" is [major, minor] (the latest version of that major is used); without it, the latest.
+Unknown keys are refused, in the nodes and at the top level.
 
 save() then load() gives an equivalent graph, and saving that one gives the same bytes again.
+
+A graph is like a script: it chooses the plug-ins that run, with their parameters, and the files
+it reads and writes, anywhere the user can. Run only the graphs you trust.
 """
 
 from __future__ import annotations
@@ -65,11 +75,11 @@ from typing import Any
 
 import numpy as np
 
-from . import DEPTHS, HostDemoError, Image, render, resolve_file_spec
+from . import DEPTHS, HostDemoError, Image, describe, render, resolve_file_spec
 from .sequences import expand, frame_of
 
-__all__ = ["Node", "Keys", "Files", "Project", "Graph", "topological_order", "load", "loads", "execute",
-           "SCHEMA", "SCHEMA_VERSION"]
+__all__ = ["Node", "Keys", "Files", "FilePath", "Project", "Graph", "topological_order", "load", "loads", "execute",
+           "stem", "SCHEMA", "SCHEMA_VERSION"]
 
 SCHEMA = "ofxhost.graph"
 SCHEMA_VERSION = 1
@@ -105,11 +115,50 @@ class Keys:
             raise ValueError("Keys: no keys")
 
 
+_PREMULTS = ("premult", "unpremult", "opaque")
+
+
 @dataclasses.dataclass(frozen=True)
 class Files:
     """An input read from image files: a file name pattern (ofxhost.sequences: "in.####.pfm"), one
-    file per frame, or a still image (the same at all times). Relative to the graph's directory."""
+    file per frame, or a still image (the same at all times). Relative to the graph's directory.
+    A "#premult", "#unpremult" or "#opaque" suffix gives the premultiplication of the files
+    (default: unpremultiplied, as hostDemo's file inputs)."""
     pattern: str
+
+    def split(self) -> tuple[str, str | None]:
+        """(the file name pattern, the premultiplication suffix or None)."""
+        head, sep, tail = self.pattern.rpartition("#")
+        return (head, tail) if sep and tail in _PREMULTS else (self.pattern, None)
+
+
+class FilePath(str):
+    """The value of a file parameter ({"file": path} in the JSON): a path, or a file name pattern,
+    relative to the graph's directory; save() rewrites it as it does the file inputs."""
+
+    def __repr__(self) -> str:
+        return f"FilePath({str.__repr__(self)})"
+
+
+def stem(plugin_id: str) -> str:
+    """A node name from a plug-in id: its last component ("net.sf.openfx.invertPlugin": "invertPlugin")."""
+    return plugin_id.replace(":", ".").split(".")[-1] or "node"
+
+
+def _rebase(p: str, src: str | None, dst: str | None) -> str:
+    """A path of a graph whose base is src (None: the current directory), for a graph whose base is
+    dst: the same if it is absolute or the bases are the same, else relative to dst, or absolute if
+    there is no relative path (another drive)."""
+    if dst is None or os.path.isabs(p):
+        return p
+    src = os.path.abspath(src or os.getcwd())
+    if src == os.path.abspath(dst):
+        return p
+    full = os.path.normpath(os.path.join(src, p))
+    try:
+        return os.path.relpath(full, dst)
+    except ValueError:
+        return full
 
 
 @dataclasses.dataclass
@@ -205,10 +254,10 @@ class Graph:
         for node in order:
             name = node.name
             if not name:
-                stem = node.plugin.replace(":", ".").split(".")[-1] or "node"
-                name, k = stem, 2
+                s = stem(node.plugin)
+                name, k = s, 2
                 while name in used:
-                    name, k = f"{stem}{k}", k + 1
+                    name, k = f"{s}{k}", k + 1
                 used.append(name)
             names[id(node)] = name
         nodes = {names[id(n)]: n for n in order}
@@ -223,9 +272,16 @@ class Graph:
         """A path of the graph (an input or output file), relative to base."""
         return p if os.path.isabs(p) or self.base is None else os.path.join(self.base, p)
 
-    def to_json(self) -> dict:
-        """The graph as JSON data (the format of the module docstring). Raises ValueError for what
-        JSON can't hold: an array or Image input, a node that isn't in nodes, a non-finite value."""
+    def to_json(self, base: str | os.PathLike | None = None) -> dict:
+        """The graph as JSON data (the format of the module docstring). base: the directory the JSON
+        will be in (save(): the file's), for which the relative paths are rewritten (None: as they
+        are). Raises ValueError for what JSON can't hold: an array or Image input, a node that isn't in
+        nodes, a non-finite value."""
+        dst = None if base is None else os.path.abspath(base)
+
+        def path(p: str) -> str:
+            return _rebase(p, self.base, dst)
+
         names = {id(n): name for name, n in self.nodes.items()}
         if len(names) != len(self.nodes):
             raise ValueError("a node is in the graph under two names")
@@ -239,7 +295,7 @@ class Graph:
                          "renderScale": [float(s) for s in _scale(self.scale)],
                          "window": None if self.window is None else [int(v) for v in self.window],
                          "depth": self.depth}
-        doc["outputs"] = {name: None if f is None else os.fspath(f) for name, f in self.outputs.items()}
+        doc["outputs"] = {name: None if f is None else path(os.fspath(f)) for name, f in self.outputs.items()}
         nodes = doc["nodes"] = {}
         for name, n in self.nodes.items():
             d: dict[str, Any] = {"plugin": n.plugin}
@@ -249,7 +305,8 @@ class Graph:
             params = d["params"] = {}
             for p, v in n.params.items():
                 k = _keys(v)
-                params[p] = v if v is None else _json_value(v) if k is None else {
+                params[p] = v if v is None else {"file": path(v)} if isinstance(v, FilePath) else \
+                    _json_value(v) if k is None else {
                     "keys": [[float(t), _json_value(x)] for t, x in sorted(k.values.items(), key=lambda kv: float(kv[0]))],
                     "interpolation": k.interpolation}
             inputs = d["inputs"] = {}
@@ -259,22 +316,28 @@ class Graph:
                         raise ValueError(f"{name}.{clip}: its input node {v!r} is not in the graph")
                     inputs[clip] = {"node": names[id(v)]}
                 elif isinstance(v, Files):
-                    inputs[clip] = {"file": v.pattern}
+                    pattern, premult = v.split()
+                    inputs[clip] = {"file": path(pattern) + ("#" + premult if premult else "")}
                 elif isinstance(v, str):
-                    inputs[clip] = v
+                    # (a hostDemo "file:" spec is made absolute when the base changes)
+                    rebase = v.startswith("file:") and dst is not None and \
+                        os.path.abspath(self.base or os.getcwd()) != dst
+                    inputs[clip] = resolve_file_spec(v, self.base) if rebase else v
                 else:
                     raise ValueError(f"{name}.{clip}: an input of type {type(v).__name__} can't be saved "
                                      "(write the image to a file, and use Files or \"file:x.pfm\")")
             nodes[name] = d
         return doc
 
-    def dumps(self) -> str:
-        """The JSON text (2-space indents, a newline at the end)."""
-        return json.dumps(self.to_json(), indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    def dumps(self, base: str | os.PathLike | None = None) -> str:
+        """The JSON text (2-space indents, a newline at the end); base: as to_json()."""
+        return json.dumps(self.to_json(base), indent=2, ensure_ascii=False, allow_nan=False) + "\n"
 
     def save(self, path: str | os.PathLike) -> None:
+        """Write the JSON file, with the relative paths rewritten for its directory."""
+        text = self.dumps(os.path.dirname(os.path.abspath(path)))  # (before opening: an error writes nothing)
         with open(path, "w", encoding="utf-8") as f:
-            f.write(self.dumps())
+            f.write(text)
 
 
 def loads(text: str, base: str | None = None) -> Graph:
@@ -289,15 +352,29 @@ def load(path: str | os.PathLike) -> Graph:
         return loads(f.read(), os.path.dirname(os.path.abspath(path)))
 
 
+_TOP_KEYS = ("schema", "schemaVersion", "project", "render", "outputs", "output", "nodes")
+_NODE_KEYS = ("plugin", "version", "context", "params", "inputs")
+
+
+def _unknown(d: dict, known, where: str) -> None:
+    extra = [k for k in d if k not in known]
+    if extra:
+        raise ValueError(f"{where}: unknown key {extra[0]!r} (the keys are {', '.join(known)})")
+
+
 def _from_json(doc, base) -> Graph:
     if not isinstance(doc, dict) or not isinstance(doc.get("nodes"), dict):
         raise ValueError('a graph file needs "nodes": {name: {"plugin": ...}, ...}')
+    _unknown(doc, _TOP_KEYS, "the graph")
+    if "output" in doc and "outputs" in doc:
+        raise ValueError('the graph has both "output" and "outputs": give "outputs" only')
     if doc.get("schema", SCHEMA) != SCHEMA or doc.get("schemaVersion", SCHEMA_VERSION) != SCHEMA_VERSION:
         raise ValueError(f"schema {doc.get('schema')!r} version {doc.get('schemaVersion')!r}: expected "
                          f"{SCHEMA!r} version {SCHEMA_VERSION}")
     for name, d in doc["nodes"].items():
         if not isinstance(d, dict) or not isinstance(d.get("plugin"), str):
             raise ValueError(f'node {name!r}: expected {{"plugin": id, ...}}')
+        _unknown(d, _NODE_KEYS, f"node {name!r}")
         if not isinstance(d.get("inputs", {}), dict) or not isinstance(d.get("params", {}), dict):
             raise ValueError(f'node {name!r}: "inputs" and "params" are objects')
         v = d.get("version")
@@ -352,7 +429,9 @@ def _from_json(doc, base) -> Graph:
 def _params(node: str, params: dict) -> dict:
     out = {}
     for name, v in params.items():
-        if isinstance(v, dict):
+        if isinstance(v, dict) and set(v) == {"file"} and isinstance(v["file"], str):
+            v = FilePath(v["file"])
+        elif isinstance(v, dict):
             if set(v) - {"keys", "interpolation"} or not isinstance(v.get("keys"), list):
                 raise ValueError(f'{node}.{name}: keys are {{"keys": [[time, value]...], "interpolation": "linear"}}')
             if not all(isinstance(k, list) and len(k) == 2 for k in v["keys"]):
@@ -462,18 +541,35 @@ def execute(graph: Graph | Node, bundles, frames: Sequence[float] | None = None,
         """An input that isn't a node, for render() at time t: a Files input is the file of t's
         frame; the paths are relative to the graph's directory."""
         if isinstance(v, Files):
-            return "file:" + os.path.abspath(g.path(expand(v.pattern, frame_of(t))))
+            pattern, premult = v.split()
+            return "file:" + os.path.abspath(g.path(expand(pattern, frame_of(t)))) + ("#" + premult if premult else "")
         if isinstance(v, str) and v.startswith("file:"):
             return resolve_file_spec(v, g.base)
         return v
+
+    described: dict = {}
+
+    def disconnected(node: Node) -> dict:
+        """The input clips that the node doesn't give, disconnected ("none"; hostDemo would give them
+        its default pattern)."""
+        version = ["-m", str(int(node.version[0]))] if node.version is not None else []
+        key = (node.plugin, node.context, tuple(version))
+        if key not in described:
+            kw = {k: render_args[k] for k in ("backend", "host_binary", "timeout") if k in render_args}
+            d = describe(bundles, node.plugin, extra_args=extra + version, **kw)
+            ctx = d["contexts"].get(node.context) or d["contexts"].get(
+                "OfxImageEffectContext" + node.context[:1].upper() + node.context[1:]) or {}
+            described[key] = [c["name"] for c in ctx.get("clips", []) if c["name"] != "Output"]
+        return {c: "none" for c in described[key] if c not in node.inputs}
 
     def run(node: Node, inputs: dict, t: float, **kw):
         params = {}
         for p, v in node.params.items():
             k = _keys(v)
-            params[p] = v if k is None else dict(k.values)
+            params[p] = os.path.abspath(g.path(v)) if isinstance(v, FilePath) else v if k is None else dict(k.values)
         version = ["-m", str(int(node.version[0]))] if node.version is not None else []
-        return render(bundles, node.plugin, node.context, {c: leaf(v, t) for c, v in inputs.items()}, params,
+        inputs = {**{c: leaf(v, t) for c, v in inputs.items()}, **disconnected(node)}
+        return render(bundles, node.plugin, node.context, inputs, params,
                       frames=[t], extra_args=extra + version, **common, **kw)
 
     # 0. inputs first: the RoD of each node at the requested times, from its inputs' RoDs (given

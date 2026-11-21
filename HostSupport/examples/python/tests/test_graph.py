@@ -9,7 +9,7 @@ import pytest
 
 import ofxhost
 from ofxhost import graph
-from ofxhost.graph import Files, Graph, Keys, Node, Project, execute, load, loads, topological_order
+from ofxhost.graph import FilePath, Files, Graph, Keys, Node, Project, execute, load, loads, topological_order
 from ofxhost.testing import assert_close
 
 INVERT = "net.sf.openfx.invertPlugin"
@@ -194,6 +194,7 @@ def _graph():
 def test_save_load_round_trip(tmp_path):
     """save() then load() gives an equivalent graph, and saving it again gives the same bytes."""
     g = _graph()
+    g.base = str(tmp_path)  # (the paths stay as they are when the graph is saved in its base)
     assert list(g.nodes) == ["invertPlugin", "out", "seq"] and g.outputs == {"out": "out.####.pfm", "seq": None}
     g.save(tmp_path / "g.json")
     text = (tmp_path / "g.json").read_text()
@@ -212,11 +213,53 @@ def test_save_load_round_trip(tmp_path):
     assert out.params["scale"] == Keys({0.: 1.5, 1.: 2}) and out.params["scaleR"] == Keys({.5: .25})
     assert out.inputs["Source"] is h.nodes["invertPlugin"] and h.nodes["invertPlugin"].version == (1, 0)
     assert h.nodes["seq"].inputs == {"Source": Files("in.####.pfm")}
-    # a project and a push button press
+    # a project, a push button press, a file parameter, a premultiplied sequence
     g.project = Project(size=(64., 48.), pixel_aspect_ratio=1., frame_range=(1., 5.))
     g.nodes["out"].params["press"] = None
+    g.nodes["out"].params["lut"] = FilePath("luts/a.cube")
+    g.nodes["seq"].inputs["Source"] = Files("in.####.pfm#premult")
+    assert json.loads(g.dumps())["nodes"]["out"]["params"]["lut"] == {"file": "luts/a.cube"}
+    assert loads(g.dumps()).nodes["out"].params["lut"] == FilePath("luts/a.cube")
     assert loads(g.dumps()).dumps() == g.dumps()
     assert loads(g.dumps()).project == g.project and loads(g.dumps()).nodes["out"].params["press"] is None
+
+
+def test_save_elsewhere(tmp_path):
+    """Saved in another directory, the relative paths (file inputs, outputs, file parameters) are
+    rewritten for it; a "file:" spec is made absolute; saving the loaded graph there again gives the
+    same bytes, and saving it back in its first directory gives the first file."""
+    g = _graph()
+    g.base = str(tmp_path / "a")
+    g.nodes["out"].params["lut"] = FilePath("luts/x.cube")
+    g.nodes["out"].inputs["Mask"] = "file:m.pfm#premult"
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b" / "c").mkdir(parents=True)
+    g.save(tmp_path / "a" / "g.json")
+    g.save(tmp_path / "b" / "c" / "g.json")
+    doc = json.loads((tmp_path / "b" / "c" / "g.json").read_text())
+    assert doc["nodes"]["seq"]["inputs"]["Source"] == {"file": "../../a/in.####.pfm"}
+    assert doc["outputs"]["out"] == "../../a/out.####.pfm"
+    assert doc["nodes"]["out"]["params"]["lut"] == {"file": "../../a/luts/x.cube"}
+    assert doc["nodes"]["out"]["inputs"]["Mask"] == "file:" + str((tmp_path / "a" / "m.pfm").resolve()) + "#premult"
+    h = load(tmp_path / "b" / "c" / "g.json")
+    assert h.path(h.nodes["seq"].inputs["Source"].pattern) == os.path.join(str(tmp_path / "b" / "c"), "../../a/in.####.pfm")
+    h.save(tmp_path / "b" / "c" / "h.json")
+    assert (tmp_path / "b" / "c" / "h.json").read_text() == (tmp_path / "b" / "c" / "g.json").read_text()
+    h.save(tmp_path / "a" / "h.json")
+    first = json.loads((tmp_path / "a" / "g.json").read_text())
+    back = json.loads((tmp_path / "a" / "h.json").read_text())
+    assert back["nodes"]["seq"] == first["nodes"]["seq"] and back["outputs"] == first["outputs"]
+
+
+def test_load_strict():
+    """Unknown keys are refused, at the top level and in the nodes; and "output" with "outputs"."""
+    node = {"plugin": INVERT, "inputs": {"Source": "ramp"}}
+    with pytest.raises(ValueError, match="unknown key 'ouputs'"):
+        loads(json.dumps({"ouputs": {"a": None}, "output": "a", "nodes": {"a": node}}))
+    with pytest.raises(ValueError, match="node 'a': unknown key 'param'"):
+        loads(json.dumps({"outputs": {"a": None}, "nodes": {"a": {**node, "param": {}}}}))
+    with pytest.raises(ValueError, match='both "output" and "outputs"'):
+        loads(json.dumps({"outputs": {"a": None}, "output": "a", "nodes": {"a": node}}))
 
 
 def test_save_errors():
@@ -232,13 +275,16 @@ def test_save_errors():
     with pytest.raises(ValueError, match="interpolat"):
         loads(json.dumps({"outputs": {"a": None}, "nodes": {"a": {"plugin": INVERT, "params": {
             "x": {"keys": [[0, 1]], "interpolation": "smooth"}}}}}))
+    with pytest.raises(ValueError, match="not finite"):
+        Graph.of(Node(INVERT, params={"x": float("nan")})).dumps()
     with pytest.raises(ValueError, match="schema"):
         loads(json.dumps({"schema": "x", "outputs": {"a": None}, "nodes": {"a": {"plugin": INVERT}}}))
 
 
 def test_round_trip_renders_the_same(hostdemo, sample_plugins, tmp_path):
-    """A graph built in Python, saved and loaded, renders the same images (on each backend): keys,
-    an option label, a plug-in version, a file sequence and the render settings."""
+    """A graph built in Python renders the same images (on each backend) as the graph saved and
+    loaded, in its directory and in another one (its paths rewritten): with keys, a plug-in version,
+    a file sequence and the render settings."""
     src = rgba()
     for f in (0, 1):
         ofxhost.write_pfm(tmp_path / f"in.{f:04d}.pfm", src[..., :3] * (1 + f) / 2)
@@ -249,12 +295,19 @@ def test_round_trip_renders_the_same(hostdemo, sample_plugins, tmp_path):
     g.save(tmp_path / "g.json")
     h = load(tmp_path / "g.json")
     assert h.dumps() == g.dumps()
+    (tmp_path / "elsewhere").mkdir()
+    g.save(tmp_path / "elsewhere" / "g.json")
+    e = load(tmp_path / "elsewhere" / "g.json")
+    assert e.nodes["invertPlugin"].inputs["Source"] == Files("../in.####.pfm")
+    e.save(tmp_path / "elsewhere" / "e.json")
+    assert (tmp_path / "elsewhere" / "e.json").read_text() == (tmp_path / "elsewhere" / "g.json").read_text()
     a = execute(g, sample_plugins, host_binary=hostdemo)
-    b = execute(h, sample_plugins, host_binary=hostdemo)
-    assert sorted(a) == sorted(b) == [0., 1.]
-    for t in a:
-        assert a[t].bounds == b[t].bounds == (0, 0, 40, 30)
-        assert np.array_equal(a[t].pixels, b[t].pixels)
+    for other in (h, e):
+        b = execute(other, sample_plugins, host_binary=hostdemo)
+        assert sorted(a) == sorted(b) == [0., 1.]
+        for t in a:
+            assert a[t].bounds == b[t].bounds == (0, 0, 40, 30)
+            assert np.array_equal(a[t].pixels, b[t].pixels)
         # Invert of the frame's file, scaled by the key value (1 at t=0, 3 at t=1)
         x = (1 - src[48 - 30:, :40, :3] * (1 + t) / 2) * (1 + 2 * t)
         assert_close(a[t].pixels[..., :3], x, atol=1e-5, msg=f"t={t}")

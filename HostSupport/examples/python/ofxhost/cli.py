@@ -15,8 +15,12 @@
 -b: a plug-in directory (or .ofx.bundle), repeatable; $OFX_PLUGIN_PATH is scanned too. Frames F:
 "1-10", "0-20x2" (a step), or "1,3,5". -s NAME=VALUE: VALUE is JSON if it parses (1.5, true,
 [1, 2]), else a string (a choice's option label, a file name); -s NAME presses a push button.
-Images: .pfm and .npy (ofxhost.imageio). The exit status is 0 if it worked, 1 if the run failed,
-2 for a usage error.
+Images: .pfm and .npy (ofxhost.imageio). The exit status is 0 if it worked, 1 if it failed (a
+plug-in not found, a missing file, a failed render...: "error: ..." on stderr), 2 for a usage error
+(the command line itself).
+
+The ofxh module is imported after the command line is read: without PYTHONPATH, it is the one of
+the openfx build tree that holds the -b (or $OFX_PLUGIN_PATH) directories, if there is one.
 """
 
 from __future__ import annotations
@@ -28,12 +32,17 @@ import os
 import sys
 
 from . import graph as g
-from . import graphhost, sequences
-from .imageio import read_image
+from . import sequences
+from .imageio import check_format, read_image
 
 __all__ = ["main", "parse_frames"]
 
 log = logging.getLogger("ofxhost")
+graphhost = None  # ofxhost.graphhost, imported by main() (it imports ofxh)
+
+
+class Failure(Exception):
+    """The command failed (exit status 1), with this message."""
 
 
 def parse_frames(text: str) -> list[float]:
@@ -56,7 +65,19 @@ def parse_frames(text: str) -> list[float]:
             raise argparse.ArgumentTypeError(f"invalid frame range {part!r}")
         n = int((last - first) / s + 1e-9)
         out += [first + k * s for k in range(n + 1)]
+    if not all(abs(f) < 1e15 for f in out):  # (also NaN)
+        raise argparse.ArgumentTypeError(f"invalid frames {text!r}")
     return list(dict.fromkeys(out))
+
+
+def _scale(text: str) -> float:
+    try:
+        s = float(text)
+    except ValueError:
+        s = float("nan")
+    if not 0. < s <= 1.:
+        raise argparse.ArgumentTypeError(f"invalid render scale {text!r}: it must be in (0, 1]")
+    return s
 
 
 def _value(text: str):
@@ -70,7 +91,7 @@ def _value(text: str):
 def _plugin(pid: str):
     p = graphhost.ofxh.get_plugin(pid)
     if p is None:
-        raise SystemExit(f"error: plug-in {pid} not found (add its directory with -b, or to OFX_PLUGIN_PATH)")
+        raise Failure(f"plug-in {pid} not found (add its directory with -b, or to OFX_PLUGIN_PATH)")
     return p
 
 
@@ -78,7 +99,7 @@ def _context(plugin, context: str | None) -> str:
     if context is None:
         return "filter" if "filter" in plugin.contexts else plugin.contexts[0]
     if context not in plugin.contexts:
-        raise SystemExit(f"error: {plugin.id} has no {context} context (its contexts: {', '.join(plugin.contexts)})")
+        raise Failure(f"{plugin.id} has no {context} context (its contexts: {', '.join(plugin.contexts)})")
     return context
 
 
@@ -91,14 +112,17 @@ def cmd_list(args) -> int:
 
 
 def template(plugin, context: str) -> g.Graph:
-    """A one-node graph of a plug-in, with the defaults of its parameters (ofxh.param_template()), its
-    input clips connected to hostDemo's default pattern (the optional ones to none), and its output
-    written to <name>.####.pfm."""
+    """A one-node graph of a plug-in, with the defaults of its parameters (ofxh.param_template(); the
+    file parameters as {"file": path}), its mandatory input clips on hostDemo's default test pattern
+    (the optional ones left out: disconnected), and its output written to <name>.####.pfm."""
     d = plugin.descriptor(context)
-    name = plugin.id.replace(":", ".").split(".")[-1] or "node"
-    node = g.Node(plugin.id, context, dict(graphhost.ofxh.param_template(plugin, context)), name=name,
-                  version=tuple(plugin.version))
-    node.inputs = {c.name: ("none" if c.is_optional else "default") for c in d.clips if not c.is_output}
+    params = dict(graphhost.ofxh.param_template(plugin, context))
+    for p in d.params:
+        if p.name in params and graphhost.is_file_param(p, plugin.contexts):
+            params[p.name] = g.FilePath(params[p.name])
+    name = g.stem(plugin.id)
+    node = g.Node(plugin.id, context, params, name=name, version=tuple(plugin.version))
+    node.inputs = {c.name: "default" for c in d.clips if not c.is_output and not c.is_optional}
     gr = g.Graph.of(node)
     gr.outputs[name] = name + ".####.pfm"
     gr.frames = [0., 1.]
@@ -127,30 +151,33 @@ def cmd_params(args) -> int:
     return 0
 
 
-def _run(args, graph: g.Graph) -> int:
+def _run(args, graph) -> int:
     if getattr(args, "save_graph", None):
-        graph.save(args.save_graph)
+        try:
+            graph.save(args.save_graph)
+        except (OSError, ValueError) as e:
+            raise Failure(f"--save-graph {args.save_graph}: {e}") from None
     r = graphhost.run(graph, args.bundles, frames=getattr(args, "frames", None), scale=getattr(args, "scale", None),
                       use_env_path=True, report_path=getattr(args, "report", None))
     for f in r.files:
         print(f)
     if not r.ok:
-        print(f"error: {r.report['error']}", file=sys.stderr)
-    return 0 if r.ok else 1
+        raise Failure(r.report["error"])
+    return 0
 
 
 def cmd_filter(args) -> int:
     still = not sequences.has_pattern(args.input)
-    fs = [] if still else sequences.frames(args.input)
-    if not still and not fs:
-        raise SystemExit(f"error: {args.input}: no files of this sequence")
-    if not still and not sequences.has_pattern(args.output):
-        raise SystemExit(f"error: {args.output}: the input is a sequence, the output needs a frame number (####)")
-    first = args.input if still else sequences.expand(args.input, fs[0])
     try:
-        h, w = read_image(first).shape[:2]
+        check_format(args.output)
+        fs = [] if still else sequences.frames(args.input)
+        if not still and not fs:
+            raise Failure(f"{args.input}: no files of this sequence")
+        if not still and not sequences.has_pattern(args.output):
+            raise Failure(f"{args.output}: the input is a sequence, the output needs a frame number (####)")
+        h, w = read_image(args.input if still else sequences.expand(args.input, fs[0])).shape[:2]
     except (OSError, ValueError) as e:
-        raise SystemExit(f"error: {e}")
+        raise Failure(str(e)) from None
     with graphhost.host(graphhost.plugin_dirs_of(args.bundles), use_env_path=True):
         plugin = _plugin(args.plugin)
         context = _context(plugin, args.context)
@@ -162,9 +189,8 @@ def cmd_filter(args) -> int:
         params[name] = _value(value) if eq else None  # (no value: press a push button)
     src = "Source" if "Source" in clips else (clips[0] if clips else None)
     if src is None:
-        raise SystemExit(f"error: {pid} has no input clip")
-    node = g.Node(pid, context, params, inputs={src: g.Files(os.path.abspath(args.input))},
-                  name=pid.replace(":", ".").split(".")[-1] or "node")
+        raise Failure(f"{pid} has no input clip")
+    node = g.Node(pid, context, params, inputs={src: g.Files(os.path.abspath(args.input))}, name=g.stem(pid))
     graph = g.Graph.of(node, project=g.Project(size=(float(w), float(h)), pixel_aspect_ratio=1.,
                                                frame_range=(0., 0.) if still else (float(fs[0]), float(fs[-1]))))
     graph.outputs[node.name] = os.path.abspath(args.output)
@@ -172,17 +198,22 @@ def cmd_filter(args) -> int:
 
 
 def cmd_render(args) -> int:
-    try:
-        graph = g.load(args.graph)
-    except (OSError, ValueError) as e:
-        raise SystemExit(f"error: {args.graph}: {e}")
     if args.dump:
-        sys.stdout.write(graph.dumps())
+        try:
+            sys.stdout.write(g.load(args.graph).dumps())
+        except (OSError, ValueError) as e:
+            raise Failure(f"{args.graph}: {e}") from None
         return 0
-    return _run(args, graph)
+    if args.save_graph:
+        try:
+            graph = g.load(args.graph)
+        except (OSError, ValueError) as e:
+            raise Failure(f"{args.graph}: {e}") from None
+        return _run(args, graph)
+    return _run(args, args.graph)  # (run() loads it, and reports a bad file as a failed run)
 
 
-def main(argv=None) -> int:
+def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="python -m ofxhost", description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog="See ofxhost/cli.py and the README.")
@@ -206,32 +237,54 @@ def main(argv=None) -> int:
     p.add_argument("-c", "--context", help="the context (default: filter, else the first one)")
     p.add_argument("-s", "--set", action="append", metavar="NAME=VALUE", help="a parameter value (repeatable)")
     p.add_argument("--frames", type=parse_frames, help="the frames (default: the time domain)")
+    p.add_argument("--scale", type=_scale, help="the render scale, in (0, 1] (default: 1)")
     p.add_argument("--save-graph", metavar="G.json", help="also save the graph it renders")
     p.add_argument("--report", metavar="R.json", help="write the JSON report")
     p.set_defaults(func=cmd_filter, needs_host=False)
     p = sub.add_parser("render", help="run a JSON graph")
     p.add_argument("graph")
     p.add_argument("--frames", type=parse_frames, help="the frames (default: the graph's, else the time domain)")
-    p.add_argument("--scale", type=float, help="the render scale (default: the graph's)")
+    p.add_argument("--scale", type=_scale, help="the render scale, in (0, 1] (default: the graph's)")
     p.add_argument("--report", metavar="R.json", help="write the JSON report")
     p.add_argument("--save-graph", metavar="G.json", help="save the graph (normalised) before rendering it")
     p.add_argument("--dump", action="store_true", help="print the graph as JSON, and don't render")
     p.set_defaults(func=cmd_render, needs_host=False)
-    args = ap.parse_args(argv)
+    return ap
+
+
+def _import_host(bundles) -> None:
+    """Import ofxh (without PYTHONPATH: the one of the build tree of the -b directories), then
+    ofxhost.graphhost."""
+    global graphhost
+    from ._ofxh import import_ofxh
+    dirs = [os.path.abspath(b) for b in bundles] + os.environ.get("OFX_PLUGIN_PATH", "").split(os.pathsep)
+    import_ofxh(os.pathsep.join(d for d in dirs if d), for_cli=True)
+    from . import graphhost as gh
+    graphhost = gh
+
+
+def main(argv=None) -> int:
+    args = _parser().parse_args(argv)  # (a usage error exits with status 2)
     logging.basicConfig(level=getattr(logging, args.loglevel.upper()), format="%(levelname)s: %(message)s")
     try:
+        _import_host(args.bundles)
         if args.needs_host:
-            with graphhost.host(graphhost.plugin_dirs_of(args.bundles), use_env_path=True):
+            try:
+                dirs = graphhost.plugin_dirs_of(args.bundles)
+            except OSError as e:
+                raise Failure(str(e)) from None
+            with graphhost.host(dirs, use_env_path=True):
                 return args.func(args)
         return args.func(args)
-    except FileNotFoundError as e:  # (a plug-in directory that doesn't exist)
+    except ImportError as e:  # (ofxh not found: ofxhost.inprocess.OfxhNotFound)
         print(f"error: {e}", file=sys.stderr)
-        return 2
-    except SystemExit as e:
-        if isinstance(e.code, str):
-            print(e.code, file=sys.stderr)
-            return 2
-        raise
+        return 1
+    except Failure as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    except OSError as e:  # (e.g. a plug-in directory that doesn't exist, in filter)
+        print(f"error: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

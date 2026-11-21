@@ -241,8 +241,9 @@ scalars.
 `ofxhost.graph` builds plug-in instance graphs (DAGs: an output may feed several inputs), saves
 them to JSON and loads them, and executes them with hostDemo. A `Node` has a plug-in (and
 optionally its `version`, `(major, minor)`), a context, parameters and inputs; an input is another
-`Node`, a `Files` image sequence, or anything `render()` takes. A parameter is a value, `Keys`
-(or a `{time: value}` dict), or `None` to press a push button. A `Graph` names the nodes, says
+`Node`, a `Files` image sequence, or anything `render()` takes; an input clip that the node
+doesn't give is disconnected. A parameter is a value, `Keys` (or a `{time: value}` dict), a
+`FilePath` (the value of a file parameter), or `None` to press a push button. A `Graph` names the nodes, says
 which ones are its outputs (and the file each one is written to), and holds the project and the
 render settings.
 
@@ -269,7 +270,7 @@ order, `Graph.dumps()` gives the text; everything but `nodes` and `outputs` is o
  "outputs": {"basicPlugin": "out.####.pfm"},
  "nodes": {
   "invertPlugin": {"plugin": "net.sf.openfx.invertPlugin", "version": [1, 0], "context": "filter",
-                   "params": {}, "inputs": {"Source": {"file": "in.####.pfm"}}},
+                   "params": {}, "inputs": {"Source": {"file": "in.####.pfm#premult"}}},
   "basicPlugin": {"plugin": "net.sf.openfx.basicPlugin", "context": "general",
                   "params": {"scale": {"keys": [[0.0, 1.0], [10.0, 2.0]], "interpolation": "linear"},
                              "scaleComponents": false},
@@ -285,17 +286,27 @@ order, `Graph.dumps()` gives the text; everything but `nodes` and `outputs` is o
   (null: rendered only; e.g. a writer plug-in, which writes its own files). `"output": "b"`, the
   format before, is read as `{"b": null}`.
 - `params`: values as `ofxh.param_template()` gives them (numbers, booleans, strings, lists; a
-  choice's index, or the label of one of its options), keys, or null (press a push button).
+  choice's index, or the label of one of its options), keys, `{"file": path}` (a file parameter's
+  value, which `save()` rewrites as it does the file inputs), or null (press a push button).
   `"interpolation"` is `"linear"`, hostDemo's and ofxh's only one: linear, rounded for integers,
   held for booleans and choices. Another one is refused.
-- `inputs`: `{"node": name}`, `{"file": pattern}` (an image sequence, or a still image), or a
-  `render()` string ("ramp", "none", "file:x.pfm"...). An input that isn't given is hostDemo's
-  default pattern. Relative paths (inputs and outputs) are relative to the graph file's directory
-  (`Graph.base`); `load()` keeps them as they are, so that saving the loaded graph gives the same
-  bytes.
+- `inputs`: `{"node": name}`, `{"file": pattern}` (an image sequence, or a still image; a
+  `#premult`, `#unpremult` or `#opaque` suffix gives its premultiplication), or a `render()` string:
+  a test pattern (`"default"`, `"ramp"`, `"checker:16"`, `"solid:r,g,b,a"`, `"rod:..."`), `"none"`,
+  or `"file:x.pfm"`. **An input clip that the graph doesn't give is disconnected**, as in a real host
+  (`execute()` passes it as `"none"` to hostDemo): the test patterns must be asked for.
+- Relative paths (file inputs, outputs and file parameters) are relative to the graph file's
+  directory (`Graph.base`). `load()` keeps them as they are, so that saving the loaded graph gives
+  the same bytes; `save()` to another directory rewrites them for that directory (absolute when
+  there is no relative path, and `"file:"` specs absolute), so that the saved graph still finds its
+  files.
+- Unknown keys are refused (in the nodes and at the top level), and so are `"output"` and
+  `"outputs"` together.
 - A graph built in Python, saved, then loaded, is equivalent (the same nodes, versions,
   connections, values and keys, outputs and settings), and saving it again gives the same bytes.
   Arrays and `Image` inputs can't be saved (`ValueError`): write them to files.
+- **Trust:** a graph is like a script: it chooses the plug-ins that run, with their parameters,
+  and the files they read and write, anywhere you can. Run only the graphs you trust.
 
 `execute()` sorts the graph topologically. It runs hostDemo `--query` on each node, outputs
 first, to get the frames and regions it needs from its inputs. The requests for the same node
@@ -329,11 +340,19 @@ What it does (see its docstring):
   `paramChangedCount` is 0). Then the clip preferences, and the push buttons (null values) are
   pressed as a user would, at the project's first frame.
 - **Time domain:** the frames are the graph's (or `--frames`), else every frame of the outputs'
-  time domains: `kOfxImageEffectActionGetTimeDomain` in the general context, else (and when the
-  plug-in replies default) the spec's default, "the union of all the frame ranges of the non
-  optional input clips, infinite if there are no non optional input clips" (infinite: the
-  project's frame range). An input clip's frame range is its input node's time domain, or the
-  frames of its image sequence.
+  time domains. The spec says of `kOfxImageEffectActionGetTimeDomain`: "Only effects instantiated in
+  the General Context can have this called on them. In all other the host is in strict control
+  over the temporal duration of the effect." This host's choice, following Natron
+  (`OfxEffectInstance::getFrameRange`), is to call it in the general, reader, writer and generator
+  contexts. Otherwise, or when the plug-in replies default, it uses the spec's default, "the union
+  of all the frame ranges of the non optional input clips, infinite if there are no non optional
+  input clips" (infinite: the project's frame range). An infinite or huge (beyond ±1e7) end is
+  clamped to the project's frame range; NaN fails the run. An input clip's frame range is its input
+  node's time domain, or the frames of its image sequence.
+- **Sequence renders:** each node gets `beginSequenceRender` with the frames it will render
+  (planned from the outputs' frames, the frames needed and the identities), sequential if they
+  increase by a constant step, and `endSequenceRender` if its begin succeeded. A render action is
+  sequential if its node's sequence is and it comes after the node's last render.
 - **Renders:** before each render action, the frames needed and the regions of interest of its
   inputs are rendered (in memory, kept for the current frame), so temporal effects (e.g. Retimer)
   work. A node without tiles renders its whole RoD. An identity (isIdentity) isn't rendered: its
@@ -347,14 +366,18 @@ What it does (see its docstring):
   `kOfxParamPropStringFilePathExists` = 0), and the `filename` and `proxy` parameters of a reader
   or writer (a plug-in with the reader or writer context). Those hold the pattern; paramGetValue
   returns the name at the current time, paramGetValueAtTime at its time (Natron's
-  `OfxStringInstance::get`). A reader's `originalFrameRange` (Integer2D), if the graph doesn't set
-  it, is set from the files, as Natron's `Node::computeFrameRangeForReader`.
-- **Images:** `ofxhost.imageio`: PFM (an RGBA image is written as RGB and `<name>.alpha.pfm`, as
-  hostDemo, and read back) and NumPy `.npy`. The output files cover the window (the project by
-  default), with the image at its place.
+  `OfxStringInstance::get`), made absolute against the graph's directory, as Natron resolves them
+  against the project's path. A reader's `originalFrameRange` (Integer2D), if the graph doesn't set
+  it, is set from the files (by the same rule), as Natron's `Node::computeFrameRangeForReader`.
+  `%V` is ofxh's name of view 0, `main` (Natron's is `Main`), and `%v` its first letter, `M`.
+- **Images:** `ofxhost.imageio`: only PFM (an RGBA image is written as RGB and
+  `<name>.alpha.pfm`, as hostDemo, and read back) and NumPy `.npy`; no PNG or JPEG yet. `Files`
+  inputs are given to the plug-ins as float RGBA (an RGB file is opaque, a grey one r = g = b = a),
+  at the project's PAR (HostSupport doesn't let the clip preferences change an input's PAR). The
+  output files cover the window (the project by default), with the image at its place.
 - **Report** (`schema` "ofxhost.graphReport", `schemaVersion` 1): `ok`, `error` (the message of
-  the failure: an unknown plug-in, parameter or clip, a missing file, a failed action; the run
-  stops there), `host`, `project`, `frames`, `renderScale`, `nodes` {name: {plugin {id, version,
+  the failure: a bad graph, an unknown plug-in, parameter or clip, a missing or unreadable file, an
+  unsupported output format, a failed action; the run stops there, and `run()` doesn't raise), `host`, `project`, `frames`, `renderScale`, `nodes` {name: {plugin {id, version,
   label}, context, actions [{action, ok, status[, param, time]}] (createInstance,
   getClipPreferences, instanceChanged for the presses, begin/endSequenceRender),
   paramChangedCount, clipPreferences {clips {Clip: {depth, components, pixelAspectRatio,
@@ -363,7 +386,7 @@ What it does (see its docstring):
   {clip, time}), ok, status}], messages [{kind, type, id, text}], params (after the run, in the
   graph's form: they can be pasted back into a graph)}}, `outputs` {node: [{time, output (w, h,
   bounds, depth, comps, min, max, mean, nan, crc32, as hostDemo's report), files}]}.
-- Limits: one view, the colour plane, single-threaded renders (a plug-in that fetches its inputs on
+- Limits: one view (view 0), the colour plane, single-threaded renders (a plug-in that fetches its inputs on
   its own worker threads gets only those that were rendered before its render action), no
   interacts. ofxh has one host per process: `graphhost.run()` shuts down the in-process backend's
   host, and refuses to run while another one is initialized.
@@ -384,10 +407,14 @@ python -m ofxhost render g.json --dump                          # print the grap
 `filter` renders a plug-in on an image or a sequence, in a project of the input's size with
 square pixels, over the sequence's frames; `-s NAME=VALUE` takes JSON values (`1.5`, `true`,
 `[1, 2]`) or strings (a choice's option label), and `-s NAME` presses a button. `params -j` writes
-the template of a graph: the parameter defaults (`ofxh.param_template()`), the input clips on
-hostDemo's default pattern (optional ones disconnected), and the output written to
+the template of a graph: the parameter defaults (`ofxh.param_template()`; file parameters as
+`{"file": ...}`), the mandatory input clips on hostDemo's default pattern (`"default"`; the optional
+ones left out, so disconnected), and the output written to
 `<name>.####.pfm`; it renders as it is. Frames: `1-10`, `0-20x2`, `1,3,5`. The exit status is 0,
-1 if the run failed, 2 for a command-line error.
+1 if it failed (`error: ...` on stderr: a plug-in not found, a bad graph, a missing file, a failed
+render...), 2 for a usage error (the command line itself, e.g. `--scale 0`). The `ofxh` module is
+imported after the command line is read: without `PYTHONPATH`, it is that of the openfx build tree
+that holds the `-b` directories.
 
 ## OFX constants and property metadata
 

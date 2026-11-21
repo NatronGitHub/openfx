@@ -19,13 +19,21 @@ host's order. What it does, as a real host:
   in order, at the project's first frame.
 - The project: its size, offset, PAR, frame rate and frame range (Graph.project; the defaults are
   hostDemo's), given to every instance.
-- The time domain: the frames to render are the graph's frames, else those of the outputs' time
-  domains (the union), frame by frame. In the general context, that is kOfxImageEffectActionGetTimeDomain;
-  when the plug-in replies default (and in the other contexts), the spec's default: "the union of
-  all the frame ranges of the non optional input clips, infinite if there are no non optional input
-  clips" (infinite: the project's frame range). The frame range of an input clip is the time domain
-  of its input node, or the frames of its image sequence (a still image, and the test patterns:
-  the project's frame range).
+- The time domain: the frames to render are the graph's frames, else every frame of the outputs'
+  time domains (their union). The spec says of kOfxImageEffectActionGetTimeDomain: "Only effects
+  instantiated in the General Context can have this called on them. In all other the host is in
+  strict control over the temporal duration of the effect." This host's choice, following Natron
+  (OfxEffectInstance::getFrameRange), is to call it in the general, reader, writer and generator
+  contexts. When the plug-in replies default (and in the other contexts), the spec's default: "the
+  union of all the frame ranges of the non optional input clips, infinite if there are no non
+  optional input clips" (infinite: the project's frame range). A time domain that is infinite or
+  beyond +-1e7 is clamped to the project's frame range; NaN fails the run. The frame range of an
+  input clip is the time domain of its input node, or the frames of its image sequence (a still
+  image, and the test patterns: the project's frame range).
+- The sequence renders: each node gets kOfxImageEffectActionBeginSequenceRender with the frames it
+  will render (planned from the outputs' frames, the frames needed and the identities), sequential
+  if they increase by a constant step, and EndSequenceRender if its begin succeeded. A render
+  action is sequential if its node's sequence is and its time comes after the node's last render.
 - Images in memory: each node renders the window it is asked for (its output, or what the nodes
   that use it need), at the render scale. Before the render action, it asks the plug-in which
   frames (kOfxImageEffectActionGetFramesNeeded) and regions (GetRegionsOfInterest) of its inputs
@@ -47,11 +55,25 @@ host's order. What it does, as a real host:
   - a reader's frame range: if the plug-in has an "originalFrameRange" (Integer2D) parameter and
     the graph doesn't set it, it is set from the files of the sequence, as Natron's
     Node::computeFrameRangeForReader (the first and last frames, or (1, 1) for one file or none).
-- The report (Result.report, ofxhost.cli render --report): see report_schema in the README.
+- Inputs: an input clip the graph doesn't give is disconnected. Image files are given as float
+  RGBA (an RGB file is opaque, a grey one r = g = b = a, as hostDemo's file inputs), at the
+  project's PAR (HostSupport doesn't let the clip preferences change an input's PAR). Formats: PFM
+  and .npy (ofxhost.imageio; no PNG or JPEG yet).
+- Paths: the file inputs, the outputs and the file parameters are relative to the graph's
+  directory (Graph.base), as Natron resolves file parameters against the project's path: the
+  plug-ins get absolute file names.
+- The report (Result.report, ofxhost.cli render --report): see the README.
+- Errors: run() doesn't raise for a bad graph, a missing or unreadable file, an unknown plug-in,
+  parameter or clip, or a failed action: the run ends with ok False and the report's "error" (the
+  report is written too). It raises RuntimeError only if another ofxh host is initialized.
 
-Limits: one view; the colour plane only; no host frame threading (single-threaded renders), so a
-plug-in that fetches its inputs on its own worker threads (e.g. OpenMP) can't get the images that
-weren't rendered before its render action (ofxh refuses actions there); no interacts.
+Limits: one view (view 0, which ofxh names "main": "%V" gives "main", where Natron's first view is
+"Main"); the colour plane only; no host frame threading (single-threaded renders), so a plug-in that
+fetches its inputs on its own worker threads (e.g. OpenMP) can't get the images that weren't rendered
+before its render action (ofxh refuses actions there); no interacts.
+
+A graph is like a script: it chooses the plug-ins that run and the files they read and write. Run
+only the graphs you trust.
 """
 
 from __future__ import annotations
@@ -70,8 +92,8 @@ import numpy as np
 from . import Image, resolve_file_spec
 from . import inprocess as _ip
 from . import sequences
-from .graph import Files, Graph, Node, Project, topological_order, _json_value, _keys, _scale
-from .imageio import read_image, write_image
+from .graph import Files, Graph, Node, Project, load, topological_order, _json_value, _keys, _scale
+from .imageio import check_format, read_image, write_image
 
 __all__ = ["run", "Result", "GraphError", "host", "is_file_param", "REPORT_SCHEMA", "REPORT_SCHEMA_VERSION"]
 
@@ -85,6 +107,8 @@ REPORT_SCHEMA_VERSION = 1
 _to_pixels, _intersect, _empty, _fits, _stats = _ip._to_pixels, _ip._intersect, _ip._empty, _ip._fits, _ip._stats
 _ok, _stat_str = _ip._ok, _ip._stat_str
 _NO_VALUE = {"group", "page", "pushbutton", "parametric"}
+_TIME_DOMAIN_CONTEXTS = {"general", "reader", "writer", "generator"}
+_MAX_FRAME = 1e7
 _HELD = {"boolean", "choice"}
 
 
@@ -116,9 +140,10 @@ def _canonical(px, rs, par):
 
 
 def _frames_in(ranges, t: float) -> list[float]:
-    """The frames of frames-needed ranges ([[t1, t2]...]): t1, t1 + 1, ... up to t2, and t2."""
+    """The frames of frames-needed ranges ([[t1, t2]...]): t1, t1 + 1, ... up to t2, and t2. None
+    (the plug-in said nothing for the clip): [t]."""
     out: list[float] = []
-    for lo, hi in ranges or [[t, t]]:
+    for lo, hi in [[t, t]] if ranges is None else ranges:  # ([]: no frames)
         f = float(lo)
         while f < hi - 1e-9:
             out.append(f)
@@ -214,15 +239,26 @@ def is_file_param(desc, contexts) -> bool:
 
 class FileParam(ofxh.Param):
     """A file parameter: it holds the pattern, and gives the plug-in the file name at the time it
-    asks for (the current time for paramGetValue), for the view of the current action."""
+    asks for (the current time for paramGetValue), for view 0 (the only one), made absolute against
+    base (the graph's directory; None: the current directory), as Natron resolves file parameters
+    against the project's path. An empty value stays empty."""
 
-    def __init__(self):
+    def __init__(self, base: str | None = None):
         super().__init__()
+        self.base = base
         self.pattern: str | None = None  # None: the default
 
+    @property
+    def value(self) -> str:
+        """The pattern, as the graph gives it (or the default)."""
+        return self.initial if self.pattern is None else self.pattern
+
+    def path(self, name: str) -> str:
+        """A name of the parameter, absolute (relative to base)."""
+        return name if not name else os.path.abspath(os.path.join(self.base or os.getcwd(), name))
+
     def get(self, time):
-        pattern = self.initial if self.pattern is None else self.pattern
-        return sequences.expand(pattern, sequences.frame_of(time), self.instance.view_name(0))
+        return self.path(sequences.expand(self.value, sequences.frame_of(time), self.instance.view_name(0)))
 
     def set(self, value, time=None):
         self.pattern = str(value)
@@ -254,7 +290,7 @@ class Instance(ofxh.ImageEffectInstance):
         return Clip(self.run, self.node, desc.name)
 
     def new_param(self, desc):
-        return FileParam() if is_file_param(desc, self.node.plugin.contexts) else None
+        return FileParam(self.run.graph.base) if is_file_param(desc, self.node.plugin.contexts) else None
 
     def _record(self, kind, type, id, text):
         self.node.report["messages"].append({"kind": kind, "type": type, "id": id, "text": text})
@@ -278,8 +314,7 @@ class _Rendered:
 class Clip(ofxh.ClipInstance):
     """A clip. An input is connected to another node, an image sequence (Files), or what
     ofxhost.render() takes: a hostDemo input spec ("ramp", "checker:16", "file:x.pfm", "none"...),
-    an array or an Image. An input that the graph doesn't give gets hostDemo's default pattern, as
-    in ofxhost.graph.execute()."""
+    an array or an Image. An input that the graph doesn't give is disconnected."""
 
     def __init__(self, run: _Run, node: _NodeState, name: str):
         super().__init__()
@@ -287,7 +322,7 @@ class Clip(ofxh.ClipInstance):
         src = node.sources.get(name)
         self.child: _NodeState | None = src if isinstance(src, _NodeState) else None
         self.files: _Files | None = src if isinstance(src, _Files) else None
-        self.spec = src if isinstance(src, _ip._Spec) else _ip._Spec()  # (the default pattern)
+        self.spec = src if isinstance(src, _ip._Spec) else _ip._Spec(type="none", text="none")
 
     # what the clip is connected to: the properties a host sets
     @property
@@ -321,6 +356,8 @@ class Clip(ofxh.ClipInstance):
             return self.child.instance.output_premultiplication
         if not self.connected or self.components == "rgb":
             return "opaque"
+        if self.files is not None:
+            return self.files.premult or "unpremult"
         return self.spec.premult or "unpremult"
 
     @property
@@ -430,19 +467,29 @@ class Clip(ofxh.ClipInstance):
 
 class _Files:
     """An image sequence input: its frames, and the files read (as hostDemo's file inputs, pixels
-    at scale 1: the render scale samples them)."""
+    at scale 1: the render scale samples them). Raises GraphError for a missing or unreadable file."""
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, premult: str | None):
         self.path = path
+        self.premult = premult
         self.still = not sequences.has_pattern(path)
-        self.frames = [] if self.still else sequences.frames(path)
+        try:
+            self.frames = [] if self.still else sequences.frames(path)
+        except ValueError as e:
+            raise GraphError(str(e)) from None
         first = path if self.still else (sequences.expand(path, self.frames[0]) if self.frames else None)
         if first is None or not os.path.isfile(first):
             raise GraphError(f"{path}: no such file" if self.still else f"{path}: no files of this sequence")
-        a = read_image(first)
+        a = self._read(first)
         self.size = a.shape[:2]
-        self.channels = a.shape[2]
         self._specs: dict[str, Any] = {}
+
+    @staticmethod
+    def _read(path: str) -> np.ndarray:
+        try:
+            return read_image(path)
+        except (OSError, ValueError) as e:
+            raise GraphError(f"{path}: {e}") from None
 
     def spec(self, time):
         f = sequences.frame_of(time)
@@ -452,9 +499,8 @@ class _Files:
         s = self._specs.get(path)
         if s is None:
             if not os.path.isfile(path):
-                log.error("%s: no such file (frame %d)", path, f)
-                return _ip._Spec(type="rod", rod=(0., 0., 0., 0.))
-            a = read_image(path)
+                raise GraphError(f"{path}: no such file (frame {f} of the sequence)")
+            a = self._read(path)
             data = _ip._rgba(np.ascontiguousarray(a[::-1, :, :3] if a.shape[2] != 1 else a[::-1, :, 0]),
                              None if a.shape[2] != 4 else np.ascontiguousarray(a[::-1, :, 3]))
             s = self._specs[path] = _ip._Spec(type="file", text=path, data=data)
@@ -471,6 +517,9 @@ class _NodeState:
     instance: Any = None
     time_domain: tuple | None = None
     sources: dict = dataclasses.field(default_factory=dict)  # input clip -> _NodeState | _Files | _ip._Spec
+    planned: set = dataclasses.field(default_factory=set)  # the frames it will render (beginSequenceRender)
+    sequential: bool = False  # its beginSequenceRender's
+    last_render: float | None = None
     report: dict = dataclasses.field(default_factory=dict)
 
 
@@ -483,7 +532,8 @@ class _Run:
         self.frames = frames
         self.nodes: dict[int, _NodeState] = {}  # id(Node) -> state
         self.cache: dict = {}  # (node name, time, view) -> _Rendered or None, for the current frame
-        self._files: dict[str, _Files] = {}
+        self._files: dict = {}
+        self.project_window: tuple = (0, 0, 0, 0)  # (the project in pixels at the render scale)
 
     def source(self, ns: _NodeState, clip: str, v):
         """What an input clip is connected to: a node, an image sequence, or a hostDemo input (a spec
@@ -499,16 +549,17 @@ class _Run:
                 spec = _ip._parse_spec(resolve_file_spec(v, self.graph.base) if v.startswith("file:") else v)
             else:
                 spec = _ip._array_spec(clip, v)
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             raise GraphError(f"{ns.name}.{clip}: invalid input {v if isinstance(v, str) else type(v).__name__} ({e})")
         spec.scale = self.scale
         return spec
 
     def files(self, f: Files) -> _Files:
-        path = os.path.abspath(self.graph.path(f.pattern))
-        if path not in self._files:
-            self._files[path] = _Files(path)
-        return self._files[path]
+        pattern, premult = f.split()
+        path = os.path.abspath(self.graph.path(pattern))
+        if (path, premult) not in self._files:
+            self._files[(path, premult)] = _Files(path, premult)
+        return self._files[(path, premult)]
 
     @staticmethod
     def check(ns: _NodeState, action: str, st, **more) -> None:
@@ -566,7 +617,7 @@ class _Run:
                 if inst.param_type(name) != "pushbutton":
                     raise GraphError(f"{ns.name}.{name}: null presses a push button, but it is a {inst.param_type(name)}")
                 continue
-            keys = _keys(v)
+            keys = None if isinstance(v, str) else _keys(v)
             for t, x in (sorted(keys.values.items(), key=lambda kv: float(kv[0])) if keys else [(None, v)]):
                 try:
                     st = inst.set_param(name, x, None if t is None else float(t))
@@ -595,7 +646,10 @@ class _Run:
         if (not isinstance(p, FileParam) or p.pattern is None or "originalFrameRange" not in inst.param_names
                 or inst.param_type("originalFrameRange") != "integer2d" or "originalFrameRange" in ns.node.params):
             return
-        fs = sequences.frames(self.graph.path(p.pattern)) if sequences.has_pattern(p.pattern) else []
+        try:
+            fs = sequences.frames(p.path(p.pattern)) if sequences.has_pattern(p.pattern) else []
+        except ValueError as e:
+            raise GraphError(f"{ns.name}.filename: {e}") from None
         inst.set_param("originalFrameRange", (fs[0], fs[-1]) if len(fs) > 1 else (1, 1))
 
     def clip_preferences(self, ns: _NodeState) -> None:
@@ -608,22 +662,35 @@ class _Run:
             "outputPremultiplication": inst.output_premultiplication, "frameRate": inst.output_frame_rate}
 
     def time_domain(self, ns: _NodeState) -> None:
+        """The node's time domain: getTimeDomain in the general, reader, writer and generator contexts
+        (Natron's choice; the spec calls it in the general context only), else, or if the plug-in
+        replies default, the spec's default. None: infinite (the project's frame range)."""
         inst = ns.instance
         j = ns.report["timeDomain"] = {"action": None, "range": None}
-        if ns.node.context in ("general", "OfxImageEffectContextGeneral"):
+        if ofxh.short_name("context", ofxh.ofx_name("context", ns.node.context)) in _TIME_DOMAIN_CONTEXTS:
             st, rng = self.call(ns, "getTimeDomain", inst.get_time_domain_action)
             j["action"] = _stat_str(st)
             if not _ok(st):
                 raise GraphError(f"{ns.name}: the getTimeDomain action failed ({_stat_str(st)})")
             if int(st) == 0:
-                ns.time_domain = (float(rng[0]), float(rng[1]))
+                if any(math.isnan(v) for v in rng):
+                    raise GraphError(f"{ns.name}: getTimeDomain gave {tuple(rng)}")
+                ns.time_domain = self.clamp(rng)
         if ns.time_domain is None:
             # "the union of all the frame ranges of the non optional input clips, infinite if there are
             # no non optional input clips" (infinite: None, the project's frame range)
             ranges = [c.frame_range for c in inst.clips.values() if not c.is_output and not c.is_optional]
             if ranges:
-                ns.time_domain = (min(r[0] for r in ranges), max(r[1] for r in ranges))
+                ns.time_domain = self.clamp((min(r[0] for r in ranges), max(r[1] for r in ranges)))
         j["range"] = list(ns.time_domain) if ns.time_domain is not None else None
+
+    def clamp(self, rng) -> tuple:
+        """A frame range whose infinite or huge (beyond +-1e7) ends are the project's."""
+        lo, hi = float(rng[0]), float(rng[1])
+        p = self.project.frame_range
+        lo = p[0] if not abs(lo) <= _MAX_FRAME else lo
+        hi = p[1] if not abs(hi) <= _MAX_FRAME else hi
+        return (lo, hi)
 
     # --- the renders
     def render(self, ns: _NodeState, t: float, window, rs, view: int = 0) -> _Rendered | None:
@@ -673,7 +740,12 @@ class _Run:
                 if clip.child is not None and not clip.is_output and name in rois:
                     for f in _frames_in(ranges.get(name), t):
                         clip.image(f, view, rois[name], rs)
-            st, planes = self.call(ns, "render", inst.render_action, t, win, rs, "none", True, False, False, view)
+            # sequential: the node's sequence is, and this render comes after its last one
+            sequential = ns.sequential and (ns.last_render is None or t > ns.last_render)
+            ns.last_render = t if ns.last_render is None else max(ns.last_render, t)
+            rec["sequential"] = sequential
+            st, planes = self.call(ns, "render", inst.render_action, t, win, rs, "none", sequential, False, False,
+                                   view)
         finally:
             inst.rois = {}
         image = planes.get("Colour")
@@ -697,7 +769,7 @@ def _param_report(inst) -> dict:
             continue
         p = inst.param(name)
         if isinstance(p, FileParam):
-            out[name] = p.pattern if p.pattern is not None else p.initial
+            out[name] = {"file": p.value}
         elif inst.param_keys(name):
             out[name] = {"keys": [[t, _json_value(v)] for t, v in inst.param_curve(name)], "interpolation": "linear"}
         else:
@@ -715,84 +787,167 @@ def _frames(run: _Run, outputs: list[_NodeState]) -> list[float]:
     return [first + k for k in range(max(n, 1))]
 
 
-def run(graph: Graph, plugin_dirs: Sequence = (), *, frames: Sequence[float] | None = None, scale=None,
-        use_env_path: bool = False, write: bool = True, report_path: str | os.PathLike | None = None) -> Result:
-    """Run a graph: make its instances (inputs first), then render its outputs at each frame, and
-    write their files (if write). frames and scale override the graph's. plugin_dirs: the plug-in
-    directories (or .ofx.bundle paths), and $OFX_PLUGIN_PATH if use_env_path. Errors (a plug-in not
-    found, a failed action...) don't raise: they end the run with ok False and the report's "error",
-    which is also logged. report_path: write the report there too (JSON)."""
-    frames = frames if frames is not None else graph.frames
-    r = _Run(graph, frames, scale)
+def _plan(r: _Run, ns: _NodeState, t: float, window, seen: set) -> None:
+    """Add t to the frames the node will render, and the frames its inputs will render for it: the
+    frames needed, or the identity's clip and time (with the RoD clipped to window, or to the
+    project for an input). Only actions that don't render."""
+    if (ns.name, t) in seen:
+        return
+    seen.add((ns.name, t))
+    inst = ns.instance
+    st, rod = r.call(ns, "getRegionOfDefinition", inst.get_region_of_definition_action, t, r.scale, 0)
+    if not _ok(st):
+        raise GraphError(f"{ns.name}: the getRegionOfDefinition action failed at time {t} ({_stat_str(st)})")
+    win = _intersect(_to_pixels(rod, r.scale, inst.clip("Output").aspect_ratio), window)
+    if _empty(win):
+        return  # (nothing to render)
+    st, idr = r.call(ns, "isIdentity", inst.is_identity_action, t, win, r.scale, "none", 0)
+    if int(st) == 0 and idr.get("clip") in inst.clips:
+        clip = inst.clip(idr["clip"])
+        if clip.child is not None:
+            _plan(r, clip.child, float(idr["time"]), r.project_window, seen)
+        return
+    ns.planned.add(t)
+    st, ranges = r.call(ns, "getFramesNeeded", inst.get_frames_needed_action, t)
+    if not _ok(st):
+        raise GraphError(f"{ns.name}: the getFramesNeeded action failed at time {t} ({_stat_str(st)})")
+    for name, clip in inst.clips.items():
+        if clip.child is not None and not clip.is_output:
+            for f in _frames_in(ranges.get(name), t):
+                _plan(r, clip.child, f, r.project_window, seen)
+
+
+def _sequence(frames) -> tuple[float, float, float, bool]:
+    """(first, last, step, sequential) of the frames a node renders: sequential if they increase by
+    a constant step (step 1 otherwise)."""
+    fs = sorted(frames)
+    step = fs[1] - fs[0] if len(fs) > 1 else 1.
+    sequential = all(abs(b - a - step) < 1e-9 for a, b in zip(fs, fs[1:]))
+    return fs[0], fs[-1], step if sequential else 1., sequential
+
+
+def _validate(graph: Graph, r: _Run) -> None:
+    """The checks before anything runs: the outputs are nodes, the graph has no cycle, the output
+    formats are supported, the render scale is in (0, 1], the frames are finite."""
+    if not graph.outputs:
+        raise GraphError("the graph has no outputs")
+    for name, pattern in graph.outputs.items():
+        if name not in graph.nodes:
+            raise GraphError(f"output {name!r} is not a node of the graph (its nodes: {', '.join(graph.nodes)})")
+        if pattern is not None:
+            check_format(os.fspath(pattern))
+        topological_order(graph.nodes[name])  # (ValueError on a cycle)
+    if not all(0. < s <= 1. for s in r.scale):
+        raise GraphError(f"render scale {r.scale}: each component must be in (0, 1]")
+    if r.frames is not None and (not r.frames or not all(math.isfinite(float(f)) for f in r.frames)):
+        raise GraphError(f"frames {list(r.frames)}: give finite times")
+
+
+def run(graph: Graph | str | os.PathLike, plugin_dirs: Sequence = (), *, frames: Sequence[float] | None = None,
+        scale=None, use_env_path: bool = False, write: bool = True,
+        report_path: str | os.PathLike | None = None) -> Result:
+    """Run a graph (a Graph, or the path of a graph file): make its instances (inputs first), then
+    render its outputs at each frame, and write their files (if write). frames and scale override the
+    graph's. plugin_dirs: the plug-in directories (or .ofx.bundle paths), and $OFX_PLUGIN_PATH if
+    use_env_path. A failure doesn't raise (a bad graph, file or plug-in directory, an unknown plug-in,
+    a failed action...): the run ends with ok False and the report's "error", which is also logged.
+    report_path: write the report there too (JSON), even after a failure. RuntimeError only if
+    another ofxh host is initialized."""
     report: dict[str, Any] = {"schema": REPORT_SCHEMA, "schemaVersion": REPORT_SCHEMA_VERSION, "ok": False,
-                              "error": None, "host": None, "project": r.project.to_json(), "frames": None,
-                              "renderScale": list(r.scale), "nodes": {}, "outputs": {}}
+                              "error": None, "host": None, "project": None, "frames": None, "renderScale": None,
+                              "nodes": {}, "outputs": {}}
     images: dict = {}
     written: list[str] = []
-    with host(plugin_dirs_of(plugin_dirs), use_env_path):
-        report["host"] = {"name": ofxh.host().props["OfxPropName"][0]}
-        made: list[_NodeState] = []  # the nodes with an instance (to close)
-        begun: list[_NodeState] = []  # the nodes in a sequence render
-        try:
-            for name, node in graph.nodes.items():
-                if id(node) in r.nodes:
-                    raise GraphError(f"node {name!r} is also node {r.nodes[id(node)].name!r}")
-                r.nodes[id(node)] = _NodeState(name, node)
-                report["nodes"][name] = r.nodes[id(node)].report
-            outs = [r.nodes[id(graph.nodes[n])] for n in graph.outputs]
-            order: list[_NodeState] = []
-            for out in outs:
-                for n in topological_order(out.node):
-                    if id(n) not in r.nodes:
-                        raise GraphError(f"{n!r} is an input, but not a node of the graph")
-                    if r.nodes[id(n)] not in order:
-                        order.append(r.nodes[id(n)])
-            for ns in order:  # inputs first
-                made.append(ns)
-                r.setup(ns)
-            fs = report["frames"] = _frames(r, outs)
-            first, last = min(fs), max(fs)
-            step = fs[1] - fs[0] if len(fs) > 1 else 1.
-            sequential = step > 0 and all(abs(b - a - step) < 1e-9 for a, b in zip(fs, fs[1:]))
-            step = step if sequential else 1.
-            try:
-                for ns in order:
-                    begun.append(ns)
-                    r.check(ns, "beginSequenceRender", r.call(ns, "beginSequenceRender",
-                                                              ns.instance.begin_sequence_render_action,
-                                                              first, last, step, False, r.scale, sequential))
-                p = r.project
-                window = tuple(graph.window) if graph.window is not None else tuple(ofxh.canonical_to_pixel(
-                    (p.offset[0], p.offset[1], p.offset[0] + p.size[0], p.offset[1] + p.size[1]), r.scale,
-                    p.pixel_aspect_ratio))
-                for t in fs:
-                    for ns in outs:
-                        img = r.render(ns, t, window, r.scale)
-                        written += _output(r, ns, t, img, window, graph.outputs[ns.name] if write else None,
-                                           report, images)
-                    r.cache.clear()  # (the images are kept for the current frame only)
-            finally:
-                for ns in begun:
-                    try:
-                        st = ns.instance.end_sequence_render_action(first, last, step, False, r.scale, sequential)
-                    except ofxh.CallbackError:
-                        st = ofxh.Stat.Failed
-                    ns.report["actions"].append({"action": "endSequenceRender", "ok": _ok(st),
-                                                 "status": _stat_str(st)})
-            report["ok"] = True
-        except GraphError as e:
-            report["error"] = str(e)
-            log.error("%s", e)
-        finally:
-            for ns in reversed(made):
-                if ns.instance is not None and ns.instance.alive:
-                    ns.report["params"] = _param_report(ns.instance)
-                    ns.instance.close()
+    try:
+        if not isinstance(graph, Graph):
+            graph = load(graph)
+        r = _Run(graph, frames if frames is not None else graph.frames, scale)
+        report.update(project=r.project.to_json(), renderScale=list(r.scale))
+        _validate(graph, r)
+        dirs = plugin_dirs_of(plugin_dirs)
+        with host(dirs, use_env_path):
+            report["host"] = {"name": ofxh.host().props["OfxPropName"][0]}
+            _execute(graph, r, report, images, written, write)
+        report["ok"] = True
+    except (GraphError, ValueError, OSError, KeyError, TypeError, NotImplementedError) as e:
+        report["error"] = str(e) if isinstance(e, GraphError) else f"{type(e).__name__}: {e}"
+        log.error("%s", report["error"])
     if report_path is not None:
-        with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(report, f, indent=2, allow_nan=False)
-            f.write("\n")
+        try:
+            with open(report_path, "w", encoding="utf-8") as f:
+                json.dump(report, f, indent=2, allow_nan=False)
+                f.write("\n")
+        except (OSError, ValueError) as e:
+            report["ok"] = False
+            report["error"] = report["error"] or f"the report: {e}"
+            log.error("%s: %s", report_path, e)
     return Result(ok=report["ok"], report=report, images=images, files=written)
+
+
+def _execute(graph: Graph, r: _Run, report: dict, images: dict, written: list, write: bool) -> None:
+    made: list[_NodeState] = []  # the nodes with an instance (to close)
+    begun: list[_NodeState] = []  # the nodes whose beginSequenceRender succeeded
+    try:
+        for name, node in graph.nodes.items():
+            if id(node) in r.nodes:
+                raise GraphError(f"node {name!r} is also node {r.nodes[id(node)].name!r}")
+            r.nodes[id(node)] = _NodeState(name, node)
+            report["nodes"][name] = r.nodes[id(node)].report
+        outs = [r.nodes[id(graph.nodes[n])] for n in graph.outputs]
+        order: list[_NodeState] = []
+        for out in outs:
+            for n in topological_order(out.node):
+                if id(n) not in r.nodes:
+                    raise GraphError(f"{n!r} is an input, but not a node of the graph")
+                if r.nodes[id(n)] not in order:
+                    order.append(r.nodes[id(n)])
+        for ns in order:  # inputs first
+            made.append(ns)
+            r.setup(ns)
+        fs = report["frames"] = _frames(r, outs)
+        for ns in outs:
+            pattern = graph.outputs[ns.name]
+            if write and pattern is not None and len(fs) > 1 and not sequences.has_pattern(pattern):
+                raise GraphError(f"output {ns.name!r}: {len(fs)} frames, but {pattern} has no frame number "
+                                 "(e.g. ####)")
+        p = r.project
+        r.project_window = tuple(ofxh.canonical_to_pixel(
+            (p.offset[0], p.offset[1], p.offset[0] + p.size[0], p.offset[1] + p.size[1]), r.scale,
+            p.pixel_aspect_ratio))
+        window = tuple(graph.window) if graph.window is not None else r.project_window
+        # the frames each node will render, then its sequence render
+        seen: set = set()
+        for t in fs:
+            for ns in outs:
+                _plan(r, ns, t, window, seen)
+        try:
+            for ns in order:
+                if not ns.planned:
+                    continue
+                first, last, step, ns.sequential = _sequence(ns.planned)
+                st = r.call(ns, "beginSequenceRender", ns.instance.begin_sequence_render_action, first, last, step,
+                            False, r.scale, ns.sequential)
+                r.check(ns, "beginSequenceRender", st, first=first, last=last, step=step, sequential=ns.sequential)
+                begun.append(ns)
+            for t in fs:
+                for ns in outs:
+                    img = r.render(ns, t, window, r.scale)
+                    written += _output(r, ns, t, img, window, graph.outputs[ns.name] if write else None, report,
+                                       images)
+                r.cache.clear()  # (the images are kept for the current frame only)
+        finally:
+            for ns in begun:
+                first, last, step, _ = _sequence(ns.planned)
+                try:
+                    st = ns.instance.end_sequence_render_action(first, last, step, False, r.scale, ns.sequential)
+                except ofxh.CallbackError:
+                    st = ofxh.Stat.Failed
+                ns.report["actions"].append({"action": "endSequenceRender", "ok": _ok(st), "status": _stat_str(st)})
+    finally:
+        for ns in reversed(made):
+            if ns.instance is not None and ns.instance.alive:
+                ns.report["params"] = _param_report(ns.instance)
+                ns.instance.close()
 
 
 def _output(r: _Run, ns: _NodeState, t: float, img: _Rendered | None, window, pattern: str | None,

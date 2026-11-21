@@ -3,18 +3,22 @@ with in-memory images between the nodes; the project load, time domains, image s
 name patterns, push buttons, identities, and the JSON report."""
 
 import json
+import math
+import os
 
 import numpy as np
 import pytest
 
 import ofxhost
 from ofxhost import sequences
-from ofxhost.graph import Files, Graph, Keys, Node, Project, execute, load
+from ofxhost.graph import FilePath, Files, Graph, Keys, Node, Project, execute, load
 from ofxhost.testing import assert_close, backend_available
 
 why = backend_available("inprocess")
 if why is not None:
-    pytestmark = pytest.mark.skip(reason=f"ofxh: {why}")  # (OFXH_REQUIRE=1 fails in the fixture below)
+    if os.environ.get("OFXH_REQUIRE") == "1":
+        pytest.fail(f"ofxh: {why} (OFXH_REQUIRE=1)", pytrace=False)
+    pytestmark = pytest.mark.skip(reason=f"ofxh: {why}")
 else:
     import ofxh
     from ofxhost import graphhost
@@ -30,9 +34,6 @@ NOISE = "net.sf.openfx.noisePlugin"
 def _cwd(tmp_path, monkeypatch):
     """In a temporary directory (the plug-in scan makes PropTester write ofxTestLog.txt there), and
     without an ofxh host."""
-    import os
-    if os.environ.get("OFXH_REQUIRE") == "1" and why is not None:
-        pytest.fail(f"ofxh: {why} (OFXH_REQUIRE=1)")
     monkeypatch.chdir(tmp_path)
     yield
     if why is None:
@@ -165,7 +166,7 @@ def test_output_files(sample_plugins, tmp_path):
     np.save(still, rgba())
     (tmp_path / "sub").mkdir()
     g = Graph.of(Node(INVERT, inputs={"Source": Files("../in.npy")}, name="inv"), frames=[3, 4],
-                 project=Project(size=(40., 30.), pixel_aspect_ratio=1.))
+                 project=Project(size=(40., 30.), pixel_aspect_ratio=1.), base=str(tmp_path / "sub"))
     g.outputs["inv"] = "out/inv.%03d.npy"
     g.save(tmp_path / "sub" / "g.json")
     r = run(load(tmp_path / "sub" / "g.json"), sample_plugins)
@@ -215,9 +216,10 @@ def test_file_params(sample_plugins, monkeypatch):
         with ofxh.create_instance(ofxh.get_plugin(TESTER), "filter", Instance()) as inst:
             assert inst.set_param("messageText", "shot.####.%V_%v.%03d.100%%.pfm") == ofxh.Stat.OK
             assert inst.create_instance_action() == ofxh.Stat.OK
-            assert inst.get_param("messageText", 6.6) == "shot.0007.main_M.007.100%.pfm"
+            here = os.getcwd()  # (no base: relative to the current directory)
+            assert inst.get_param("messageText", 6.6) == os.path.join(here, "shot.0007.main_M.007.100%.pfm")
             inst.param_changed_action("messageText", "user", 12.)
-            assert inst.messages[0] == "shot.0012.main_M.012.100%.pfm"
+            assert inst.messages[0] == os.path.join(here, "shot.0012.main_M.012.100%.pfm")
             assert inst.param("messageText").pattern == "shot.####.%V_%v.%03d.100%%.pfm"
     # which parameters: output file paths, and a reader's or writer's filename and proxy
 
@@ -234,9 +236,45 @@ def test_file_params(sample_plugins, monkeypatch):
     assert not graphhost.is_file_param(Desc("filename", 0, "OfxParamStringIsSingleLine"), ["reader"])
     # in a run, the report keeps the pattern
     monkeypatch.setattr(graphhost, "is_file_param", lambda desc, contexts: desc.name == "messageText")
-    r = run(Graph.of(Node(TESTER, params={"messageText": "a.####.pfm"}, inputs={"Source": rgba()}, name="t"), frames=[0]),
-            sample_plugins)
-    assert r.report["nodes"]["t"]["params"]["messageText"] == "a.####.pfm"
+    r = run(Graph.of(Node(TESTER, params={"messageText": FilePath("a.####.pfm")}, inputs={"Source": rgba()}, name="t"),
+                     frames=[0]), sample_plugins)
+    assert r.report["nodes"]["t"]["params"]["messageText"] == {"file": "a.####.pfm"}
+
+
+def test_file_params_are_relative_to_the_graph(sample_plugins, tmp_path, monkeypatch):
+    """A file parameter's relative value is relative to the graph's directory, wherever the current
+    directory is (as Natron resolves file parameters against the project's path)."""
+    base = tmp_path / "project"
+    (tmp_path / "elsewhere").mkdir()
+    monkeypatch.chdir(tmp_path / "elsewhere")
+
+    class Instance(ofxh.ImageEffectInstance):
+        def new_param(self, desc):
+            return graphhost.FileParam(str(base)) if desc.name == "messageText" else None
+
+    with graphhost.host(ofxhost._plugin_dirs(sample_plugins)):
+        with ofxh.create_instance(ofxh.get_plugin(TESTER), "filter", Instance()) as inst:
+            inst.set_param("messageText", "renders/out.####.pfm")
+            assert inst.get_param("messageText", 3.) == str(base / "renders" / "out.0003.pfm")
+            inst.set_param("messageText", "/abs/%d.pfm")
+            assert inst.get_param("messageText", 3.) == "/abs/3.pfm"
+            inst.set_param("messageText", "")
+            assert inst.get_param("messageText", 3.) == ""
+    # in a run, the instances' file parameters get the graph's base
+    seen = []
+    orig = graphhost.FileParam.get
+
+    def get(self, time):
+        v = orig(self, time)
+        seen.append(v)
+        return v
+    monkeypatch.setattr(graphhost, "is_file_param", lambda desc, contexts: desc.name == "messageText")
+    monkeypatch.setattr(graphhost.FileParam, "get", get)
+    g = Graph.of(Node(TESTER, params={"messageText": FilePath("x.####.pfm"), "pbButton": None},
+                      inputs={"Source": rgba()}, name="t"), frames=[0], base=str(base))
+    r = run(g, sample_plugins)
+    assert str(base / "x.0000.pfm") in seen  # (the report reads the values at the current time, 0)
+    assert r.report["nodes"]["t"]["params"]["messageText"] == {"file": "x.####.pfm"}
 
 
 def test_sequences(tmp_path):
@@ -256,18 +294,79 @@ def test_sequences(tmp_path):
 
 def test_errors(sample_plugins, tmp_path):
     """A failed run ends with ok False and the error in the report, and closes its instances."""
+    ramp = {"Source": "ramp"}
+    (tmp_path / "bad.0001.pfm").write_bytes(b"PF\n2 2\n-1\n" + b"\0" * 5)  # (truncated)
+    np.save(tmp_path / "bad.npy", np.zeros((2, 2, 2)))
     cases = [(Node("no.such.plugin"), "not found"),
-             (Node(INVERT, params={"nope": 1}), "no parameter 'nope'"),
+             (Node(INVERT, params={"nope": 1}, inputs=ramp), "no parameter 'nope'"),
              (Node(INVERT, inputs={"Nope": "ramp"}), "no input clip 'Nope'"),
+             (Node(INVERT), "not optional"),  # (an input left out is disconnected)
              (Node(INVERT, inputs={"Source": "none"}), "not optional"),
              (Node(INVERT, inputs={"Source": Files("missing.####.pfm")}), "no files"),
-             (Node(INVERT, params={"supportsTiles": None}), "push button"),
-             (Node(INVERT, "general"), "no general context"),
-             (Node(TESTER, params={"keysChoice": "z"}), 'no option "z"')]
+             (Node(INVERT, inputs={"Source": Files("bad.####.pfm")}), "bytes of pixel data"),
+             (Node(INVERT, inputs={"Source": Files("bad.npy")}), "shape"),
+             (Node(INVERT, inputs={"Source": Files("d.####/a.####.pfm")}), "directory"),
+             (Node(INVERT, inputs={"Source": 42}), "invalid input"),
+             (Node(INVERT, params={"supportsTiles": None}, inputs=ramp), "push button"),
+             (Node(INVERT, "general", inputs=ramp), "no general context"),
+             (Node(TESTER, params={"keysChoice": "z"}, inputs=ramp), 'no option "z"')]
     for node, message in cases:
-        r = graphhost.run(Graph.of(node, frames=[0]), sample_plugins)
+        r = graphhost.run(Graph.of(node, frames=[0]), sample_plugins, report_path=tmp_path / "r.json")
         assert not r.ok and message in r.report["error"], (message, r.report["error"])
+        assert json.loads((tmp_path / "r.json").read_text())["error"] == r.report["error"]  # (written)
+    a = Node(INVERT, name="a")
+    b = Node(INVERT, inputs={"Source": a}, name="b")
+    a.inputs["Source"] = b
+    graphs = [(Graph({"a": a, "b": b}, {"b": None}, frames=[0]), "cycle"),
+              (Graph({"i": Node(INVERT, inputs=ramp)}, {"i": "out.png"}, frames=[0]), "unsupported image format"),
+              (Graph({"i": Node(INVERT, inputs=ramp)}, {"x": None}, frames=[0]), "'x' is not a node"),
+              (Graph({"i": Node(INVERT, inputs=ramp)}, {"i": "o.pfm"}, frames=[0, 1]), "no frame number"),
+              (Graph.of(Node(INVERT, inputs=ramp), frames=[0], scale=0.), "render scale"),
+              (Graph.of(Node(INVERT, inputs=ramp), frames=[math.nan]), "finite")]
+    for g, message in graphs:
+        r = graphhost.run(g, sample_plugins)
+        assert not r.ok and message in r.report["error"], (message, r.report["error"])
+    for path, message in ((tmp_path / "missing.json", "No such file"), (tmp_path / "bad.npy", "UnicodeDecodeError")):
+        r = graphhost.run(path, sample_plugins)
+        assert not r.ok and message in r.report["error"], (message, r.report["error"])
+    r = graphhost.run(Graph.of(Node(INVERT, inputs=ramp), frames=[0]), [tmp_path / "no-such-dir"])
+    assert not r.ok and "no such directory" in r.report["error"]
     assert not ofxh.initialized()
+
+
+def test_disconnected_by_default(sample_plugins):
+    """An input clip that the graph doesn't give is disconnected (the test patterns are asked for)."""
+    r = run(Graph.of(Node(BASIC, "general", {"scale": 2.}, inputs={"Source": "ramp"}, name="b"), frames=[0]),
+            sample_plugins)
+    clips = r.report["nodes"]["b"]["clipPreferences"]["clips"]
+    assert clips["Mask"]["connected"] is False and clips["Source"]["connected"] is True
+
+
+def test_sequence_renders(sample_plugins, tmp_path):
+    """beginSequenceRender gets the frames each node renders (the Retimer's input: those it needs);
+    a render is sequential if its node's sequence is and it comes after the node's last render."""
+    seq = sequence(tmp_path, range(1, 6))
+    src = Node(INVERT, inputs={"Source": Files(seq)}, name="src")
+    ret = Node(RETIMER, "general", {"Speed": 0.5, "Duration": 2.}, inputs={"Source": src}, name="ret")
+    g = Graph(nodes={"src": src, "ret": ret}, outputs={"ret": None}, frames=[3., 4., 5.],
+              project=Project(size=(8., 6.), pixel_aspect_ratio=1., frame_range=(1., 5.)))
+    r = run(g, sample_plugins)
+    begin = {n: [a for a in r.report["nodes"][n]["actions"] if a["action"] == "beginSequenceRender"][0]
+             for n in ("src", "ret")}
+    assert (begin["ret"]["first"], begin["ret"]["last"], begin["ret"]["step"], begin["ret"]["sequential"]) == \
+        (3., 5., 1., True)
+    # source times 1.5, 2, 2.5: frames 1 to 3
+    assert (begin["src"]["first"], begin["src"]["last"], begin["src"]["sequential"]) == (1., 3., True)
+    assert all(x["sequential"] for x in r.report["nodes"]["ret"]["renders"])
+    src_renders = [(x["time"], x["sequential"]) for x in r.report["nodes"]["src"]["renders"]]
+    assert src_renders[0] == (1., True) and (2., False) in src_renders  # (2 again for t=4: not in sequence)
+    ends = [a for n in ("src", "ret") for a in r.report["nodes"][n]["actions"] if a["action"] == "endSequenceRender"]
+    assert len(ends) == 2
+
+
+def test_time_domain_clamp():
+    r = graphhost._Run(Graph({}, {}, project=Project(frame_range=(1., 50.))), None, None)
+    assert r.clamp((-math.inf, math.inf)) == (1., 50.) and r.clamp((-1e12, 7.)) == (1., 7.) and r.clamp((3., 4.)) == (3., 4.)
 
 
 def test_one_host(sample_plugins):
