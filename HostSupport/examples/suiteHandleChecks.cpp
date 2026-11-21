@@ -36,6 +36,7 @@
 #include "ofxhPluginCache.h"
 #include "ofxhImageEffectAPI.h"
 #include "hostDemoEffectInstance.h"
+#include "hostDemoClipInstance.h"
 
 // std::bad_alloc from the host is kOfxStatErrMemory
 #include <new>
@@ -454,6 +455,36 @@ namespace {
 
   /// the progress and timeline suites on a valid effect instance handle: a real instance of a
   /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
+  /// the host descriptor lists the pixel depths, components and contexts that hostDemo supports
+  /// (openfx-misc#222: HostSupport leaves them empty): the depths and components of MyImage, and
+  /// the contexts of -c. With --ofx14 too: they are OFX 1.4 host properties.
+  void checkHostDescriptor(MyHost::Host &host, const std::string &profile)
+  {
+    Property::Set &p = host.getProperties();
+    const std::string what = "host descriptor (" + profile + "): ";
+    check((what + "kOfxImageEffectPropSupportedPixelDepths is not empty").c_str(),
+          p.getDimension(kOfxImageEffectPropSupportedPixelDepths) > 0);
+    const char *const depths[] = { kOfxBitDepthByte, kOfxBitDepthShort, kOfxBitDepthHalf, kOfxBitDepthFloat };
+    for (size_t i = 0; i < sizeof(depths) / sizeof(depths[0]); ++i) {
+      const bool listed = p.findStringPropValueIndex(kOfxImageEffectPropSupportedPixelDepths, depths[i]) != -1;
+      check((what + depths[i] + " is listed if and only if MyImage makes it").c_str(),
+            listed == MyHost::MyImage::isSupported(depths[i], kOfxImageComponentRGBA));
+    }
+    const int nComps = p.getDimension(kOfxImageEffectPropSupportedComponents);
+    check((what + "kOfxImageEffectPropSupportedComponents is not empty").c_str(), nComps > 0);
+    for (int i = 0; i < nComps; ++i) {
+      const std::string c = p.getStringProperty(kOfxImageEffectPropSupportedComponents, i);
+      check((what + "MyImage makes the listed components " + c).c_str(),
+            MyHost::MyImage::isSupported(kOfxBitDepthFloat, c));
+    }
+    check((what + "RGBA and Alpha are listed").c_str(),
+          p.findStringPropValueIndex(kOfxImageEffectPropSupportedComponents, kOfxImageComponentRGBA) != -1 &&
+          p.findStringPropValueIndex(kOfxImageEffectPropSupportedComponents, kOfxImageComponentAlpha) != -1);
+    check((what + "kOfxImageEffectPropSupportedContexts lists filter and general (-c)").c_str(),
+          p.findStringPropValueIndex(kOfxImageEffectPropSupportedContexts, kOfxImageEffectContextFilter) != -1 &&
+          p.findStringPropValueIndex(kOfxImageEffectPropSupportedContexts, kOfxImageEffectContextGeneral) != -1);
+  }
+
   void checkEffectInstance(MyHost::Host &host)
   {
     // SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 (hostdemo-checks.sh): the checks must run
@@ -972,6 +1003,14 @@ int main()
   check("fetchSuite(NULL host) = NULL", ofxHost->fetchSuite(NULL, kOfxPropertySuite, 1) == NULL);
   check("fetchSuite(not the host property set) = NULL", ofxHost->fetchSuite(notHostProps.getHandle(), kOfxPropertySuite, 1) == NULL);
   check("fetchSuite(NULL name) = NULL", ofxHost->fetchSuite(ofxHost->host, NULL, 1) == NULL);
+
+  // the supported depths, components and contexts, in both profiles
+  checkHostDescriptor(host, "default");
+  {
+    MyHost::Host host14;
+    host14.restrictToOFX14();
+    checkHostDescriptor(host14, "ofx14");
+  }
 
   // a real effect instance (the progress and timeline functions on a valid handle)
   checkEffectInstance(host);

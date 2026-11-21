@@ -68,6 +68,34 @@ def test_ofx14_profile_is_hostdemos(plugin_dir):
     assert s14[(k.kOfxParameterSuite, 1)] and s14[(k.kOfxMessageSuite, 2)]
 
 
+def _hostdemo_string_list(prop):
+    """The values that hostDemo's Host constructor (hostDemoHostDescriptor.cpp) sets on prop."""
+    src = (REPO_ROOT / "HostSupport" / "examples" / "hostDemoHostDescriptor.cpp").read_text()
+    calls = re.findall(r"setStringProperty\(\s*" + prop + r",\s*(k\w+),\s*(\d+)\s*\)", src)
+    return tuple(getattr(k, v) for v, _ in sorted(calls, key=lambda c: int(c[1])))
+
+
+@pytest.mark.parametrize("profile", ["default", "ofx14"])
+def test_host_supported_depths_components_contexts(plugin_dir, profile):
+    """The host lists the depths, components and contexts it supports (openfx-misc#222: HostSupport
+    leaves them empty), in both profiles (they are OFX 1.4 host properties): the depths of PyImage
+    (byte, short, half and float), hostDemo's components and contexts, and hostDemo's depths plus
+    half."""
+    ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False, profile=profile)
+    props = ofxh.host().props
+    depths = props[k.kOfxImageEffectPropSupportedPixelDepths]
+    assert depths == (k.kOfxBitDepthByte, k.kOfxBitDepthShort, k.kOfxBitDepthHalf, k.kOfxBitDepthFloat)
+    assert _hostdemo_string_list("kOfxImageEffectPropSupportedPixelDepths") == tuple(
+        d for d in depths if d != k.kOfxBitDepthHalf)
+    comps = props[k.kOfxImageEffectPropSupportedComponents]
+    assert k.kOfxImageComponentRGBA in comps and k.kOfxImageComponentAlpha in comps
+    assert comps == _hostdemo_string_list("kOfxImageEffectPropSupportedComponents")
+    contexts = props[k.kOfxImageEffectPropSupportedContexts]
+    assert k.kOfxImageEffectContextFilter in contexts and k.kOfxImageEffectContextGeneral in contexts
+    assert contexts == _hostdemo_string_list("kOfxImageEffectPropSupportedContexts")
+    assert [ofxh.short_name("depth", d) for d in depths] == ["byte", "short", "half", "float"]
+
+
 def test_ofx14_describe_equals_hostdemo(plugin_dir, hostdemo):
     """The ChoiceParams sample doesn't define its StrChoice parameter in an OFX 1.4 host (paramDefine
     fails), as in hostDemo --ofx14."""
