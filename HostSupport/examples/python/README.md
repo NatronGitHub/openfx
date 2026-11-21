@@ -476,7 +476,7 @@ same output files (`<prefix>.<t>[l|r].ppm`, or `.pfm` and `.alpha.pfm`) and the 
 and `--describe` JSON, prints the plug-ins' messages on stdout as hostDemo (`<type> <id> <text>`,
 also with `--quiet`), and has the same exit status (0, or 1 on failure). Like hostDemo, it runs in
 the current directory, one run per process (so a harness keeps its crash isolation, timeouts and
-parallel jobs), and unloads the plug-ins at the end, after writing the report. `tests/test_hostdemo_cli.py`
+parallel jobs; the batch mode below runs many in one Python), and unloads the plug-ins at the end, after writing the report. `tests/test_hostdemo_cli.py`
 runs the consumers' command lines with both and compares the files byte for byte, the reports and
 the error messages. The `ofxh` module is that of `PYTHONPATH`, else of the build tree that holds
 the `$OFX_PLUGIN_PATH` directories.
@@ -516,6 +516,72 @@ and `OFX_PLUGIN_PATH` as for hostDemo (`cygpath -w -p`). From an MSYS2 shell scr
 `python -m ofxhost.hostdemo` command. CI runs a describe and a small render both ways on UCRT64,
 and compares them with hostDemo.exe.
 
+### Batch mode: many command lines in one Python
+
+Each run of `python -m ofxhost.hostdemo` starts Python and imports NumPy and `ofxh` (about 0.2 s
+here) before it scans the plug-ins. The batch mode pays that once per worker process instead of
+once per command line:
+
+```sh
+python -m ofxhost.hostdemo --batch cmds.txt -j 4 --timeout 120 > records.jsonl   # or --batch - (stdin)
+```
+
+```python
+from ofxhost.hostdemo import run_batch
+records = run_batch(["--quiet -p net.sf.openfx.invertPlugin -o a --report a.json",
+                     ["--quiet", "-p", "net.sf.openfx.invertPlugin", "--describe", "d.json"]],
+                    jobs=4, timeout=120, fresh_host=False)
+```
+
+- **The commands**: one hostDemo command line per line, without the program name, split as a POSIX
+  shell does (`shlex`: quotes and backslashes; `#` is literal inside a line, as in
+  `-i Source=ramp#rgb`). Blank lines and lines whose first non-blank character is `#` are ignored.
+  A line may start with `--cwd DIR` (its directory, relative to the batch's) and
+  `--env NAME=VALUE` (`--env NAME` unsets it), e.g. `--env OFX_PLUGIN_PATH=...`. No shell
+  syntax: `cd DIR && ...`, pipes and redirections are not supported. `run_batch()` also takes
+  argument lists, `Command` objects and dicts `{"args", "cwd", "env"}`.
+- **Each command runs as a separate run would**: the same output files and `--report` and
+  `--describe` JSON, relative to its directory, the same exit status, and its stdout and stderr
+  captured at the file-descriptor level (the plug-ins' `printf` and `std::cerr` too), into files
+  that survive the death of the worker.
+- **The records**: one JSON line per command, in the order of the commands, on stdout (or in
+  `--batch-report FILE`), and the list that `run_batch()` returns:
+  `{"line", "args", "cwd", "exitStatus", "ok", "stdout", "stderr", "seconds", "crashed", "timedOut"}`.
+  `crashed`: the worker died during the command (a signal: `exitStatus` is minus the signal, as
+  `subprocess` gives it; or a plug-in that called `exit()`), and the record has what the command
+  printed before. `timedOut`: it ran longer than `--timeout SECONDS`, and its worker was killed. In
+  both cases the worker is replaced and the batch goes on. A summary goes to stderr; the exit status
+  is 0 if all the commands succeeded, 1 otherwise, 2 for a usage error of the batch options. A
+  worker that fails when it shuts down at the end (e.g. a crash in a plug-in's unload action) adds
+  a record with `"line": null, "shutdown": true`, and fails the batch.
+- **`-j N`** worker processes (default 1, `0`: one per CPU) take the commands in order, each the
+  next one when it is free. They are subprocesses that speak JSON lines over pipes (the same on
+  macOS, Linux and Windows).
+- **The host's lifetime** (what leaks between runs, against speed):
+  - default: a worker keeps its ofxh host while the plug-in directories, the profile (`--ofx14`),
+    `OFX_HOSTDEMO_KEEP_LOADED` and `--no-std-paths` stay the same (the in-process backend starts a
+    new host when they change). The plug-in scan runs once per host, so what plug-ins print during
+    it (e.g. a describe that fails) is only in the stderr of the host's first command; a plug-in gets
+    its load and describe actions at its first use in the worker, and its unload action when the host
+    shuts down, whose messages go to the worker's own stderr; and the commands of a worker share
+    the plug-ins' globals, caches and static data. The fastest;
+  - `--fresh-host` (`fresh_host=True`): the host is shut down after each command, as at the end of a
+    separate run (unload action, binaries unloaded): each command gets its scan, load and describe.
+    What survives the unloading of a binary is still shared: the libraries it loaded, and the globals
+    of the binaries that the OS doesn't really unload (`dlclose()` may keep a binary loaded: on
+    Linux one with GNU unique C++ symbols, on macOS one with Objective-C code);
+  - `--fresh-host-per-plugin` (`fresh_host="plugin"`): the host is shut down when the plug-in (`-p`)
+    differs from the worker's previous command's;
+  - one process per command line (`python -m ofxhost.hostdemo`, or hostDemo) isolates the runs
+    completely.
+
+  With `-j N` the commands that share a worker are not known in advance, so a test whose result
+  depends on what ran before it in the same process is a bug that the batch can show.
+- Also shared by a worker: the `ofxh` module, imported once (the first command's `$OFX_PLUGIN_PATH`
+  chooses its build tree, see above), and the `$OFXHOST_PRELOAD` libraries.
+- Test hook, for ofxhost's tests only: `--env OFXHOST_BATCH_TEST_HOOK=segv|kill|exit|hang|raise|host`
+  makes the worker crash, hang... after the command (`ofxhost/_batch.py`).
+
 ## MIGRATION: from hostDemo to the Python host
 
 Part 5 of #136 moves the plug-in repositories' tests to the Python host, then hostDemo goes back to
@@ -536,10 +602,41 @@ today, the equivalent:
 
 **What the move costs.** The consumers' CI then needs the bindings: nanobind and NumPy, and an
 openfx build with `-DOFX_PYTHON_BINDINGS=ON` (Python 3.10 or later), instead of, or besides,
-hostDemo. Each run of the CLI starts Python and imports NumPy and `ofxh` before the plug-in scan,
-which adds time to every run: about 0.2 s more than hostDemo for a `--describe` here (macOS arm64), and openfx-misc's `rendertest.sh` (225 renders, run serially) took 77 s instead of 56 s: for the large runs (openfx-misc's
-smoketest over all its plug-ins), keep one CLI process per render with `xargs -P`, as today with
-hostDemo, rather than one pytest process for everything, which also loses the crash isolation.
+hostDemo. Each run of the CLI starts Python and imports NumPy and `ofxh` before the plug-in scan:
+about 0.1 to 0.2 s more than hostDemo per run (macOS arm64). The batch mode (above) pays that once
+per worker, and is then faster than hostDemo, which loads the plug-ins in each run. Measured on
+macOS 27 (Apple M5 Pro, 18 cores, shared: 1-minute load 9 to 11 during the runs), wall and CPU
+(user + system, all processes) time in seconds:
+
+| | (a) openfx samples: 272 command lines | (b) openfx-misc `rendertest.sh`: 236 command lines |
+|---|---|---|
+| hostDemo, one process per command, serial | 16.6 wall, 13.8 CPU | 33.6 wall, 31.0 CPU |
+| hostDemo, one process per command, 4 at a time | 5.5 wall, 17.9 CPU | 11.4 wall, 39.2 CPU |
+| `python -m ofxhost.hostdemo`, one process per command, serial | 47.3 wall, 39.6 CPU | 47.9 wall, 42.8 CPU |
+| `python -m ofxhost.hostdemo`, one process per command, 4 at a time | 14.8 wall, 49.6 CPU | 15.2 wall, 52.1 CPU |
+| `--batch -j 1` | 9.4 wall, 9.1 CPU | 18.4 wall, 17.5 CPU |
+| `--batch -j 4` | 3.0 wall, 11.0 CPU | 6.2 wall, 19.9 CPU |
+| `--batch --fresh-host -j 4` | 4.4 wall, 16.0 CPU | 6.8 wall, 22.8 CPU |
+
+(a) is a `--describe` (also `--ofx14`) of each of the 27 sample plug-ins of `Support/Plugins` and
+`Examples` (CMake build), renders in the filter and general contexts at the three depths (frames 0,
+or 0 and 1), a render at scale 0.5 in a window, and 40 Invert renders (24 lines fail the same way
+in every case: GPU-only and overlay-only samples). (b) is the hostDemo command lines that
+openfx-misc's `rendertest.sh` runs (logged by a `HOSTDEMO` wrapper; CImg off, so its CImg lines
+are left out), with openfx-misc's plug-ins, hostDemo and `ofxh` built with the same extensions
+(two views per frame). In every batch case, every command had the same exit status and stdout as
+its separate run, the same stderr (or, with a kept host, without what the plug-ins print during
+the scan, which only the host's first command gets), and wrote the same files, byte for byte
+(780 in (a), 2076 in (b): the images and the reports).
+
+To run a big suite (openfx-misc's smoketest and rendertest over all its plug-ins, openfx-gmic's
+`render_plugins.py`): write the command lines to a file and run them in one `--batch -j N
+--timeout SECONDS` (or `run_batch()` from Python), then check the records and the reports, rather
+than one CLI process per command line (`xargs -P`) or one pytest process for everything (which
+loses the crash isolation). The batch keeps that isolation: a crashed or hung command is recorded,
+and its worker replaced. Use `--fresh-host` where the runs must not share the plug-ins' state (it
+still costs less than hostDemo), and the default where speed matters more. A handful of command
+lines, or one per test (ctest), can stay one process per run.
 
 In pytest, `ofxhost.render(..., backend="inprocess")` runs in the test process (no crash isolation:
 run large suites under the CLI, or in worker processes), and `ofxhost.testing`'s `backend` fixture
@@ -581,4 +678,6 @@ for the in-process one, which a Make build doesn't make: without it, those tests
 `tests/test_hostdemo_cli.py` runs hostDemo and `ofxhost.hostdemo` on the same command lines (those
 of the plug-in repositories) and compares their files, reports and errors; `tests/test_inprocess5.py`
 covers per-input components, the files of `extra_args`, a worker thread that fetches the output
-image first, and the sample host's planning. CI runs both in the Linux job, on both backends.
+image first, and the sample host's planning; `tests/test_hostdemo_batch.py` the batch mode (its
+parser, the same files, reports and output as separate runs, the host's lifetime, and workers that
+crash or hang). CI runs both in the Linux job, on both backends.

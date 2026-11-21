@@ -11,7 +11,8 @@ name: Build
 #     Python bindings, HostSupport/python/tests, with the extensions off and on)
 #   - macOS 15 arm64: CMake, system (Xcode) clang, MacPorts tools and libomp, no Homebrew
 #   - Windows: MSYS2 UCRT64, CMake, the plug-in and host projects, and the ofxh module (built and
-#     imported, plus a smoke comparison of ofxhost.hostdemo with hostDemo: one describe and one render)
+#     imported, plus a smoke comparison of ofxhost.hostdemo with hostDemo: one describe and one render,
+#     also in its batch mode, with a killed worker)
 # The plug-in repositories build with CMake (Natron#1181), so the per-PR builds do too. Other
 # variants (the Makefiles, C++20/23, MSVC, debug builds) are in extended.yml, which runs weekly
 # and on demand.
@@ -245,12 +246,23 @@ jobs:
             ls out.0*.pfm
             cd "$root"
           done
+          # the batch mode: the same two runs in two workers, then a worker killed by the test hook
+          # (the command is crashed, the worker replaced: the next command runs)
+          mkdir -p smoke/bt && cd smoke/bt
+          { echo "--no-std-paths --no-cache --quiet -p net.sf.openfx.invertPlugin --describe d.json"
+            echo "${args[*]}"
+            echo "--env OFXHOST_BATCH_TEST_HOOK=kill --no-std-paths --no-cache --quiet --describe k.json"
+            echo "--no-std-paths --no-cache --quiet --describe k2.json"; } > cmds.txt
+          st=0
+          python -m ofxhost.hostdemo --batch cmds.txt -j 2 --batch-report recs.jsonl || st=$?
+          test $st = 1
+          cd "$root"
           python - <<'PY'
           import glob, json, os
           # the output files, byte for byte (MSYS2 has no cmp without diffutils)
           files = sorted(glob.glob("smoke/hd/out.0*.pfm"))
           assert files
-          for h in ("py", "sh"):
+          for h in ("py", "sh", "bt"):
               for f in files:
                   g = f"smoke/{h}/{os.path.basename(f)}"
                   assert open(f, "rb").read() == open(g, "rb").read(), g
@@ -260,11 +272,14 @@ jobs:
               if isinstance(d, dict):
                   return {k: nopath(v) for k, v in d.items() if k != "filePath"}
               return [nopath(v) for v in d] if isinstance(d, list) else d
-          for h in ("py", "sh"):
+          for h in ("py", "sh", "bt"):
               assert nopath(load(f"smoke/{h}/d.json")) == nopath(load("smoke/hd/d.json")), h
               crc = lambda p: [r["output"]["crc32"] for r in load(p)["renders"]]
               assert crc(f"smoke/{h}/r.json") == crc("smoke/hd/r.json"), h
-          print("ofxhost.hostdemo: same as hostDemo")
+          recs = [json.loads(x) for x in open("smoke/bt/recs.jsonl")]
+          assert [(r["ok"], r["crashed"]) for r in recs] == [(True, False)] * 2 + [(False, True), (True, False)], recs
+          assert "batch test hook: kill" in recs[2]["stdout"], recs[2]
+          print("ofxhost.hostdemo: same as hostDemo (also --batch)")
           PY
       - name: Self-test of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows)
         run: |
