@@ -5,7 +5,8 @@ name: Extended builds
 # flags OFF, C++20 and C++23, and the ofxh module installed with pip on macOS
 # (MacPorts Python; with the ofxhost tests on both backends). Runs weekly (Saturday
 # 03:17 UTC, maintainer decision 2026-11-21), skipped if master is still the commit the
-# last scheduled run built, and on demand.
+# last scheduled run built (except the ofxh job, which builds against moving packages), and
+# on demand.
 
 on:
   schedule:
@@ -26,7 +27,7 @@ defaults:
 jobs:
   # Skip the scheduled run if it would build the same commit as the last scheduled run
   # that built or failed (not cancelled); manual runs always build. Same logic as
-  # openfx-misc's and openfx-io's: no time window, since GitHub starts scheduled runs late.
+  # openfx-misc's (but it fails open): no time window, since GitHub starts scheduled runs late.
   changes:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
