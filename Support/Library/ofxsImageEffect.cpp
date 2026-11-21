@@ -4460,7 +4460,7 @@ namespace OFX {
     /** @brief Decodes a host's kNatronOfxPropNativeOverlays string (ofxNatron.h):
         kNatronNativeOverlayType + '_' + identifier, then for each parameter
         '_' + kNatronNativeOverlayParameterHint + '_' + hint + '_' + kNatronNativeOverlayParameterType + '_' + type.
-        Returns false, and leaves handle unchanged, if the string isn't of that form. */
+        At least one parameter is required. Returns false, and leaves handle unchanged, if the string isn't of that form. */
     bool
     decodeNativeOverlayHandle(const std::string& str, ImageEffectHostDescription::NativeOverlayHandle& handle)
     {
@@ -6275,6 +6275,7 @@ namespace OFX {
       // the custom interpolation callback doesn't get the plug-in identifier (mainEntryStr's
       // plugname), so OFX_CLIENT_EXCEPTION_HANDLER gets an empty name here
       const char* plugname = "";
+      (void)plugname; // OFX_CLIENT_EXCEPTION_HANDLER may not use it
 #endif
       try {
         // Cast the raw handle to be an image effect handle, because that is what it is

@@ -55,9 +55,11 @@ def _binaries(bundles, name):
     return binaries
 
 
-def test_null_and_unknown_action(bundles):
+def test_null_and_unknown_action(bundles, tmp_path):
+    # cwd: a debug build of the plug-in writes ofxTestLog.txt in the current directory
     r = subprocess.run([sys.executable, "-c", SCRIPT, PLUGIN, *_binaries(bundles, "basic")],
-                       capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+                       capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL,
+                       cwd=tmp_path)
     assert r.returncode == 0, f"exit status {r.returncode}\nstdout:\n{r.stdout}\nstderr:\n{r.stderr}"
     null_status, unknown_status = (int(s) for s in r.stdout.split()[-2:])
     assert null_status == kOfxStatFailed

@@ -74,16 +74,19 @@ namespace {
     CHECK(m.locks == 1);
     CHECK(m.unlocks == 1);
 
-    // an explicit unlock() still throws
+    // an explicit unlock() still throws, and the destructor doesn't unlock again
     caught = false;
     ThrowingMutex m2;
-    OFX::MultiThread::AutoMutexT<ThrowingMutex> lock2(m2);
-    try {
-      lock2.unlock();
-    } catch (const std::runtime_error&) {
-      caught = true;
+    {
+      OFX::MultiThread::AutoMutexT<ThrowingMutex> lock2(m2);
+      try {
+        lock2.unlock();
+      } catch (const std::runtime_error&) {
+        caught = true;
+      }
     }
     CHECK(caught);
+    CHECK(m2.unlocks == 1);
   }
 
 #ifdef OFX_EXTENSIONS_NATRON
@@ -135,8 +138,9 @@ namespace {
       "NatronNativeOverlayType_Point2D_NatronNativeOverlayParameterHint_Position", // no type
       "NatronNativeOverlayType_Point2D_NatronNativeOverlayParameterHint__NatronNativeOverlayParameterType_OfxParamTypeDouble2D", // no hint
       "NatronNativeOverlayType_Point2D_NatronNativeOverlayParameterHint_Position_NatronNativeOverlayParameterType_", // empty type
-      "NatronNativeOverlayType_Point2D_NatronNativeOverlayParameterHint_Position_NatronNativeOverlayParameterType_OfxParamTypeDouble2D"
-      "_NatronNativeOverlayParameterHint_Scale",                               // second parameter without a type
+      // a second parameter without a type
+      ("NatronNativeOverlayType_Point2D_NatronNativeOverlayParameterHint_Position_NatronNativeOverlayParameterType_OfxParamTypeDouble2D"
+       "_NatronNativeOverlayParameterHint_Scale"),
     };
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i) {
       Handle b = h;

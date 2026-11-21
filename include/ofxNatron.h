@@ -682,7 +682,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
 
  kNatronNativeOverlayType + '_' + "UniqueOverlayName" + '_'
 
- Followed by an undefined number of strings representing parameters. Each parameter is defined of the following form:
+ Followed by one or more strings representing parameters (at least one is required). Each parameter is defined of the following form:
  
  kNatronNativeOverlayParameterHint + '_' + "RoleHint" + '_' + kNatronNativeOverlayParameterType + '_' + "ParamType"
  

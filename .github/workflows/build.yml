@@ -286,12 +286,16 @@ jobs:
           assert "batch test hook: kill" in recs[2]["stdout"], recs[2]
           print("ofxhost.hostdemo: same as hostDemo (also --batch)")
           PY
-      - name: Self-test of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows)
+      - name: Self-tests of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows) and of the Support library
         run: |
           set -eo pipefail
           dst=$(find build -name drawsuite-opengl-test.exe -type f | head -1)
           test -n "$dst" || { echo "drawsuite-opengl-test was not built"; exit 1; }
           "$dst"
+          # (extensions on: with the native overlay decoding)
+          slt=$(find build -name support-library-test.exe -type f | head -1)
+          test -n "$slt" || { echo "support-library-test was not built"; exit 1; }
+          "$slt"
       - name: Install
         run: |
           set -eo pipefail

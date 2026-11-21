@@ -1221,9 +1221,9 @@ namespace OFX {
       if (x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0) {
         return 0;
       }
-      char *pix = ((char *) _pixelData) + (size_t)(y - _bounds.y1) * (size_t)_rowBytes;
+      char *pix = static_cast<char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
       pix += (x - _bounds.x1) * _pixelBytes;
-      return (void *) pix;
+      return static_cast<void *>(pix);
     }
 
     /** @brief return a pixel pointer, returns NULL if (x,y) is outside the image bounds
@@ -1238,9 +1238,9 @@ namespace OFX {
       if (x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0) {
         return 0;
       }
-      const char *pix = ((const char *) _pixelData) + (size_t)(y - _bounds.y1) * (size_t)_rowBytes;
+      const char *pix = static_cast<const char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
       pix += (x - _bounds.x1) * _pixelBytes;
-      return (const void *) pix;
+      return static_cast<const void *>(pix);
     }
 
     /** @brief return a pixel pointer, returns the nearest pixel if (x,y) is outside the image bounds
@@ -1257,9 +1257,9 @@ namespace OFX {
       x = (x > _bounds.x1) ? x : _bounds.x1;
       y = (y < _bounds.y2 - 1) ? y : (_bounds.y2 - 1);
       y = (y > _bounds.y1) ? y : _bounds.y1;
-      char *pix = ((char *) _pixelData) + (size_t)(y - _bounds.y1) * (size_t)_rowBytes;
+      char *pix = static_cast<char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
       pix += (x - _bounds.x1) * _pixelBytes;
-      return (void *) pix;
+      return static_cast<void *>(pix);
     }
 
     /** @brief return a pixel pointer, returns the nearest pixel if (x,y) is outside the image bounds
@@ -1275,9 +1275,9 @@ namespace OFX {
       x = (x > _bounds.x1) ? x : _bounds.x1;
       y = (y < _bounds.y2 - 1) ? y : (_bounds.y2 - 1);
       y = (y > _bounds.y1) ? y : _bounds.y1;
-      const char *pix = ((const char *) _pixelData) + (size_t)(y - _bounds.y1) * (size_t)_rowBytes;
+      const char *pix = static_cast<const char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
       pix += (x - _bounds.x1) * _pixelBytes;
-      return (const void *) pix;
+      return static_cast<const void *>(pix);
     }
   };
 

@@ -163,10 +163,11 @@ namespace OFX {
       void unlock()
       {
         if (val) {
+          // cleared first: if unlock() throws, the destructor doesn't try again
+          val = false;
           if (_mutex) {
             _mutex->unlock();
           }
-          val = false;
         }
       }
 
