@@ -37,7 +37,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ofxhPropertySuite.h"
 #include "ofxhClip.h"
 #include "ofxhImageEffect.h"
-#include "ofxGPURender.h" // OFX 1.5: kOfxImageEffectPropOpenCLImage, kOfxImageEffectPropThumbnailRender
+#include "ofxGPURender.h" // OFX 1.5: kOfxImageEffectPropOpenCLImage (kOfxImageEffectPropThumbnailRender, OFX 1.5.1, is in ofxImageEffect.h)
 #include "ofxColour.h" // OFX 1.5: colour management
 #ifdef OFX_EXTENSIONS_VEGAS
 #include "ofxSonyVegas.h"

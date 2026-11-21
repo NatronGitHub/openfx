@@ -1057,7 +1057,7 @@ namespace OFX {
 #endif
 
   /** @brief indicate that the plugin is made obsolete by another version of the same plugin in the same bundle,
-   so that the host doesn't show it in its plugin browser (kOfxImageEffectPluginPropObsolete, next OFX release, after 1.5.1).
+   so that the host doesn't show it in its plugin browser (kOfxImageEffectPluginPropObsolete, OFX 1.5).
    At least one version of the plugin in the bundle must not be obsolete. Ignored by hosts that don't know it. */
   void setIsObsolete(bool v);
 

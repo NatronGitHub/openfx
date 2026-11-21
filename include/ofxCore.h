@@ -367,7 +367,8 @@ These are the actions passed to a plug-in's 'main' function
 
  This action is the first action passed to a plug-in's
  instance after its creation. It is there to allow a plugin to create any
- per-instance data structures it may need.
+ per-instance data structures it may need. Plugins may also
+ enable/disable their params here, based on other param values or clips.
 
  When a host creates a plugin instance from a saved project with a connected
  clip, the host must either:
@@ -384,7 +385,7 @@ OR:
     \ref kOfxPropChangeReason = \ref kOfxChangePluginEdited, and ensure that
     \ref OfxImageEffectSuiteV1::clipGetRegionOfDefinition works in that action.
 
- This fork uses \ref kOfxChangePluginEdited in both notes, here and in
+ Fork note (NatronGitHub/openfx): this fork uses \ref kOfxChangePluginEdited in both notes, here and in
  \ref kOfxActionInstanceChanged (upstream main has \ref kOfxChangeUserEdited
  here), as proposed in upstream openfx#294; this is what Natron does.
 
@@ -474,8 +475,10 @@ OR:
  after \ref kOfxActionCreateInstance and after the host has hooked up all clips, with
  property \ref kOfxPropType = \ref kOfxTypeClip and \ref kOfxPropChangeReason =
  \ref kOfxChangePluginEdited, and ensure that \ref OfxImageEffectSuiteV1::clipGetRegionOfDefinition works in
- this action. (This fork follows upstream openfx#294: the same reason as in the
- \ref kOfxActionCreateInstance note.)
+ this action.
+
+ Fork note (NatronGitHub/openfx): this fork follows upstream openfx#294: the same reason as in the
+ \ref kOfxActionCreateInstance note.
 
  @param  handle handle to the plug-in instance, cast to an \ref OfxImageEffectHandle
  @param  inArgs has the following properties
