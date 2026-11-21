@@ -1542,6 +1542,26 @@ public:
         return *this;
     }
 
+    ImageEffectHost& setSupportedPixelDepths(const char* value, int index = 0, bool error_if_missing = true) {
+        props_.set<PropId::OfxImageEffectPropSupportedPixelDepths>(value, index, error_if_missing);
+        return *this;
+    }
+
+    // Set all values from a container (vector, array, span, etc.)
+    // SFINAE: only enabled for container types (not scalars)
+    template<typename Container,
+             typename = std::enable_if_t<!std::is_arithmetic_v<Container> && !std::is_pointer_v<Container>>>
+    ImageEffectHost& setSupportedPixelDepths(const Container& values, bool error_if_missing = true) {
+        props_.setAll<PropId::OfxImageEffectPropSupportedPixelDepths>(values, error_if_missing);
+        return *this;
+    }
+
+    // Set all values from an initializer list (e.g., {1, 2, 3})
+    ImageEffectHost& setSupportedPixelDepths(std::initializer_list<const char*> values, bool error_if_missing = true) {
+        props_.setAll<PropId::OfxImageEffectPropSupportedPixelDepths>(values, error_if_missing);
+        return *this;
+    }
+
     ImageEffectHost& setMultipleClipDepths(bool value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropMultipleClipDepths>(value, 0, error_if_missing);
         return *this;

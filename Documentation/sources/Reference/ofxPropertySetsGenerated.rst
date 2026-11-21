@@ -217,6 +217,7 @@ These property sets represent collections of properties associated with various 
 - :ref:`OfxImageEffectPropSetableFrameRate <prop_OfxImageEffectPropSetableFrameRate>` - Type: bool, Dimension: 1 (doc: :c:macro:`kOfxImageEffectPropSetableFrameRate`)
 - :ref:`OfxImageEffectPropSupportedComponents <prop_OfxImageEffectPropSupportedComponents>` - Type: enum, Dimension: Variable (doc: :c:macro:`kOfxImageEffectPropSupportedComponents`)
 - :ref:`OfxImageEffectPropSupportedContexts <prop_OfxImageEffectPropSupportedContexts>` - Type: enum, Dimension: Variable (doc: :c:macro:`kOfxImageEffectPropSupportedContexts`)
+- :ref:`OfxImageEffectPropSupportedPixelDepths <prop_OfxImageEffectPropSupportedPixelDepths>` - Type: enum, Dimension: Variable (doc: :c:macro:`kOfxImageEffectPropSupportedPixelDepths`)
 - :ref:`OfxImageEffectPropSupportsMultiResolution <prop_OfxImageEffectPropSupportsMultiResolution>` - Type: bool, Dimension: 1 (doc: :c:macro:`kOfxImageEffectPropSupportsMultiResolution`)
 - :ref:`OfxImageEffectPropSupportsMultipleClipPARs <prop_OfxImageEffectPropSupportsMultipleClipPARs>` - Type: bool, Dimension: 1 (doc: :c:macro:`kOfxImageEffectPropSupportsMultipleClipPARs`)
 - :ref:`OfxImageEffectPropSupportsOverlays <prop_OfxImageEffectPropSupportsOverlays>` - Type: bool, Dimension: 1 (doc: :c:macro:`kOfxImageEffectPropSupportsOverlays`)
