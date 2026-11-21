@@ -4,9 +4,9 @@ name: Extended builds
 # Natron-related repos): CMake on Linux/macOS, MSVC, debug builds, extension
 # flags OFF, C++20 and C++23, and the ofxh module installed with pip on macOS
 # (MacPorts Python; with the ofxhost tests on both backends). Runs weekly (Saturday
-# 03:17 UTC, maintainer decision 2026-11-21), skipped if master is still the commit the
-# last scheduled run built (except the ofxh job, which builds against moving packages), and
-# on demand.
+# 03:17 UTC, maintainer decision 2026-11-21) and on demand. Never skipped, even if master
+# didn't change: every job installs rolling toolchains (MacPorts, apt and MSVC on *-latest
+# images), so a week without commits still tests toolchain drift.
 
 on:
   schedule:
@@ -25,42 +25,10 @@ defaults:
     shell: bash -eo pipefail {0}
 
 jobs:
-  # Skip the scheduled run if it would build the same commit as the last scheduled run
-  # that built or failed (not cancelled); manual runs always build. Same logic as
-  # openfx-misc's (but it fails open): no time window, since GitHub starts scheduled runs late.
-  changes:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      actions: read
-    outputs:
-      run: ${{ steps.check.outputs.run }}
-    steps:
-      - id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          last=
-          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
-            # a known failure is not rebuilt every week until master changes (use workflow_dispatch to retry)
-            # if the API call fails, build anyway (fail open) rather than lose a week
-            last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/extended.yml/runs?event=schedule&status=completed&per_page=20" \
-                     --jq '[.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure")][0].head_sha // empty') \
-              || { echo "::warning::could not read the last scheduled run: building"; last=; }
-          fi
-          run=true
-          if [ -n "$last" ] && [ "$last" = "$GITHUB_SHA" ]; then
-            run=false
-            echo "No change since the last weekly run ($last): skipping."
-          fi
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-
   # CMake, with each platform's default compiler (MSVC on Windows). The Makefile
   # builds and the MSYS2 build run on every pull request (build.yml).
   cmake:
     name: CMake (${{ matrix.os }}, ${{ matrix.config }}, extensions ${{ matrix.extensions }}${{ matrix.cxx && format(', C++{0}', matrix.cxx) || '' }})
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -119,8 +87,6 @@ jobs:
     name: Linux weekly (Makefiles)
     # The Makefile builds (still used by Natron's build-plugins.sh until it switches to CMake,
     # Natron#1181), with the hostDemo checks; the per-PR builds use CMake (build.yml)
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -134,8 +100,6 @@ jobs:
     name: macOS 15 arm64 weekly (Makefiles, Xcode clang, MacPorts)
     # The Makefile builds (still used by Natron's build-plugins.sh until it switches to CMake,
     # Natron#1181), with the hostDemo checks; the per-PR builds use CMake (build.yml)
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -162,9 +126,8 @@ jobs:
     name: macOS 15 arm64 weekly (the ofxh module from pip install, MacPorts Python 3.11)
     # The HostSupport Python bindings as a package (HostSupport/python/pyproject.toml,
     # scikit-build-core), built with MacPorts' nanobind and scikit-build-core, and their tests
-    # against the sample plug-ins and hostDemo of a CMake build (same extension options).
-    # Never skipped: it builds against moving upstream packages (MacPorts' current nanobind,
-    # NumPy and scikit-build-core, which pyproject.toml only bounds), so it runs every week.
+    # against the sample plug-ins and hostDemo of a CMake build (same extension options),
+    # with MacPorts' current nanobind, NumPy and scikit-build-core (pyproject.toml only bounds them).
     runs-on: macos-15
     timeout-minutes: 60
     steps:
