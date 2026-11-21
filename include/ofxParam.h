@@ -1725,7 +1725,10 @@ changes a keyframe.  The keyframe indices will not change within a single action
  } OfxParameterSuiteV1;
 
 
-/** @name OFX 1.5 additions
+/** @name OFX 1.5 and next-release additions
+ Bytes, StrChoice, kOfxParamPropChoiceOrder and kOfxParamPropPersistant are in OFX 1.5;
+ kOfxParamPropColourManagement and kOfxParamInterpType are for the next OFX
+ release (after 1.5.1).
  Imported from the AcademySoftwareFoundation/openfx standard (main 4249fe1b).
  Values are identical to upstream, so that plug-ins and hosts built against
  either header set interoperate.

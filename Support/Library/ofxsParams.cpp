@@ -528,7 +528,7 @@ namespace OFX {
   {
   }
 
-  /** @brief set the default interpolation (kOfxParamInterpType, OFX 1.5) */
+  /** @brief set the default interpolation (kOfxParamInterpType, next OFX release, after 1.5.1) */
   bool IntParamDescriptor::setInterpType(InterpTypeEnum v)
   {
     return propSetStringIfSupported(_paramProps, kOfxParamInterpType, mapInterpTypeEnumToStr(v));
@@ -771,7 +771,7 @@ namespace OFX {
   {
   }
 
-  /** @brief set the default interpolation (kOfxParamInterpType, OFX 1.5) */
+  /** @brief set the default interpolation (kOfxParamInterpType, next OFX release, after 1.5.1) */
   bool DoubleParamDescriptor::setInterpType(InterpTypeEnum v)
   {
     return propSetStringIfSupported(_paramProps, kOfxParamInterpType, mapInterpTypeEnumToStr(v));
@@ -940,7 +940,7 @@ namespace OFX {
   {
   }
 
-  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, OFX 1.5.1).
+  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, next OFX release, after 1.5.1).
    "A plug-in MUST check the status returned when setting this property", hence the return value. */
   bool RGBParamDescriptor::setColourManagement(ColourManagementEnum v)
   {
@@ -1014,7 +1014,7 @@ namespace OFX {
   {
   }
 
-  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, OFX 1.5.1).
+  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, next OFX release, after 1.5.1).
    "A plug-in MUST check the status returned when setting this property", hence the return value. */
   bool RGBAParamDescriptor::setColourManagement(ColourManagementEnum v)
   {

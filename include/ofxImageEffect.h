@@ -1119,7 +1119,8 @@ Tiled images mean that input or output images can contain pixel data that is onl
 
 If a clip or plugin does not support tiled images, then the host should supply full RoD images to the effect whenever it fetches one.
 
-V1.4:  It is now possible (defined) to change OfxImageEffectPropSupportsTiles in Instance Changed
+V1.4:  It is now possible (defined) to change OfxImageEffectPropSupportsTiles in Instance Changed.
+An instance inherits the value set on the plug-in descriptor until the plug-in sets this property on the instance; a host must not substitute its own default at the instance level.
 
     @propdef
    type: bool
@@ -2612,7 +2613,9 @@ They range from 1000 until 1999
 /*@}*/
 
 
-/** @name OFX 1.5 additions
+/** @name OFX 1.5.1 and next-release additions
+ kOfxImageEffectPropThumbnailRender is in OFX 1.5.1; the other ones are for the
+ next OFX release (after 1.5.1).
  Imported from the AcademySoftwareFoundation/openfx standard (main 4249fe1b).
  Values are identical to upstream, so that plug-ins and hosts built against
  either header set interoperate.

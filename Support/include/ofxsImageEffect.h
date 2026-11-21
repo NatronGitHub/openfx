@@ -557,7 +557,7 @@ namespace OFX {
     ColourManagementStyleEnum colourManagementStyle; ///< kOfxImageEffectPropColourManagementStyle on the host (OFX 1.5); None if absent
     std::vector<std::string> colourManagementAvailableConfigs; ///< kOfxImageEffectPropColourManagementAvailableConfigs on the host (OFX 1.5)
 
-    bool supportsMetalTexture; ///< kOfxImageEffectPropMetalTextureSupported on the host (OFX 1.5); false if absent
+    bool supportsMetalTexture; ///< kOfxImageEffectPropMetalTextureSupported on the host (next OFX release, after 1.5.1); false if absent
 #ifdef OFX_EXTENSIONS_NATRON
     bool isNatron;
     bool supportsDynamicChoices;
@@ -863,7 +863,7 @@ namespace OFX {
     /** @brief Does the plugin support OpenCL Images render (kOfxImageEffectPropOpenCLSupported, OFX 1.5), defaults to false */
     void setSupportsOpenCLImagesRender(bool v);
 
-    /** @brief Does the plugin support Metal texture render (kOfxImageEffectPropMetalTextureSupported, OFX 1.5), defaults to false.
+    /** @brief Does the plugin support Metal texture render (kOfxImageEffectPropMetalTextureSupported, next OFX release, after 1.5.1), defaults to false.
      When the host also supports it, it MAY pass images as id<MTLTexture> (see RenderArguments::isEnabledMetalTextureRender).
      Ignored by hosts that don't know it. */
     void setSupportsMetalTextureRender(bool v);
@@ -1384,7 +1384,7 @@ namespace OFX {
     /** @brief get the frame rate, in frames per second on this clip, after any clip preferences have been applied */
     double getFrameRate(void) const;
 
-    /** @brief the frame number the host shows the user for time 0 (kOfxImageClipPropDisplayTimeOffset, OFX 1.5), 0 if the host doesn't set it.
+    /** @brief the frame number the host shows the user for time 0 (kOfxImageClipPropDisplayTimeOffset, next OFX release, after 1.5.1), 0 if the host doesn't set it.
      Add it to OFX times shown to the user, and subtract it from frame numbers entered by the user. */
     double getDisplayTimeOffset(void) const;
 
@@ -1600,7 +1600,7 @@ namespace OFX {
   };
 
   ////////////////////////////////////////////////////////////////////////////////
-  /** @brief Host behaviour when the plug-in is unlicensed (kOfxImageEffectPropBehaviourWhenUnlicensed, OFX 1.5) */
+  /** @brief Host behaviour when the plug-in is unlicensed (kOfxImageEffectPropBehaviourWhenUnlicensed, next OFX release, after 1.5.1) */
   enum UnlicensedBehaviourEnum {
     eUnlicensedBehaviourNotSet,   /**< property absent: render (e.g. watermarked) and return kOfxStatOK */
     eUnlicensedBehaviourContinue, /**< kOfxUnlicensedContinue: render and return kOfxStatUnlicensed */
@@ -1641,8 +1641,8 @@ namespace OFX {
     std::list<std::string> planes;
 #endif
     bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
-    UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5): eUnlicensedBehaviourNotSet if absent */
-    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (OFX 1.5): images are id<MTLTexture>. false if absent */
+    UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (next OFX release, after 1.5.1): eUnlicensedBehaviourNotSet if absent */
+    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (next OFX release, after 1.5.1): images are id<MTLTexture>. false if absent */
     void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ) */
     bool      isNoSpatialAwareness;  /**< kOfxImageEffectPropNoSpatialAwareness (OFX 1.5.1): the host asks for a render without spatial effects (only if the plug-in declared setNoSpatialAwareness(true)). false if absent */
   };
@@ -1685,8 +1685,8 @@ namespace OFX {
     int view;
 #endif
     bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
-    UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (OFX 1.5): eUnlicensedBehaviourNotSet if absent */
-    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (OFX 1.5): images are id<MTLTexture>. false if absent */
+    UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (next OFX release, after 1.5.1): eUnlicensedBehaviourNotSet if absent */
+    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (next OFX release, after 1.5.1): images are id<MTLTexture>. false if absent */
     void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ) */
     bool      isNoSpatialAwareness;  /**< kOfxImageEffectPropNoSpatialAwareness (OFX 1.5.1): the host asks for a render without spatial effects (only if the plug-in declared setNoSpatialAwareness(true)). false if absent */
   };
@@ -1713,7 +1713,7 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
     int view;
 #endif
-    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (OFX 1.5): images are id<MTLTexture>. false if absent */
+    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (next OFX release, after 1.5.1): images are id<MTLTexture>. false if absent */
     void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ) */
   };
 
@@ -2247,7 +2247,7 @@ namespace OFX {
     std::string resolveColourspace(const std::string &colourspace) const;
     //@}
 
-    /** @brief Does this instance support Metal texture render (kOfxImageEffectPropMetalTextureSupported, OFX 1.5). Ignored by hosts that don't know it. */
+    /** @brief Does this instance support Metal texture render (kOfxImageEffectPropMetalTextureSupported, next OFX release, after 1.5.1). Ignored by hosts that don't know it. */
     void setSupportsMetalTextureRender(bool v);
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
