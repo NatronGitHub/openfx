@@ -902,7 +902,8 @@ def _render_frame(run: _Run, inst, out_clip, t: float, view: int, sequential: bo
     if not _ok(st):
         run.err(f"Error: get frames needed action failed at time {_g(t)} (status {int(st)})")
         return False
-    fn["clips"] = {c: [list(x) for x in v] for c, v in ranges.items()}
+    # (sorted by clip name: HostSupport's map is ordered by the clips' addresses, which vary between runs)
+    fn["clips"] = {c: [list(x) for x in v] for c, v in sorted(ranges.items())}
 
     roi = (render_window[0] * par / rs[0], render_window[1] / rs[1],
            render_window[2] * par / rs[0], render_window[3] / rs[1])
@@ -912,7 +913,7 @@ def _render_frame(run: _Run, inst, out_clip, t: float, view: int, sequential: bo
         run.err(f"Error: get regions of interest action failed at time {_g(t)} (status {int(st)})")
         return False
     roi_j["regionOfInterest"] = list(roi)
-    roi_j["clips"] = {c: list(v) for c, v in rois.items()}
+    roi_j["clips"] = {c: list(v) for c, v in sorted(rois.items())}
     if run.query:
         r["render"] = None
         r["output"] = None
