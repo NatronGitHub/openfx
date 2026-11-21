@@ -29,11 +29,35 @@ Differences from the subprocess backend:
 - stdout and stderr are captured at the file-descriptor level (the plug-ins' printf and
   std::cerr), for the duration of each call, which runs in a temporary current directory (as
   hostDemo's);
-- a plug-in whose worker thread is the first to fetch the output image of a render gets none: the
-  fetch asks for the output clip's RoD, which runs the RoD action, and ofxh refuses actions on a
-  worker thread (part 2);
-- extra_args: only --ofx14, --allow-unwritten, -m MAJOR and -s ASSIGNMENT (and the no-ops --quiet,
-  --no-cache, --no-std-paths); anything else raises ValueError.
+- extra_args: only --ofx14, --allow-unwritten, -m MAJOR, -s ASSIGNMENT, and --format ppm|pfm,
+  -o PREFIX and --report FILE (see below); --quiet, --no-cache and --no-std-paths are no-ops;
+  anything else raises ValueError.
+
+Without --format or -o in extra_args, no file is written (the subprocess backend reads hostDemo's
+PFM files, and gives the same arrays). With one of them, the outputs are written as hostDemo writes
+them, relative to the caller's current directory: --format ppm (the default, as hostDemo's) writes
+<prefix>.<t>[l|r].ppm (plain 8-bit PPM, top row first), --format pfm writes <prefix>.<t>[l|r].pfm
+(PF: the RGB components, or Pf for Alpha) and <prefix>.<t>[l|r].alpha.pfm (the alpha of RGBA
+images), and the report's output "files" lists them; -o defaults to "Output". --report FILE writes
+the report there too (also after a failure).
+
+Beyond hostDemo (which is frozen):
+- per-input components: an input can give the plug-in an RGB or Alpha image instead of RGBA, with
+  a "#rgb", "#alpha" (or "#rgba") suffix on a spec string, last ("ramp#rgb", "checker:8#alpha",
+  "file:x.pfm#premult#rgb"), or render(components={"Source": "rgb"}), which also applies to arrays
+  and Images. That is the clip's unmapped components (what is connected to it); the clip
+  preferences then give its components (HostSupport's default is the closest one the clip
+  supports, and the plug-in may ask for another), and each fetch converts the input to them: an RGB
+  input is opaque (alpha 1 in an RGBA clip, premultiplication opaque), an Alpha input is the alpha
+  of the pattern or file, and gives (a, a, a, a) to an RGBA clip, as hostDemo's Pf files do;
+- a plug-in's worker thread (e.g. an OpenMP loop) may be the first to fetch the output image of a
+  render, or ask for the output's RoD during it: during a render, the output clip's RoD at the
+  render's time and view is the one computed before the render action, so no RoD action runs on
+  the worker (ofxh refuses actions there, part 2). Another time or view still runs the action, and
+  is refused on a worker thread.
+
+ofxhost.hostdemo is hostDemo's whole command line on this backend, for the plug-in repositories'
+test scripts (python -m ofxhost.hostdemo ARGS..., or the hostdemo-inprocess script).
 """
 
 from __future__ import annotations
@@ -41,6 +65,7 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import dataclasses
+import json
 import math
 import os
 import sys
@@ -53,8 +78,8 @@ from typing import Any
 
 import numpy as np
 
-from . import (DEPTHS, OUTPUT_PREFIX, HostDemoError, Image, RenderResult, _format_value, _param_args,
-               _plugin_dirs, _PREMULT, resolve_file_spec)
+from . import (COMPONENTS, DEPTHS, OUTPUT_PREFIX, HostDemoError, Image, RenderResult, _format_value, _param_args,
+               _plugin_dirs, _PREMULT, encode_pfm, resolve_file_spec, split_components)
 
 __all__ = ["render", "describe", "shutdown", "import_ofxh", "OfxhNotFound"]
 
@@ -294,6 +319,7 @@ class _Spec:
     file_y: int = 0
     premult: str | None = None  # file: the short name (premult, unpremult, opaque), or None
     scale: tuple = (1., 1.)  # file: the render scale
+    components: str = "rgba"  # what is connected to the clip: rgba, rgb or alpha (a "#rgb" suffix...)
 
 
 def _read_pfm(path: str) -> np.ndarray:
@@ -443,13 +469,40 @@ def _array_spec(clip: str, value: Any) -> _Spec:
     return _Spec(type="file", text=text, data=data, file_x=fx, file_y=fy, premult=p)
 
 
-def _input_spec(clip: str, value: Any) -> _Spec:
-    """An input of render(): an array, an Image, a path, or a hostDemo spec string."""
+def _input_spec(clip: str, value: Any, components: str | None = None, resolve: bool = True) -> _Spec:
+    """An input of render(): an array, an Image, a path, or a hostDemo spec string, with an optional
+    components suffix ("ramp#rgb"); components (from render(components=...)) overrides it. resolve:
+    make a "file:" spec's paths absolute (False: relative to the current directory, as hostDemo)."""
+    suffix = None
     if isinstance(value, os.PathLike):
-        return _parse_spec("file:" + str(Path(value).resolve()))
-    if isinstance(value, str):
-        return _parse_spec(resolve_file_spec(value) if value.startswith("file:") else value)
-    return _array_spec(clip, value)
+        spec = _parse_spec("file:" + str(Path(value).resolve()))
+    elif isinstance(value, str):
+        text = value
+        value, suffix = split_components(value)
+        spec = _parse_spec(resolve_file_spec(value) if resolve and value.startswith("file:") else value)
+        spec.text = text
+    else:
+        spec = _array_spec(clip, value)
+    spec.components = components or suffix or "rgba"
+    return spec
+
+
+def _resolve(spec: str) -> str:
+    """resolve_file_spec(), keeping a components suffix."""
+    body, comps = split_components(spec)
+    return resolve_file_spec(body) + ("#" + comps if comps else "")
+
+
+def _from_components(rgba: np.ndarray, components: str) -> np.ndarray:
+    """The RGBA pattern (h, w, 4) as an input of these components gives it, as RGBA: RGB is opaque
+    (alpha 1), Alpha is (a, a, a, a) (hostDemo's Pf files); RGBA unchanged."""
+    if components == "rgb":
+        out = np.array(rgba, np.float64)
+        out[..., 3] = 1.
+        return out
+    if components == "alpha":
+        return np.repeat(np.asarray(rgba, np.float64)[..., 3:4], 4, axis=2)
+    return rgba
 
 
 def _text_mask(time: float, view: int, px: np.ndarray, py: np.ndarray) -> np.ndarray:
@@ -606,12 +659,17 @@ class _Clip(ofxh.ClipInstance):
         return "byte" if self.is_output else self.run.depth
 
     @property
+    def unmapped_components(self):
+        # (what is connected: RGBA, as hostDemo's inputs, unless the input says otherwise)
+        return "rgba" if self.is_output else self.spec.components
+
+    @property
     def premult(self):
         # the output: the clip preferences; an RGB or disconnected input is opaque; else
         # unpremultiplied (the patterns), or the premultiplication of a file
         if self.is_output:
             return self.instance.output_premultiplication
-        if not self.connected or self.components == "rgb":
+        if not self.connected or self.components == "rgb" or self.spec.components == "rgb":
             return "opaque"
         return self.spec.premult or "unpremult"
 
@@ -626,7 +684,13 @@ class _Clip(ofxh.ClipInstance):
 
     def region_of_definition(self, time, view):
         if self.is_output:
-            return super().region_of_definition(time, view)  # the plug-in's RoD action
+            # during a render, at its time and view: the RoD computed before the render action (a
+            # plug-in's worker thread may ask for it, e.g. by fetching the output image first, and
+            # ofxh refuses actions on a worker thread); else the plug-in's RoD action
+            rod = self.run.render_rod
+            if self.run.rendering and rod is not None and rod[0] == time and (not _NUKE or rod[1] == view):
+                return rod[2]
+            return super().region_of_definition(time, view)
         s = self.spec
         if s.type == "none":
             return (0., 0., 0., 0.)
@@ -692,7 +756,8 @@ class _Clip(ofxh.ClipInstance):
         if _empty(b):
             return None
         b = self._checked(b, time, depth, comps)
-        pixels = _to_depth(_pattern(self.spec, time, view, b, rod, rs), depth, comps)
+        pixels = _to_depth(_from_components(_pattern(self.spec, time, view, b, rod, rs), self.spec.components),
+                           depth, comps)
         return ofxh.ImageData(pixels, b, rod=rod)
 
     def _checked(self, b, time, depth, comps):
@@ -719,6 +784,7 @@ class _Session:
     host: Any
     dirs: tuple
     profile: str
+    options: tuple = ()  # (keep_loaded, use_std_paths)
 
 
 _session: _Session | None = None
@@ -733,13 +799,16 @@ def shutdown() -> None:
     _session = None
 
 
-def _ensure(dirs: tuple, profile: str) -> None:
-    """The backend's ofxh host, for these plug-in directories and profile (ofxh has one host per
-    process: a new one replaces the backend's own, but not another one)."""
+def _ensure(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_paths: bool = False) -> None:
+    """The backend's ofxh host, for these plug-in directories, profile and options (ofxh has one
+    host per process: a new one replaces the backend's own, but not another one). keep_loaded: the
+    scanned plug-ins stay loaded (hostDemo's OFX_HOSTDEMO_KEEP_LOADED=1). use_std_paths: also the
+    standard plug-in locations (hostDemo without --no-std-paths)."""
     global _session
+    options = (bool(keep_loaded), bool(use_std_paths))
     if _session is not None and ofxh.host() is not _session.host:
         _session = None  # (shut down by someone else)
-    if _session is not None and (_session.dirs, _session.profile) == (dirs, profile):
+    if _session is not None and (_session.dirs, _session.profile, _session.options) == (dirs, profile, options):
         return
     if ofxh.initialized():
         if _session is None:
@@ -749,8 +818,9 @@ def _ensure(dirs: tuple, profile: str) -> None:
         ofxh.shutdown()
         _session = None
     host = _Host()
-    ofxh.init(host, list(dirs), use_std_paths=False, use_env_path=False, profile=profile)
-    _session = _Session(host, dirs, profile)
+    ofxh.init(host, list(dirs), use_std_paths=use_std_paths, use_env_path=False, profile=profile,
+              keep_loaded=keep_loaded)
+    _session = _Session(host, dirs, profile, options)
 
 
 # --- a run of hostDemo ----------------------------------------------------------------------
@@ -778,39 +848,65 @@ def _frames(frames) -> list[float]:
     return out
 
 
-def _extra(extra_args: Sequence[str]) -> tuple[bool, bool, int, list]:
-    """--ofx14, --allow-unwritten, -m MAJOR, and -s ASSIGNMENT (hostDemo's -s, before the params')."""
-    ofx14, allow_unwritten, major, assignments = False, False, -1, []
+@dataclasses.dataclass
+class _Extra:
+    """The hostDemo options of extra_args."""
+    ofx14: bool = False
+    allow_unwritten: bool = False
+    major: int = -1
+    assignments: list = dataclasses.field(default_factory=list)
+    format: str | None = None  # --format: ppm or pfm (None: not given)
+    prefix: str | None = None  # -o (None: not given)
+    report: str | None = None  # --report
+
+
+def _extra(extra_args: Sequence[str]) -> _Extra:
+    """--ofx14, --allow-unwritten, -m MAJOR, -s ASSIGNMENT (hostDemo's -s, before the params'),
+    --format ppm|pfm, -o PREFIX and --report FILE."""
+    x = _Extra()
     args = list(extra_args)
     i = 0
     while i < len(args):
         a = args[i]
         if a == "--ofx14":
-            ofx14 = True
+            x.ofx14 = True
         elif a == "--allow-unwritten":
-            allow_unwritten = True
+            x.allow_unwritten = True
         elif a in ("--quiet", "--no-cache", "--no-std-paths"):
             pass
-        elif a == "-m" and i + 1 < len(args):
+        elif a in ("-m", "-s", "--format", "-o", "--report") and i + 1 < len(args):
             i += 1
-            major = _parse_int(args[i])
-            if major is None or major < 0:
-                raise _Usage(f'Error: invalid major version "{args[i]}"')
-        elif a == "-s" and i + 1 < len(args):
-            i += 1
-            assignments.append(args[i])
+            v = args[i]
+            if a == "-m":
+                x.major = _parse_int(v)
+                if x.major is None or x.major < 0:
+                    raise _Usage(f'Error: invalid major version "{v}"')
+            elif a == "-s":
+                x.assignments.append(v)
+            elif a == "--format":
+                if v not in ("ppm", "pfm"):
+                    raise _Usage(f'Error: unsupported format "{v}", expected ppm or pfm')
+                x.format = v
+            elif a == "-o":
+                x.prefix = v
+            else:
+                x.report = v
         else:
             raise ValueError(f"extra_args {a!r}: not supported by the in-process backend (supported: --ofx14, "
-                             "--allow-unwritten, -m MAJOR, -s ASSIGNMENT)")
+                             "--allow-unwritten, -m MAJOR, -s ASSIGNMENT, --format ppm|pfm, -o PREFIX, --report FILE)")
         i += 1
-    return ofx14, allow_unwritten, major, assignments
+    return x
 
 
 class _Run:
     """One render() call: hostDemo's run(), with its report."""
 
-    def __init__(self, depth: str, scale, window, query: bool, allow_unwritten: bool, ofx14: bool):
+    def __init__(self, depth: str, scale, window, query: bool, allow_unwritten: bool, ofx14: bool,
+                 fmt: str | None = None, prefix: str = OUTPUT_PREFIX, out_dir: str | None = None):
         self.depth = depth
+        self.fmt = fmt  # the output files: "ppm", "pfm", or None (none written)
+        self.prefix = prefix  # -o
+        self.out_dir = out_dir  # where the relative output file names are (None: the current directory)
         self.scale = scale
         self.window = window
         self.query = query
@@ -824,7 +920,8 @@ class _Run:
         self.image_errors = 0
         self.warned_clips: set = set()
         self.warned_window = self.warned_large = False
-        self.outputs: dict = {}  # key -> (bottom-up pixels, bounds)
+        self.render_rod = None  # (time, view, RoD) of the output during the render (see _Clip)
+        self.outputs: dict = {}  # frame or (frame, "l"|"r") -> (bottom-up pixels, bounds)
 
     @staticmethod
     def err(text: str) -> None:
@@ -950,8 +1047,8 @@ def _keyed_params(inst, t: float) -> dict:
     return j
 
 
-def _stats(pixels: np.ndarray, bounds) -> dict:
-    """computeStats and statsJson (files: none)"""
+def _stats(pixels: np.ndarray, bounds, files=()) -> dict:
+    """computeStats and statsJson (files: the files written)"""
     h, w, nc = pixels.shape
     j: dict = {"w": bounds[2] - bounds[0], "h": bounds[3] - bounds[1], "bounds": list(bounds),
                "depth": {1: "byte", 2: "short", 4: "float"}[pixels.dtype.itemsize],
@@ -973,12 +1070,14 @@ def _stats(pixels: np.ndarray, bounds) -> dict:
     j["nan"] = int(nan.any(axis=1).sum()) if nc else 0
     data = np.ascontiguousarray(pixels, dtype=pixels.dtype.newbyteorder("<"))
     j["crc32"] = f"{zlib.crc32(data.tobytes()) & 0xffffffff:08x}"
-    j["files"] = []
+    j["files"] = list(files)
     return j
 
 
-def _render_frame(run: _Run, inst, out_clip, t: float, view: int, sequential: bool, base: str, r: dict) -> bool:
-    """renderFrame: the actions of one time and view, into the report item r."""
+def _render_frame(run: _Run, inst, out_clip, t: float, view: int, sequential: bool, base: str, key, r: dict) -> bool:
+    """renderFrame: the actions of one time and view, into the report item r. base: the output file
+    name without its extension (hostDemo's), key: the key of RenderResult.outputs."""
+    fname = base + (".ppm" if run.fmt == "ppm" else ".pfm")
     rs = run.scale
     par = inst.project_pixel_aspect_ratio
     r["time"] = t
@@ -1020,7 +1119,7 @@ def _render_frame(run: _Run, inst, out_clip, t: float, view: int, sequential: bo
     if _empty(render_window):
         run.err(f"Warning: the output RoD ({_g(rod[0])},{_g(rod[1])},{_g(rod[2])},{_g(rod[3])}) at time {_g(t)} "
                 f"doesn't intersect the {'render window' if window else 'project'}: nothing to render"
-                + ("" if run.query else f", {base}.pfm not written"))
+                + ("" if run.query else f", {fname} not written"))
         r["renderWindow"] = None
         r["output"] = None
         return True
@@ -1062,13 +1161,14 @@ def _render_frame(run: _Run, inst, out_clip, t: float, view: int, sequential: bo
 
     # setRenderState: each render gets a new output image (ofxh's render_action)
     run.rendering, run.rois = True, dict(rois)
+    run.render_rod = (t, av, tuple(rod))  # (the output's RoD during the render: see _Clip)
     errors = run.image_errors
     rview = view if (_NUKE or _VEGAS) else 0
     try:
         st, planes = run.call2("render", inst.render_action, t, render_window, rs, "none", sequential, False, False,
                                rview, run.n_views if _VEGAS else 1)
     finally:
-        run.rendering, run.rois = False, {}
+        run.rendering, run.rois, run.render_rod = False, {}, None
     render_j = r["render"] = _action(st)
     render_j["ok"] = int(st) == 0 and run.image_errors == errors
     render_j["imageFetchErrors"] = run.image_errors - errors
@@ -1085,16 +1185,77 @@ def _render_frame(run: _Run, inst, out_clip, t: float, view: int, sequential: bo
     if pixels.dtype.itemsize not in (1, 2, 4) or pixels.dtype == np.float16:
         run.err(f"Error: render action at time {_g(t)}: hostDemo can't write {pixels.dtype} images")
         return False
-    run.outputs[base] = (pixels, bounds)
-    r["output"] = _stats(pixels, bounds)
+    run.outputs[key] = (pixels, bounds)
+    files: list[str] = []
+    if run.fmt is not None:
+        files = _write_output(run, base, fname, pixels, bounds)
+        if files is None:
+            return False
+    r["output"] = _stats(pixels, bounds, files)
     if pixels.dtype == np.float32:
         not_written = int(np.isnan(pixels).any(axis=2).sum())
         if not_written > 0:
             n = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1])
-            run.err(f"{'Warning: ' if run.allow_unwritten else 'Error: '}{base}.pfm: {not_written} of {n} pixels "
-                    "were not written by the plug-in (they hold NaN)")
+            run.err(f"{'Warning: ' if run.allow_unwritten else 'Error: '}{fname}: {not_written} of {n} pixels "
+                    "were not written by the plug-in (they hold NaN" + ("), written as 0" if run.fmt == "ppm" else ")"))
             return run.allow_unwritten
     return True
+
+
+def _ppm(pixels: np.ndarray, bounds) -> bytes:
+    """hostDemo's exportToPPM: a plain (P3) 8-bit PPM, top row first; short and float converted to 8
+    bits (float clamped to [0, 1], NaN written as 0), Alpha as grey levels."""
+    h, w, nc = pixels.shape
+    if pixels.dtype == np.uint8:
+        v = pixels.astype(np.int64)
+    elif pixels.dtype == np.uint16:
+        v = (pixels.astype(np.int64) * 255 + 32767) // 65535
+    else:
+        f = pixels.astype(np.float64)
+        v = np.floor(np.where(np.isnan(f) | (f <= 0.), 0., np.minimum(f, 1.)) * 255. + 0.5).astype(np.int64)
+    rgb = np.repeat(v, 3, axis=2) if nc == 1 else v[..., :3]
+    depth = {1: "OfxBitDepthByte", 2: "OfxBitDepthShort", 4: "OfxBitDepthFloat"}[pixels.dtype.itemsize]
+    comps = {4: "OfxImageComponentRGBA", 3: "OfxImageComponentRGB", 1: "OfxImageComponentAlpha"}[nc]
+    head = (f"P3\n# {depth} {comps}, converted to 8 bits\n# bounds {bounds[0]} {bounds[1]} {bounds[2]} {bounds[3]}\n"
+            f"{w} {h}\n255\n")
+    rows = rgb[::-1].reshape(-1, 3)
+    body = "".join(f"{a} {b} {c}\n" for a, b, c in rows.tolist())
+    return (head + body).encode("ascii")
+
+
+def _pfm_float(pixels: np.ndarray) -> np.ndarray:
+    """getComponentFloat: byte and short divided by 255 and 65535, float unchanged (NaN included)."""
+    if pixels.dtype == np.uint8:
+        return pixels.astype(np.float32) / np.float32(255)
+    if pixels.dtype == np.uint16:
+        return pixels.astype(np.float32) / np.float32(65535)
+    return pixels.astype(np.float32)
+
+
+def _write_output(run: _Run, base: str, fname: str, pixels: np.ndarray, bounds) -> list[str] | None:
+    """Write an output image as hostDemo does (exportToPPM, exportToPFM): the file names (as the
+    report gives them), or None after an error."""
+    out: list[tuple[str, bytes]] = []
+    if run.fmt == "ppm":
+        out.append((fname, _ppm(pixels, bounds)))
+    else:
+        f = _pfm_float(pixels)[::-1]  # (encode_pfm takes top-down images)
+        nc = f.shape[2]
+        if nc == 1:
+            out.append((base + ".pfm", encode_pfm(f[:, :, 0])))
+        else:
+            out.append((base + ".pfm", encode_pfm(f[:, :, :3])))
+            if nc == 4:
+                out.append((base + ".alpha.pfm", encode_pfm(f[:, :, 3])))
+    for name, data in out:
+        path = os.path.join(run.out_dir, name) if run.out_dir else name
+        try:
+            with open(path, "wb") as fh:
+                fh.write(data)
+        except OSError:
+            run.err(f"Error: cannot open {name} for writing")
+            return None
+    return [name for name, _ in out]
 
 
 def _plugin_json(plugin) -> dict:
@@ -1113,10 +1274,13 @@ def _context(context: str) -> str:
 
 
 def _run(dirs, plugin_id, context, specs, assignments, depth, frames, scale, window, query, ofx14,
-         allow_unwritten, major) -> tuple[int, dict, _Run]:
-    """hostDemo's run(), after the command line: returns (exit status, report, run)."""
-    run = _Run(depth, scale, window, query, allow_unwritten, ofx14)
-    _ensure(dirs, "ofx14" if ofx14 else "default")
+         allow_unwritten, major, fmt=None, prefix=OUTPUT_PREFIX, out_dir=None, keep_loaded=False,
+         use_std_paths=False) -> tuple[int, dict, _Run]:
+    """hostDemo's run(), after the command line: returns (exit status, report, run). fmt: write the
+    outputs (ppm or pfm, as hostDemo --format) to prefix.<t>[l|r].<ext>, in out_dir (None: the
+    current directory); None: no files."""
+    run = _Run(depth, scale, window, query, allow_unwritten, ofx14, fmt, prefix, out_dir)
+    _ensure(dirs, "ofx14" if ofx14 else "default", keep_loaded, use_std_paths)
     plugin = ofxh.get_plugin(plugin_id, major)
     ret = 0
     report: dict = {"schema": "hostDemo.report", "schemaVersion": 1, "ok": False, "plugin": {"id": plugin_id},
@@ -1167,7 +1331,8 @@ def _run(dirs, plugin_id, context, specs, assignments, depth, frames, scale, win
                     "spec": clip.spec.text, "connected": clip.connected, "optional": clip.is_optional,
                     "isMask": clip.is_mask,
                     "unmappedDepth": _ofx("depth", depth) if clip.connected else "OfxBitDepthNone",
-                    "unmappedComponents": "OfxImageComponentRGBA" if clip.connected else "OfxImageComponentNone"}
+                    "unmappedComponents": _ofx("components", clip.spec.components) if clip.connected else
+                    "OfxImageComponentNone"}
         # "Any clip that is not optional will *always* be connected during a render action"
         if ret == 0 and any(not c.is_optional and not c.connected for c in clips.values()):
             run.err("Error: these clips are not optional, they can't be disconnected (-i Clip=none):" +
@@ -1267,10 +1432,13 @@ def _run(dirs, plugin_id, context, specs, assignments, depth, frames, scale, win
                 for view in range(run.n_views):
                     if ret != 0:
                         break
-                    base = f"{OUTPUT_PREFIX}.{t:.12g}" + ("" if run.n_views == 1 else "lr"[view])
+                    base = f"{run.prefix}.{t:.12g}" + ("" if run.n_views == 1 else "lr"[view])
+                    key: Any = int(t) if float(t).is_integer() else t
+                    if run.n_views > 1:
+                        key = (key, "lr"[view])
                     r = {}
                     renders.append(r)
-                    if not _render_frame(run, inst, out_clip, t, view, sequential, base, r):
+                    if not _render_frame(run, inst, out_clip, t, view, sequential, base, key, r):
                         ret = 1
             if not query:
                 st = run.call("endSequenceRender", inst.end_sequence_render_action, first, last, step, False,
@@ -1303,15 +1471,7 @@ def _run(dirs, plugin_id, context, specs, assignments, depth, frames, scale, win
 def _results(run: _Run, report: dict):
     """outputs, alpha and images of a run, as the subprocess backend reads them from the files."""
     premult = (report.get("clipPreferences") or {}).get("outputPremultiplication")
-    keyed = []
-    for base, (pixels, bounds) in run.outputs.items():
-        name = base[len(OUTPUT_PREFIX) + 1:]
-        view = name[-1] if run.n_views > 1 else ""
-        v = float(name[:-1] if view else name)
-        key = int(v) if v.is_integer() else v
-        if view:
-            key = (key, view)
-        keyed.append((key, pixels, bounds))
+    keyed = [(key, pixels, bounds) for key, (pixels, bounds) in run.outputs.items()]
     keyed.sort(key=lambda x: x[0] if isinstance(x[0], tuple) else (x[0], ""))
     outputs, alpha, images = {}, {}, {}
     for key, pixels, bounds in keyed:
@@ -1351,11 +1511,21 @@ def _cmd(plugin_id, context, specs, depth, frames, scale, window, query, extra_a
 def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mapping[str, Any] | None = None,
            params: Mapping[str, Any] | None = None, depth: str = "float", frames: Sequence[float] | None = None,
            scale: float | Sequence[float] | None = None, window: Sequence[int] | None = None, query: bool = False,
-           extra_args: Sequence[str] = (), check: bool = True) -> RenderResult:
-    """ofxhost.render(), in-process (see ofxhost.render() for the arguments)."""
+           extra_args: Sequence[str] = (), check: bool = True,
+           components: Mapping[str, str] | None = None) -> RenderResult:
+    """ofxhost.render(), in-process (see ofxhost.render() for the arguments). components: clip name ->
+    "rgb", "alpha" or "rgba" (or the kOfxImageComponent* names), the components of that input (its
+    unmapped components; default RGBA, or the spec's "#rgb"... suffix); a clip not in inputs gets
+    the default pattern."""
     if depth not in DEPTHS:
         raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
+    comps = {}
+    for clip, c in (components or {}).items():
+        if c not in COMPONENTS:
+            raise ValueError(f"components of input {clip!r}: {c!r}, expected rgba, rgb or alpha")
+        comps[clip] = COMPONENTS[c]
     dirs = tuple(_plugin_dirs(bundle_paths))
+    out_dir = os.getcwd()  # (the output files and the report are relative to the caller's directory)
     assignments = []
     for name, value in (params or {}).items():
         assignments += _param_args(name, value)[1::2]
@@ -1365,7 +1535,7 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
     if scale is not None:
         _format_value(scale)
     # (the paths relative to the current directory, which _capture() changes)
-    inputs = {c: (resolve_file_spec(v) if isinstance(v, str) and v.startswith("file:") else
+    inputs = {c: (_resolve(v) if isinstance(v, str) and v.startswith("file:") else
                   Path(v).resolve() if isinstance(v, os.PathLike) else v) for c, v in (inputs or {}).items()}
     specs: list = []
     with _capture() as cap:
@@ -1373,7 +1543,7 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
         report: dict = {}
         run = None
         try:
-            ofx14, allow_unwritten, major, extra_assignments = _extra(extra_args)
+            x = _extra(extra_args)
             ctx = _context(context)
             fr = _frames(frames)
             if scale is None:
@@ -1394,22 +1564,40 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
                                  "x1<x2 and y1<y2, at most 1000000 pixels wide or high and 2^28 pixels in all")
                 win = tuple(w)
             seen = set()
-            for clip, value in (inputs or {}).items():
+            given = dict(inputs or {})
+            for clip in comps:
+                given.setdefault(clip, "default")  # (components alone: the default pattern)
+            for clip, value in given.items():
                 try:
-                    spec = _input_spec(clip, value)
+                    spec = _input_spec(clip, value, comps.get(clip))
                 except _SpecError as e:
                     text = value if isinstance(value, str) else str(value)
                     raise _Usage(f'Error: invalid input "{clip}={text}" ({e}), expected Clip=default|solid:r,g,b,a|'
                                  "ramp|checker:N|rod:x1,y1,x2,y2|none|file:rgb.pfm[+alpha.pfm][@x1,y1]"
                                  "[#premult|#unpremult|#opaque]") from None
+                if clip in comps and comps[clip] != "rgba" and not spec.text.endswith("#" + comps[clip]):
+                    spec.text += "#" + comps[clip]  # (the report's spec says what the input is)
                 if clip in seen:
                     raise _Usage(f'Error: input clip "{clip}" given twice (-i)')
                 seen.add(clip)
                 spec.scale = sc  # (a file's pixels are pixels at the render scale)
                 specs.append((clip, spec))
             # (hostDemo's order: the -s of extra_args, then those of params)
-            ret, report, run = _run(dirs, plugin_id, ctx, specs, extra_assignments + assignments, depth, fr, sc, win,
-                                    query, ofx14, allow_unwritten, major)
+            fmt = x.format or ("ppm" if x.prefix is not None else None)  # (hostDemo's default format: ppm)
+            ret, report, run = _run(dirs, plugin_id, ctx, specs, x.assignments + assignments, depth, fr, sc, win,
+                                    query, x.ofx14, x.allow_unwritten, x.major, fmt=fmt,
+                                    prefix=x.prefix if x.prefix is not None else OUTPUT_PREFIX, out_dir=out_dir)
+            if x.report is not None:
+                report["ok"] = ret == 0
+                report["exitStatus"] = ret
+                try:
+                    with open(os.path.join(out_dir, x.report), "w", encoding="utf-8") as f:
+                        json.dump(report, f, indent=2)
+                        f.write("\n")
+                except (OSError, ValueError):
+                    _write(2, f"Error: cannot write {x.report}\n")
+                    ret = report["exitStatus"] = 1
+                    report["ok"] = False
         except _Usage as e:
             _write(2, str(e) + "\n")
             run = None
@@ -1434,11 +1622,11 @@ def describe(bundle_paths, plugin_id: str, context: str | None = None, extra_arg
     d = None
     with _capture() as cap:
         try:
-            ofx14, _, major, _ = _extra(extra_args)
+            x = _extra(extra_args)
             if context:
                 _context(context)
-            _ensure(dirs, "ofx14" if ofx14 else "default")
-            plugin = ofxh.get_plugin(plugin_id, major)
+            _ensure(dirs, "ofx14" if x.ofx14 else "default")
+            plugin = ofxh.get_plugin(plugin_id, x.major)
             if plugin is None:
                 _write(2, f'Error: plug-in "{plugin_id}" not found. Check that OFX_PLUGIN_PATH contains the folder '
                           "of its .ofx.bundle.\n")

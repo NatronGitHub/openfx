@@ -1,0 +1,8 @@
+#!/bin/sh
+# hostDemo's command line on the in-process backend of ofxhost (ofxhost.hostdemo, see README.md): a
+# drop-in for the hostDemo binary in test scripts, e.g. HOSTDEMO=/path/to/hostdemo-inprocess.
+# $OFXHOST_PYTHON is the Python to run (default: python3): the one of the ofxh module, with NumPy.
+# The ofxh module is that of PYTHONPATH, else of the openfx build tree that holds the
+# $OFX_PLUGIN_PATH directories. "python -m ofxhost.hostdemo ARGS" is the same (e.g. on Windows).
+dir=$(cd "$(dirname "$0")" && pwd)
+PYTHONPATH="$dir${PYTHONPATH:+:$PYTHONPATH}" exec "${OFXHOST_PYTHON:-python3}" -m ofxhost.hostdemo "$@"

@@ -37,13 +37,24 @@ from .pfm import encode_pfm, parse_pfm, read_pfm, write_pfm
 
 __all__ = [
     "render", "describe", "RenderResult", "Image", "HostDemoError", "HostDemoNotFound",
-    "find_hostdemo", "BACKENDS", "default_backend",
+    "find_hostdemo", "BACKENDS", "default_backend", "COMPONENTS", "split_components",
     "read_pfm", "write_pfm", "parse_pfm", "encode_pfm",
 ]
 
 OUTPUT_PREFIX = "Output"
 DEPTHS = ("byte", "short", "float")
 BACKENDS = ("subprocess", "inprocess")
+# the components of an input (render(components=...), or a spec's "#rgb" suffix): short and OFX names
+COMPONENTS = {"rgba": "rgba", "rgb": "rgb", "alpha": "alpha", "OfxImageComponentRGBA": "rgba",
+              "OfxImageComponentRGB": "rgb", "OfxImageComponentAlpha": "alpha"}
+
+
+def split_components(spec: str) -> tuple[str, str | None]:
+    """(the spec without its components suffix, the components or None): an input spec may end with
+    "#rgb", "#alpha" or "#rgba" (in-process backend and sample host only; e.g. "ramp#rgb",
+    "file:x.pfm#premult#alpha")."""
+    head, sep, tail = spec.rpartition("#")
+    return (head, tail) if sep and head and tail in ("rgb", "rgba", "alpha") else (spec, None)
 
 
 def default_backend(backend: str | None = None) -> str:
@@ -340,7 +351,7 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
            window: Sequence[int] | None = None, query: bool = False,
            host_binary: str | os.PathLike | None = None, timeout: float | None = 60,
            extra_args: Sequence[str] = (), check: bool = True,
-           backend: str | None = None) -> RenderResult:
+           backend: str | None = None, components: Mapping[str, str] | None = None) -> RenderResult:
     """Render a plug-in with hostDemo (by default at frames 0 and 1); return its output
     images and report.
 
@@ -365,13 +376,30 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
     backend: "subprocess" (hostDemo) or "inprocess" (ofxhost.inprocess, on the ofxh module; it
         ignores timeout, and supports only some extra_args); default: "subprocess" if host_binary
         is given (ValueError with "inprocess"), else $OFXHOST_BACKEND, else "subprocess".
+    components: clip name -> "rgb", "alpha" or "rgba": the components of that input (default RGBA;
+        a spec string may also end with "#rgb", "#alpha" or "#rgba"). In-process backend only
+        (hostDemo's inputs are RGBA): ValueError on the subprocess backend for anything but RGBA.
+    extra_args: hostDemo options. The in-process backend also takes --format ppm|pfm, -o PREFIX
+        and --report FILE (it then writes the outputs and the report as hostDemo does, relative to
+        the current directory); the subprocess backend refuses them (ValueError): it runs hostDemo
+        with its own.
     """
     if depth not in DEPTHS:
         raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
     if _backend_for(backend, host_binary) == "inprocess":
         from . import inprocess
         return inprocess.render(bundle_paths, plugin_id, context, inputs, params, depth, frames, scale, window,
-                                query, extra_args, check)
+                                query, extra_args, check, components)
+    bad = [c for c, v in (components or {}).items() if COMPONENTS.get(v) != "rgba"]
+    bad += [c for c, v in (inputs or {}).items() if isinstance(v, str) and split_components(v)[1] not in (None, "rgba")]
+    if bad:
+        raise ValueError(f"inputs {bad}: per-input components need the in-process backend (backend=\"inprocess\"): "
+                         "hostDemo's inputs are RGBA")
+    own = [a for a in extra_args if a in ("--format", "-o", "--report")]
+    if own:
+        raise ValueError(f"extra_args {own}: the subprocess backend runs hostDemo with its own --format pfm, -o and "
+                         "--report (use backend=\"inprocess\" to write the files, or run hostDemo itself)")
+    inputs = {c: (split_components(v)[0] if isinstance(v, str) else v) for c, v in (inputs or {}).items()}
     host = find_hostdemo(host_binary)
     env = _env(bundle_paths)
     with tempfile.TemporaryDirectory(prefix="ofxhost-") as tmp:

@@ -256,7 +256,7 @@ def test_backend_selection(both, monkeypatch):
     monkeypatch.delenv("OFXHOST_BACKEND")
     assert ofxhost.default_backend() == "subprocess"
     with pytest.raises(ValueError, match="not supported by the in-process backend"):
-        ofxhost.render(both, INVERT, backend="inprocess", extra_args=["--format", "ppm"])
+        ofxhost.render(both, INVERT, backend="inprocess", extra_args=["--describe", "d.json"])
 
 
 def test_inprocess_one_host_per_process(both):

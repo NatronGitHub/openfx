@@ -178,3 +178,18 @@ def test_default_output_depth_invalid(plugin_dir):
         with pytest.raises(ofxh.CallbackError) as e:
             inst.create_instance_action()
         assert isinstance(e.value.__cause__, ValueError) and "default_output_depth" in str(e.value.__cause__)
+
+
+def test_keep_loaded(plugin_dir):
+    """ofxh.init(keep_loaded=True): Host::keepPluginsLoadedAfterScan() (hostDemo's
+    OFX_HOSTDEMO_KEEP_LOADED=1); ofxh.keep_loaded() says which mode the host is in. (The actions it
+    sends are checked against hostDemo's in HostSupport/examples/python/tests/test_hostdemo_cli.py.)"""
+    assert ofxh.keep_loaded() is None  # (not initialized)
+    for keep in (True, False):
+        ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False, keep_loaded=keep)
+        try:
+            assert ofxh.keep_loaded() is keep
+            assert ofxh.describe(ofxh.get_plugin(BASIC))["ok"]  # (its first use)
+        finally:
+            ofxh.shutdown()
+        assert ofxh.keep_loaded() is None

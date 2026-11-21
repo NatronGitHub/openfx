@@ -11,6 +11,8 @@
     render GRAPH.json [--frames F] [--scale S] [--report R.json] [--save-graph G.json] [--dump]
                                     run a graph (ofxhost.graph's JSON) and write its outputs;
                                     --dump prints the graph as JSON (normalised) instead
+    hostdemo [hostDemo's options]   hostDemo's command line, in-process (ofxhost.hostdemo; the
+                                    plug-ins of $OFX_PLUGIN_PATH, not -b; first on the line)
 
 -b: a plug-in directory (or .ofx.bundle), repeatable; $OFX_PLUGIN_PATH is scanned too. Frames F:
 "1-10", "0-20x2" (a step), or "1,3,5". -s NAME=VALUE: VALUE is JSON if it parses (1.5, true,
@@ -221,7 +223,8 @@ def cmd_render(args) -> int:
 def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="python -m ofxhost", description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter,
-                                 epilog="See ofxhost/cli.py and the README.")
+                                 epilog="python -m ofxhost hostdemo [hostDemo's options]: hostDemo's command line, "
+                                        "in-process (ofxhost.hostdemo). See ofxhost/cli.py and the README.")
     ap.add_argument("-b", "--bundles", action="append", default=[], metavar="DIR",
                     help="a plug-in directory or .ofx.bundle (repeatable); $OFX_PLUGIN_PATH is scanned too")
     ap.add_argument("--loglevel", default="warning", choices=["debug", "info", "warning", "error"],
@@ -269,6 +272,10 @@ def _import_host(bundles) -> None:
 
 
 def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["hostdemo"]:
+        from .hostdemo import run
+        return run(argv[1:], "python -m ofxhost hostdemo")
     args = _parser().parse_args(argv)  # (a usage error exits with status 2)
     logging.basicConfig(level=getattr(logging, args.loglevel.upper()), format="%(levelname)s: %(message)s")
     try:

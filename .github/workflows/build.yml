@@ -105,8 +105,9 @@ jobs:
           # self-tests with OFX_EXTENSIONS_NATRON (no GL context here: the property reading and the
           # backend state, and the drawing with the fake OpenGL table), and the ofxh module with the
           # plug-ins and hostDemo that its tests use, so that its code for the extensions compiles
-          # and runs; and test_backends.py, which compares the in-process backend with hostDemo
-          # there (two views per frame with Nuke or Vegas; the other ofxhost tests expect one)
+          # and runs; and test_backends.py and test_hostdemo_cli.py, which compare the in-process
+          # backend and its hostDemo command line with hostDemo there (two views per frame with Nuke
+          # or Vegas; the other ofxhost tests expect one)
           set -eo pipefail
           cmake -S . -B build-ci-natron -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLE_PLUGINS=ON \
             -DBUILD_EXAMPLE_HOSTS=ON -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON \
@@ -115,7 +116,7 @@ jobs:
           cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test ofxh \
             hostDemo example-Basic-support example-ChoiceParams-support example-Generator-support \
             example-Invert-support example-Tester-support example-Retimer-support example-MultiBundle-support \
-            example-Rectangle
+            example-Rectangle example-PropTester
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test)
           # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
           PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" OFXH_REQUIRE=1 \
@@ -123,7 +124,7 @@ jobs:
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" OFXH_REQUIRE=1 \
             python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 \
-            HostSupport/examples/python/tests/test_backends.py
+            HostSupport/examples/python/tests/test_backends.py HostSupport/examples/python/tests/test_hostdemo_cli.py
       - name: Python wrapper and sample plug-in tests (ofxhost, on both backends)
         if: success() || failure()
         run: |
