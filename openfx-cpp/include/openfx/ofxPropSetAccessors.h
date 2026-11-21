@@ -1304,6 +1304,10 @@ public:
         return props_.get<PropId::OfxImageEffectPropSupportedContexts>(index, error_if_missing);
     }
 
+    const char* supportedPixelDepths(int index = 0, bool error_if_missing = true) const {
+        return props_.get<PropId::OfxImageEffectPropSupportedPixelDepths>(index, error_if_missing);
+    }
+
     bool multipleClipDepths(bool error_if_missing = true) const {
         return props_.get<PropId::OfxImageEffectPropMultipleClipDepths>(0, error_if_missing);
     }

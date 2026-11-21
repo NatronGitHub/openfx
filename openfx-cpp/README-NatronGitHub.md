@@ -13,6 +13,7 @@
 - `ofxSuites.h` includes `ofxImageEffect.h` before `ofxDialog.h`, because the fork's `OfxDialogSuiteV2` uses `OfxImageEffectHandle`.
 - `include/ofxImageEffect.h` defines `kOfxImageEffectPropNoSpatialAwareness` in every build, not only under `OFX_EXTENSIONS_RESOLVE`, because it has been standard since OFX 1.5.1.
 - `scripts/gen-props.py` never names a generated getter after a C++ keyword. Upstream generates `T default(...)` for `kOfxParamPropDefault` in `ofxPropSetAccessorsHost.h`, which doesn't compile; here it's `defaultValue()`. Setters are unchanged (`setDefault`).
+- The generated headers list `OfxImageEffectPropSupportedPixelDepths` in the `ImageEffectHost` property set, which upstream's `@propset ImageEffectHost` omits although the property's doc says "host descriptor (read only)". They are the output of `scripts/gen-props.py` for upstream's headers (4249fe1b) with that line added to `@propset ImageEffectHost`.
 - `examples/host-specific-props/example-usage.cpp`: fixed an ambiguous `PropId` (both `openfx` and `myhost` in scope). `examples/test-props`: updated for upstream's rename of `ParamDouble1D` to `ParamsDouble1D`.
 
 ## Regenerating

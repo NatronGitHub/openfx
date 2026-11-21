@@ -162,6 +162,7 @@ static inline const std::map<const char *, std::vector<Prop>> prop_sets {
    { "OfxImageEffectPropTemporalClipAccess", prop_defs[PropId::OfxImageEffectPropTemporalClipAccess], true, false, false },
    { "OfxImageEffectPropSupportedComponents", prop_defs[PropId::OfxImageEffectPropSupportedComponents], true, false, false },
    { "OfxImageEffectPropSupportedContexts", prop_defs[PropId::OfxImageEffectPropSupportedContexts], true, false, false },
+   { "OfxImageEffectPropSupportedPixelDepths", prop_defs[PropId::OfxImageEffectPropSupportedPixelDepths], true, false, false },
    { "OfxImageEffectPropMultipleClipDepths", prop_defs[PropId::OfxImageEffectPropMultipleClipDepths], true, false, false },
    { "OfxImageEffectPropOpenCLSupported", prop_defs[PropId::OfxImageEffectPropOpenCLSupported], true, false, true },
    { "OfxImageEffectPropMetalTextureSupported", prop_defs[PropId::OfxImageEffectPropMetalTextureSupported], true, false, true },

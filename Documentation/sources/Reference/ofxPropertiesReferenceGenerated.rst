@@ -1648,7 +1648,7 @@ Enumeration Properties
 - **C #define**: :c:macro:`kOfxImageEffectPropSupportedPixelDepths`
 - **Type**: enum
 - **Dimension**: Variable (0 or more)
-- **Used in Property Sets**: :ref:`EffectDescriptor <propset_EffectDescriptor>` (plugin)
+- **Used in Property Sets**: :ref:`EffectDescriptor <propset_EffectDescriptor>` (plugin), :ref:`ImageEffectHost <propset_ImageEffectHost>` (host)
 - **Valid Values**:
   - ``OfxBitDepthNone``
   - ``OfxBitDepthByte``

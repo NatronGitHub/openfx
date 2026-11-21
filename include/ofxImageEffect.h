@@ -2288,6 +2288,7 @@ it will be bypassed during LUT generation.
       - OfxImageEffectPropTemporalClipAccess
       - OfxImageEffectPropSupportedComponents
       - OfxImageEffectPropSupportedContexts
+      - OfxImageEffectPropSupportedPixelDepths
       - OfxImageEffectPropMultipleClipDepths
       - OfxImageEffectPropOpenCLSupported | host_optional=true
       - OfxImageEffectPropMetalTextureSupported | host_optional=true
