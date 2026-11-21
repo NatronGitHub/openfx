@@ -246,11 +246,15 @@ jobs:
             ls out.0*.pfm
             cd "$root"
           done
-          for h in py sh; do
-            for f in smoke/hd/out.0*.pfm; do cmp "$f" "smoke/$h/${f##*/}"; done
-          done
           python - <<'PY'
-          import json
+          import glob, json, os
+          # the output files, byte for byte (MSYS2 has no cmp without diffutils)
+          files = sorted(glob.glob("smoke/hd/out.0*.pfm"))
+          assert files
+          for h in ("py", "sh"):
+              for f in files:
+                  g = f"smoke/{h}/{os.path.basename(f)}"
+                  assert open(f, "rb").read() == open(g, "rb").read(), g
           def load(p):
               return json.load(open(p), parse_constant=lambda c: (_ for _ in ()).throw(ValueError(c)))
           def nopath(d):  # plugin.filePath: as found by hostDemo, absolute in ofxh (a documented difference)
