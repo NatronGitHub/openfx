@@ -3,13 +3,13 @@ name: Extended builds
 # Variants that must not run on every pull request (policy for all
 # Natron-related repos): CMake on Linux/macOS, MSVC, debug builds, extension
 # flags OFF, C++20 and C++23, and the ofxh module installed with pip on macOS
-# (MacPorts Python; with the ofxhost tests on both backends). Runs nightly, but only if master changed in the
-# last 25 hours (C++20 coverage is nightly per the C++ standard policy), and on
-# demand.
+# (MacPorts Python; with the ofxhost tests on both backends). Runs weekly (Saturday
+# 03:17 UTC, maintainer decision 2026-11-21), skipped if master is still the commit the
+# last scheduled run built, and on demand.
 
 on:
   schedule:
-    - cron: '17 3 * * *'
+    - cron: '17 3 * * 6' # weekly, Saturday at 03:17 UTC
   workflow_dispatch:
 
 permissions:
@@ -24,23 +24,33 @@ defaults:
     shell: bash -eo pipefail {0}
 
 jobs:
-  # Skip the scheduled run if master didn't change since the previous one
+  # Skip the scheduled run if it would build the same commit as the last scheduled run
+  # that built or failed (not cancelled); manual runs always build. Same logic as
+  # openfx-misc's and openfx-io's: no time window, since GitHub starts scheduled runs late.
   changes:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      actions: read
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 50
       - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ github.event_name }}" != schedule ] || [ -n "$(git log --since='25 hours ago' --format=%h -1)" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"; echo "No commits in the last 25 hours: skipping."
+          last=
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            # a known failure is not rebuilt every week until master changes (use workflow_dispatch to retry)
+            last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/extended.yml/runs?event=schedule&status=completed&per_page=20" \
+                     --jq '[.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure")][0].head_sha // empty')
           fi
+          run=true
+          if [ -n "$last" ] && [ "$last" = "$GITHUB_SHA" ]; then
+            run=false
+            echo "No change since the last weekly run ($last): skipping."
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
 
   # CMake, with each platform's default compiler (MSVC on Windows). The Makefile
   # builds and the MSYS2 build run on every pull request (build.yml).
@@ -103,7 +113,7 @@ jobs:
           test "$(grep -c "Contexts:" cachedemo.log)" -ge 5
 
   make-linux:
-    name: Linux nightly (Makefiles)
+    name: Linux weekly (Makefiles)
     # The Makefile builds (still used by Natron's build-plugins.sh until it switches to CMake,
     # Natron#1181), with the hostDemo checks; the per-PR builds use CMake (build.yml)
     needs: changes
@@ -118,7 +128,7 @@ jobs:
         run: .github/scripts/make-build-test.sh
 
   macos:
-    name: macOS 15 arm64 nightly (Makefiles, Xcode clang, MacPorts)
+    name: macOS 15 arm64 weekly (Makefiles, Xcode clang, MacPorts)
     # The Makefile builds (still used by Natron's build-plugins.sh until it switches to CMake,
     # Natron#1181), with the hostDemo checks; the per-PR builds use CMake (build.yml)
     needs: changes
@@ -146,7 +156,7 @@ jobs:
         run: .github/scripts/make-build-test.sh
 
   macos-ofxh:
-    name: macOS 15 arm64 nightly (the ofxh module from pip install, MacPorts Python 3.11)
+    name: macOS 15 arm64 weekly (the ofxh module from pip install, MacPorts Python 3.11)
     # The HostSupport Python bindings as a package (HostSupport/python/pyproject.toml,
     # scikit-build-core), built with MacPorts' nanobind and scikit-build-core, and their tests
     # against the sample plug-ins and hostDemo of a CMake build (same extension options)

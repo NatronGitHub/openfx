@@ -115,7 +115,7 @@ with their pytest tests in `Support/Plugins/tests`. GPU paths are built only whe
 ### CI
 
 `.github/workflows/build.yml` runs one build per OS for each pull request (Linux, Windows, then macOS, which isn't
-required for merging); `extended.yml` builds the other variants nightly. Docs-only changes run no CI. See the release
+required for merging); `extended.yml` builds the other variants weekly (Saturday 03:17 UTC) and on demand. Docs-only changes run no CI. See the release
 notes for the checks.
 
 Documentation: `cd Documentation && ./build.sh` (see `Documentation/README.md` for the prerequisites).

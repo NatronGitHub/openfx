@@ -2,7 +2,7 @@ name: Build
 
 # Per push / pull request: exactly three full builds plus tests, one per OS
 # (policy for all Natron-related repos). macOS runs after Linux and Windows pass, and isn't
-# required for merging (macOS arm64 runners are scarce); extended.yml builds it nightly:
+# required for merging (macOS arm64 runners are scarce); extended.yml builds it weekly:
 #   - Linux (ubuntu-24.04): CMake (.github/scripts/cmake-build-test.sh: build, install, the hostDemo
 #     checks, a plug-in project built against the installed package, and a host project using
 #     HostSupport with add_subdirectory and the system expat), plus the header and
@@ -13,7 +13,7 @@ name: Build
 #   - Windows: MSYS2 UCRT64, CMake, the plug-in and host projects, and the ofxh module (built and
 #     imported, plus a smoke comparison of ofxhost.hostdemo with hostDemo: one describe and one render)
 # The plug-in repositories build with CMake (Natron#1181), so the per-PR builds do too. Other
-# variants (the Makefiles, C++20/23, MSVC, debug builds) are in extended.yml, which runs nightly
+# variants (the Makefiles, C++20/23, MSVC, debug builds) are in extended.yml, which runs weekly
 # and on demand.
 #
 # Frugal CI (NatronGitHub runners are shared by all repos): one run per change.
@@ -144,7 +144,7 @@ jobs:
   macos:
     name: macOS 15 arm64 (CMake, Xcode clang, MacPorts)
     # macOS arm64 runners are scarce: start only once Linux and Windows have passed. Merging only
-    # requires Linux and Windows; macOS is also built nightly (extended.yml).
+    # requires Linux and Windows; macOS is also built weekly (extended.yml).
     needs: [linux, windows]
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: macos-15
