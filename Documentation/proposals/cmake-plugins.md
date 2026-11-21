@@ -18,7 +18,7 @@ Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-u
 4. **Each repository:**
    - a draft parity PR on a thin local wrapper that uses the names below;
    - when A merges, a rebase that removes the wrapper and switches per-PR CI to CMake, in the same PR;
-   - a nightly Make build until build-plugins.sh switches.
+   - a weekly Make build until build-plugins.sh switches.
 
 **Done** for a repository means:
 - its CMake install tree matches its Makefile bundles: bundle names, file list, Info.plist, Resources and exported symbols, checked by a bundle-diff script;
@@ -310,7 +310,7 @@ endif()
 - It runs the Support self-tests `drawsuite-opengl-test` (the OpenGL DrawSuite core with a fake OpenGL table, also on Windows) and `drawcontext-opengl-test` (macOS in an offscreen CGL context, Linux without a context, to test the run-time loading of OpenGL).
 - On Linux, `cmake-plugin-project.sh` checks that `OFX_LINUX_CHECK_BUNDLE` points to the installed or the source-tree script, and that `linuxCheckBundle.sh` reports the test plug-ins' deliberate absolute rpath entries, then accepts them once they are in `OFX_ABI_RPATH_ALLOW`. On macOS it builds with `CMAKE_OSX_DEPLOYMENT_TARGET=14.0`.
 - On Linux, it runs `linuxCheckBundle.sh` on the installed examples: no system library bundled and no other library needed (they need only system libraries), with the symbol-version limits disabled (`OFX_ABI_*=99`: the Ubuntu builder is newer than EL9; the baseline is checked where the releases are built). Finding no bundle fails.
-- The Makefile builds run nightly (extended.yml).
+- The Makefile builds run weekly (extended.yml).
 
 ## Patterns (documented, no helper)
 

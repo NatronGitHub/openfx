@@ -7,7 +7,7 @@ Status: implemented ([#109](https://github.com/NatronGitHub/openfx/issues/109): 
 Let the plug-in repositories (openfx-misc, openfx-io, openfx-arena, openfx-gmic, and SupportExt-based plug-ins) test their plug-ins without Natron. A test should be able to:
 - render with chosen inputs, parameters, times and scales;
 - check pixels, RoD, RoI, frames needed and identity;
-- run in CI within the frugal policy: three per-PR builds, a nightly extended run.
+- run in CI within the frugal policy: three per-PR builds, a weekly extended run.
 
 It already works for debugging: hostDemo found a real ReadPSD regression from openfx-io #65 (Opaque premultiplication), comparing two builds headlessly.
 
@@ -125,7 +125,7 @@ In-process bindings (nanobind) are deferred until file I/O is a measured bottlen
 ## CI cost (frugal policy)
 
 - **Per PR:** Part A adds about a minute to the existing Linux and macOS jobs. Turn on `BUILD_EXAMPLE_HOSTS` on Windows (MSYS2), so all three jobs run the checks. Python tests run in the Linux job only, which already sets up Python; no new jobs.
-- **Nightly (extended.yml):** the Python tests on macOS (MacPorts Python and NumPy) and MSYS2, all depths, profiles and scales, and an ASan/UBSan run of hostDemo over the openfx-misc plug-ins.
+- **Weekly (extended.yml):** the Python tests on macOS (MacPorts Python and NumPy) and MSYS2, all depths, profiles and scales, and an ASan/UBSan run of hostDemo over the openfx-misc plug-ins.
 - **Consumers:** they build HostSupport and hostDemo from their openfx submodule, cached per OS.
 
 ## Open questions
