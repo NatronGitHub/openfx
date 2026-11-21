@@ -20,13 +20,15 @@
 #   such a name or soname anywhere in the bundle is a problem, versioned or not, e.g.
 #   libstdc++.so): glibc (libc, libm, libpthread, libdl, librt, libutil, libresolv, libmvec,
 #   libanl, libthread_db, ld-linux), libcrypt (libxcrypt, in EL9's minimal install), libstdc++,
-#   libgcc_s, libgomp, libatomic, GLVND (libGL, libGLX, libEGL, libGLdispatch, libOpenGL), libdrm
-#   and libdrm_* (used by the system's Mesa drivers, which a bundled older libdrm breaks; EL9's
-#   libdrm is not in the minimal install, like libGL), systemd's libudev (its ABI must match the
-#   running udev), libselinux, the GPU drivers' libraries: libcuda, NVIDIA's libnvidia-* and
-#   libnvcuvid, and the OpenCL vendor ICDs, which the OpenCL ICD loader loads through
-#   /etc/OpenCL/vendors/*.icd (NVIDIA libnvidia-opencl, AMD libamdocl*, Intel libigdrcl and
-#   libintelocl, Mesa libMesaOpenCL and libRusticlOpenCL, PoCL libpocl), plus the sonames listed
+#   libgcc_s, libgomp, libatomic, GLVND (libGL, libGLX, libEGL, libGLdispatch, libOpenGL), libdrm,
+#   libdrm_*, and Mesa's libgbm and libglapi (used by the system's Mesa drivers, which a bundled
+#   older copy breaks; EL9's minimal install doesn't have them, as it doesn't have libGL),
+#   systemd's libudev (it reads the running udev's private database, whose format follows the
+#   system's udev), libselinux, the GPU drivers' libraries: libcuda, NVIDIA's libnvidia-* and
+#   libnvcuvid, and the OpenCL vendor ICDs (NVIDIA libnvidia-opencl, AMD libamdocl*, Intel
+#   libigdrcl and libintelocl, Mesa libMesaOpenCL and libRusticlOpenCL, PoCL libpocl): the OpenCL
+#   ICD loader only opens the ICDs named in /etc/OpenCL/vendors/*.icd, so a bundled copy would
+#   never be used, plus the sonames listed
 #   in OFX_ABI_SYSTEM_LIBS. The OpenCL ICD loader itself (libOpenCL.so.1: ocl-icd or the Khronos
 #   OpenCL-ICD-Loader) is not a system library: it is not in a default EL9 or Ubuntu install, so
 #   the installer bundles it (it finds the vendor ICDs itself) or lists it in OFX_ABI_OPTIONAL_LIBS;
@@ -145,6 +147,7 @@ system_lib() {
     libGLESv1_CM.so|libGLESv1_CM.so.*|libGLESv2.so|libGLESv2.so.*) return 0 ;;
     libnsl.so.*|libnss_*.so.*|libBrokenLocale.so.*|libc_malloc_debug.so.*) return 0 ;;
     libdrm.so|libdrm.so.*|libdrm_*.so|libdrm_*.so.*|libudev.so|libudev.so.*) return 0 ;;
+    libgbm.so|libgbm.so.*|libglapi.so|libglapi.so.*) return 0 ;;
     libselinux.so|libselinux.so.*) return 0 ;;
     # GPU drivers (not libOpenCL.so.1, the vendor-neutral OpenCL ICD loader: it must be bundled)
     libcuda.so|libcuda.so.*|libnvidia-*.so|libnvidia-*.so.*|libnvcuvid.so|libnvcuvid.so.*) return 0 ;;
