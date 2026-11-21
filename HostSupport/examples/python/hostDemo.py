@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render an OFX plug-in, or a graph of plug-ins, with hostDemo through ofxhost, and save
 the outputs as <output>.<frame>.npy. For one plug-in, print the report as JSON; for a graph
-(-g graph.json, see ofxhost.graph.load), print the bounds of each output.
+(-g graph.json, see ofxhost.graph), print the bounds of each output.
 
 Examples:
   python hostDemo.py -b Support/Plugins/Invert/Linux-64-release -p net.sf.openfx.invertPlugin \
@@ -30,14 +30,14 @@ def main(argv=None) -> int:
                     help="plug-in directory or .ofx.bundle (repeatable)")
     ap.add_argument("-p", "--plugin", help="plug-in identifier")
     ap.add_argument("-g", "--graph", help="render the output node of this JSON graph instead")
-    ap.add_argument("--frames", help="times t0,t1,... (default: 0,1; 0 for a graph)")
+    ap.add_argument("--frames", help="times t0,t1,... (default: 0,1; for a graph, its frames, else 0)")
     ap.add_argument("--scale", type=float, help="render scale, in (0,1]")
     ap.add_argument("--window", help="render window x1,y1,x2,y2, in pixels at the render scale")
     ap.add_argument("-c", "--context", default="filter")
     ap.add_argument("-i", "--input", action="append", default=[], metavar="CLIP=SPEC",
                     help="CLIP=file.npy, CLIP=file.pfm, or a hostDemo spec (none, ramp, "
                          "solid:r,g,b,a, checker:N)")
-    ap.add_argument("-d", "--depth", default="float", choices=ofxhost.DEPTHS)
+    ap.add_argument("-d", "--depth", choices=ofxhost.DEPTHS, help="(default: float, or the graph's)")
     ap.add_argument("-o", "--output", default="Output", help="output prefix")
     ap.add_argument("--host", help="hostDemo binary (default: $OFXHOST_HOSTDEMO, build tree)")
     ap.add_argument("--backend", choices=ofxhost.BACKENDS,
@@ -53,14 +53,13 @@ def main(argv=None) -> int:
     window = [int(v) for v in args.window.split(",")] if args.window else None
     if args.graph:
         try:
-            out, _ = ofxhost.graph.load(args.graph)
+            graph = ofxhost.graph.load(args.graph)
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:  # bad file, JSON or graph
             print(f"{args.graph}: invalid graph: {e!r}", file=sys.stderr)
             return 1
         try:
-            images = ofxhost.graph.execute(out, args.bundles, frames=frames or [0],
-                                           scale=args.scale or 1.0, window=window,
-                                           depth=args.depth, host_binary=args.host,
+            images = ofxhost.graph.execute(graph, args.bundles, frames=frames, scale=args.scale,
+                                           window=window, depth=args.depth, host_binary=args.host,
                                            backend=args.backend)
         except (ofxhost.HostDemoError, ValueError, NotImplementedError) as e:  # failed run, cycle, frame range
             print(e, file=sys.stderr)
@@ -88,7 +87,7 @@ def main(argv=None) -> int:
     params = dict(p.partition("=")[::2] for p in args.params)
     try:
         r = ofxhost.render(args.bundles, args.plugin, context=args.context, inputs=inputs,
-                           params=params, depth=args.depth, frames=frames, scale=args.scale,
+                           params=params, depth=args.depth or "float", frames=frames, scale=args.scale,
                            window=window, host_binary=args.host, backend=args.backend)
     except ofxhost.HostDemoError as e:
         print(e, file=sys.stderr)

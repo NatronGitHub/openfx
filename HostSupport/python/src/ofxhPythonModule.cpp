@@ -922,6 +922,8 @@ void bindModule(nb::module_ &m)
        "Sends no instance changed action: call param_changed_action() for a user edit, or not at all to\n"
        "load a project before create_instance_action() (\"if the values are being loaded from an old\n"
        "setup, that load should have taken place before the create instance action is called\").\n"
+       "A choice takes its index or the label of one of its options (kOfxParamPropChoiceOption; another\n"
+       "string is a ValueError that lists them), for C++ and Python parameters alike.\n"
        "Bytes take bytes (or a list of ints, as param_template() gives them). The C++ string choice\n"
        "parameters check the value against the enums (Stat.ErrValue); a Python one (ofxh.Param) checks\n"
        "what it wants in its set(). Not from a plug-in's worker thread (RuntimeError).")
@@ -972,6 +974,22 @@ void bindModule(nb::module_ &m)
       }
       return OFXH_SCOPED("param_keys()", paramKeyTimes(p));
     }, "name"_a, "The times of the keys of a parameter, in order ([] if it has none).")
+    .def("param_curve", [](InstanceBase &s, const std::string &name) {
+      OH::Param::Instance *p = s.get()->getParam(name);
+      if (!p) {
+        raiseKey(name);
+      }
+      const std::vector<double> times = OFXH_SCOPED("param_curve()", paramKeyTimes(p));
+      nb::list r;
+      for (size_t k = 0; k < times.size(); ++k) {
+        const double t = times[k];
+        r.append(nb::make_tuple(t, OFXH_SCOPED("param_curve()", getParamValue(p, &t))));
+      }
+      return r;
+    }, "name"_a,
+       "The keys of a parameter, [(time, value)...] in time order, with the values of get_param() ([] if it\n"
+       "has none). Between the keys, ofxh's C++ parameters interpolate linearly (rounded for integers), and\n"
+       "hold booleans and choices; set_param(name, value, time) for each key gives the same curve back.")
     .def("param_values", [](InstanceBase &s, std::optional<double> time) {
       PyEffectInstance *p = s.get();
       nb::dict d;

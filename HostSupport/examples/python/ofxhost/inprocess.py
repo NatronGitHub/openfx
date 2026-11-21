@@ -32,8 +32,8 @@ Differences from the subprocess backend:
 - a plug-in whose worker thread is the first to fetch the output image of a render gets none: the
   fetch asks for the output clip's RoD, which runs the RoD action, and ofxh refuses actions on a
   worker thread (part 2);
-- extra_args: only --ofx14, --allow-unwritten and -m MAJOR (and the no-ops --quiet, --no-cache,
-  --no-std-paths); anything else raises ValueError.
+- extra_args: only --ofx14, --allow-unwritten, -m MAJOR and -s ASSIGNMENT (and the no-ops --quiet,
+  --no-cache, --no-std-paths); anything else raises ValueError.
 """
 
 from __future__ import annotations
@@ -59,33 +59,7 @@ from . import (DEPTHS, OUTPUT_PREFIX, HostDemoError, Image, RenderResult, _forma
 __all__ = ["render", "describe", "shutdown", "import_ofxh", "OfxhNotFound"]
 
 
-class OfxhNotFound(ImportError):
-    """The ofxh module (the HostSupport Python bindings) can't be imported."""
-
-
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-
-
-def import_ofxh():
-    """Import ofxh: from sys.path (PYTHONPATH), else from an openfx CMake build tree
-    (build*/HostSupport/python, built with -DOFX_PYTHON_BINDINGS=ON)."""
-    try:
-        import ofxh
-        return ofxh
-    except ImportError:
-        pass
-    for d in sorted(_REPO_ROOT.glob("build*/HostSupport/python")):
-        if any(d.glob("ofxh*.so")) or any(d.glob("ofxh*.pyd")):
-            sys.path.insert(0, str(d))
-            try:
-                import ofxh
-                return ofxh
-            except ImportError:
-                sys.path.remove(str(d))
-    raise OfxhNotFound("the ofxh module (HostSupport Python bindings) is not importable: build it with "
-                       "cmake -DOFX_PYTHON_BINDINGS=ON and set PYTHONPATH to <build>/HostSupport/python, "
-                       "or pip install ./HostSupport/python")
-
+from ._ofxh import OfxhNotFound, import_ofxh  # noqa: E402  (where the ofxh module is found)
 
 ofxh = import_ofxh()
 
@@ -804,8 +778,9 @@ def _frames(frames) -> list[float]:
     return out
 
 
-def _extra(extra_args: Sequence[str]) -> tuple[bool, bool, int]:
-    ofx14, allow_unwritten, major = False, False, -1
+def _extra(extra_args: Sequence[str]) -> tuple[bool, bool, int, list]:
+    """--ofx14, --allow-unwritten, -m MAJOR, and -s ASSIGNMENT (hostDemo's -s, before the params')."""
+    ofx14, allow_unwritten, major, assignments = False, False, -1, []
     args = list(extra_args)
     i = 0
     while i < len(args):
@@ -821,11 +796,14 @@ def _extra(extra_args: Sequence[str]) -> tuple[bool, bool, int]:
             major = _parse_int(args[i])
             if major is None or major < 0:
                 raise _Usage(f'Error: invalid major version "{args[i]}"')
+        elif a == "-s" and i + 1 < len(args):
+            i += 1
+            assignments.append(args[i])
         else:
             raise ValueError(f"extra_args {a!r}: not supported by the in-process backend (supported: --ofx14, "
-                             "--allow-unwritten, -m MAJOR)")
+                             "--allow-unwritten, -m MAJOR, -s ASSIGNMENT)")
         i += 1
-    return ofx14, allow_unwritten, major
+    return ofx14, allow_unwritten, major, assignments
 
 
 class _Run:
@@ -1395,7 +1373,7 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
         report: dict = {}
         run = None
         try:
-            ofx14, allow_unwritten, major = _extra(extra_args)
+            ofx14, allow_unwritten, major, extra_assignments = _extra(extra_args)
             ctx = _context(context)
             fr = _frames(frames)
             if scale is None:
@@ -1429,8 +1407,9 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
                 seen.add(clip)
                 spec.scale = sc  # (a file's pixels are pixels at the render scale)
                 specs.append((clip, spec))
-            ret, report, run = _run(dirs, plugin_id, ctx, specs, assignments, depth, fr, sc, win, query, ofx14,
-                                    allow_unwritten, major)
+            # (hostDemo's order: the -s of extra_args, then those of params)
+            ret, report, run = _run(dirs, plugin_id, ctx, specs, extra_assignments + assignments, depth, fr, sc, win,
+                                    query, ofx14, allow_unwritten, major)
         except _Usage as e:
             _write(2, str(e) + "\n")
             run = None
@@ -1455,7 +1434,7 @@ def describe(bundle_paths, plugin_id: str, context: str | None = None, extra_arg
     d = None
     with _capture() as cap:
         try:
-            ofx14, _, major = _extra(extra_args)
+            ofx14, _, major, _ = _extra(extra_args)
             if context:
                 _context(context)
             _ensure(dirs, "ofx14" if ofx14 else "default")

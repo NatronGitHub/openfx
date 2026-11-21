@@ -214,11 +214,12 @@ jobs:
       - name: The ofxh module imports (HostSupport Python bindings, MSYS2 Python and nanobind)
         run: |
           set -eo pipefail
-          # (only the imports, with ofxhost's in-process backend: no renders on Windows, as for
-          # hostDemo; the module's DLLs, expat and the GCC runtime, are next to MSYS2's python.exe)
+          # (only the imports, with ofxhost's in-process backend and the sample host: no renders on
+          # Windows, as for hostDemo; the module's DLLs, expat and the GCC runtime, are next to
+          # MSYS2's python.exe)
           # (Windows paths: PYTHONPATH is read by the native python.exe)
           PYTHONPATH="$(cygpath -w "$PWD/build/HostSupport/python");$(cygpath -w "$PWD/HostSupport/examples/python")" \
-            python -c "import ofxh, ofxhost.inprocess; print(ofxh.__file__, ofxh.build_config)"
+            python -c "import ofxh, ofxhost.inprocess, ofxhost.graphhost, ofxhost.cli; print(ofxh.__file__, ofxh.build_config)"
       - name: Self-test of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows)
         run: |
           set -eo pipefail

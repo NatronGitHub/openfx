@@ -182,12 +182,25 @@ def test_progress(both):
 def test_refused_images(both):
     """Each image too large for hostDemo (more than 2^28 pixels) is an image fetch error, with its
     message, as in hostDemo: the Tester's analyse button fetches its Source at each frame of its
-    range (0 to 24) outside a render, where the whole RoD is fetched. (During a render, the fetches
-    are clipped to the render window, so the samples can't make refused images there.)"""
+    range (0 to 24) outside a render, where the whole RoD is fetched. (During a render, the samples
+    fetch within the render window, with the default RoI; a tiled plug-in with a large RoI, or
+    explicit fetch bounds, could make several refused fetches in one render.)"""
     s, i = _compare(both, TESTER, inputs={"Source": "rod:0,0,40000,40000"}, params={"analyseButton": None},
                     frames=[0], query=True)
     for r in (s, i):
         assert r.stderr.count("too large (more than 268435456 pixels)") == 25, r.stderr
+
+
+def test_refused_images_are_all_counted(both):
+    """The same refused fetch twice (the same bounds at the same time) is two errors: the analyse
+    button pressed twice (-s in extra_args, then the params) makes 50, not 25 (the in-process backend
+    de-duplicated them by (bounds, time) before #207)."""
+    s, i = _compare(both, TESTER, inputs={"Source": "rod:0,0,40000,40000"}, params={"analyseButton": None},
+                    extra_args=["-s", "analyseButton"], frames=[0], query=True)
+    for r in (s, i):
+        assert r.stderr.count("too large (more than 268435456 pixels)") == 50, r.stderr
+        presses = [a for a in r.report["actions"] if a["action"] == "instanceChanged"]
+        assert [a["param"] for a in presses] == ["analyseButton", "analyseButton"]
 
 
 def test_describe(both):
