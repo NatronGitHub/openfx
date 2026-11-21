@@ -115,10 +115,14 @@ jobs:
             -DOFX_EXTENSIONS_VEGAS=ON -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON \
             -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
           cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test ofxh \
-            hostDemo example-Basic-support example-ChoiceParams-support example-Generator-support \
+            hostDemo suiteHandleChecks example-Basic-support example-ChoiceParams-support example-Generator-support \
             example-Invert-support example-Tester-support example-Retimer-support example-MultiBundle-support \
             example-Rectangle example-PropTester example-MultiplyGPU-support
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test)
+          # the HostSupport checks with the extensions (e.g. kFnOfxImageEffectPropComponentsPresent per clip)
+          SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
+            build-ci-natron/HostSupport/examples/suiteHandleChecks > suitehandlechecks-natron.log 2>&1 \
+            || { cat suitehandlechecks-natron.log; exit 1; }
           # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
           PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" OFXH_REQUIRE=1 \
             python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests

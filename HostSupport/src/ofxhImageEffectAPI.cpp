@@ -487,6 +487,13 @@ namespace OFX {
       /// pick the highest found version.
       ImageEffectPlugin *PluginCache::getPluginById(const std::string &id, int vermaj, int vermin)
       {
+        // any version: the highest, kept by confirmPlugin() (the first one confirmed among equal
+        // versions, as the scan below)
+        if (vermaj == -1 && vermin == -1) {
+          std::map<std::string, ImageEffectPlugin *>::const_iterator found = _pluginsByID.find(id);
+          return found == _pluginsByID.end() ? NULL : found->second;
+        }
+
         // return the highest version one, which fits the pattern provided
         ImageEffectPlugin *sofar = 0;
         std::string identifier = id;
@@ -666,8 +673,8 @@ namespace OFX {
           return;
         }
 
-        std::cout << "element " << el << "\n";
-        assert(false);
+        // a corrupt cache: a parse error discards it, and the plug-ins are scanned again
+        throw std::runtime_error("malformed plugin cache: unexpected element <" + el + ">");
       }
 
       void PluginCache::xmlCharacterHandler(const std::string &) {

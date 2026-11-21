@@ -55,6 +55,7 @@
 #include "ofxhPluginCache.h"
 #include "ofxhHost.h"
 #include "ofxhImageEffect.h" // gImageEffectHost, the default host for OfxSetHost
+#include "ofxhImageEffectAPI.h" // ImageEffect::PluginCache (scanPluginFiles())
 #include "ofxhXml.h"
 #include "ofxhUtilities.h"
 
@@ -419,7 +420,11 @@ PluginBinary::~PluginBinary() {
   // the plug-ins released their handles: release the reference taken by loadPluginInfo(), if the
   // scan didn't, which unloads the binary
   releaseScanReference();
-  assert(!_binary || !_binary->isLoaded());
+  // we own the Binary (created by the constructors): deleting it unloads the library (~Binary()
+  // calls unload()), even if a reference was not released, e.g. by a leaked PluginHandle, whose
+  // OfxPlugin* then points into the unloaded library
+  delete _binary;
+  _binary = 0;
 }
 
 void PluginBinary::releaseScanReference() {
@@ -770,6 +775,17 @@ std::string PluginCache::seekPluginFile(const std::string &baseName) const {
 void PluginCache::scanPluginFiles()
 {
   std::set<std::string> foundBinFiles;
+
+  // a scan (re)builds the lists of plug-in directories and of supported plug-ins, and those of the
+  // image effect API caches: a second scan would otherwise add every plug-in again, and keep the
+  // plug-ins of the binaries it deletes (below)
+  _pluginDirs.clear();
+  _plugins.clear();
+  for (std::list<PluginCacheSupportedApi>::iterator a = _apiHandlers.begin(); a != _apiHandlers.end(); ++a) {
+    if (ImageEffect::PluginCache *ie = dynamic_cast<ImageEffect::PluginCache *>(a->handler)) {
+      ie->clearConfirmedPlugins();
+    }
+  }
   
   for (std::list<std::string>::iterator paths= _pluginPath.begin();
        paths != _pluginPath.end();
@@ -810,6 +826,8 @@ void PluginCache::scanPluginFiles()
       
       _dirty = true;
       i = _binaries.erase(i);
+      // if it comes back, it is scanned again
+      _knownBinFiles.erase(pb->getFilePath());
       delete pb;
       
     } else {
@@ -847,6 +865,9 @@ void PluginCache::scanPluginFiles()
       if (binChanged) {
         // the binary was scanned: unload it, unless its plug-ins hold it (Host::keepPluginsLoadedAfterScan())
         pb->releaseScanReference();
+        // and it is now up to date: a later scan doesn't load it again (which would make new
+        // plug-ins, and leave the ones of this scan to the hosts that use them)
+        pb->_binaryChanged = false;
       }
       
       i++;
@@ -858,6 +879,7 @@ void PluginCache::scanPluginFiles()
 namespace {
   /// state shared between readCache() and the XML parser callbacks
   struct XMLReadState {
+    PluginCache *cache; ///< the cache that reads (not necessarily the singleton getPluginCache())
     XML_Parser parser;
     bool failed;
     std::string error;
@@ -878,7 +900,7 @@ namespace {
 /// callback for XML parser
 static void elementBeginHandler(void *userData, const XML_Char *name, const XML_Char **atts) {
   try {
-    PluginCache::getPluginCache()->elementBeginCallback(userData, name, atts);
+    static_cast<XMLReadState*>(userData)->cache->elementBeginCallback(userData, name, atts);
   } catch (const std::exception &e) {
     stopParserOnException(userData, e.what());
   } catch (...) {
@@ -889,7 +911,7 @@ static void elementBeginHandler(void *userData, const XML_Char *name, const XML_
 /// callback for XML parser
 static void elementCharHandler(void *userData, const XML_Char *data, int len) {
   try {
-    PluginCache::getPluginCache()->elementCharCallback(userData, data, len);
+    static_cast<XMLReadState*>(userData)->cache->elementCharCallback(userData, data, len);
   } catch (const std::exception &e) {
     stopParserOnException(userData, e.what());
   } catch (...) {
@@ -900,7 +922,7 @@ static void elementCharHandler(void *userData, const XML_Char *data, int len) {
 /// callback for XML parser
 static void elementEndHandler(void *userData, const XML_Char *name) {
   try {
-    PluginCache::getPluginCache()->elementEndCallback(userData, name);
+    static_cast<XMLReadState*>(userData)->cache->elementEndCallback(userData, name);
   } catch (const std::exception &e) {
     stopParserOnException(userData, e.what());
   } catch (...) {
@@ -1102,6 +1124,7 @@ void PluginCache::readCache(std::istream &ifs) {
 
   }
   XMLReadState state;
+  state.cache = this;
   state.parser = xP;
   state.failed = false;
   XML_SetUserData(xP, &state);

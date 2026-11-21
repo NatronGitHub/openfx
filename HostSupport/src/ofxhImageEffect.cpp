@@ -877,7 +877,11 @@ namespace OFX {
           
             // add the value into the param set instance
             OfxStatus st = addParam(name,instance);
-            if(st != kOfxStatOK) return st;
+            if(st != kOfxStatOK) {
+              // (e.g. kOfxStatErrExists) not added, so not owned by the param set
+              delete instance;
+              return st;
+            }
 
             std::string parent = instance->getParentName();
           
@@ -1174,8 +1178,12 @@ namespace OFX {
       // get the nth clip, in order of declaration
       ClipInstance* Instance::getNthClip(int index)
       {
-        const std::string name = _descriptor->getClipsByOrder()[index]->getName();
-        return _clips[name];
+        // NULL for an index out of range, or a clip not made (operator[] would insert a NULL clip)
+        const std::vector<ClipDescriptor*>& clips = _descriptor->getClipsByOrder();
+        if (index < 0 || (size_t)index >= clips.size() || !clips[index]) {
+          return NULL;
+        }
+        return getClip(clips[index]->getName());
       }
 
       ClipInstance* Instance::getClip(const std::string& name) const {
@@ -1512,9 +1520,9 @@ namespace OFX {
           { kOfxImageEffectPropOpenCLEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
-          { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, true, "0" },
-          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, true, "0" },
-          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, true, "0" },
+          { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, true, NULL },
+          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, true, NULL },
+          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, true, NULL },
 #       ifdef OFX_EXTENSIONS_NUKE
           { kFnOfxImageEffectPropView, Property::eInt, 1, true, "0" },
 #       endif
@@ -1612,16 +1620,16 @@ namespace OFX {
 #       ifdef OFX_SUPPORTS_OPENGLRENDER
           { kOfxImageEffectPropOpenGLEnabled, Property::eInt, 1, true, "0" }, // OFX 1.3
 #        ifdef OFX_EXTENSIONS_NATRON
-          { kNatronOfxImageEffectPropOpenGLContextData , Property::ePointer, 1, false, "0" },
+          { kNatronOfxImageEffectPropOpenGLContextData , Property::ePointer, 1, false, NULL },
 #        endif
 #       endif
           { kOfxImageEffectPropRenderQualityDraft, Property::eInt, 1, true, "0" }, // OFX 1.4
           { kOfxImageEffectPropOpenCLEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
-          { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, true, "0" },
-          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, true, "0" },
-          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, true, "0" },
+          { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, true, NULL },
+          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, true, NULL },
+          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, true, NULL },
 #       ifdef OFX_EXTENSIONS_VEGAS
           { kOfxImageEffectPropRenderView, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropViewsToRender, Property::eInt, 1, true, "1" },
@@ -1736,16 +1744,16 @@ namespace OFX {
 #       ifdef OFX_SUPPORTS_OPENGLRENDER
           { kOfxImageEffectPropOpenGLEnabled, Property::eInt, 1, true, "0" }, // OFX 1.3
 #        ifdef OFX_EXTENSIONS_NATRON
-          { kNatronOfxImageEffectPropOpenGLContextData , Property::ePointer, 1, false, "0" },
+          { kNatronOfxImageEffectPropOpenGLContextData , Property::ePointer, 1, false, NULL },
 #        endif
 #       endif
           { kOfxImageEffectPropRenderQualityDraft, Property::eInt, 1, true, "0" }, // OFX 1.4
           { kOfxImageEffectPropOpenCLEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
-          { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, true, "0" },
-          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, true, "0" },
-          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, true, "0" },
+          { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, true, NULL },
+          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, true, NULL },
+          { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, true, NULL },
 #       ifdef OFX_EXTENSIONS_NUKE
           { kFnOfxImageEffectPropView, Property::eInt, 1, true, "0" },
 #       endif

@@ -35,6 +35,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <map>
 #include <algorithm>
 #include <sstream> // stringstream
+#include <limits> // numeric_limits
 
 #include "ofxCore.h" // OfxStatus, OfxPropertySetHandle
 
@@ -51,9 +52,16 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace OFX {
   namespace Host {
     namespace Property {
-      /// simple function to turn a thing into a std string
+      /// simple function to turn a thing into a std string. A double gets enough significant
+      /// digits to read back exactly (e.g. DBL_MAX in the plug-in cache): the default precision
+      /// of 6 would turn DBL_MAX into 1.79769e+308, which reads back as another value.
       template<class T> inline std::string castToString(T i) {
         std::ostringstream o;
+#if __cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)
+        o.precision(std::numeric_limits<double>::max_digits10);
+#else
+        o.precision(17); // std::numeric_limits<double>::max_digits10 (C++11) for IEEE 754 doubles
+#endif
         o << i;
         return o.str();
       }

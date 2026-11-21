@@ -440,12 +440,14 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
       const std::vector<std::string>& ClipInstance::getComponentsPresent() const OFX_EXCEPTION_SPEC
       {
-          static std::vector<std::string> components;
-          if (components.empty()) {
-              components.resize(1);
+          // per instance (a static vector was shared by all the clips of all the instances: the
+          // const char* a plug-in got for one clip changed with a query on another clip, and two
+          // threads raced on it). Written only when the components changed, so that concurrent
+          // queries of the same clip only read it.
+          if (_componentsPresent.size() != 1 || _componentsPresent[0] != _components) {
+              _componentsPresent.assign(1, _components);
           }
-          components[0] = _components;
-          return components;
+          return _componentsPresent;
       }
 #endif
 

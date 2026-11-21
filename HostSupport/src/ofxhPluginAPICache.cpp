@@ -28,6 +28,8 @@
 */
 
 #include <assert.h>
+#include <errno.h>
+#include <stdlib.h>
 
 #include <string>
 #include <map>
@@ -98,21 +100,34 @@ namespace OFX
         }
 
         if (el == "value") {
-          int index = atoi(map["index"].c_str());
+          const std::string indexStr = map["index"];
+          char *end = NULL;
+          errno = 0;
+          const long index = strtol(indexStr.c_str(), &end, 10);
+          if (indexStr.empty() || *end != '\0' || errno == ERANGE) {
+            throw std::runtime_error("malformed plugin cache: bad property index");
+          }
           if (index < 0) {
             throw std::runtime_error("malformed plugin cache: negative property index");
+          }
+          // the values are written in order: a variable-dimension property grows by one value at
+          // most (a huge index would make setValue allocate index+1 values), and a fixed-dimension
+          // property has no index beyond its dimension
+          const int fixedDimension = currentProp->getFixedDimension();
+          if (fixedDimension ? index >= fixedDimension : index > currentProp->getDimension()) {
+            throw std::runtime_error("malformed plugin cache: property index out of range");
           }
           std::string value = map["value"];
           
           switch (currentProp->getType()) {
           case Property::eInt:
-            set.setIntProperty(currentProp->getName(), atoi(value.c_str()), index);
+            set.setIntProperty(currentProp->getName(), atoi(value.c_str()), (int)index);
             break;
           case Property::eString:
-            set.setStringProperty(currentProp->getName(), value, index);
+            set.setStringProperty(currentProp->getName(), value, (int)index);
             break;
           case Property::eDouble:
-            set.setDoubleProperty(currentProp->getName(), atof(value.c_str()), index);
+            set.setDoubleProperty(currentProp->getName(), atof(value.c_str()), (int)index);
             break;
           case Property::ePointer:
             break;
@@ -123,9 +138,8 @@ namespace OFX
           return;
         }
 
-        std::cout << "got unrecognised key " << el << "\n";
-
-        assert(false);
+        // a corrupt cache: a parse error discards it, and the plug-ins are scanned again
+        throw std::runtime_error("malformed plugin cache: unexpected element <" + el + ">");
       }
       
       static void propertyXMLWrite(std::ostream &o, Property::Property *prop, const std::string &indent="")

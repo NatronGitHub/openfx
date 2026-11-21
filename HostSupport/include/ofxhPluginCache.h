@@ -232,6 +232,12 @@ namespace OFX {
     /// has a set of plugins inside it and which it owns
     /// These are owned by a PluginCache
       friend class PluginHandle;
+      friend class PluginCache; // scanPluginFiles() resets _binaryChanged
+
+      // not copyable (C++98 style: private and not defined): a PluginBinary owns _binary, which
+      // its destructor deletes, and its plug-ins
+      PluginBinary(const PluginBinary &);
+      PluginBinary &operator=(const PluginBinary &);
 
     protected :
       Binary* _binary;                 ///< our binary object, abstracted layer ontop of OS calls, defined in ofxhBinary.h, may not be valid if function pointers below are already set
@@ -436,7 +442,12 @@ namespace OFX {
       }
     };
 
-    /// Where we keep our plugins.    
+    /// Where we keep our plugins.
+    ///
+    /// A process should have one PluginCache that loads a given plug-in binary: two caches
+    /// with the same binary each send kOfxActionLoad and kOfxActionUnload to it, independently
+    /// (the library itself stays mapped, since dlopen counts references), so one cache can
+    /// unload the plug-in while an instance from the other cache is alive.
     class PluginCache {
     protected :
       OFX::Host::Property::PropSpec* _hostSpec;
