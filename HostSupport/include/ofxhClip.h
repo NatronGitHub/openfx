@@ -153,6 +153,11 @@ namespace OFX {
         bool  _isOutput;                         ///< are we the output clip
         std::string             _pixelDepth;     ///< what is the bit depth we is at. Set during the clip prefernces action.
         std::string             _components;     ///< what components do we have.  Set during the clip prefernces action.
+#ifdef OFX_EXTENSIONS_NUKE
+        /// the storage of the base getComponentsPresent(): one per clip instance, since a plug-in
+        /// keeps the const char* of a kFnOfxImageEffectPropComponentsPresent value
+        mutable std::vector<std::string> _componentsPresent;
+#endif
         
       public:
         ClipInstance(ImageEffect::Instance* effectInstance, ClipDescriptor& desc);

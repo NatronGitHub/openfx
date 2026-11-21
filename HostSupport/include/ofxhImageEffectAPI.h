@@ -205,6 +205,15 @@ namespace OFX {
         /// pointer to our image effect host
         OFX::Host::ImageEffect::Host* _host;
 
+        /// forget the plug-ins of confirmPlugin(): OFX::Host::PluginCache::scanPluginFiles()
+        /// confirms them all again
+        friend class OFX::Host::PluginCache;
+        void clearConfirmedPlugins() {
+          _plugins.clear();
+          _pluginsByID.clear();
+          _pluginsByIDMajor.clear();
+        }
+
       public:  
 
         explicit PluginCache(OFX::Host::ImageEffect::Host* host);

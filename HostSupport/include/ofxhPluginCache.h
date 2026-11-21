@@ -232,6 +232,7 @@ namespace OFX {
     /// has a set of plugins inside it and which it owns
     /// These are owned by a PluginCache
       friend class PluginHandle;
+      friend class PluginCache; // scanPluginFiles() resets _binaryChanged
 
     protected :
       Binary* _binary;                 ///< our binary object, abstracted layer ontop of OS calls, defined in ofxhBinary.h, may not be valid if function pointers below are already set

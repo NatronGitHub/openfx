@@ -7,7 +7,9 @@
 /// return pointers with the statuses of the spec, instead of crashing; that Bytes params copy
 /// their default (descriptor and instance); that RGB and RGBA params have
 /// kOfxParamPropColourManagement; and that the render inArgs have the
-/// kOfxImageEffectPropBehaviourWhenUnlicensed the host sets. Run by
+/// kOfxImageEffectPropBehaviourWhenUnlicensed the host sets; and the fixes of the HostSupport
+/// review: NULL pointer defaults, exact doubles, plug-in cache rescans and reads (also of a
+/// malformed cache), and per-clip kFnOfxImageEffectPropComponentsPresent. Run by
 /// .github/scripts/hostdemo-checks.sh; exits with 1 if a check fails.
 
 #include <cstdio>
@@ -43,6 +45,13 @@
 #include "ofxhClip.h"
 #include "ofxhMemory.h"
 #include "ofxGPURender.h"
+
+// the HostSupport review fixes: properties and the plug-in cache
+#include <cfloat>
+#include <climits>
+#include <sstream>
+#include <stdexcept>
+#include "ofxhPluginAPICache.h"
 #ifdef OFX_EXTENSIONS_NUKE
 #include "nuke/fnOfxExtensions.h"
 #endif
@@ -483,6 +492,227 @@ namespace {
           p.findStringPropValueIndex(kOfxImageEffectPropSupportedContexts, kOfxImageEffectContextGeneral) != -1);
   }
 
+  /// HostSupport review fixes (properties): a pointer property defaults to NULL, whatever the
+  /// default string of its spec; doubles turn into strings that read back exactly (the plug-in
+  /// cache, and the numeric param limits); a malformed property in the cache is an error
+  void checkPropertyFixes()
+  {
+    static const Property::PropSpec pointerSpec[] = {
+      { "TestPointerZero", Property::ePointer, 1, true, "0" },
+      { "TestPointerNull", Property::ePointer, 1, false, NULL },
+      Property::propSpecEnd
+    };
+    Property::Set pointers(pointerSpec);
+    check("a pointer property with the default \"0\" is NULL", pointers.getPointerProperty("TestPointerZero") == NULL);
+    check("a pointer property with no default is NULL", pointers.getPointerProperty("TestPointerNull") == NULL);
+
+    const double values[] = { DBL_MAX, -DBL_MAX, DBL_MIN, -DBL_MIN, 0.1, 1. / 3., 5e-324 };
+    for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); ++i) {
+      const std::string s = Property::castToString(values[i]);
+      check(("castToString(" + s + ") reads back exactly (stringToDouble)").c_str(), Property::stringToDouble(s) == values[i]);
+      check(("castToString(" + s + ") reads back exactly (atof)").c_str(), std::atof(s.c_str()) == values[i]);
+    }
+
+    // a double param's limits are exactly -DBL_MAX and DBL_MAX, an int param's INT_MIN and INT_MAX
+    Param::Descriptor dbl(kOfxParamTypeDouble, "dbl");
+    Param::Descriptor dbl2(kOfxParamTypeDouble2D, "dbl2");
+    Param::Descriptor integer(kOfxParamTypeInteger, "int");
+    dbl.addStandardParamProps(kOfxParamTypeDouble);
+    dbl2.addStandardParamProps(kOfxParamTypeDouble2D);
+    integer.addStandardParamProps(kOfxParamTypeInteger);
+    const Property::Set &dp = dbl.getProperties();
+    const Property::Set &dp2 = dbl2.getProperties();
+    const Property::Set &ip = integer.getProperties();
+    check("double param: kOfxParamPropMax == DBL_MAX, kOfxParamPropMin == -DBL_MAX",
+          dp.getDoubleProperty(kOfxParamPropMax) == DBL_MAX && dp.getDoubleProperty(kOfxParamPropMin) == -DBL_MAX);
+    check("double param: kOfxParamPropDisplayMax == DBL_MAX, kOfxParamPropDisplayMin == -DBL_MAX",
+          dp.getDoubleProperty(kOfxParamPropDisplayMax) == DBL_MAX && dp.getDoubleProperty(kOfxParamPropDisplayMin) == -DBL_MAX);
+    check("double 2D param: kOfxParamPropMax[1] == DBL_MAX, kOfxParamPropMin[1] == -DBL_MAX",
+          dp2.getDoubleProperty(kOfxParamPropMax, 1) == DBL_MAX && dp2.getDoubleProperty(kOfxParamPropMin, 1) == -DBL_MAX);
+    check("int param: kOfxParamPropMax == INT_MAX, kOfxParamPropMin == INT_MIN",
+          ip.getIntProperty(kOfxParamPropMax) == INT_MAX && ip.getIntProperty(kOfxParamPropMin) == INT_MIN);
+
+    // the cache reader: a value index beyond the values read so far (a variable dimension) or the
+    // dimension (a fixed one), a bad index, or an unknown element, is an error (not an assert, nor
+    // a huge allocation)
+    struct XmlCase { const char *what; const char *dimension; const char *index; const char *element; };
+    static const XmlCase cases[] = {
+      { "a variable-dimension property value at index 1000000000", "0", "1000000000", "value" },
+      { "a variable-dimension property value at index 1 before index 0", "0", "1", "value" },
+      { "a 1-dimension property value at index 1", "1", "1", "value" },
+      { "a property value at index 99999999999999999999", "0", "99999999999999999999", "value" },
+      { "a property value at index \"x\"", "0", "x", "value" },
+      { "an unknown element", "0", "0", "bogus" },
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+      Property::Set set;
+      Property::Property *current = NULL;
+      std::map<std::string, std::string> prop, value;
+      prop["name"] = "TestStrings";
+      prop["type"] = "string";
+      prop["dimension"] = cases[i].dimension;
+      value["index"] = cases[i].index;
+      value["value"] = "v";
+      bool refused = false;
+      try {
+        APICache::propertySetXMLRead("property", prop, set, current);
+        APICache::propertySetXMLRead(cases[i].element, value, set, current);
+      } catch (const std::runtime_error &) {
+        refused = true;
+      }
+      check((std::string("plug-in cache: ") + cases[i].what + " is an error").c_str(),
+            refused && (!current || current->getDimension() <= 1));
+    }
+    {
+      Property::Set set;
+      Property::Property *current = NULL;
+      std::map<std::string, std::string> prop, value;
+      prop["name"] = "TestDoubles";
+      prop["type"] = "double";
+      prop["dimension"] = "0";
+      bool ok = true;
+      try {
+        APICache::propertySetXMLRead("property", prop, set, current);
+        for (int i = 0; i < 3; ++i) {
+          value["index"] = Property::castToString(i);
+          value["value"] = Property::castToString(values[i]); // as propertySetXMLWrite
+          APICache::propertySetXMLRead("value", value, set, current);
+        }
+      } catch (...) {
+        ok = false;
+      }
+      check("plug-in cache: DBL_MAX, -DBL_MAX and DBL_MIN read back exactly",
+            ok && set.getDimension("TestDoubles") == 3 && set.getDoubleProperty("TestDoubles", 0) == DBL_MAX &&
+            set.getDoubleProperty("TestDoubles", 1) == -DBL_MAX && set.getDoubleProperty("TestDoubles", 2) == DBL_MIN);
+    }
+  }
+
+  /// the number of image effect plug-ins of a plug-in cache with this identifier
+  int countPlugins(const std::list<Plugin *> &plugins, const std::string &id)
+  {
+    int n = 0;
+    for (std::list<Plugin *>::const_iterator it = plugins.begin(); it != plugins.end(); ++it) {
+      n += ((*it)->getIdentifier() == id);
+    }
+    return n;
+  }
+
+  /// HostSupport review fixes (plug-in cache, clips): a rescan doesn't duplicate the plug-ins; the
+  /// cache reads into the PluginCache that reads it (not the singleton), and a malformed cache is
+  /// discarded; a plug-in's kFnOfxImageEffectPropComponentsPresent value belongs to its clip;
+  /// getNthClip() is bounds-checked
+  void checkCacheFixes(MyHost::Host &host, ImageEffect::PluginCache &imageEffectPluginCache,
+                       ImageEffect::Instance *instance, const std::string &pluginId)
+  {
+    PluginCache *pc = PluginCache::getPluginCache();
+    const size_t nPlugins = pc->getPlugins().size();
+    const size_t nEffects = imageEffectPluginCache.getPlugins().size();
+    const size_t nIds = imageEffectPluginCache.getPluginsByID().size();
+    const int nInvert = countPlugins(pc->getPlugins(), pluginId);
+    pc->scanPluginFiles();
+    check("rescan: as many plug-ins (PluginCache::getPlugins())", pc->getPlugins().size() == nPlugins && countPlugins(pc->getPlugins(), pluginId) == nInvert);
+    check("rescan: as many image effect plug-ins (ImageEffect::PluginCache::getPlugins())",
+          imageEffectPluginCache.getPlugins().size() == nEffects && imageEffectPluginCache.getPluginsByID().size() == nIds);
+    check("rescan: getPluginById() finds the plug-in", imageEffectPluginCache.getPluginById(pluginId) != NULL);
+    check("getPluginById(no such plug-in) = NULL", imageEffectPluginCache.getPluginById("no.such.plugin") == NULL);
+    check("getPluginById(id, major) finds the plug-in", imageEffectPluginCache.getPluginById(pluginId, imageEffectPluginCache.getPluginById(pluginId)->getVersionMajor()) == imageEffectPluginCache.getPluginById(pluginId));
+
+    std::ostringstream written;
+    pc->writePluginCache(written);
+    const std::string cache = written.str();
+    {
+      // read into another PluginCache: the singleton doesn't change, and the other one writes
+      // the same cache
+      ImageEffect::PluginCache otherEffects(&host); // (destroyed after the plug-ins of other)
+      PluginCache other;
+      otherEffects.registerInCache(other);
+      std::istringstream is(cache);
+      bool ok = true;
+      try {
+        other.readCache(is);
+      } catch (const std::exception &e) {
+        std::printf("suiteHandleChecks: readCache: %s\n", e.what());
+        ok = false;
+      }
+      std::ostringstream rewritten;
+      other.writePluginCache(rewritten);
+      std::ostringstream singleton;
+      pc->writePluginCache(singleton);
+      check("readCache() on a PluginCache other than the singleton reads into it", ok && rewritten.str() == cache);
+      check("readCache() on a PluginCache other than the singleton leaves the singleton", singleton.str() == cache && pc->getPlugins().size() == nPlugins);
+      other.scanPluginFiles();
+      ImageEffect::ImageEffectPlugin *a = imageEffectPluginCache.getPluginById(pluginId);
+      ImageEffect::ImageEffectPlugin *b = otherEffects.getPluginById(pluginId);
+      check("the plug-in read from the cache, after the scan", b != NULL && b != a && countPlugins(other.getPlugins(), pluginId) == nInvert);
+      ImageEffect::gImageEffectHost = &host; // (otherEffects set it: the same host)
+    }
+    {
+      // a malformed cache is discarded entirely (readCache() throws, nothing read is kept)
+      std::string unknownElement = cache, hugeIndex = cache;
+      const size_t api = unknownElement.find("<apiproperties>");
+      if (api != std::string::npos) {
+        unknownElement.insert(api + strlen("<apiproperties>"), "<bogus/>");
+      }
+      const size_t contexts = hugeIndex.find("\"" kOfxImageEffectPropSupportedContexts "\"");
+      const size_t value = contexts == std::string::npos ? contexts : hugeIndex.find("index=\"0\"", contexts);
+      if (value != std::string::npos) {
+        hugeIndex.replace(value, strlen("index=\"0\""), "index=\"2000000000\"");
+      }
+      check("the cache has an <apiproperties> and a kOfxImageEffectPropSupportedContexts value", api != std::string::npos && value != std::string::npos);
+      const std::string *bad[] = { &unknownElement, &hugeIndex };
+      const char *what[] = { "an unknown element", "a value index of 2000000000 for a variable-dimension property" };
+      for (int i = 0; i < 2; ++i) {
+        ImageEffect::PluginCache otherEffects(&host); // (destroyed after the plug-ins of other)
+        PluginCache other;
+        otherEffects.registerInCache(other);
+        std::istringstream is(*bad[i]);
+        bool refused = false;
+        try {
+          other.readCache(is);
+        } catch (const std::runtime_error &) {
+          refused = true;
+        }
+        std::ostringstream rewritten;
+        other.writePluginCache(rewritten);
+        check((std::string("readCache() of a cache with ") + what[i] + " fails, and keeps nothing").c_str(),
+              refused && rewritten.str().find("<bundle>") == std::string::npos);
+        ImageEffect::gImageEffectHost = &host;
+      }
+    }
+
+    if (!instance) {
+      return;
+    }
+    // getNthClip(): NULL out of range (it indexed the vector of clip descriptors)
+    const int nClips = (int)instance->getDescriptor().getClipsByOrder().size();
+    check("getNthClip(0) != NULL", nClips > 0 && instance->getNthClip(0) != NULL);
+    check("getNthClip(-1) = NULL", instance->getNthClip(-1) == NULL);
+    check("getNthClip(number of clips) = NULL", instance->getNthClip(nClips) == NULL);
+#ifdef OFX_EXTENSIONS_NUKE
+    // kFnOfxImageEffectPropComponentsPresent: the base ClipInstance::getComponentsPresent() of
+    // one clip doesn't change with a query on another one
+    ImageEffect::ClipInstance *source = instance->getClip(kOfxImageEffectSimpleSourceClipName);
+    ImageEffect::ClipInstance *output = instance->getClip(kOfxImageEffectOutputClipName);
+    const OfxPropertySuiteV1 *props = (const OfxPropertySuiteV1 *)Property::GetSuite(1);
+    check("Source and Output clips", source && output && props);
+    if (source && output && props) {
+      const std::string sourceComponents = source->getComponents(), outputComponents = output->getComponents();
+      source->setComponents(kOfxImageComponentRGBA);
+      output->setComponents(kOfxImageComponentAlpha);
+      const char *s = NULL, *o = NULL;
+      const OfxStatus ss = props->propGetString(source->getPropHandle(), kFnOfxImageEffectPropComponentsPresent, 0, &s);
+      const OfxStatus os = props->propGetString(output->getPropHandle(), kFnOfxImageEffectPropComponentsPresent, 0, &o);
+      check("kFnOfxImageEffectPropComponentsPresent of Source and Output", ss == kOfxStatOK && os == kOfxStatOK && s && o);
+      if (s && o) {
+        check("kFnOfxImageEffectPropComponentsPresent of Source is still RGBA after that of Output (Alpha)",
+              std::strcmp(s, kOfxImageComponentRGBA) == 0 && std::strcmp(o, kOfxImageComponentAlpha) == 0 && s != o);
+      }
+      source->setComponents(sourceComponents);
+      output->setComponents(outputComponents);
+    }
+#endif
+  }
+
   /// the progress and timeline suites on a valid effect instance handle: a real instance of a
   /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
   void checkEffectInstance(MyHost::Host &host)
@@ -511,6 +741,9 @@ namespace {
     if (myInstance) {
       const OfxStatus stat = instance->createInstanceAction();
       check("createInstanceAction", stat == kOfxStatOK || stat == kOfxStatReplyDefault);
+
+      // the plug-in cache (rescan, readCache, malformed caches) and the clips
+      checkCacheFixes(host, imageEffectPluginCache, instance, pluginId);
 
       // kOfxImageEffectPropThumbnailRender is in the inArgs of BeginSequenceRender and of
       // EndSequenceRender (OFX 1.5.1), with the value of the ThumbnailRenderScope
@@ -1011,6 +1244,9 @@ int main()
     host14.restrictToOFX14();
     checkHostDescriptor(host14, "ofx14");
   }
+
+  // pointer defaults, exact doubles, malformed properties in the plug-in cache
+  checkPropertyFixes();
 
   // a real effect instance (the progress and timeline functions on a valid handle)
   checkEffectInstance(host);

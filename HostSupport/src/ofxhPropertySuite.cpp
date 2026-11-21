@@ -553,7 +553,9 @@ namespace OFX {
           _props[spec.name] = new String(spec.name, spec.dimension, spec.readonly, spec.defaultValue?spec.defaultValue:"");
           break;
         case ePointer: 
-          _props[spec.name] = new Pointer(spec.name, spec.dimension, spec.readonly, (void*)spec.defaultValue);
+          // PropSpec::defaultValue is a string: a pointer property always defaults to NULL (a
+          // spec's "0" would otherwise make it the address of that string literal)
+          _props[spec.name] = new Pointer(spec.name, spec.dimension, spec.readonly, NULL);
           break;
         default: // XXX  error - unrecognised type
           break;
@@ -1143,7 +1145,7 @@ namespace OFX {
       }
 
       /// the actual suite that is passed across the API to manage properties
-      struct OfxPropertySuiteV1 gSuite = {
+      static const struct OfxPropertySuiteV1 gSuite = {
         propSet<PointerValue>,
         propSet<StringValue>,
         propSet<DoubleValue>,
@@ -1168,7 +1170,7 @@ namespace OFX {
       const void *GetSuite(int version)
       {
         if(version == 1)
-          return (void *)(&gSuite);
+          return (const void *)(&gSuite);
         return NULL;
       }
 

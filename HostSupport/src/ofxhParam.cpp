@@ -584,23 +584,15 @@ namespace OFX {
       /// add standard properties to a value holding param
       void Descriptor::addNumericParamProps(const std::string &type, Property::TypeEnum valueType, int dim)
       {
-        static std::string dbl_minstr, dbl_maxstr, int_minstr, int_maxstr;
-        static bool doneOne = false;
+        // (not static: describe actions may run on several threads)
+        // -DBL_MAX: not a bug, @see kOfxParamPropDisplayMin. castToString() gives enough digits to
+        // read back exactly: atof(dbl_maxstr) == DBL_MAX (the default precision of 6 gave
+        // 1.79769e+308, which is not DBL_MAX)
+        const std::string dbl_minstr = Property::castToString(-std::numeric_limits<double>::max());
+        const std::string dbl_maxstr = Property::castToString(std::numeric_limits<double>::max());
+        const std::string int_minstr = Property::castToString(INT_MIN);
+        const std::string int_maxstr = Property::castToString(INT_MAX);
 
-        if(!doneOne) {
-          std::ostringstream dbl_min, dbl_max, int_min, int_max;
-          doneOne = true;
-          dbl_min << -std::numeric_limits<double>::max(); // not a bug, @see kOfxParamPropDisplayMin
-          dbl_max << std::numeric_limits<double>::max();
-          int_min << INT_MIN;
-          int_max << INT_MAX;
-          
-          dbl_minstr = dbl_min.str();
-          dbl_maxstr = dbl_max.str();
-          int_minstr = int_min.str();
-          int_maxstr = int_max.str();
-        }
-          
         Property::PropSpec allNumeric[] = {
           { kOfxParamPropDisplayMin, valueType, dim, false, isColourParam(type) ? "0" : (valueType == Property::eDouble ? dbl_minstr : int_minstr).c_str() },
           { kOfxParamPropDisplayMax, valueType, dim, false, isColourParam(type) ? "1" : (valueType == Property::eDouble ? dbl_maxstr : int_maxstr).c_str() },
