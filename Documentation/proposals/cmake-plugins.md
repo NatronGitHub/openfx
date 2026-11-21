@@ -18,7 +18,7 @@ Status: plan v1, implemented: PR A is NatronGitHub/openfx#125 (with the follow-u
 4. **Each repository:**
    - a draft parity PR on a thin local wrapper that uses the names below;
    - when A merges, a rebase that removes the wrapper and switches per-PR CI to CMake, in the same PR;
-   - a nightly Make build until build-plugins.sh switches.
+   - a weekly Make build until build-plugins.sh switches.
 
 **Done** for a repository means:
 - its CMake install tree matches its Makefile bundles: bundle names, file list, Info.plist, Resources and exported symbols, checked by a bundle-diff script;

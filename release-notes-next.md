@@ -105,7 +105,7 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 
 ## Detailed List of Changes
 
-- CI: the extended builds (`extended.yml`) run weekly, on Saturday at 03:17 UTC, instead of nightly, and on demand (maintainer decision). A scheduled run is skipped when master is still the commit the last scheduled run built, as in openfx-misc and openfx-io, instead of using a 25-hour window.
+- CI: the extended builds (`extended.yml`) run weekly, on Saturday at 03:17 UTC, instead of nightly, and on demand (maintainer decision). A scheduled run is skipped when master is still the commit the last scheduled run built or failed on, as in openfx-misc, instead of using a 25-hour window (if the API call fails, it builds). The pip-installed ofxh job is never skipped, since it builds against MacPorts' current nanobind and NumPy.
 - Property metadata now lives in inline `@propdef` blocks in the headers (previously a separate YAML file); `scripts/gen-props.py` generates the reference documentation and the `openfx-cpp` metadata headers from it (#233).
 - Added `SECURITY.md` and fixed stale repository URLs (#242).
 - CI: hardened workflows (actions pinned to SHAs, untrusted inputs via env) (#235); updated Conan and pre-authorized future compiler versions so new Xcode/compiler releases don't break builds (#252); pinned the Windows CUDA job to VS2022.

@@ -42,8 +42,10 @@ jobs:
           last=
           if [ "$GITHUB_EVENT_NAME" = schedule ]; then
             # a known failure is not rebuilt every week until master changes (use workflow_dispatch to retry)
+            # if the API call fails, build anyway (fail open) rather than lose a week
             last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/extended.yml/runs?event=schedule&status=completed&per_page=20" \
-                     --jq '[.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure")][0].head_sha // empty')
+                     --jq '[.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure")][0].head_sha // empty') \
+              || { echo "::warning::could not read the last scheduled run: building"; last=; }
           fi
           run=true
           if [ -n "$last" ] && [ "$last" = "$GITHUB_SHA" ]; then
@@ -159,9 +161,9 @@ jobs:
     name: macOS 15 arm64 weekly (the ofxh module from pip install, MacPorts Python 3.11)
     # The HostSupport Python bindings as a package (HostSupport/python/pyproject.toml,
     # scikit-build-core), built with MacPorts' nanobind and scikit-build-core, and their tests
-    # against the sample plug-ins and hostDemo of a CMake build (same extension options)
-    needs: changes
-    if: needs.changes.outputs.run == 'true'
+    # against the sample plug-ins and hostDemo of a CMake build (same extension options).
+    # Never skipped: it builds against moving upstream packages (MacPorts' current nanobind,
+    # NumPy and scikit-build-core, which pyproject.toml only bounds), so it runs every week.
     runs-on: macos-15
     timeout-minutes: 60
     steps:
