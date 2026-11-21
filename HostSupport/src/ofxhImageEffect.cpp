@@ -4967,6 +4967,11 @@ namespace OFX {
         return false;
       }
 
+      bool Host::supportsParamColourManagement() const
+      {
+        return false;
+      }
+
       bool Host::preferOverlayInteractV1() const
       {
         return false;

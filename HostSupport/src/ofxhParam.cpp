@@ -706,17 +706,22 @@ namespace OFX {
             _properties.setStringProperty(kOfxParamPropDimensionLabel, "a", 3);
           }
 
-          /// kOfxParamPropColourManagement (next OFX release, after 1.5.1): "A host that supports
-          /// this property MUST accept all three values" (kOfxParamColourManagementNone, Managed
-          /// and SRGB; like the other string properties, the value is not checked), and "It
-          /// defaults to ::kOfxParamColourManagementNone, so existing plug-ins are unaffected."
-          /// "The property is ignored on parameter types other than RGB and RGBA": it is only on
-          /// these. Hosts that convert colours read it from the param descriptor or instance.
-          static const Property::PropSpec colourManagement[] = {
-            { kOfxParamPropColourManagement, Property::eString, 1, false, kOfxParamColourManagementNone },
-            Property::propSpecEnd
-          };
-          _properties.addProperties(colourManagement);
+          /// kOfxParamPropColourManagement (next OFX release, after 1.5.1), only if the host opts
+          /// in (ImageEffect::Host::supportsParamColourManagement()): "A host that does not
+          /// implement it will fail the set; in that case the plug-in MUST fall back to
+          /// ::kOfxParamColourManagementNone behaviour". If it does: "A host that supports this
+          /// property MUST accept all three values" (kOfxParamColourManagementNone, Managed and
+          /// SRGB; like the other string properties, the value is not checked), and "It defaults
+          /// to ::kOfxParamColourManagementNone, so existing plug-ins are unaffected." "The
+          /// property is ignored on parameter types other than RGB and RGBA": it is only on these.
+          /// Hosts that convert colours read it from the param descriptor or instance.
+          if (ImageEffect::gImageEffectHost && ImageEffect::gImageEffectHost->supportsParamColourManagement()) {
+            static const Property::PropSpec colourManagement[] = {
+              { kOfxParamPropColourManagement, Property::eString, 1, false, kOfxParamColourManagementNone },
+              Property::propSpecEnd
+            };
+            _properties.addProperties(colourManagement);
+          }
         }
       }
 
