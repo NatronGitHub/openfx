@@ -442,7 +442,12 @@ namespace OFX {
       }
     };
 
-    /// Where we keep our plugins.    
+    /// Where we keep our plugins.
+    ///
+    /// A process should have one PluginCache that loads a given plug-in binary: two caches
+    /// with the same binary each send kOfxActionLoad and kOfxActionUnload to it, independently
+    /// (the library itself stays mapped, since dlopen counts references), so one cache can
+    /// unload the plug-in while an instance from the other cache is alive.
     class PluginCache {
     protected :
       OFX::Host::Property::PropSpec* _hostSpec;

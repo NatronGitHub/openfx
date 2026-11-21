@@ -626,6 +626,7 @@ namespace {
       check("a changed binary: the cache is read, the first scan loads its plug-in, and the cache is dirty",
             ok && first != NULL && other.dirty() && countPlugins(other.getPlugins(), pluginId) == nInvert);
       other.scanPluginFiles();
+      // otherEffects.getPlugins().size() == n holds because image effects are the only API registered here
       check("a changed binary: the second scan doesn't load it again (same plug-in, same count)",
             otherEffects.getPluginById(pluginId) == first && other.getPlugins().size() == n &&
             countPlugins(other.getPlugins(), pluginId) == nInvert && otherEffects.getPlugins().size() == n);
