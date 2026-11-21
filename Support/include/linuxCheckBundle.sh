@@ -28,8 +28,7 @@
 #   libnvcuvid, and the OpenCL vendor ICDs (NVIDIA libnvidia-opencl, AMD libamdocl*, Intel
 #   libigdrcl and libintelocl, Mesa libMesaOpenCL and libRusticlOpenCL, PoCL libpocl): the OpenCL
 #   ICD loader only opens the ICDs named in /etc/OpenCL/vendors/*.icd, so a bundled copy would
-#   never be used, plus the sonames listed
-#   in OFX_ABI_SYSTEM_LIBS. The OpenCL ICD loader itself (libOpenCL.so.1: ocl-icd or the Khronos
+#   never be used; plus the sonames listed in OFX_ABI_SYSTEM_LIBS. The OpenCL ICD loader itself (libOpenCL.so.1: ocl-icd or the Khronos
 #   OpenCL-ICD-Loader) is not a system library: it is not in a default EL9 or Ubuntu install, so
 #   the installer bundles it (it finds the vendor ICDs itself) or lists it in OFX_ABI_OPTIONAL_LIBS;
 # - optional libraries, which may come from the system or be bundled (OFX_ABI_OPTIONAL_LIBS,
