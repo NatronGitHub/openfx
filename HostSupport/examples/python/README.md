@@ -556,7 +556,9 @@ records = run_batch(["--quiet -p net.sf.openfx.invertPlugin -o a --report a.json
     goes on. **Match `crashed` and `timedOut`, not `exitStatus`**, which depends on the platform: on
     POSIX minus the signal (-11 for SIGSEGV, -9 for a timeout), on Windows the NTSTATUS of a crash
     (e.g. 3221225477, an access violation) and 1 for a timeout.
-  - `seconds`: the command's time in its worker, without the start of the worker. `worker`:
+  - `seconds`: the command's time in its worker, without the start of the worker (Python, NumPy);
+    a worker's first command still includes the import of `ofxh` (0.1 to 0.2 s), which depends on
+    its `$OFX_PLUGIN_PATH`. `worker`:
     `[slot, generation]` (the pool's slot, 0 to N-1, and which of its workers: 2 after the first was
     replaced...); `seq`: the command's position in that worker (the commands before it in the same
     process). `env`: its `--env` changes. `workerStderr` (crashed and timed-out commands): what the
@@ -566,14 +568,19 @@ records = run_batch(["--quiet -p net.sf.openfx.invertPlugin -o a --report a.json
     died or hung after its previous command and before the next one started, e.g. in a plug-in's
     unload action when its host was shut down: the command runs again in a new worker, once),
     `"exit"` (a worker failed when it shut down at the end of the batch), `"start"` (a worker didn't
-    start). They have the worker's stderr.
+    start). They have the worker's stderr, and the `seq` of the last command that the worker ran.
   - A summary goes to stderr. The exit status is 0 if every command succeeded and no worker event
     happened, 1 otherwise, 2 for a usage error of the batch options (also an unopenable
     `--batch-report`), 3 for an internal error (e.g. the records can't be written: `| head`).
 - **`-j N`** worker processes (default 1, `0`: one per CPU) take the commands in order, each the
   next one when it is free. They are subprocesses that speak JSON lines over pipes (the same on
   macOS, Linux and Windows), run in the batch's temporary directory with ofxhost's directory first
-  on `sys.path` (a file of the batch's directory can't shadow a module; `PYTHONPATH` still applies).
+  on `sys.path` (a file of the batch's directory can't shadow a module; `PYTHONPATH` still applies),
+  in their own process group (POSIX), which the batch kills when a worker is replaced, and when the
+  batch gets SIGTERM or SIGHUP. A worker also ends if the batch dies without killing it (SIGKILL):
+  it watches its parent (and Linux sends it SIGKILL, `PR_SET_PDEATHSIG`). On Windows, closing the
+  console ends the workers too (they share it); a batch killed by `TerminateProcess` leaves its
+  workers to end at their next read of a request, after the command that runs.
 - **The host's lifetime** (isolation against speed):
   - default (`host="fresh"`): the host is shut down after each command, as at the end of a separate
     run (unload action, binaries unloaded): each command gets its own scan, load and describe, as
@@ -628,7 +635,8 @@ today, the equivalent:
 openfx build with `-DOFX_PYTHON_BINDINGS=ON` (Python 3.10 or later), instead of, or besides,
 hostDemo. Each run of the CLI starts Python and imports NumPy and `ofxh` before the plug-in scan:
 0.1 to 0.2 s more than hostDemo per run. The batch mode (above) pays that once per worker; with its
-default, a new host for each command, it is about as fast as hostDemo, and faster with a kept host.
+default, a new host for each command, it is as fast as hostDemo or faster, and faster still with a
+kept host.
 Measured on macOS 27 only (Apple M5 Pro, 18 cores, a shared machine: 1-minute load 7.7 to 17.6
 during the runs): the median of 3 rounds (each round runs the cases in the order of the table), wall
 and CPU (user + system of all the processes) time in seconds:
@@ -660,7 +668,8 @@ plug-ins print during the plug-in scan is only in the stderr of the host's first
 
 To run a big suite (openfx-misc's smoketest and rendertest over all its plug-ins, openfx-gmic's
 `render_plugins.py`): write the command lines to a file and run them in one `--batch -j N
---timeout SECONDS` (or `run_batch()` from Python), then check the records and the reports, rather
+--timeout SECONDS` per phase (e.g. smoketest: the describes, then the renders made from them), or
+`run_batch()` from Python, then check the records and the reports, rather
 than one CLI process per command line (`xargs -P`) or one pytest process for everything (which
 loses the crash isolation). The batch keeps that isolation: a crashed or hung command is recorded,
 and its worker replaced. Keep the default (a new host per command) unless the speed of a kept host

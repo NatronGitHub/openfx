@@ -37,7 +37,9 @@ The records, one per command, in the order of the commands, written as JSON line
   printed its Python threads' stacks to the command's stderr (faulthandler), and was killed with
   its process group (exitStatus -9 on POSIX, 1 on Windows). Match crashed and timedOut, not the
   exit status. In both cases the worker is replaced and the batch goes on.
-- seconds: the command's time in its worker (without the worker's start).
+- seconds: the command's time in its worker, without the start of the worker (Python and its
+  imports); a worker's first command still includes the import of ofxh, which depends on its
+  $OFX_PLUGIN_PATH (0.1 to 0.2 s, NumPy is imported before).
 - worker: [slot, generation]: the slot of the pool (0 to N-1), and which of the slot's workers
   (1, then 2 after the first was replaced...); seq: the command's position in that worker's
   sequence (1, 2...): the commands that ran before it in the same process.
@@ -51,7 +53,7 @@ Records of worker events follow the command records, with "line": null and "even
   down before the next command): the command is run again in a new worker (once);
 - "exit": a worker failed when it shut down at the end of the batch (its exitStatus);
 - "start": a worker didn't start (stderr says why).
-They have the worker's stderr. The batch exits with status 0 if every command succeeded and no
+They have the worker's stderr, and the seq of the last command that the worker ran. The batch exits with status 0 if every command succeeded and no
 worker event happened, 1 otherwise, 2 for a usage error of the batch options (also an unopenable
 --batch-report), 3 for an internal error (e.g. the records couldn't be written: a closed pipe). A
 summary goes to stderr.
@@ -78,7 +80,9 @@ records say which they were: worker and seq).
 
 Also beyond a separate run: the ofxh module is imported once per worker (the first command's
 $OFX_PLUGIN_PATH chooses its build tree, see ofxhost._ofxh), $OFXHOST_PRELOAD loads its libraries
-once per worker, and the workers run in the batch's temporary directory, with ofxhost's own
+once per worker, and the workers run in the batch's temporary directory, in their own process group
+(POSIX: a SIGTERM or SIGHUP of the batch kills them; they also end if the batch dies; see
+_watch_parent() for Windows), with ofxhost's own
 directory first on sys.path (so that a file of the batch's directory can't shadow a module;
 PYTHONPATH still applies).
 
@@ -87,9 +91,10 @@ inherited), makes the worker, after the command ran, write a line to the command
 stderr, then: "segv" (a real SIGSEGV), "kill" (os.kill(pid, 9): SIGKILL, TerminateProcess on
 Windows), "exit" (os._exit(3)), "hang" (sleep), or "raise" (an uncaught Python exception in the
 host); "host" only writes "batch test hook: host N" (N: the number of the ofxh host in the worker,
-1, 2..., or "none" if it is shut down); "unload" and "unload-crash" make the next shutdown of the
-host (in the per-plugin and reuse modes) write "batch test hook: unload" to the worker's stdout and
-stderr, and "unload-crash" then exit the worker with status 5.
+1, 2..., or "none" if it is shut down); "unload", "unload-crash" and "unload-raise" make the next
+shutdown of the host (in the per-plugin and reuse modes) write "batch test hook: unload" to the
+worker's stdout and stderr, then "unload-crash" exits the worker with status 5, and "unload-raise"
+raises (before the next command: its record is an error, the worker goes on).
 """
 
 from __future__ import annotations
@@ -111,6 +116,8 @@ import traceback
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+
+from .hostdemo import _VALUE_OPTIONS  # (hostDemo's options that take a value)
 
 __all__ = ["run_batch", "parse_batch", "parse_command", "Command", "BatchSyntaxError", "OnRecordError", "HOSTS",
            "main", "BATCH_USAGE"]
@@ -235,10 +242,6 @@ def _commands(commands) -> list[Command]:
     return out
 
 
-_VALUE_OPTIONS = ("-p", "-m", "-c", "-o", "-s", "-d", "-i", "--format", "--report", "--describe", "--frames",
-                  "--scale", "--window")
-
-
 def _scan(args: Sequence[str]) -> tuple[str, set]:
     """(the -p of a hostDemo command line: the last one, as hostDemo's parsing keeps; the options
     without a value)."""
@@ -301,6 +304,8 @@ def _shutdown_host(state: dict) -> None:
         os.write(2, b"batch test hook: unload (stderr)\n")
         if hook == "unload-crash":
             os._exit(5)
+        if hook == "unload-raise":
+            raise RuntimeError("batch test hook: unload-raise")
     sys.modules["ofxhost.inprocess"].shutdown()
 
 
@@ -327,7 +332,7 @@ def _test_hook(name: str, state: dict) -> None:
         n = next(i for i, h in enumerate(_hosts, 1) if h is session.host)
         os.write(1, f"batch test hook: host {n}\n".encode())
         return
-    if name in ("unload", "unload-crash"):
+    if name in ("unload", "unload-crash", "unload-raise"):
         state["unload_hook"] = name
         return
     os.write(1, f"batch test hook: {name}\n".encode())
@@ -427,6 +432,34 @@ def _run_one(req: dict, state: dict, send: Callable[[dict], None]) -> dict:
     return reply
 
 
+def _watch_parent() -> None:
+    """End the worker if the batch dies without killing it (e.g. SIGKILL): the workers have their own
+    process group (POSIX), so the signals of the batch's group don't reach them. Linux:
+    PR_SET_PDEATHSIG (SIGKILL when the thread of the batch that started the worker ends: the slot's
+    thread, which waits for its worker before it ends); everywhere on POSIX, a thread that exits
+    when the parent changes (the worker is reparented). Windows: closing the console ends every
+    process attached to it, workers included; a batch killed by TerminateProcess leaves its workers
+    to end at their next read of a request (end of file), after the command that runs."""
+    if os.name != "posix":
+        return
+    parent = os.getppid()
+    if sys.platform.startswith("linux"):
+        try:
+            libc = ctypes.CDLL(None, use_errno=True)
+            libc.prctl(1, 9, 0, 0, 0)  # (PR_SET_PDEATHSIG, SIGKILL)
+        except (OSError, AttributeError):
+            pass
+        if os.getppid() != parent:  # (the parent died before prctl)
+            os._exit(1)
+
+    def watch():
+        while os.getppid() == parent:
+            time.sleep(0.5)
+        os._exit(1)
+
+    threading.Thread(target=watch, daemon=True, name="ofxhost-batch-parent").start()
+
+
 def worker_main() -> int:
     """A worker: requests on stdin; "ready", "started" and the replies on stdout, one JSON line each.
     Between the commands, fds 1 and 2 go to the worker's stderr, and fd 0 is null."""
@@ -440,11 +473,15 @@ def worker_main() -> int:
     faulthandler.enable()  # (on fd 2: a crash's Python traceback goes to the command's stderr)
 
     def send(msg: dict) -> None:
+        if "started" in msg:
+            state["started"] = msg["started"]
         wr.write(json.dumps(msg) + "\n")
         wr.flush()
 
-    from . import hostdemo  # noqa: F401  (and NumPy: the imports before "ready")
-    state: dict = {"cwd": os.getcwd(), "plugin": None}
+    _watch_parent()
+    from . import hostdemo  # noqa: F401  (and NumPy: the imports before "ready"; ofxh is imported by
+    # the first command, since its $OFX_PLUGIN_PATH chooses the module's build tree)
+    state: dict = {"cwd": os.getcwd(), "plugin": None, "started": None}
     send({"ready": os.getpid()})
     for line in rd:
         try:
@@ -453,9 +490,12 @@ def worker_main() -> int:
             continue
         try:
             reply = _run_one(req, state, send)
-        except Exception:  # (a bug of the worker: an error reply, the worker goes on)
+        except Exception:  # (a bug of the worker, or an error in a host shutdown before the command:
+            # an error reply, after "started" if it wasn't sent, and the worker goes on)
             reply = {"done": req.get("id"), "exitStatus": 1, "seconds": 0.0,
                      "error": "Error: internal error in the batch worker:\n" + traceback.format_exc()}
+            if state["started"] != req.get("id"):
+                send({"started": req.get("id")})
         send(reply)
     _flush_all()
     _shutdown_host(state)  # (the plug-ins' unload actions: their output goes to the worker's stderr)
@@ -503,9 +543,9 @@ class _Worker:
             pass
         self.replies.put(None)  # (EOF: the worker is gone)
 
-    def wait(self, kind: str, timeout: float | None):
-        """The next message of this kind ("ready", "started", "done"), None if the worker is gone,
-        _TIMEOUT after timeout seconds."""
+    def wait(self, kind: str, timeout: float | None, also: str | None = None):
+        """The next message of this kind ("ready", "started", "done") or of the kind `also`, None if
+        the worker is gone, _TIMEOUT after timeout seconds."""
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             try:
@@ -515,7 +555,7 @@ class _Worker:
             if msg is None:
                 self.replies.put(None)  # (for the next wait)
                 return None
-            if kind in msg:
+            if kind in msg or (also is not None and also in msg):
                 return msg
 
     def send(self, req: dict) -> bool:
@@ -528,16 +568,20 @@ class _Worker:
 
     def kill(self):
         """Kill the worker and its process group (POSIX) or tree (Windows), then wait for it."""
+        if os.name == "posix":  # (also after the worker died: the helpers it started in its group)
+            import signal
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        elif self.proc.poll() is None and sys.platform == "win32":
+            taskkill = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
+            try:
+                subprocess.run([taskkill, "/F", "/T", "/PID", str(self.proc.pid)], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, check=False, timeout=30)
+            except (OSError, subprocess.SubprocessError):
+                pass
         if self.proc.poll() is None:
-            if os.name == "posix":
-                import signal
-                try:
-                    os.killpg(self.proc.pid, signal.SIGKILL)
-                except OSError:
-                    pass
-            elif sys.platform == "win32":
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, check=False)
             try:
                 self.proc.kill()
             except OSError:
@@ -618,11 +662,11 @@ def run_batch(commands: Iterable, jobs: int = 1, timeout: float | None = None, h
     events: list = []
     lock = threading.Lock()  # (the records, the next command, the workers)
     emit_lock = threading.Lock()  # (on_record, in order, outside of lock)
-    state: dict = {"next": 0, "emitted": 0, "error": None}
+    state: dict = {"next": 0, "emitted": 0, "error": None, "stop": False}
     live: set = set()
 
     def call(rec: dict) -> None:
-        if on_record is not None and state["error"] is None:
+        if on_record is not None and state["error"] is None and not state["stop"]:
             try:
                 on_record(rec)
             except Exception as e:
@@ -680,6 +724,8 @@ def run_batch(commands: Iterable, jobs: int = 1, timeout: float | None = None, h
         t = c.timeout if c.timeout is not None else timeout
         out, err = os.path.join(tmp, f"{i}.out"), os.path.join(tmp, f"{i}.err")
         for _attempt in range(2):
+            if state["stop"]:  # (interrupted: no new worker)
+                break
             if cur["w"] is None:
                 cur["gen"] += 1
                 cur["w"] = start(k, cur["gen"], t)
@@ -689,15 +735,16 @@ def run_batch(commands: Iterable, jobs: int = 1, timeout: float | None = None, h
             w.seq += 1
             req = {"id": i, "args": rec["args"], "cwd": rec["cwd"], "env": c.env, "stdout": out, "stderr": err,
                    "host": host, "timeout": t}
-            started = w.wait("started", t) if w.send(req) else None
+            started = w.wait("started", t, also="done") if w.send(req) else None
             if not isinstance(started, dict):  # (died or hung before the command: not the command's)
                 cur["w"] = None
                 retire(w)
+                w.seq -= 1  # (the event's seq: the last command that the worker ran)
                 event("died", w, w.proc.returncode, w.log_text(), timedOut=started == _TIMEOUT,
                       crashed=started != _TIMEOUT)
                 continue
             t0 = time.perf_counter()
-            done = w.wait("done", t)
+            done = started if "done" in started else w.wait("done", t)
             if done == _TIMEOUT:
                 rec["timedOut"] = True
                 w.wait("done", 2.)  # (the time for the worker's stack dump to be written)
@@ -770,12 +817,15 @@ def run_batch(commands: Iterable, jobs: int = 1, timeout: float | None = None, h
         for t in threads:
             while t.is_alive():
                 t.join(0.2)
-    except BaseException:  # (an interrupt: no new command, and the workers are killed)
+    except BaseException:  # (an interrupt: no new command, no more records, and the workers are killed)
         with lock:
             state["next"] = len(cmds)
+            state["stop"] = True
             workers = list(live)
         for w in workers:
             w.kill()
+        for t in threads:  # (the slots end once their workers are gone: none is left writing at exit)
+            t.join(10.)
         raise
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -826,6 +876,13 @@ def main(argv: Sequence[str]) -> int:
         out.write(json.dumps(rec) + "\n")
         out.flush()
 
+    def stop(signum, frame):  # (SIGTERM, SIGHUP: run_batch kills the workers, which have their own group)
+        raise SystemExit(128 + signum)
+
+    import signal
+    for name in ("SIGTERM", "SIGHUP"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), stop)
     t0 = time.perf_counter()
     try:
         recs = run_batch(cmds, jobs=a.jobs, timeout=a.timeout,

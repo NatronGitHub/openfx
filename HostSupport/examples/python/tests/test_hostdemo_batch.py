@@ -7,6 +7,7 @@ process."""
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -261,7 +262,71 @@ def test_unload_between_commands(tmp_path, env, host):
     assert [(r["worker"], r["seq"]) for r in cmds] == [([0, 1], 1), ([0, 2], 1), ([0, 2], 2)]
     assert len(events) == 1 and events[0]["event"] == "died" and events[0]["line"] is None
     assert events[0]["exitStatus"] == 5 and events[0]["crashed"] and events[0]["worker"] == [0, 1]
+    assert events[0]["seq"] == 1  # (the last command that the worker ran)
     assert "batch test hook: unload (stderr)" in events[0]["stderr"]
+
+
+@pytest.mark.parametrize("host", ["per-plugin", "reuse"])
+def test_unload_raises_before_start(tmp_path, env, host):
+    """An exception in the host shutdown before a command (before its "started"): an error record for
+    that command, without a wait for a "started" that never comes, and the worker goes on."""
+    recs = run_batch([_hook_line("unload-raise"), _hook_line("host", "--ofx14"), _hook_line("host", "--ofx14")],
+                     host=host, timeout=60, cwd=tmp_path, env=env)
+    assert len(recs) == 3, recs  # (no worker event)
+    assert recs[0]["ok"] and recs[2]["ok"], recs
+    r = recs[1]
+    assert not r["ok"] and not r["crashed"] and not r["timedOut"] and r["exitStatus"] == 1, r
+    assert "RuntimeError: batch test hook: unload-raise" in r["stderr"], r
+    assert [x["worker"] for x in recs] == [[0, 1]] * 3 and [x["seq"] for x in recs] == [1, 2, 3]
+
+
+def _children(pid):
+    p = subprocess.run(["pgrep", "-P", str(pid)], capture_output=True, text=True)
+    return [int(x) for x in p.stdout.split()]
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+@pytest.mark.skipif(os.name != "posix" or not shutil.which("pgrep"), reason="POSIX process groups, pgrep")
+@pytest.mark.parametrize("sig", ["SIGTERM", "SIGKILL"])
+def test_batch_killed_leaves_no_worker(tmp_path, env, sig):
+    """The workers have their own process group: a SIGTERM of the batch kills them (its handler), and
+    after a SIGKILL of the batch they end by themselves (they watch their parent)."""
+    import signal
+    import time
+    e = dict(env, PYTHONPATH=os.pathsep.join([str(PYDIR), env["PYTHONPATH"]]))
+    p = subprocess.Popen([sys.executable, "-m", "ofxhost.hostdemo", "--batch", "-", "-j", "2", "--timeout", "200"],
+                         cwd=tmp_path, env=e, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.PIPE, text=True)
+    try:
+        p.stdin.write(_line(_hook_line("hang")) + "\n" + _line(_hook_line("hang")) + "\n")
+        p.stdin.close()
+        deadline = time.monotonic() + 120
+        while len(_children(p.pid)) < 2 and time.monotonic() < deadline:
+            time.sleep(0.2)
+        workers = _children(p.pid)
+        assert len(workers) == 2, workers
+        time.sleep(3)  # (the commands start, and hang)
+        assert all(_alive(w) for w in workers)
+        p.send_signal(getattr(signal, sig))
+        p.wait(timeout=60)
+        deadline = time.monotonic() + 20
+        while any(_alive(w) for w in workers) and time.monotonic() < deadline:
+            time.sleep(0.2)
+        assert not any(_alive(w) for w in workers), workers
+        assert p.returncode == (128 + signal.SIGTERM if sig == "SIGTERM" else -signal.SIGKILL), p.stderr.read()
+    finally:
+        if p.poll() is None:
+            p.kill()
+            p.wait()
 
 
 def test_shutdown_failure_record(tmp_path, env):
