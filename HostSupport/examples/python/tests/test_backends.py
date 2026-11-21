@@ -4,11 +4,14 @@ against hostDemo. Also: the backend selection, and the in-process backend's one 
 
 import math
 import os
+import re
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 import ofxhost
+from ofxhost import constants as k
 from ofxhost.testing import backend_available, check_backend
 
 INVERT = "net.sf.openfx.invertPlugin"
@@ -281,6 +284,36 @@ def test_inprocess_one_host_per_process(both):
     assert ofxh.host() is not host and ofxh.profile() == "ofx14"
     inprocess.shutdown()
     assert not ofxh.initialized()
+
+
+def _hostdemo_string_list(prop):
+    """The values that hostDemo's Host constructor (hostDemoHostDescriptor.cpp) sets on prop."""
+    src = (Path(__file__).resolve().parents[2] / "hostDemoHostDescriptor.cpp").read_text()
+    src = re.sub(r"//[^\n]*", "", src)
+    calls = re.findall(r"setStringProperty\(\s*" + prop + r",\s*(k\w+),\s*(\d+)\s*\)", src)
+    return tuple(getattr(k, v) for v, _ in sorted(calls, key=lambda c: int(c[1])))
+
+
+@pytest.mark.parametrize("ofx14", [False, True])
+def test_inprocess_host_lists_hostdemos_depths(both, ofx14):
+    """The in-process host lists hostDemo's supported depths, components and contexts, in both
+    profiles: byte, short and float (its image code, as hostDemo's, makes no half; ofxh's own host
+    lists half), so that a plug-in that builds its describe from the host's list sees the same host."""
+    import ofxh
+    from ofxhost import inprocess
+    r = ofxhost.render(both, INVERT, frames=[0], query=True, backend="inprocess",
+                       extra_args=["--ofx14"] if ofx14 else [])
+    assert r.report["host"]["profile"] == ("ofx14" if ofx14 else "default")
+    props = ofxh.host().props
+    try:
+        depths = props[k.kOfxImageEffectPropSupportedPixelDepths]
+        assert depths == (k.kOfxBitDepthByte, k.kOfxBitDepthShort, k.kOfxBitDepthFloat)
+        assert depths == _hostdemo_string_list("kOfxImageEffectPropSupportedPixelDepths")
+        assert tuple(ofxh.short_name("depth", d) for d in depths) == ofxhost.DEPTHS
+        for prop in ("kOfxImageEffectPropSupportedComponents", "kOfxImageEffectPropSupportedContexts"):
+            assert props[getattr(k, prop)] == _hostdemo_string_list(prop) != ()
+    finally:
+        inprocess.shutdown()
 
 
 def test_backends_marker(monkeypatch):

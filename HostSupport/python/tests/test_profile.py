@@ -71,6 +71,7 @@ def test_ofx14_profile_is_hostdemos(plugin_dir):
 def _hostdemo_string_list(prop):
     """The values that hostDemo's Host constructor (hostDemoHostDescriptor.cpp) sets on prop."""
     src = (REPO_ROOT / "HostSupport" / "examples" / "hostDemoHostDescriptor.cpp").read_text()
+    src = re.sub(r"//[^\n]*", "", src)
     calls = re.findall(r"setStringProperty\(\s*" + prop + r",\s*(k\w+),\s*(\d+)\s*\)", src)
     return tuple(getattr(k, v) for v, _ in sorted(calls, key=lambda c: int(c[1])))
 
@@ -94,6 +95,18 @@ def test_host_supported_depths_components_contexts(plugin_dir, profile):
     assert k.kOfxImageEffectContextFilter in contexts and k.kOfxImageEffectContextGeneral in contexts
     assert contexts == _hostdemo_string_list("kOfxImageEffectPropSupportedContexts")
     assert [ofxh.short_name("depth", d) for d in depths] == ["byte", "short", "half", "float"]
+
+
+def test_set_variable_size_host_property(plugin_dir):
+    """props[name] = values gives a variable-size property exactly these values (fewer drop the
+    others), e.g. a host whose images have no half (ofxhost.inprocess)."""
+
+    class Host(ofxh.Host):
+        def init_properties(self, props):
+            props[k.kOfxImageEffectPropSupportedPixelDepths] = (k.kOfxBitDepthByte, k.kOfxBitDepthFloat)
+
+    ofxh.init(Host(), [plugin_dir], use_env_path=False, profile="ofx14")
+    assert ofxh.host().props[k.kOfxImageEffectPropSupportedPixelDepths] == (k.kOfxBitDepthByte, k.kOfxBitDepthFloat)
 
 
 def test_ofx14_describe_equals_hostdemo(plugin_dir, hostdemo):

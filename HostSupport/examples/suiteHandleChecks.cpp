@@ -453,8 +453,6 @@ namespace {
     }
   }
 
-  /// the progress and timeline suites on a valid effect instance handle: a real instance of a
-  /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
   /// the host descriptor lists the pixel depths, components and contexts that hostDemo supports
   /// (openfx-misc#222: HostSupport leaves them empty): the depths and components of MyImage, and
   /// the contexts of -c. With --ofx14 too: they are OFX 1.4 host properties.
@@ -485,6 +483,8 @@ namespace {
           p.findStringPropValueIndex(kOfxImageEffectPropSupportedContexts, kOfxImageEffectContextGeneral) != -1);
   }
 
+  /// the progress and timeline suites on a valid effect instance handle: a real instance of a
+  /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
   void checkEffectInstance(MyHost::Host &host)
   {
     // SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 (hostdemo-checks.sh): the checks must run
