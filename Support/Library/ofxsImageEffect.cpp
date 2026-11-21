@@ -2025,6 +2025,11 @@ namespace OFX {
 #if defined(OFX_EXTENSIONS_NATRON) || defined(OFX_EXTENSIONS_NUKE)
     bool gotDistortion = false;
 #endif
+#ifdef OFX_EXTENSIONS_NUKE
+    // no transform (a zero matrix is considered identity) unless the image has one below
+    std::fill(_transform, _transform + 9, 0.);
+    _transformIsIdentity = true;
+#endif
 #ifdef OFX_EXTENSIONS_NATRON
 
     // Check for distortion function
@@ -2033,8 +2038,6 @@ namespace OFX {
     if (_inverseDistortionFunction) {
       gotDistortion = true;
     }
-
-    _transformIsIdentity = true;
 
     if (!gotDistortion) {
       // Check for canonical transform matrix
@@ -2053,7 +2056,6 @@ namespace OFX {
 #endif
 #ifdef OFX_EXTENSIONS_NUKE
     if (!gotDistortion) {
-      std::fill(_transform, _transform + 9, 0.);
       if (_imageProps.propGetDimension(kFnOfxPropMatrix2D, false) != 0) {
         // Check for deprecated pixel transform matrix
 
@@ -2114,51 +2116,7 @@ namespace OFX {
   }
 #endif
 
-  /** @brief return a pixel pointer
-
-  No attempt made to be uber efficient here.
-  */
-  void *Image::getPixelAddress(int x, int y)
-  {
-    // are we in the image bounds
-    if(x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0)
-      return 0;
-
-    char *pix = ((char *) _pixelData) + (size_t)(y - _bounds.y1) * (size_t)_rowBytes;
-    pix += (x - _bounds.x1) * _pixelBytes;
-    return (void *) pix;   
-  }
-
-  const void *Image::getPixelAddress(int x, int y) const
-  {
-    // are we in the image bounds
-    if(x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0)
-      return 0;
-
-    const char *pix = ((const char *) _pixelData) + (size_t)(y - _bounds.y1) * (size_t)_rowBytes;
-    pix += (x - _bounds.x1) * _pixelBytes;
-    return (const void *) pix;
-  }
-
-  void *Image::getPixelAddressNearest(int x, int y)
-  {
-    x = (std::max)(_bounds.x1, (std::min)(x, _bounds.x2 - 1));
-    y = (std::max)(_bounds.y1, (std::min)(y, _bounds.y2 - 1));
-
-    char *pix = ((char *) _pixelData) + (size_t)(y - _bounds.y1) * (size_t)_rowBytes;
-    pix += (x - _bounds.x1) * _pixelBytes;
-    return (void *) pix;   
-  }
-
-  const void *Image::getPixelAddressNearest(int x, int y) const
-  {
-    x = (std::max)(_bounds.x1, (std::min)(x, _bounds.x2 - 1));
-    y = (std::max)(_bounds.y1, (std::min)(y, _bounds.y2 - 1));
-
-    const char *pix = ((const char *) _pixelData) + (size_t)(y - _bounds.y1) * (size_t)_rowBytes;
-    pix += (x - _bounds.x1) * _pixelBytes;
-    return (const void *) pix;
-  }
+  // Image::getPixelAddress() and getPixelAddressNearest() are inline, in ofxsImageEffect.h
 
   ////////////////////////////////////////////////////////////////////////////////
   // clip instance
@@ -2905,18 +2863,30 @@ namespace OFX {
     // Set this as the instance data pointer on the effect handle
     _effectProps.propSetPointer(kOfxPropInstanceData, this);
 
-    // validate the plugin instance
-    OFX::Validation::validatePluginInstanceProperties(_effectProps);
+    // If one of the steps below throws, this object is never constructed (and the destructor,
+    // which clears kOfxPropInstanceData, doesn't run): don't leave the host with a dangling
+    // instance pointer. kOfxPropInstanceData is set first because the validation checks it.
+    try {
+      // validate the plugin instance
+      OFX::Validation::validatePluginInstanceProperties(_effectProps);
 
-    // fetch the context
-    std::string ctxt = _effectProps.propGetString(kOfxImageEffectPropContext);
-    _context = mapToContextEnum(ctxt);
+      // fetch the context
+      std::string ctxt = _effectProps.propGetString(kOfxImageEffectPropContext);
+      _context = mapToContextEnum(ctxt);
 
-    // the param set daddy-oh
-    OfxParamSetHandle paramSet;
-    OfxStatus stat = OFX::Private::gEffectSuite->getParamSet(handle, &paramSet);
-    throwSuiteStatusException(stat);
-    setParamSetHandle(paramSet);      
+      // the param set daddy-oh
+      OfxParamSetHandle paramSet;
+      OfxStatus stat = OFX::Private::gEffectSuite->getParamSet(handle, &paramSet);
+      throwSuiteStatusException(stat);
+      setParamSetHandle(paramSet);
+    } catch (...) {
+      try {
+        _effectProps.propSetPointer(kOfxPropInstanceData, 0, false);
+      } catch (...) {
+        // keep the original exception
+      }
+      throw;
+    }
 
     const ImageEffectHostDescription &hostDescription = *getImageEffectHostDescription();
     _hostIsResolve = (hostDescription.hostName.rfind("DaVinciResolve", 0) == 0);  // Resolve gives bad image properties (RS is always 1 and field is None)
@@ -2943,6 +2913,15 @@ namespace OFX {
         iter->second = NULL;
       }
     }
+
+#ifdef OFX_EXTENSIONS_NUKE
+    // and the camera instances (fetchCamera())
+    std::map<std::string, Camera *>::iterator camIter;
+    for(camIter = _fetchedCameras.begin(); camIter != _fetchedCameras.end(); ++camIter) {
+      delete camIter->second;
+      camIter->second = NULL;
+    }
+#endif
   }
 
   /** @brief the context this effect was instantiate in */
@@ -4478,66 +4457,51 @@ namespace OFX {
   namespace Private {
 
 #ifdef OFX_EXTENSIONS_NATRON
-    static
+    /** @brief Decodes a host's kNatronOfxPropNativeOverlays string (ofxNatron.h):
+        kNatronNativeOverlayType + '_' + identifier, then for each parameter
+        '_' + kNatronNativeOverlayParameterHint + '_' + hint + '_' + kNatronNativeOverlayParameterType + '_' + type.
+        Returns false, and leaves handle unchanged, if the string isn't of that form. */
     bool
     decodeNativeOverlayHandle(const std::string& str, ImageEffectHostDescription::NativeOverlayHandle& handle)
     {
-      static const std::string idToken(kNatronNativeOverlayType);
-      static const std::string paramHintToken(kNatronNativeOverlayParameterHint);
-      static const std::string paramTypeToken(kNatronNativeOverlayParameterHint);
-      std::size_t foundName = str.find_first_of(idToken);
-      if (foundName == std::string::npos) {
+      const std::string idToken = std::string(kNatronNativeOverlayType) + '_';
+      const std::string paramHintToken = '_' + std::string(kNatronNativeOverlayParameterHint) + '_';
+      const std::string paramTypeToken = '_' + std::string(kNatronNativeOverlayParameterType) + '_';
+      if (str.compare(0, idToken.size(), idToken) != 0) {
         return false;
       }
 
-      // Position the cursor to the start of the identifier string. +1 to ignore the '_' character.
-      std::size_t identifierStart = foundName + idToken.size() + 1;
-
-      std::size_t foundParamHint = str.find_first_of(paramHintToken);
-      if (foundParamHint == std::string::npos) {
+      // the identifier, up to the first parameter
+      const std::size_t identifierStart = idToken.size();
+      std::size_t foundParamHint = str.find(paramHintToken, identifierStart);
+      if (foundParamHint == std::string::npos || foundParamHint == identifierStart) {
         return false;
       }
-
-      std::size_t identifierEnd = foundParamHint - 1;
-      handle.identifier = str.substr(identifierStart, identifierEnd - identifierStart);
+      ImageEffectHostDescription::NativeOverlayHandle decoded;
+      decoded.identifier = str.substr(identifierStart, foundParamHint - identifierStart);
 
       while (foundParamHint != std::string::npos) {
-        // Position the cursor to the start of the first parameter string. +1 to ignore the '_' character.
-        std::size_t paramHintStart = foundParamHint + paramHintToken.size() + 1;
-
-
-        // Find the param type string token
-        std::size_t foundParamType = str.find_first_of(paramTypeToken, paramHintStart);
-
-        // huh badly encoded...
-        if (foundParamType == std::string::npos) {
+        const std::size_t paramHintStart = foundParamHint + paramHintToken.size();
+        const std::size_t foundParamType = str.find(paramTypeToken, paramHintStart);
+        if (foundParamType == std::string::npos || foundParamType == paramHintStart) {
+          // badly encoded: no type, or no hint
           return false;
         }
+        const std::string paramHint = str.substr(paramHintStart, foundParamType - paramHintStart);
 
-        std::size_t paramHintEnd = foundParamType - 1;
-        std::string paramHint = str.substr(paramHintStart, paramHintEnd - paramHintStart);
-
-
-        std::size_t paramTypeStart = foundParamType + paramTypeToken.size() + 1;
-
-        // Find the next parameter description if any
-        foundParamHint = str.find_first_of(paramHintToken, paramTypeStart);
-
-        std::size_t paramTypeEnd;
-        if (foundParamHint != std::string::npos) {
-          // there's a parameter after this one, use it to know where to stop for the type string
-          paramTypeEnd = foundParamHint - 1;
-        } else {
-          // we reached the end!
-          paramTypeEnd = std::string::npos;
+        const std::size_t paramTypeStart = foundParamType + paramTypeToken.size();
+        // the next parameter, if any, ends the type string
+        foundParamHint = str.find(paramHintToken, paramTypeStart);
+        const std::size_t paramTypeEnd = (foundParamHint == std::string::npos) ? str.size() : foundParamHint;
+        if (paramTypeEnd <= paramTypeStart) {
+          // no type
+          return false;
         }
-        std::string paramType = str.substr(paramTypeStart, paramTypeEnd - paramTypeStart);
-        handle.parameters.push_back(std::make_pair(paramHint, paramType));
-
+        decoded.parameters.push_back(std::make_pair(paramHint, str.substr(paramTypeStart, paramTypeEnd - paramTypeStart)));
       }
 
+      handle = decoded;
       return true;
-
     }
 #endif
     /** @brief Creates the global host description and sets its properties */
@@ -4982,7 +4946,6 @@ namespace OFX {
       // Metal textures (next OFX release, after 1.5.1): "This property is in the inArgs of kOfxImageEffectActionRender,
       // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
       args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
-      args.pMetalCommandQueue = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
       args.time = inArgs.propGetDouble(kOfxPropTime);
 
       args.renderScale.x = args.renderScale.y = 1.;
@@ -5060,7 +5023,7 @@ namespace OFX {
           args.renderQuality = mapToVegasRenderQualityEnum(strQuality);
         } catch (const std::invalid_argument&) {
           // dud field?
-          OFX::Log::error(true, "Unknown render quality '%s'", str.c_str());
+          OFX::Log::error(true, "Unknown render quality '%s'", strQuality.c_str());
         }
       }
 #endif
@@ -5095,7 +5058,6 @@ namespace OFX {
       // Metal textures (next OFX release, after 1.5.1): "This property is in the inArgs of kOfxImageEffectActionRender,
       // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
       args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
-      args.pMetalCommandQueue = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 
       args.frameRange.min = args.frameRange.max = 0.;
       inArgs.propGetDoubleN(kOfxImageEffectPropFrameRange, &args.frameRange.min, 2);
@@ -5148,7 +5110,6 @@ namespace OFX {
       // Metal textures (next OFX release, after 1.5.1): "This property is in the inArgs of kOfxImageEffectActionRender,
       // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
       args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
-      args.pMetalCommandQueue = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
 
       args.isEnabledOpenCLRender = inArgs.propGetInt(kOfxImageEffectPropOpenCLEnabled, false) != 0;
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
@@ -5866,6 +5827,13 @@ namespace OFX {
       OfxPropertySetHandle   outArgsRaw,
       const char* plugname)
     {
+      if (!actionRaw) {
+        // not an action (the spec's kOfxStatReplyDefault is for an action the plug-in doesn't
+        // trap): a host error. Checked first: both Log::print("%s", NULL) and std::string(NULL)
+        // are undefined behaviour.
+        OFX::Log::error(true, "mainEntry: the requested action is a null pointer (plug-in '%s').", plugname ? plugname : "");
+        return kOfxStatFailed;
+      }
       OFX::Log::print("********************************************************************************");
       OFX::Log::print("START mainEntry (%s)", actionRaw);
       OFX::Log::indent();
@@ -6223,11 +6191,9 @@ namespace OFX {
         }
 #endif
 
-        else if(actionRaw) {
-          OFX::Log::error(true, "Unknown action '%s'.", actionRaw);
-        }
         else {
-          OFX::Log::error(true, "Requested action was a null pointer.");
+          // "the value kOfxStatReplyDefault is returned if the plug-in does not trap the action"
+          OFX::Log::error(true, "Unknown action '%s'.", actionRaw);
         }
       }
 
@@ -6305,6 +6271,11 @@ namespace OFX {
       OFX::Log::print("START customParamInterpolationV1Entry");
       OFX::Log::indent();
       OfxStatus stat = kOfxStatReplyDefault;
+#ifdef OFX_CLIENT_EXCEPTION_TYPE
+      // the custom interpolation callback doesn't get the plug-in identifier (mainEntryStr's
+      // plugname), so OFX_CLIENT_EXCEPTION_HANDLER gets an empty name here
+      const char* plugname = "";
+#endif
       try {
         // Cast the raw handle to be an image effect handle, because that is what it is
         OfxImageEffectHandle handle = (OfxImageEffectHandle) handleRaw;
@@ -6447,7 +6418,7 @@ OFX::OfxPlugInfo generatePlugInfo(OFX::PluginFactory* factory, std::string& newI
   return OFX::OfxPlugInfo(factory, ofxPlugin.release());
 }
 
-bool gHasInit = false;
+static bool gHasInit = false;
 
 static
 void init()

@@ -684,14 +684,14 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
 
  Followed by an undefined number of strings representing parameters. Each parameter is defined of the following form:
  
- kNatronNativeOverlayParameterHint + '_' + "RoleHint" + kNatronNativeOverlayParameterType + "ParamType"
+ kNatronNativeOverlayParameterHint + '_' + "RoleHint" + '_' + kNatronNativeOverlayParameterType + '_' + "ParamType"
  
  The type of a parameter is as defined in ofxParam.h such as kOfxParamTypeInteger or kOfxParamTypeDouble2D.
  Each parameter string is separated by a '_'.
  
  For example:
 
- "NatronNativeOverlayType_Point2D_kNatronNativeOverlayParameterHint_Position_NatronNativeOverlayParameterType_OfxParamTypeDouble2D"
+ "NatronNativeOverlayType_Point2D_NatronNativeOverlayParameterHint_Position_NatronNativeOverlayParameterType_OfxParamTypeDouble2D"
  
  Or
 

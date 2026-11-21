@@ -12,6 +12,13 @@ if(BUILD_EXAMPLE_PLUGINS)
   add_executable(drawsuite-opengl-test tests/DrawSuiteOpenGLTest.cpp)
   target_include_directories(drawsuite-opengl-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include"
                              "${CMAKE_CURRENT_SOURCE_DIR}/../HostSupport/include")
+  # self-test of Support code that needs no host (Support/tests/SupportLibraryTest.cpp): the null
+  # action of the interact entry point, ~AutoMutexT(), and (with OFX_EXTENSIONS_NATRON) the decoding
+  # of kNatronOfxPropNativeOverlays. Exits with 0 if all passed (.github/scripts/cmake-build-test.sh
+  # runs it).
+  add_executable(support-library-test tests/SupportLibraryTest.cpp)
+  target_include_directories(support-library-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Library")
+  target_link_libraries(support-library-test PRIVATE OfxSupport)
   # self-test of DrawArgs::getDrawContext() and its OpenGL backend: on macOS in an offscreen CGL
   # context (it links OpenGL for CGL); elsewhere without a context, and without linking OpenGL,
   # to test the run-time loading (not on Windows). It prints the failed checks and exits with 0

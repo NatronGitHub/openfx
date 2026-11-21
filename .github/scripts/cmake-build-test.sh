@@ -25,6 +25,10 @@ cmake --build "$build" --parallel
 dst=$(find "$build" -name drawsuite-opengl-test -type f -perm -u+x | head -1)
 test -n "$dst" || { echo "drawsuite-opengl-test was not built"; exit 1; }
 "$dst"
+# the Support library self-test that needs no host (Support/tests/SupportLibraryTest.cpp)
+slt=$(find "$build" -name support-library-test -type f -perm -u+x | head -1)
+test -n "$slt" || { echo "support-library-test was not built"; exit 1; }
+"$slt"
 # the Support self-test (Support/tests/DrawContextOpenGLTest.cpp): macOS with an offscreen CGL
 # context, Linux without a context (run-time loading of libGL and of the context checks)
 dct=$(find "$build" -name drawcontext-opengl-test -type f -perm -u+x | head -1)

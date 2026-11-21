@@ -149,10 +149,15 @@ namespace OFX {
         val = true;
       }
 
-      /// dtor, releases the lock
+      /// dtor, releases the lock. It doesn't throw: an exception that leaves a destructor calls
+      /// std::terminate() (destructors are noexcept in C++11). Mutex::unlock() logs its failures.
       ~AutoMutexT()
       {
-        unlock();
+        try {
+          unlock();
+        } catch (...) {
+          // the unlock failed: nothing more can be done here
+        }
       }
 
       void unlock()

@@ -372,8 +372,6 @@ namespace OFX {
     if(throwOnFailure)
       throwPropertyException(stat, property);
       
-    if(_gPropLogging > 0) Log::print("Retrieved string property %s, was given %s.", property, (const char*)&rawValue.front());
-    
     values->resize(dimension);
     for (int i = 0; i < dimension; ++i) {
       if (rawValue[i] != NULL) {
@@ -381,6 +379,8 @@ namespace OFX {
       } else {
         (*values)[i] = std::string();
       }
+      // log the strings, not the bytes of the pointer array
+      if(_gPropLogging > 0) Log::print("Retrieved string property %s[%d], was given %s.", property, i, (*values)[i].c_str());
     }
   }
 

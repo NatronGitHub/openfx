@@ -258,6 +258,12 @@ namespace OFX {
         OfxPropertySetHandle    outArgsRaw,
         InteractDescriptor2&    desc)
     {
+      if (!actionRaw) {
+        // not an action: a host error. Checked first: both Log::print("%s", NULL) and
+        // std::string(NULL) are undefined behaviour.
+        OFX::Log::error(true, "hwndInteractMainEntry: the requested action is a null pointer.");
+        return kOfxStatFailed;
+      }
       OFX::Log::print("********************************************************************************");
       OFX::Log::print("START hwndInteractMainEntry (%s)", actionRaw);
       OFX::Log::indent();
