@@ -2623,6 +2623,8 @@ They range from 1000 until 1999
 
 If set to 1, this indicates the plugin has been made obsolete by a different version of the same plugin contained in the same bundle (i.e. same pluginIdentifier but different pluginVersionMajor and/or pluginVersionMinor). At least one version of the plugin in the bundle (typically the newest) must have this property omitted or set to 0.
 
+Fork note (NatronGitHub/openfx): this fork relaxes the rule above that "At least one version of the plugin in the bundle (typically the newest) must have this property omitted or set to 0". In this fork, a plugin that is superseded by another plugin (with a different pluginIdentifier), or by a node that is internal to the host, may also set it, even if it is the only version of that plugin (for example openfx-io's ReadEXR, superseded by ReadOIIO), as discussed in upstream openfx#221: the host hides it in its OFX browser UI, but still loads it in existing projects. It replaces the former Natron extension NatronOfxImageEffectPropDeprecated.
+
    - Valid Values -
        - 0 - the host will show the plugin in its OFX browser UI,
        - 1 - the host will not show the plugin in its OFX browser UI.

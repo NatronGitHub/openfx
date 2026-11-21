@@ -1048,17 +1048,17 @@ namespace OFX {
   /** @brief indicate if the host may add a channel selector */
   void setChannelSelector(PixelComponentEnum v);
 
-  /** @brief indicate that the plugin is deprecated */
-  void setIsDeprecated(bool v);
-
   /** @brief say whether all the planes listed on the output clip in the getClipComponents action should preferably be rendered
     at once or not (e.g: optical flow plug-in that could produce bw/fw planes at once)*/
   void setRenderAllPlanes(bool enabled);
 #endif
 
-  /** @brief indicate that the plugin is made obsolete by another version of the same plugin in the same bundle,
-   so that the host doesn't show it in its plugin browser (kOfxImageEffectPluginPropObsolete, OFX 1.5).
-   At least one version of the plugin in the bundle must not be obsolete. Ignored by hosts that don't know it. */
+  /** @brief indicate that the plugin is obsolete, so that the host doesn't show it in its plugin browser, but still
+   loads it in existing projects (kOfxImageEffectPluginPropObsolete, next OFX release, after 1.5.1).
+   Upstream: the plugin is made obsolete by another version of the same plugin in the same bundle, and at least one
+   version of the plugin in the bundle must not be obsolete. This fork relaxes that rule: a plugin superseded by
+   another plugin or by a host-internal node may set it too, even if it is the only version of that plugin (e.g.
+   openfx-io's ReadEXR, superseded by ReadOIIO; upstream openfx#221). Ignored by hosts that don't know it. */
   void setIsObsolete(bool v);
 
   /** @brief Can the plugin render on the CPU (kOfxImageEffectPropCPURenderSupported, OFX 1.5.1), defaults to true.
