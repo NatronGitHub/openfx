@@ -223,6 +223,48 @@ def test_set_param_at_times(plugin_dir):
         assert inst.get_param("messageText", 2.) == "a" and inst.param_keys("messageText") == []
 
 
+def test_choices_by_name(plugin_dir):
+    """set_param() takes a choice's index or the label of one of its options (kOfxParamPropChoiceOption),
+    at a time too; another string is a ValueError that lists the options. The same for a Python
+    parameter: its set() gets the index."""
+    with _tester(plugin_dir) as inst:
+        assert inst.set_param("keysChoice", "c") == ofxh.Stat.OK and inst.get_param("keysChoice") == 2
+        assert inst.set_param("keysChoice", "b", time=5.) == ofxh.Stat.OK
+        assert inst.param_curve("keysChoice") == [(5., 1)]
+        assert inst.set_param("enableTest", "Disable parameter") == ofxh.Stat.OK
+        assert inst.get_param("enableTest") == 1
+        with pytest.raises(ValueError, match='no option "d" .*"a", "b", "c"'):
+            inst.set_param("keysChoice", "d")
+        assert inst.get_param("keysChoice", 5.) == 1
+    ofxh.shutdown()
+    obj = Recorder(python=("keysChoice",), param_class=Value)
+    with _tester(plugin_dir, obj) as inst:
+        assert inst.set_param("keysChoice", "b") == ofxh.Stat.OK
+        assert inst.param("keysChoice").value == 1 and inst.get_param("keysChoice") == 1
+
+
+def test_param_curve(plugin_dir):
+    """param_curve(): the keys with their values, in time order, as get_param() gives them; setting
+    them back on another instance gives the same values between the keys."""
+    with _tester(plugin_dir) as inst:
+        assert inst.param_curve("keysDouble") == [] and inst.param_curve("messageText") == []
+        inst.set_param("keysDouble", 3., time=10.)
+        inst.set_param("keysDouble", 1., time=0.)
+        inst.set_param("keysRGB", (1., 2., 3.), time=2.)
+        inst.set_param("keysBool", True, time=1.)
+        assert inst.param_curve("keysDouble") == [(0., 1.), (10., 3.)]
+        assert inst.param_curve("keysRGB") == [(2., (1., 2., 3.))]
+        assert inst.param_curve("keysBool") == [(1., True)]
+        curve = inst.param_curve("keysDouble")
+        with pytest.raises(KeyError):
+            inst.param_curve("nope")
+    ofxh.shutdown()
+    with _tester(plugin_dir) as inst:
+        for t, v in curve:
+            inst.set_param("keysDouble", v, time=t)
+        assert inst.get_param("keysDouble", 2.5) == 1.5 and inst.param_curve("keysDouble") == curve
+
+
 def test_project_load_sends_no_instance_changed(plugin_dir):
     """Values set before kOfxActionCreateInstance (a project load) send no instanceChanged; the
     plug-in reads them in its create instance action (ofxCore.h, the create instance

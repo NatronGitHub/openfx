@@ -1021,6 +1021,27 @@ template <class T> static std::vector<T> values(nb::handle v, size_t n, P::Insta
   return r;
 }
 
+/// the index of a choice: an int, or the label of one of its options (kOfxParamPropChoiceOption)
+static int choiceIndex(P::Instance *p, nb::handle value)
+{
+  if (!nb::isinstance<nb::str>(value)) {
+    return nb::cast<int>(value);
+  }
+  const std::string label = nb::cast<std::string>(value);
+  const OH::Property::Set &props = p->getProperties();
+  const int n = props.fetchProperty(kOfxParamPropChoiceOption) ? props.getDimension(kOfxParamPropChoiceOption) : 0;
+  std::string options;
+  for (int k = 0; k < n; ++k) {
+    const std::string o = props.getStringProperty(kOfxParamPropChoiceOption, k);
+    if (o == label) {
+      return k;
+    }
+    options += (k ? ", \"" : "\"") + o + "\"";
+  }
+  raiseValue("parameter " + p->getName() + ": no option \"" + label + "\" (its options: " +
+             (n ? options : std::string("none")) + ")");
+}
+
 OfxStatus setParamValue(P::Instance *p, nb::handle value, const double *time)
 {
   const std::string &t = p->getType();
@@ -1031,7 +1052,7 @@ OfxStatus setParamValue(P::Instance *p, nb::handle value, const double *time)
   }
   if (t == kOfxParamTypeChoice) {
     P::ChoiceInstance *i = as<P::ChoiceInstance>(p);
-    OFXH_SET(nb::cast<int>(value));
+    OFXH_SET(choiceIndex(p, value));  // (an index, or the label of an option)
   }
   if (t == kOfxParamTypeDouble) {
     P::DoubleInstance *i = as<P::DoubleInstance>(p);
