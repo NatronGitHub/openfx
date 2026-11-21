@@ -234,6 +234,11 @@ namespace OFX {
       friend class PluginHandle;
       friend class PluginCache; // scanPluginFiles() resets _binaryChanged
 
+      // not copyable (C++98 style: private and not defined): a PluginBinary owns _binary, which
+      // its destructor deletes, and its plug-ins
+      PluginBinary(const PluginBinary &);
+      PluginBinary &operator=(const PluginBinary &);
+
     protected :
       Binary* _binary;                 ///< our binary object, abstracted layer ontop of OS calls, defined in ofxhBinary.h, may not be valid if function pointers below are already set
       OfxGetNumberOfPluginsFunc _getNumberOfPlugins;

@@ -597,19 +597,61 @@ namespace {
     return n;
   }
 
+  /// a binary changed since the cache (another mtime) is loaded by the first scan, and not again
+  /// by the second one: the plug-in stays the same, and isn't added twice. Run when no other plug-in
+  /// cache has the binary loaded (two caches loading one library would share its Load/Unload state).
+  void checkChangedBinary(MyHost::Host &host, const std::string &cache, const std::string &pluginId, int nInvert)
+  {
+    std::string changed = cache;
+    const size_t bundle = changed.find("example-Invert-support.ofx.bundle");
+    const size_t mtime = bundle == std::string::npos ? bundle : changed.find("mtime=\"", bundle);
+    const size_t end = mtime == std::string::npos ? mtime : changed.find('"', mtime + strlen("mtime=\""));
+    check("the cache has the mtime of the Invert binary", end != std::string::npos);
+    if (end != std::string::npos) {
+      changed.replace(mtime, end + 1 - mtime, "mtime=\"1\"");
+      ImageEffect::PluginCache otherEffects(&host); // (destroyed after the plug-ins of other)
+      PluginCache other;
+      otherEffects.registerInCache(other);
+      std::istringstream is(changed);
+      bool ok = true;
+      try {
+        other.readCache(is);
+      } catch (const std::exception &e) {
+        std::printf("suiteHandleChecks: readCache: %s\n", e.what());
+        ok = false;
+      }
+      other.scanPluginFiles();
+      ImageEffect::ImageEffectPlugin *first = otherEffects.getPluginById(pluginId);
+      const size_t n = other.getPlugins().size();
+      check("a changed binary: the cache is read, the first scan loads its plug-in, and the cache is dirty",
+            ok && first != NULL && other.dirty() && countPlugins(other.getPlugins(), pluginId) == nInvert);
+      other.scanPluginFiles();
+      check("a changed binary: the second scan doesn't load it again (same plug-in, same count)",
+            otherEffects.getPluginById(pluginId) == first && other.getPlugins().size() == n &&
+            countPlugins(other.getPlugins(), pluginId) == nInvert && otherEffects.getPlugins().size() == n);
+    }
+    ImageEffect::gImageEffectHost = &host;
+  }
+
   /// HostSupport review fixes (plug-in cache, clips): a rescan doesn't duplicate the plug-ins; the
   /// cache reads into the PluginCache that reads it (not the singleton), and a malformed cache is
   /// discarded; a plug-in's kFnOfxImageEffectPropComponentsPresent value belongs to its clip;
   /// getNthClip() is bounds-checked
   void checkCacheFixes(MyHost::Host &host, ImageEffect::PluginCache &imageEffectPluginCache,
-                       ImageEffect::Instance *instance, const std::string &pluginId)
+                       ImageEffect::Instance *instance, const std::string &pluginId,
+                       std::string &cacheOut, int &nInvertOut)
   {
     PluginCache *pc = PluginCache::getPluginCache();
     const size_t nPlugins = pc->getPlugins().size();
     const size_t nEffects = imageEffectPluginCache.getPlugins().size();
     const size_t nIds = imageEffectPluginCache.getPluginsByID().size();
     const int nInvert = countPlugins(pc->getPlugins(), pluginId);
+    ImageEffect::ImageEffectPlugin *const before = imageEffectPluginCache.getPluginById(pluginId);
+    ImageEffect::ImageEffectPlugin *const instancePlugin = instance ? instance->getPlugin() : NULL;
     pc->scanPluginFiles();
+    check("rescan: getPluginById() is the same plug-in", imageEffectPluginCache.getPluginById(pluginId) == before);
+    check("rescan: the instance's plug-in is the one getPluginById() gives",
+          !instance || (instance->getPlugin() == instancePlugin && instancePlugin == before));
     check("rescan: as many plug-ins (PluginCache::getPlugins())", pc->getPlugins().size() == nPlugins && countPlugins(pc->getPlugins(), pluginId) == nInvert);
     check("rescan: as many image effect plug-ins (ImageEffect::PluginCache::getPlugins())",
           imageEffectPluginCache.getPlugins().size() == nEffects && imageEffectPluginCache.getPluginsByID().size() == nIds);
@@ -620,6 +662,8 @@ namespace {
     std::ostringstream written;
     pc->writePluginCache(written);
     const std::string cache = written.str();
+    cacheOut = cache;
+    nInvertOut = nInvert;
     {
       // read into another PluginCache: the singleton doesn't change, and the other one writes
       // the same cache
@@ -738,12 +782,14 @@ namespace {
     ImageEffect::Instance *instance = plugin ? plugin->createInstance(kOfxImageEffectContextFilter, NULL) : NULL;
     MyHost::MyEffectInstance *myInstance = dynamic_cast<MyHost::MyEffectInstance *>(instance);
     check("createInstance", myInstance != NULL);
+    std::string cache; // written by checkCacheFixes(), for checkChangedBinary()
+    int nInvert = 0;
     if (myInstance) {
       const OfxStatus stat = instance->createInstanceAction();
       check("createInstanceAction", stat == kOfxStatOK || stat == kOfxStatReplyDefault);
 
       // the plug-in cache (rescan, readCache, malformed caches) and the clips
-      checkCacheFixes(host, imageEffectPluginCache, instance, pluginId);
+      checkCacheFixes(host, imageEffectPluginCache, instance, pluginId, cache, nInvert);
 
       // kOfxImageEffectPropThumbnailRender is in the inArgs of BeginSequenceRender and of
       // EndSequenceRender (OFX 1.5.1), with the value of the ThumbnailRenderScope
@@ -840,6 +886,9 @@ namespace {
     }
     delete instance;
     PluginCache::clearPluginCache();
+    if (!cache.empty()) {
+      checkChangedBinary(host, cache, pluginId, nInvert);
+    }
   }
 }
 

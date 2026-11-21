@@ -420,8 +420,9 @@ PluginBinary::~PluginBinary() {
   // the plug-ins released their handles: release the reference taken by loadPluginInfo(), if the
   // scan didn't, which unloads the binary
   releaseScanReference();
-  // we own the Binary (created by the constructors): deleting it unloads the binary, even if a
-  // reference was not released
+  // we own the Binary (created by the constructors): deleting it unloads the library (~Binary()
+  // calls unload()), even if a reference was not released, e.g. by a leaked PluginHandle, whose
+  // OfxPlugin* then points into the unloaded library
   delete _binary;
   _binary = 0;
 }
