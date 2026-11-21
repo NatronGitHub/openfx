@@ -235,6 +235,11 @@ static bool setProp(OH::Property::Set &s, const std::string &name, nb::handle va
     v.push_back(value);
   }
   try {
+    // a variable-size property gets exactly the values given (fewer values than it has drop the
+    // others: props[kOfxImageEffectPropSupportedPixelDepths] = (byte, short, float))
+    if (!p->isFixedSize() && (int)v.size() < p->getDimension()) {
+      p->reset();
+    }
     for (int i = 0; i < (int)v.size(); ++i) {
       switch (p->getType()) {
         case OH::Property::eInt: s.setIntProperty(name, nb::cast<int>(v[i]), i); break;
@@ -655,7 +660,7 @@ void bindModule(nb::module_ &m)
   nb::class_<PropertySetView>(m, "PropertySet",
                               "The properties of the host, an instance or a clip (HostSupport's Property::Set, with\n"
                               "the OFX names and values). props[name] is the tuple of values; props.get(name, index)\n"
-                              "one value.")
+                              "one value. props[name] = values sets them (all the values of a variable-size property).")
     .def("__getitem__", [](const PropertySetView &v, const std::string &name) {
       return OFXH_SCOPED("PropertySet[]", propValues(v.get(), name));
     })

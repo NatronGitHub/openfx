@@ -375,6 +375,7 @@ namespace OFX {
 
       // variable multi dimensional string properties
       PropertyDescription(kOfxImageEffectPropSupportedComponents,        OFX::eString, -1, eDescFinished),
+      PropertyDescription(kOfxImageEffectPropSupportedPixelDepths,       OFX::eString, -1, eDescFinished),
       PropertyDescription(kOfxImageEffectPropSupportedContexts,          OFX::eString, -1, eDescFinished),
 
       // multi dimensional int properities

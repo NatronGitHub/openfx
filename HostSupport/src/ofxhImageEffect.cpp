@@ -4835,20 +4835,12 @@ namespace OFX {
         { kOfxImageEffectPropSupportsMultiResolution, Property::eInt, 1, true, "1" },
         { kOfxImageEffectPropSupportsTiles, Property::eInt, 1, true, "1" },
         { kOfxImageEffectPropTemporalClipAccess, Property::eInt, 1, true, "1"  },
-      
-        
-
-        /// xxx this needs defaulting manually
+        // empty: the host application must list the components, depths and contexts that it
+        // supports (in its Host constructor, as hostDemo and the ofxh Python host do), since they
+        // depend on its image code. A plug-in reading an empty list finds no supported depth.
         { kOfxImageEffectPropSupportedComponents, Property::eString, 0, true, "" },
-        /// xxx this needs defaulting manually
-
         { kOfxImageEffectPropSupportedPixelDepths, Property::eString, 0, true, "" },
-
-        /// xxx this needs defaulting manually
-  
         { kOfxImageEffectPropSupportedContexts, Property::eString, 0, true, "" },
-        /// xxx this needs defaulting manually
-
         { kOfxImageEffectPropSupportsMultipleClipDepths, Property::eInt, 1, true, "1" },
         { kOfxImageEffectPropSupportsMultipleClipPARs, Property::eInt, 1, true, "0" },
         { kOfxImageEffectPropSetableFrameRate, Property::eInt, 1, true, "0" },

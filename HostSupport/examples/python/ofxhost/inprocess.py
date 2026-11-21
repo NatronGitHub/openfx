@@ -80,6 +80,7 @@ import numpy as np
 
 from . import (COMPONENTS, DEPTHS, OUTPUT_PREFIX, HostDemoError, Image, RenderResult, _format_value, _param_args,
                _plugin_dirs, encode_pfm, split_components)
+from .constants import kOfxImageEffectPropSupportedPixelDepths
 
 __all__ = ["render", "describe", "shutdown", "import_ofxh", "OfxhNotFound"]
 
@@ -325,6 +326,12 @@ def _to_depth(rgba: np.ndarray, depth: str, comps: str) -> np.ndarray:
 class _Host(ofxh.Host):
     """hostDemo's Host (hostDemoHostDescriptor.cpp): its messages go to stdout, questions are
     answered yes."""
+
+    def init_properties(self, props):
+        # hostDemo's depths (_BPC, DEPTHS): byte, short and float. ofxh's PyHost also lists half
+        # (its images make float16 arrays), which this host's image code doesn't make. (Before the
+        # OFX 1.4 restriction: it is an OFX 1.4 host property, kept by profile="ofx14".)
+        props[kOfxImageEffectPropSupportedPixelDepths] = tuple(ofxh.ofx_name("depth", d) for d in DEPTHS)
 
     def message(self, type, id, text):
         prefix = {"log": "Log : ", "fatal": "Error : ", "error": "Error : ",

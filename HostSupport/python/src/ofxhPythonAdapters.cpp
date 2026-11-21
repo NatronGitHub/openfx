@@ -556,6 +556,11 @@ PyHost::PyHost(nb::object py, RefPtr ref)
   _properties.setIntProperty(kOfxImageEffectPropTemporalClipAccess, true);
   _properties.setStringProperty(kOfxImageEffectPropSupportedComponents, kOfxImageComponentRGBA, 0);
   _properties.setStringProperty(kOfxImageEffectPropSupportedComponents, kOfxImageComponentAlpha, 1);
+  // the depths of PyImage (dtypeOf()): byte, short, half and float (hostDemo has no half)
+  _properties.setStringProperty(kOfxImageEffectPropSupportedPixelDepths, kOfxBitDepthByte, 0);
+  _properties.setStringProperty(kOfxImageEffectPropSupportedPixelDepths, kOfxBitDepthShort, 1);
+  _properties.setStringProperty(kOfxImageEffectPropSupportedPixelDepths, kOfxBitDepthHalf, 2);
+  _properties.setStringProperty(kOfxImageEffectPropSupportedPixelDepths, kOfxBitDepthFloat, 3);
   _properties.setStringProperty(kOfxImageEffectPropSupportedContexts, kOfxImageEffectContextGenerator, 0);
   _properties.setStringProperty(kOfxImageEffectPropSupportedContexts, kOfxImageEffectContextFilter, 1);
   _properties.setStringProperty(kOfxImageEffectPropSupportedContexts, kOfxImageEffectContextGeneral, 2);
