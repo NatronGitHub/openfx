@@ -103,8 +103,9 @@ jobs:
       - name: The extensions on (Natron, Nuke, Vegas, TuttleOFX, Resolve) - DrawSuite self-tests and the ofxh tests
         run: |
           # cmake-build-test.sh builds with the extensions off: build and run the two DrawSuite
-          # self-tests with OFX_EXTENSIONS_NATRON (no GL context here: the property reading and the
-          # backend state, and the drawing with the fake OpenGL table), and the ofxh module with the
+          # self-tests and the Support library self-test with OFX_EXTENSIONS_NATRON (no GL context
+          # here: the property reading and the backend state, the drawing with the fake OpenGL
+          # table, the native overlay decoding), and the ofxh module with the
           # plug-ins and hostDemo that its tests use, so that its code for the extensions compiles
           # and runs; and test_backends.py and test_hostdemo_cli.py, which compare the in-process
           # backend and its hostDemo command line with hostDemo there (two views per frame with Nuke
@@ -114,11 +115,11 @@ jobs:
             -DBUILD_EXAMPLE_HOSTS=ON -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON \
             -DOFX_EXTENSIONS_VEGAS=ON -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON \
             -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
-          cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test ofxh \
+          cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test support-library-test ofxh \
             hostDemo suiteHandleChecks example-Basic-support example-ChoiceParams-support example-Generator-support \
             example-Invert-support example-Tester-support example-Retimer-support example-MultiBundle-support \
             example-Rectangle example-PropTester example-MultiplyGPU-support
-          (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test)
+          (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test && Support/support-library-test)
           # the HostSupport checks with the extensions (e.g. kFnOfxImageEffectPropComponentsPresent per clip)
           SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
             build-ci-natron/HostSupport/examples/suiteHandleChecks > suitehandlechecks-natron.log 2>&1 \
@@ -285,12 +286,16 @@ jobs:
           assert "batch test hook: kill" in recs[2]["stdout"], recs[2]
           print("ofxhost.hostdemo: same as hostDemo (also --batch)")
           PY
-      - name: Self-test of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows)
+      - name: Self-tests of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows) and of the Support library
         run: |
           set -eo pipefail
           dst=$(find build -name drawsuite-opengl-test.exe -type f | head -1)
           test -n "$dst" || { echo "drawsuite-opengl-test was not built"; exit 1; }
           "$dst"
+          # (extensions on: with the native overlay decoding)
+          slt=$(find build -name support-library-test.exe -type f | head -1)
+          test -n "$slt" || { echo "support-library-test was not built"; exit 1; }
+          "$slt"
       - name: Install
         run: |
           set -eo pipefail

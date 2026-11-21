@@ -129,6 +129,12 @@ namespace OFX {
     OFX::PropertySet
       fetchEffectProps(OfxImageEffectHandle handle);
 
+#ifdef OFX_EXTENSIONS_NATRON
+    /** @brief decodes a kNatronOfxPropNativeOverlays string of the host descriptor (ofxNatron.h);
+        false if it isn't one, and then handle is unchanged (ofxsImageEffect.cpp) */
+    bool decodeNativeOverlayHandle(const std::string& str, ImageEffectHostDescription::NativeOverlayHandle& handle);
+#endif
+
     /** @brief the set of descriptors, one per context used by kOfxActionDescribeInContext,  'eContextNone' is the one used by the kOfxActionDescribe */
     typedef std::map<ContextEnum, ImageEffectDescriptor*> EffectContextMap;
     

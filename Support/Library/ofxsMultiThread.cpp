@@ -227,6 +227,8 @@ namespace OFX {
     void Mutex::unlock()
     {
       OfxStatus stat = OFX::Private::gThreadSuite ? OFX::Private::gThreadSuite->mutexUnLock(_handle) : kOfxStatReplyDefault;
+      // log it too: ~AutoMutexT() can't let the exception out
+      OFX::Log::error(stat != kOfxStatOK && stat != kOfxStatReplyDefault, "Mutex::unlock: mutexUnLock failed (%s).", OFX::mapStatusToString(stat));
       throwSuiteStatusException(stat);
     }
 

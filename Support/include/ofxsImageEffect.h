@@ -1215,7 +1215,16 @@ namespace OFX {
     If the components are custom, then this will return NULL as the support code
     can't know the pixel size to do the work.
     */
-    void *getPixelAddress(int x, int y);
+    void *getPixelAddress(int x, int y)
+    {
+      // inline: it is called per pixel
+      if (x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0) {
+        return 0;
+      }
+      char *pix = static_cast<char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
+      pix += (x - _bounds.x1) * _pixelBytes;
+      return static_cast<void *>(pix);
+    }
 
     /** @brief return a pixel pointer, returns NULL if (x,y) is outside the image bounds
 
@@ -1224,7 +1233,15 @@ namespace OFX {
     If the components are custom, then this will return NULL as the support code
     can't know the pixel size to do the work.
     */
-    const void *getPixelAddress(int x, int y) const;
+    const void *getPixelAddress(int x, int y) const
+    {
+      if (x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0) {
+        return 0;
+      }
+      const char *pix = static_cast<const char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
+      pix += (x - _bounds.x1) * _pixelBytes;
+      return static_cast<const void *>(pix);
+    }
 
     /** @brief return a pixel pointer, returns the nearest pixel if (x,y) is outside the image bounds
 
@@ -1233,7 +1250,17 @@ namespace OFX {
     If the components are custom, then this will return NULL as the support code
     can't know the pixel size to do the work.
     */
-    void *getPixelAddressNearest(int x, int y);
+    void *getPixelAddressNearest(int x, int y)
+    {
+      // clamp to the bounds (no std::min/max: <algorithm> isn't needed here)
+      x = (x < _bounds.x2 - 1) ? x : (_bounds.x2 - 1);
+      x = (x > _bounds.x1) ? x : _bounds.x1;
+      y = (y < _bounds.y2 - 1) ? y : (_bounds.y2 - 1);
+      y = (y > _bounds.y1) ? y : _bounds.y1;
+      char *pix = static_cast<char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
+      pix += (x - _bounds.x1) * _pixelBytes;
+      return static_cast<void *>(pix);
+    }
 
     /** @brief return a pixel pointer, returns the nearest pixel if (x,y) is outside the image bounds
 
@@ -1242,7 +1269,16 @@ namespace OFX {
     If the components are custom, then this will return NULL as the support code
     can't know the pixel size to do the work.
     */
-    const void *getPixelAddressNearest(int x, int y) const;
+    const void *getPixelAddressNearest(int x, int y) const
+    {
+      x = (x < _bounds.x2 - 1) ? x : (_bounds.x2 - 1);
+      x = (x > _bounds.x1) ? x : _bounds.x1;
+      y = (y < _bounds.y2 - 1) ? y : (_bounds.y2 - 1);
+      y = (y > _bounds.y1) ? y : _bounds.y1;
+      const char *pix = static_cast<const char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
+      pix += (x - _bounds.x1) * _pixelBytes;
+      return static_cast<const void *>(pix);
+    }
   };
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -1618,7 +1654,7 @@ namespace OFX {
     bool      isEnabledMetalRender;
     void*     pOpenCLCmdQ;
     void*     pCudaStream;
-    void*     pMetalCmdQ;
+    void*     pMetalCmdQ;            /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent */
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     bool      openGLEnabled;
 #ifdef OFX_EXTENSIONS_NATRON
@@ -1643,7 +1679,6 @@ namespace OFX {
     bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
     UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (next OFX release, after 1.5.1): eUnlicensedBehaviourNotSet if absent */
     bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (next OFX release, after 1.5.1): images are id<MTLTexture>. false if absent */
-    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ) */
     bool      isNoSpatialAwareness;  /**< kOfxImageEffectPropNoSpatialAwareness (OFX 1.5.1): the host asks for a render without spatial effects (only if the plug-in declared setNoSpatialAwareness(true)). false if absent */
   };
 
@@ -1671,7 +1706,7 @@ namespace OFX {
     bool      isEnabledMetalRender;
     void*     pOpenCLCmdQ;
     void*     pCudaStream;
-    void*     pMetalCmdQ;
+    void*     pMetalCmdQ;            /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent */
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     bool      openGLEnabled;
 #ifdef OFX_EXTENSIONS_NATRON
@@ -1687,7 +1722,6 @@ namespace OFX {
     bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
     UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (next OFX release, after 1.5.1): eUnlicensedBehaviourNotSet if absent */
     bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (next OFX release, after 1.5.1): images are id<MTLTexture>. false if absent */
-    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ) */
     bool      isNoSpatialAwareness;  /**< kOfxImageEffectPropNoSpatialAwareness (OFX 1.5.1): the host asks for a render without spatial effects (only if the plug-in declared setNoSpatialAwareness(true)). false if absent */
   };
 
@@ -1700,7 +1734,7 @@ namespace OFX {
     bool      isEnabledMetalRender;
     void*     pOpenCLCmdQ;
     void*     pCudaStream;
-    void*     pMetalCmdQ;
+    void*     pMetalCmdQ;            /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent */
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     bool      openGLEnabled;
 #ifdef OFX_EXTENSIONS_NATRON
@@ -1714,7 +1748,6 @@ namespace OFX {
     int view;
 #endif
     bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (next OFX release, after 1.5.1): images are id<MTLTexture>. false if absent */
-    void*     pMetalCommandQueue;    /**< kOfxImageEffectPropMetalCommandQueue (OFX 1.5): the id<MTLCommandQueue> to encode onto, NULL if absent (same as pMetalCmdQ) */
   };
 
   /** @brief POD struct to pass arguments into  @ref OFX::ImageEffect::getRegionOfDefinition */
@@ -2589,11 +2622,6 @@ namespace OFX {
      mRegisterPluginFactoryInstance(p)
      */
     void getPluginIDs(OFX::PluginFactoryArray &id);
-
-    /// If the client has defined its own exception type, allow it to catch it in the main function
-#ifdef OFX_CLIENT_EXCEPTION_TYPE
-    OfxStatus catchException(OFX_CLIENT_EXCEPTION_TYPE &ex);
-#endif
   };
 
 };
