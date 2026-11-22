@@ -201,7 +201,11 @@ namespace OFX {
         return _properties;
       }
 
-      /// short label of the effect: kOfxPropShortLabel, else its label (getLabel())
+      /// short label of the effect: kOfxPropShortLabel, else its label (getLabel()), as ClipBase does.
+      /// ofxCore.h: the short label is "a shorter version of the label", and setting kOfxPropLabel
+      /// "will also reset ::kOfxPropShortLabel and ::kOfxPropLongLabel": a plug-in that only sets
+      /// the label expects it everywhere. (The old code tested the label, then returned the empty
+      /// short label.)
       const std::string &Base::getShortLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropShortLabel);
@@ -221,7 +225,11 @@ namespace OFX {
         return s;
       }
         
-      /// long label of the effect: kOfxPropLongLabel, else its label (getLabel())
+      /// long label of the effect: kOfxPropLongLabel, else its label (getLabel()), as ClipBase does.
+      /// ofxCore.h: the long label is "a longer version of the label", and setting kOfxPropLabel
+      /// "will also reset ::kOfxPropShortLabel and ::kOfxPropLongLabel": a plug-in that only sets
+      /// the label expects it everywhere. (The old code tested the label, then returned the empty
+      /// long label.)
       const std::string &Base::getLongLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLongLabel);
