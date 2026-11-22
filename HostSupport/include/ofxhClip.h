@@ -69,13 +69,13 @@ namespace OFX {
           return _properties.getStringProperty(kOfxPropName);
         }
 
-        /// name of the clip
+        /// short label of the clip: kOfxPropShortLabel, else its label (getLabel())
         const std::string &getShortLabel() const;
         
-        /// name of the clip
+        /// label of the clip: kOfxPropLabel, else its name (getName())
         const std::string &getLabel() const;
         
-        /// name of the clip
+        /// long label of the clip: kOfxPropLongLabel, else its label (getLabel())
         const std::string &getLongLabel() const;
 
 #     ifdef OFX_EXTENSIONS_NATRON
@@ -462,8 +462,8 @@ namespace OFX {
               const OfxRectI &bounds,
               const OfxRectI &rod,
               int rowBytes,
-              std::string field,
-              std::string uniqueIdentifier);
+              const std::string &field,
+              const std::string &uniqueIdentifier);
 
         // OfxImageClipHandle getHandle();
         OfxPropertySetHandle getPropHandle() const { return Property::Set::getHandle(); }
@@ -541,8 +541,8 @@ namespace OFX {
               const OfxRectI &bounds,
               const OfxRectI &rod,
               int rowBytes,
-              std::string field,
-              std::string uniqueIdentifier);
+              const std::string &field,
+              const std::string &uniqueIdentifier);
       };
 
 #   ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -611,8 +611,8 @@ namespace OFX {
                 const OfxRectI &bounds,
                 const OfxRectI &rod,
                 int rowBytes,
-                std::string field,
-                std::string uniqueIdentifier);
+                const std::string &field,
+                const std::string &uniqueIdentifier);
       };
 #   endif
     } // Memory

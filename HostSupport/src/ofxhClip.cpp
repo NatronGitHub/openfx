@@ -107,7 +107,6 @@ namespace OFX {
         } 
       }
 
-      /// name of the clip
       const std::string &ClipBase::getShortLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropShortLabel);
@@ -117,7 +116,6 @@ namespace OFX {
         return s;
       }
       
-      /// name of the clip
       const std::string &ClipBase::getLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLabel);
@@ -127,7 +125,6 @@ namespace OFX {
         return s;
       }
       
-      /// name of the clip
       const std::string &ClipBase::getLongLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLongLabel);
@@ -232,7 +229,9 @@ namespace OFX {
       /// get a handle on the clip descriptor for the C api
       OfxImageClipHandle ClipBase::getHandle() const
       {
-        return (OfxImageClipHandle)this;
+        // the C handle type is not const-qualified, and the suites modify the clip through it: the
+        // const_cast is that of the C interface (ES.50)
+        return reinterpret_cast<OfxImageClipHandle>(const_cast<ClipBase *>(this));
       }
 
       ////////////////////////////////////////////////////////////////////////////////
@@ -410,7 +409,6 @@ namespace OFX {
 
       // don't know what to do
       void ClipInstance::reset(const std::string &/*name*/) OFX_EXCEPTION_SPEC {
-        //printf("failing in %s\n", __PRETTY_FUNCTION__);
         throw Property::Exception(kOfxStatErrMissingHostFeature);
       }
 
@@ -451,18 +449,6 @@ namespace OFX {
       }
 #endif
 
-      /// Copy the first n values of a dim-dimensional hooked property to the
-      /// caller's buffer: propGet*N only gives room for indices 0..n-1.
-      template<class T>
-      static void copyHookValuesN(T *dst, const T *src, int n, int dim)
-      {
-        if (n < 0 || n > dim) {
-          throw Property::Exception(kOfxStatErrBadIndex);
-        }
-        for (int i = 0; i < n; ++i) {
-          dst[i] = src[i];
-        }
-      }
 
       // get the virutals for viewport size, pixel scale, background colour
       void ClipInstance::getDoublePropertyN(const std::string &name, double *values, int n) const OFX_EXCEPTION_SPEC
@@ -470,23 +456,23 @@ namespace OFX {
         double v[2];
         if(name==kOfxImagePropPixelAspectRatio){
           v[0] = getAspectRatio();
-          copyHookValuesN(values, v, n, 1);
+          Property::copyHookValuesN(values, v, n, 1);
         }
         else if(name==kOfxImageEffectPropFrameRate){
           v[0] = getFrameRate();
-          copyHookValuesN(values, v, n, 1);
+          Property::copyHookValuesN(values, v, n, 1);
         }
         else if(name==kOfxImageEffectPropFrameRange){
           getFrameRange(v[0], v[1]);
-          copyHookValuesN(values, v, n, 2);
+          Property::copyHookValuesN(values, v, n, 2);
         }
         else if(name==kOfxImageEffectPropUnmappedFrameRate){
           v[0] = getUnmappedFrameRate();
-          copyHookValuesN(values, v, n, 1);
+          Property::copyHookValuesN(values, v, n, 1);
         }
         else if(name==kOfxImageEffectPropUnmappedFrameRange){
           getUnmappedFrameRange(v[0], v[1]);
-          copyHookValuesN(values, v, n, 2);
+          Property::copyHookValuesN(values, v, n, 2);
         }
         else
           throw Property::Exception(kOfxStatErrValue);
@@ -562,12 +548,12 @@ namespace OFX {
         if(name==kOfxImageClipPropFormat){
           OfxRectI format = getFormat();
           int v[4] = { format.x1, format.y1, format.x2, format.y2 };
-          copyHookValuesN(values, v, n, 4);
+          Property::copyHookValuesN(values, v, n, 4);
         } else
 #endif
         {
           int v = getIntProperty(name, 0);
-          copyHookValuesN(values, &v, n, 1);
+          Property::copyHookValuesN(values, &v, n, 1);
         }
       }
 
@@ -684,7 +670,7 @@ namespace OFX {
 
         // add the second dimension of the render scale
         inArgs.setDoubleProperty(kOfxPropTime,time);
-        inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
+        Property::setPointProperty(inArgs, kOfxImageEffectPropRenderScale, renderScale);
 #       ifdef OFX_DEBUG_ACTIONS
           std::cout << "OFX: "<<(void*)_effectInstance<<"->"<<kOfxActionInstanceChanged<<"("<<kOfxTypeClip<<","<<getName()<<","<<why<<","<<time<<",("<<renderScale.x<<","<<renderScale.y<<"))"<<std::endl;
 #       endif
@@ -837,8 +823,8 @@ namespace OFX {
                    const OfxRectI &bounds,
                    const OfxRectI &rod,
                    int rowBytes,
-                   std::string field,
-                   std::string uniqueIdentifier) 
+                   const std::string &field,
+                   const std::string &uniqueIdentifier) 
         : Property::Set(imageBaseStuffs)
         , _referenceCount(1)
       {
@@ -864,16 +850,12 @@ namespace OFX {
 
       OfxRectI ImageBase::getBounds() const
       {
-        OfxRectI bounds = {0, 0, 0, 0};
-        getIntPropertyN(kOfxImagePropBounds, &bounds.x1, 4);
-        return bounds;
+        return Property::getRectIProperty(*this, kOfxImagePropBounds);
       }
 
       OfxRectI ImageBase::getROD() const
       {
-        OfxRectI rod = {0, 0, 0, 0};
-        getIntPropertyN(kOfxImagePropRegionOfDefinition, &rod.x1, 4);
-        return rod;
+        return Property::getRectIProperty(*this, kOfxImagePropRegionOfDefinition);
       }
 
       ImageBase::~ImageBase() {
@@ -917,8 +899,8 @@ namespace OFX {
                    const OfxRectI &bounds,
                    const OfxRectI &rod,
                    int rowBytes,
-                   std::string field,
-                   std::string uniqueIdentifier) 
+                   const std::string &field,
+                   const std::string &uniqueIdentifier) 
         : ImageBase(instance, renderScaleX, renderScaleY, bounds, rod, rowBytes, field, uniqueIdentifier)
       {
         addProperties(imageStuffs);
@@ -959,8 +941,8 @@ namespace OFX {
                    const OfxRectI &bounds,
                    const OfxRectI &rod,
                    int rowBytes,
-                   std::string field,
-                   std::string uniqueIdentifier) 
+                   const std::string &field,
+                   const std::string &uniqueIdentifier) 
         : ImageBase(instance, renderScaleX, renderScaleY, bounds, rod, rowBytes, field, uniqueIdentifier)
       {
         addProperties(textureStuffs);

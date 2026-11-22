@@ -58,7 +58,7 @@ namespace OFX {
 
         // this comes off Descriptor's property set after a describe
         // context independent
-        Descriptor *_baseDescriptor; /// NEEDS TO BE MADE WITH A FACTORY FUNCTION ON THE HOST!!!!!!
+        Descriptor *_baseDescriptor; ///< owned; made by the host's factory, Host::makeDescriptor()
         
         /// map to store contexts in
         std::map<std::string, Descriptor *> _contexts;

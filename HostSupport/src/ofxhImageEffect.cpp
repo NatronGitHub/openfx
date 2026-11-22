@@ -29,6 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <math.h>
 #include <new> // std::bad_alloc
+#include <iostream>
 
 // ofx
 #include "ofxCore.h"
@@ -80,6 +81,17 @@ namespace OFX {
   namespace Host {
 
     namespace ImageEffect {
+
+      // The per-clip properties of the action arguments are named by a prefix followed by the clip
+      // name, e.g. "OfxImageClipPropRoI_Source" for the Source clip (ofxImageEffect.h).
+      static const char kClipPropRoIPrefix[] = "OfxImageClipPropRoI_";
+      static const char kClipPropFrameRangePrefix[] = "OfxImageClipPropFrameRange_";
+#     ifdef OFX_EXTENSIONS_NUKE
+      static const char kClipPropFrameRangeViewPrefix[] = "OfxImageClipPropFrameRangeView_";
+#     endif
+      static const char kClipPropComponentsPrefix[] = "OfxImageClipPropComponents_";
+      static const char kClipPropDepthPrefix[] = "OfxImageClipPropDepth_";
+      static const char kClipPropPARPrefix[] = "OfxImageClipPropPAR_";
       
       /// properties common on an effect and a descriptor
       static const Property::PropSpec effectDescriptorStuff[] = {
@@ -188,7 +200,9 @@ namespace OFX {
 
       /// obtain a handle on this for passing to the C api
       OfxImageEffectHandle Base::getHandle() const {
-        return (OfxImageEffectHandle)this;
+        // the C handle type is not const-qualified, and the suites modify the effect through it:
+        // the const_cast is that of the C interface (ES.50)
+        return reinterpret_cast<OfxImageEffectHandle>(const_cast<Base *>(this));
       }
       
       /// get the properties set
@@ -201,20 +215,17 @@ namespace OFX {
         return _properties;
       }
 
-      /// name of the clip
+      /// short label of the effect: kOfxPropShortLabel, else its label (getLabel())
       const std::string &Base::getShortLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropShortLabel);
         if(s == "") {
-          const std::string &s2 = _properties.getStringProperty(kOfxPropLabel);
-          if(s2 == "") {
-            return _properties.getStringProperty(kOfxPropName);
-          }
+          return getLabel();
         }
         return s;
       }
         
-      /// name of the clip
+      /// label of the effect: kOfxPropLabel, else its name (kOfxPropName)
       const std::string &Base::getLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLabel);
@@ -224,15 +235,12 @@ namespace OFX {
         return s;
       }
         
-      /// name of the clip
+      /// long label of the effect: kOfxPropLongLabel, else its label (getLabel())
       const std::string &Base::getLongLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLongLabel);
         if(s == "") {
-          const std::string &s2 = _properties.getStringProperty(kOfxPropLabel);
-          if(s2 == "") {
-            return _properties.getStringProperty(kOfxPropName);
-          }
+          return getLabel();
         }
         return s;
       }
@@ -790,25 +798,14 @@ namespace OFX {
         _properties.setStringProperty(kOfxImageEffectPropContext,context);
         _properties.setIntProperty(kOfxPropIsInteractive,interactive);
 
+        // the double properties of the instance are computed by the host (getDoubleProperty()
+        // and getDoublePropertyN()): hook them. The others (e.g. the context, kOfxPropIsInteractive,
+        // kOfxImageEffectInstancePropSequentialRender) are stored in the set.
         while(effectInstanceStuff[i].name) {
-          
-          // don't set hooks for context or isinteractive or kOfxImageEffectInstancePropSequentialRender
-          // since we only set hook on the double properties anyway, don't do these comparisons since these properties
-          // are not of type Property::eDouble
-
-          //if(strcmp(effectInstanceStuff[i].name,kOfxImageEffectPropContext) &&
-          //   strcmp(effectInstanceStuff[i].name,kOfxPropIsInteractive) &&
-          //   strcmp(effectInstanceStuff[i].name,kOfxImageEffectInstancePropSequentialRender) )
-            {
-              const Property::PropSpec& spec = effectInstanceStuff[i];
-              switch (spec.type) {
-              case Property::eDouble:
-                _properties.setGetHook(spec.name, this);
-                break;
-              default:
-                break;
-              }
-            }
+          const Property::PropSpec& spec = effectInstanceStuff[i];
+          if (spec.type == Property::eDouble) {
+            _properties.setGetHook(spec.name, this);
+          }
           i++;
         }
       }
@@ -914,9 +911,14 @@ namespace OFX {
         return kOfxStatOK;
       }
 
-      // do nothing
+      // a property calls its GetHook's getDimension() only if it has a variable dimension, and the
+      // image effect instance hooks fixed-dimension double properties only: this is not called
       int Instance::getDimension(const std::string &name) const OFX_EXCEPTION_SPEC {
-        printf("failing in %s with name=%s\n", __PRETTY_FUNCTION__, name.c_str());
+#       ifdef OFX_DEBUG_PROPERTIES
+        std::cout << "OFX: failing in " << __PRETTY_FUNCTION__ << " with name=" << name << std::endl;
+#       else
+        (void)name;
+#       endif
         throw Property::Exception(kOfxStatErrMissingHostFeature);
       }
 
@@ -926,28 +928,19 @@ namespace OFX {
 
       void Instance::notify(const std::string &/*name*/, bool /*singleValue*/, int /*indexOrN*/) OFX_EXCEPTION_SPEC
       { 
-        printf("failing in %s\n", __PRETTY_FUNCTION__);
+#       ifdef OFX_DEBUG_PROPERTIES
+        std::cout << "OFX: failing in " << __PRETTY_FUNCTION__ << std::endl;
+#       endif
       }
 
       // don't know what to do
       void Instance::reset(const std::string &/*name*/) OFX_EXCEPTION_SPEC {
-        printf("failing in %s\n", __PRETTY_FUNCTION__);
+#       ifdef OFX_DEBUG_PROPERTIES
+        std::cout << "OFX: failing in " << __PRETTY_FUNCTION__ << std::endl;
+#       endif
         throw Property::Exception(kOfxStatErrMissingHostFeature);
       }
 
-
-      /// Copy the first n values of a dim-dimensional hooked property to the
-      /// caller's buffer: propGet*N only gives room for indices 0..n-1.
-      template<class T>
-      static void copyHookValuesN(T *dst, const T *src, int n, int dim)
-      {
-        if (n < 0 || n > dim) {
-          throw Property::Exception(kOfxStatErrBadIndex);
-        }
-        for (int i = 0; i < n; ++i) {
-          dst[i] = src[i];
-        }
-      }
 
       // get the virutals for viewport size, pixel scale, background colour
       double Instance::getDoubleProperty(const std::string &name, int index) const OFX_EXCEPTION_SPEC
@@ -992,27 +985,27 @@ namespace OFX {
         double values[2];
         if(name==kOfxImageEffectPropProjectSize){
           getProjectSize(values[0],values[1]);
-          copyHookValuesN(first, values, n, 2);
+          Property::copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectOffset){
           getProjectOffset(values[0],values[1]);
-          copyHookValuesN(first, values, n, 2);
+          Property::copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectExtent){
           getProjectExtent(values[0],values[1]);
-          copyHookValuesN(first, values, n, 2);
+          Property::copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectPixelAspectRatio){
           values[0] = getProjectPixelAspectRatio();
-          copyHookValuesN(first, values, n, 1);
+          Property::copyHookValuesN(first, values, n, 1);
         }
         else if(name==kOfxImageEffectInstancePropEffectDuration){
           values[0] = getEffectDuration();
-          copyHookValuesN(first, values, n, 1);
+          Property::copyHookValuesN(first, values, n, 1);
         }
         else if(name==kOfxImageEffectPropFrameRate){
           values[0] = getFrameRate();
-          copyHookValuesN(first, values, n, 1);
+          Property::copyHookValuesN(first, values, n, 1);
         }
         else
           throw Property::Exception(kOfxStatErrUnknown);
@@ -1301,7 +1294,7 @@ namespace OFX {
         // add the second dimension of the render scale
         inArgs.setDoubleProperty(kOfxPropTime,time);
 
-        inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
+        Property::setPointProperty(inArgs, kOfxImageEffectPropRenderScale, renderScale);
 #       ifdef OFX_DEBUG_ACTIONS
           std::cout << "OFX: "<<(void*)this<<"->"<<kOfxActionInstanceChanged<<"("<<kOfxTypeParameter<<","<<paramName<<","<<why<<","<<time<<",("<<renderScale.x<<","<<renderScale.y<<"))"<<std::endl;
 #       endif
@@ -1545,7 +1538,7 @@ namespace OFX {
 
         inArgs.setIntProperty(kOfxPropIsInteractive,interactive);
 
-        inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
+        Property::setPointProperty(inArgs, kOfxImageEffectPropRenderScale, renderScale);
 
         inArgs.setIntProperty(kOfxImageEffectPropSequentialRenderStatus,sequentialRender);
         inArgs.setIntProperty(kOfxImageEffectPropInteractiveRenderStatus,interactiveRender);
@@ -1652,8 +1645,8 @@ namespace OFX {
         
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
         inArgs.setDoubleProperty(kOfxPropTime,time);
-        inArgs.setIntPropertyN(kOfxImageEffectPropRenderWindow, &renderRoI.x1, 4);
-        inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
+        Property::setRectProperty(inArgs, kOfxImageEffectPropRenderWindow, renderRoI);
+        Property::setPointProperty(inArgs, kOfxImageEffectPropRenderScale, renderScale);
         inArgs.setIntProperty(kOfxImageEffectPropSequentialRenderStatus,sequentialRender);
         inArgs.setIntProperty(kOfxImageEffectPropInteractiveRenderStatus,interactiveRender);
 #     ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -1775,7 +1768,7 @@ namespace OFX {
         inArgs.setDoubleProperty(kOfxImageEffectPropFrameRange,startFrame, 0);
         inArgs.setDoubleProperty(kOfxImageEffectPropFrameRange,endFrame, 1);
         inArgs.setIntProperty(kOfxPropIsInteractive,interactive);
-        inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
+        Property::setPointProperty(inArgs, kOfxImageEffectPropRenderScale, renderScale);
         inArgs.setIntProperty(kOfxImageEffectPropSequentialRenderStatus,sequentialRender);
         inArgs.setIntProperty(kOfxImageEffectPropInteractiveRenderStatus,interactiveRender);
 #     ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -1841,7 +1834,7 @@ namespace OFX {
 
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
         inArgs.setDoubleProperty(kOfxPropTime,time);
-        inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
+        Property::setPointProperty(inArgs, kOfxImageEffectPropRenderScale, renderScale);
         inArgs.setIntProperty(kOfxImageEffectPropRenderQualityDraft,draftRender);
         inArgs.setIntProperty(kFnOfxImageEffectPropView, view);
         for(std::map<std::string, ClipInstance*>::iterator it=_clips.begin();
@@ -1915,7 +1908,7 @@ namespace OFX {
 
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
         inArgs.setDoubleProperty(kOfxPropTime,time);
-        inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
+        Property::setPointProperty(inArgs, kOfxImageEffectPropRenderScale, renderScale);
         inArgs.setIntProperty(kOfxImageEffectPropRenderQualityDraft,draftRender);
         inArgs.setIntProperty(kFnOfxImageEffectPropView, view);
         for(std::map<std::string, ClipInstance*>::iterator it=_clips.begin();
@@ -2113,7 +2106,7 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
         inArgs.setIntProperty(kFnOfxImageEffectPropView, view);
 #endif
-        inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
+        Property::setPointProperty(inArgs, kOfxImageEffectPropRenderScale, renderScale);
 
         // "kOfxImageEffectPropRegionOfDefinition the calculated region of definition,
         // initially set by the host to the default RoD"
@@ -2127,7 +2120,7 @@ namespace OFX {
 #                                                    endif
                                                      );
           hasDefaultRod = true;
-          outArgs.setDoublePropertyN(kOfxImageEffectPropRegionOfDefinition, &defaultRod.x1, 4);
+          Property::setRectProperty(outArgs, kOfxImageEffectPropRegionOfDefinition, defaultRod);
         } catch (const Property::Exception &) {
           // no default RoD available (e.g. unknown context): leave it to zero
         }
@@ -2142,7 +2135,7 @@ namespace OFX {
                                    &inArgs,
                                    &outArgs);
         if(stat == kOfxStatOK) {
-          outArgs.getDoublePropertyN(kOfxImageEffectPropRegionOfDefinition, &rod.x1, 4);
+          rod = Property::getRectDProperty(outArgs, kOfxImageEffectPropRegionOfDefinition);
         }
         else if(stat == kOfxStatReplyDefault) {
           rod = hasDefaultRod ? defaultRod : calcDefaultRegionOfDefinition(time, renderScale
@@ -2214,9 +2207,9 @@ namespace OFX {
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
         setThumbnailRenderArg(inArgs, this);
 
-        inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
+        Property::setPointProperty(inArgs, kOfxImageEffectPropRenderScale, renderScale);
         inArgs.setDoubleProperty(kOfxPropTime,time);
-        inArgs.setDoublePropertyN(kOfxImageEffectPropRegionOfInterest, &roi.x1, 4);
+        Property::setRectProperty(inArgs, kOfxImageEffectPropRegionOfInterest, roi);
 #       ifdef OFX_EXTENSIONS_NUKE
         inArgs.setIntProperty(kFnOfxImageEffectPropView, view);
 #       endif
@@ -2231,7 +2224,7 @@ namespace OFX {
 #             endif
               getContext() == kOfxImageEffectContextGenerator) {
             Property::PropSpec s;
-            std::string name = "OfxImageClipPropRoI_"+it->first;
+            std::string name = kClipPropRoIPrefix + it->first;
 
             s.name = name.c_str();
             s.type = Property::eDouble;
@@ -2242,7 +2235,7 @@ namespace OFX {
             
             /// initialise to the default
             if (supportstiles && it->second->supportsTiles()) {
-              outArgs.setDoublePropertyN(s.name, &roi.x1, 4);
+              Property::setRectProperty(outArgs, s.name, roi);
             } else {
               OfxRectD rod = roi;
               // needed to be able to fetch the RoD
@@ -2253,7 +2246,7 @@ namespace OFX {
                 rod = it->second->getRegionOfDefinition(time);
 #               endif
               }
-              outArgs.setDoublePropertyN(s.name, &rod.x1, 4);
+              Property::setRectProperty(outArgs, s.name, rod);
             }
           }
         }
@@ -2276,7 +2269,7 @@ namespace OFX {
           for(std::map<std::string, ClipInstance*>::iterator it=_clips.begin();
               it!=_clips.end();
               ++it) {
-            std::string name = "OfxImageClipPropRoI_"+it->first;
+            std::string name = kClipPropRoIPrefix + it->first;
             OfxRectD thisRoi;
             thisRoi.x1 = outArgs.getDoubleProperty(name,0);
             thisRoi.y1 = outArgs.getDoubleProperty(name,1);
@@ -2298,7 +2291,7 @@ namespace OFX {
               getContext() == kOfxImageEffectContextGenerator) {
             if (it->second->isOutput() || it->second->getConnected()) { // needed to be able to fetch the RoD
                   
-              std::string name = "OfxImageClipPropRoI_"+it->first;
+              std::string name = kClipPropRoIPrefix + it->first;
               OfxRectD thisRoi;
               thisRoi.x1 = outArgs.getDoubleProperty(name,0);
               thisRoi.y1 = outArgs.getDoubleProperty(name,1);
@@ -2484,7 +2477,7 @@ namespace OFX {
                ++it) {
               if (!it->second->isOutput()) {
                   Property::PropSpec s;
-                  std::string name = "OfxImageClipPropFrameRangeView_" + it->first;
+                  std::string name = kClipPropFrameRangeViewPrefix + it->first;
                   
                   s.name = name.c_str();
                   s.type = Property::eDouble;
@@ -2516,7 +2509,7 @@ namespace OFX {
               for(std::map<std::string, ClipInstance*>::iterator it=_clips.begin();
                   it!=_clips.end();
                   ++it) {
-                  std::string name = "OfxImageClipPropFrameRangeView_" + it->first;
+                  std::string name = kClipPropFrameRangeViewPrefix + it->first;
                   std::cout << it->first << "->[";
                   
                   int nRanges = outArgs.getDimension(name);
@@ -2562,7 +2555,7 @@ namespace OFX {
                   
                   std::map<int,std::vector<OfxRangeD> > frameViewMap;
                   
-                  std::string name = "OfxImageClipPropFrameRangeView_" + it->first;
+                  std::string name = kClipPropFrameRangeViewPrefix + it->first;
                   int nRanges = outArgs.getDimension(name);
                   for (int r = 0 ; r < nRanges; ){
                       OfxRangeD range;
@@ -2624,7 +2617,7 @@ namespace OFX {
               ++it) {
             if(!it->second->isOutput()) {
               Property::PropSpec s;
-              std::string name = "OfxImageClipPropFrameRange_"+it->first;
+              std::string name = kClipPropFrameRangePrefix + it->first;
               
               s.name = name.c_str();
               s.type = Property::eDouble;
@@ -2657,7 +2650,7 @@ namespace OFX {
                     ClipInstance *clip = it->second;
 
                     if(!clip->isOutput()) {
-                        std::string name = "OfxImageClipPropFrameRange_"+it->first;
+                        std::string name = kClipPropFrameRangePrefix + it->first;
                         std::cout << it->first << "->[";
 
                         int nRanges = outArgs.getDimension(name);
@@ -2692,7 +2685,7 @@ namespace OFX {
               rangeMap[clip].push_back(defaultRange);
             }
             else {
-              std::string name = "OfxImageClipPropFrameRange_"+it->first;
+              std::string name = kClipPropFrameRangePrefix + it->first;
           
               int nRanges = outArgs.getDimension(name);
               if(nRanges%2 != 0)
@@ -2766,8 +2759,8 @@ namespace OFX {
 
         inArgs.setStringProperty(kOfxImageEffectPropFieldToRender,field);
         inArgs.setDoubleProperty(kOfxPropTime,time);
-        inArgs.setIntPropertyN(kOfxImageEffectPropRenderWindow, &renderRoI.x1, 4);
-        inArgs.setDoublePropertyN(kOfxImageEffectPropRenderScale, &renderScale.x, 2);
+        Property::setRectProperty(inArgs, kOfxImageEffectPropRenderWindow, renderRoI);
+        Property::setPointProperty(inArgs, kOfxImageEffectPropRenderScale, renderScale);
 #ifdef OFX_EXTENSIONS_NUKE
         inArgs.setIntProperty(kFnOfxImageEffectPropView, view);
         inArgs.setStringProperty(kOfxImageEffectPropIdentityPlane, plane);
@@ -3037,8 +3030,6 @@ namespace OFX {
 #endif
 
 
-
-
         bool multipleClipsPAR = supportsMultipleClipPARs();
         /// get the PAR of inputs, if it has different PARs and the effect does not support multiple clips PAR, throw an exception
         double inputPar = 1.;
@@ -3068,9 +3059,9 @@ namespace OFX {
             ++it) {
           ClipInstance *clip = it->second;
 
-          std::string componentParamName = "OfxImageClipPropComponents_"+it->first;
-          std::string depthParamName     = "OfxImageClipPropDepth_"+it->first;
-          std::string parParamName       = "OfxImageClipPropPAR_"+it->first;
+          std::string componentParamName = kClipPropComponentsPrefix + it->first;
+          std::string depthParamName     = kClipPropDepthPrefix + it->first;
+          std::string parParamName       = kClipPropPARPrefix + it->first;
 
           Property::PropSpec specComp = {componentParamName.c_str(),  Property::eString, 0, false,          ""}; // note the support for multi-planar clips
           outArgs.createProperty(specComp);
@@ -3121,7 +3112,7 @@ namespace OFX {
           
         outArgs.setDoubleProperty(kOfxImageEffectPropFrameRate, outputFrameRate);
 #ifdef OFX_EXTENSIONS_NATRON
-        outArgs.setIntPropertyN(kOfxImageClipPropFormat, (const int*)&outputFormat.x1, 4);
+        Property::setRectProperty(outArgs, kOfxImageClipPropFormat, outputFormat);
 #endif
 
         // OFX 1.5 colour management
@@ -3171,9 +3162,9 @@ namespace OFX {
             ++it) {
             ClipInstance *clip = it->second;
 
-            std::string componentParamName = "OfxImageClipPropComponents_"+it->first;
-            std::string depthParamName = "OfxImageClipPropDepth_"+it->first;
-            std::string parParamName = "OfxImageClipPropPAR_"+it->first;
+            std::string componentParamName = kClipPropComponentsPrefix + it->first;
+            std::string depthParamName = kClipPropDepthPrefix + it->first;
+            std::string parParamName = kClipPropPARPrefix + it->first;
 
 #       ifdef OFX_DEBUG_ACTIONS
             std::cout << it->first<<"->"<<outArgs.getStringProperty(depthParamName)<<","<<outArgs.getStringProperty(componentParamName)<<","<<outArgs.getDoubleProperty(parParamName)<<" ";
@@ -3941,24 +3932,27 @@ namespace OFX {
         }
       }
 
-      // should processing be aborted?
-      static int abort(OfxImageEffectHandle imageEffect)
+      // OfxImageEffectSuiteV1::abort: should processing be aborted? "@returns - 0 if the effect
+      // should continue whatever processing it is doing - 1 if the effect should abort whatever
+      // processing it is doing" (ofxImageEffect.h). The result is not an OfxStatus: a handle that
+      // is not an image effect instance (NULL, a descriptor, garbage), or an exception from the
+      // host's Instance::abort(), gives 1, so that the plug-in stops (it used to be
+      // kOfxStatErrBadHandle, which a plug-in also read as "abort", being non-zero). Named
+      // effectAbort, not abort, so that it doesn't hide ::abort() in this file.
+      static int effectAbort(OfxImageEffectHandle imageEffect)
       {
         try {
-        ImageEffect::Base *effectBase = reinterpret_cast<ImageEffect::Base*>(imageEffect);
-
-        if (!effectBase || !effectBase->verifyMagic()) {
-          return kOfxStatErrBadHandle;
-        }
-
-        ImageEffect::Instance *effectInstance = dynamic_cast<ImageEffect::Instance*>(effectBase);
-
-        if(effectInstance) 
-          return effectInstance->abort();
-        else 
-          return kOfxStatErrBadHandle;        
+          ImageEffect::Base *effectBase = reinterpret_cast<ImageEffect::Base*>(imageEffect);
+          if (!effectBase || !effectBase->verifyMagic()) {
+            return 1;
+          }
+          ImageEffect::Instance *effectInstance = dynamic_cast<ImageEffect::Instance*>(effectBase);
+          if (!effectInstance) {
+            return 1;
+          }
+          return effectInstance->abort() != 0 ? 1 : 0;
         } catch (...) {
-          return kOfxStatErrBadHandle;
+          return 1;
         }
       }
       
@@ -4078,7 +4072,7 @@ namespace OFX {
         clipGetImage,
         clipReleaseImage,
         clipGetRegionOfDefinition,
-        abort,
+        effectAbort,
         imageMemoryAlloc,
         imageMemoryFree,
         imageMemoryLock,
@@ -4149,7 +4143,6 @@ namespace OFX {
       {
         return clipGetImagePlane(clip, time, -1, plane, region, imageHandle);
       }
-
 
 
       /// get the rod on the given clip at the given time for the given view
@@ -5063,14 +5056,6 @@ namespace OFX {
             return NULL;
         }
 #     ifdef OFX_EXTENSIONS_VEGAS
-#      if 0
-        else if (strcmp(suiteName, kOfxVegasKeyframeSuite)==0) {
-            if(suiteVersion == 1)
-                return (void*)&gVegasKeyframeSuite;
-            else
-                return NULL;
-        }
-#      endif
         else if (strcmp(suiteName, kOfxVegasStereoscopicImageEffectSuite)==0) {
             if(suiteVersion == 1)
                 return (void*)&gVegasStereoscopicImageEffectSuite;

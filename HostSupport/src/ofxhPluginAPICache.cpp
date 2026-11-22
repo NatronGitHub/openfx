@@ -62,17 +62,47 @@ namespace OFX
         pluginCache.registerAPICache(_apiName, _apiVersionMin, _apiVersionMax, this);
       }      
 
+      /// The largest dimension of a property read from the plug-in cache: a fixed dimension is
+      /// allocated when the property is made, so a huge one must not be trusted. The largest
+      /// dimension of an OFX property is 9 (3x3 matrices); 0 is a variable dimension.
+      static const long kMaxCachePropertyDimension = 1024;
+
+      /// the value of an attribute of an XML element, or "" if it has none
+      static std::string attributeValue(const std::map<std::string, std::string> &map, const char *name)
+      {
+        const std::map<std::string, std::string>::const_iterator it = map.find(name);
+        return it == map.end() ? std::string() : it->second;
+      }
+
+      /// a non-negative integer attribute (strtol: the whole string, in range): a malformed one
+      /// is a corrupt cache, which throws
+      static long nonNegativeAttribute(const std::map<std::string, std::string> &map, const char *name)
+      {
+        const std::string str = attributeValue(map, name);
+        char *end = NULL;
+        errno = 0;
+        const long value = strtol(str.c_str(), &end, 10);
+        if (str.empty() || *end != '\0' || errno == ERANGE) {
+          throw std::runtime_error(std::string("malformed plugin cache: bad property ") + name);
+        }
+        if (value < 0) {
+          throw std::runtime_error(std::string("malformed plugin cache: negative property ") + name);
+        }
+        return value;
+      }
+
       void propertySetXMLRead(const std::string &el,
-                              std::map<std::string, std::string> map,
+                              const std::map<std::string, std::string> &map,
                               Property::Set &set,
                               Property::Property *&currentProp) {
         if (el == "property") {
-          std::string propName = map["name"];
-          std::string propType = map["type"];
-          int dimension = atoi(map["dimension"].c_str());
-          if (dimension < 0) {
-            throw std::runtime_error("malformed plugin cache: negative property dimension");
+          const std::string propName = attributeValue(map, "name");
+          const std::string propType = attributeValue(map, "type");
+          const long dimensionAttr = nonNegativeAttribute(map, "dimension");
+          if (dimensionAttr > kMaxCachePropertyDimension) {
+            throw std::runtime_error("malformed plugin cache: property dimension out of range");
           }
+          const int dimension = static_cast<int>(dimensionAttr);
           
           currentProp = set.fetchProperty(propName, false);
           
@@ -100,16 +130,7 @@ namespace OFX
         }
 
         if (el == "value") {
-          const std::string indexStr = map["index"];
-          char *end = NULL;
-          errno = 0;
-          const long index = strtol(indexStr.c_str(), &end, 10);
-          if (indexStr.empty() || *end != '\0' || errno == ERANGE) {
-            throw std::runtime_error("malformed plugin cache: bad property index");
-          }
-          if (index < 0) {
-            throw std::runtime_error("malformed plugin cache: negative property index");
-          }
+          const long index = nonNegativeAttribute(map, "index");
           // the values are written in order: a variable-dimension property grows by one value at
           // most (a huge index would make setValue allocate index+1 values), and a fixed-dimension
           // property has no index beyond its dimension
@@ -117,7 +138,7 @@ namespace OFX
           if (fixedDimension ? index >= fixedDimension : index > currentProp->getDimension()) {
             throw std::runtime_error("malformed plugin cache: property index out of range");
           }
-          std::string value = map["value"];
+          const std::string value = attributeValue(map, "value");
           
           switch (currentProp->getType()) {
           case Property::eInt:

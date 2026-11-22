@@ -410,6 +410,10 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
 }
 
 PluginBinary::~PluginBinary() {
+  destroyPlugins();
+}
+
+void PluginBinary::destroyPlugins() {
   std::vector<Plugin*>::iterator i = _plugins.begin();
   while (i != _plugins.end()) {
     const APICache::PluginAPICacheI &api = (*i)->getApiHandler();
@@ -417,6 +421,7 @@ PluginBinary::~PluginBinary() {
     delete *i;
     i++;
   }
+  _plugins.clear();
   // the plug-ins released their handles: release the reference taken by loadPluginInfo(), if the
   // scan didn't, which unloads the binary
   releaseScanReference();
@@ -623,6 +628,32 @@ void PluginCache::setPluginHostPath(const std::string &hostId) {
 #endif
 }
 
+namespace {
+#if defined (WINDOWS)
+  /// closes a FindFirstFileW() search handle when it goes out of scope, e.g. when the scan of a
+  /// binary throws (R.1, E.6)
+  class FindHandleCloser {
+    HANDLE _h;
+    FindHandleCloser(const FindHandleCloser &);
+    FindHandleCloser &operator=(const FindHandleCloser &);
+  public:
+    explicit FindHandleCloser(HANDLE h) : _h(h) {}
+    ~FindHandleCloser() { if (_h != INVALID_HANDLE_VALUE) { FindClose(_h); } }
+  };
+#else
+  /// closes an opendir() directory stream when it goes out of scope, e.g. when the scan of a
+  /// binary throws (R.1, E.6)
+  class DirCloser {
+    DIR *_d;
+    DirCloser(const DirCloser &);
+    DirCloser &operator=(const DirCloser &);
+  public:
+    explicit DirCloser(DIR *d) : _d(d) {}
+    ~DirCloser() { if (_d) { closedir(_d); } }
+  };
+#endif
+}
+
 void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std::string &dir, bool recurse)
 {
 #ifdef CACHE_DEBUG
@@ -631,12 +662,12 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
   
 #if defined (WINDOWS)
   WIN32_FIND_DATAW findData;
-  HANDLE findHandle;
 #else
   DIR *d = opendir(dir.c_str());
   if (!d) {
     return;
   }
+  const DirCloser dirCloser(d);
 #endif
   
   _pluginDirs.push_back(dir.c_str());
@@ -646,15 +677,11 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
 #if defined (UNIX)
   while (dirent *de = readdir(d))
 #elif defined (WINDOWS)
-    {
-
-      std::wstring ws = OFX::utf8_to_utf16((dir + "\\*"));
-      findHandle = FindFirstFileW(ws.c_str(), &findData);
-    }
-  if (findHandle == INVALID_HANDLE_VALUE) 
-    {
-      return;
-    }
+  const HANDLE findHandle = FindFirstFileW(OFX::utf8_to_utf16(dir + "\\*").c_str(), &findData);
+  if (findHandle == INVALID_HANDLE_VALUE) {
+    return;
+  }
+  const FindHandleCloser findHandleCloser(findHandle);
 
   while (1)
 #endif
@@ -713,7 +740,12 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
 
           // the binary was not in the cache
           PluginBinary *pb = new PluginBinary(binpath, bundlename, this);
-          _binaries.push_back(pb);
+          try {
+            _binaries.push_back(pb); // (we own pb once it is in the list)
+          } catch (...) {
+            delete pb;
+            throw;
+          }
           _knownBinFiles.insert(binpath);
           foundBinFiles.insert(binpath);
 
@@ -746,12 +778,7 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
       }
 #endif
     }
-  
-#if defined(UNIX)
-  closedir(d);
-#else
-  FindClose(findHandle);
-#endif
+  // (the directory stream or the search handle is closed by dirCloser or findHandleCloser)
 }
 
 std::string PluginCache::seekPluginFile(const std::string &baseName) const {
@@ -1034,11 +1061,7 @@ void PluginCache::elementBeginCallback(void */*userData*/, const XML_Char *name,
     
     std::string identifier = rawIdentifier;
     
-    // Who says the pluginIdentifier is case-insensitive? OFX 1.3 spec doesn't mention this.
-    // http://openfx.sourceforge.net/Documentation/1.3/ofxProgrammingReference.html#id472588
-    //for (size_t i=0;i<identifier.size();i++) {
-    //  identifier[i] = tolower(identifier[i]);
-    //}
+    // (the identifier is kept as is: the spec doesn't say that it is case-insensitive)
     
     int idx = OFX::Host::Property::stringToInt(attmap["index"]);
     int api_version = OFX::Host::Property::stringToInt(attmap["api_version"]);

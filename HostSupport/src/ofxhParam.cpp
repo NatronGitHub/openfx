@@ -83,7 +83,9 @@ namespace OFX {
 
       /// grab a handle on the parameter for passing to the C API
       OfxParamHandle Base::getHandle() const {
-        return (OfxParamHandle)this;
+        // the C handle type is not const-qualified, and the suites modify the parameter through
+        // it: the const_cast is that of the C interface (ES.50)
+        return reinterpret_cast<OfxParamHandle>(const_cast<Base *>(this));
       }
 
       /// grab a handle on the properties of this parameter for the C api
@@ -727,7 +729,8 @@ namespace OFX {
        /// obtain a handle on this set for passing to the C api
       OfxParamSetHandle BaseSet::getParamSetHandle() const
       {
-        return (OfxParamSetHandle)this;
+        // (the const_cast is that of the C interface, as in Base::getHandle())
+        return reinterpret_cast<OfxParamSetHandle>(const_cast<BaseSet *>(this));
       }
 
       SetDescriptor::~SetDescriptor()

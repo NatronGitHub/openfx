@@ -606,27 +606,23 @@ namespace OFX {
         : _magic(kMagic)
         , _chainedSet(NULL) 
       {
-        bool failed = false;
-
-        for (std::map<std::string, Property *>::const_iterator i = other._props.begin();
-             i != other._props.end();
-             i++) 
-          {
+        // If a copy throws (e.g. std::bad_alloc), the constructor doesn't complete and the
+        // destructor doesn't run: delete the copies made so far, and rethrow (E.6, R.1).
+        try {
+          for (PropertyMap::const_iterator i = other._props.begin(); i != other._props.end(); ++i) {
             Property *copyProp = i->second->deepCopy();
-            if (!copyProp) {
-              failed = true;
-              break;
+            try {
+              _props[i->first] = copyProp;
+            } catch (...) {
+              delete copyProp;
+              throw;
             }
-            _props[i->first] = copyProp;
           }
-        
-        if (failed) {
-          for (std::map<std::string, Property *>::iterator j = _props.begin();
-               j != _props.end();
-               j++) {
+        } catch (...) {
+          for (PropertyMap::iterator j = _props.begin(); j != _props.end(); ++j) {
             delete j->second;
           }
-          _props.clear();
+          throw;
         }
       }
 

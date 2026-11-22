@@ -60,7 +60,7 @@ namespace OFX {
       }
 
       OfxImageMemoryHandle Instance::getHandle(){
-        return (OfxImageMemoryHandle)this;
+        return reinterpret_cast<OfxImageMemoryHandle>(this);
       }
 
       bool Instance::freeMem(){

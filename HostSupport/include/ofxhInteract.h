@@ -59,7 +59,7 @@ namespace OFX {
         }
 
         /// grab a handle on the parameter for passing to the C API
-        OfxInteractHandle getHandle() {return (OfxInteractHandle)this;}
+        OfxInteractHandle getHandle() {return reinterpret_cast<OfxInteractHandle>(this);}
         
         /// get the property handle for this instance/descriptor
         virtual OfxPropertySetHandle getPropHandle() = 0;
@@ -167,6 +167,35 @@ namespace OFX {
         void notifyCursor(OfxStatus actionStatus);
 #endif
         
+      private:
+        /// the pen actions (motion, up, down) differ only by their name, and so do the key actions
+        /// (down, up, repeat): the arguments are set, the action is called, and the cursor change
+        /// is notified (with OFX_EXTENSIONS_NATRON) here
+        OfxStatus penAction(const char *action,
+                            OfxTime time,
+                            const OfxPointD &renderScale,
+#ifdef OFX_EXTENSIONS_NUKE
+                            int view,
+#endif
+#ifdef OFX_EXTENSIONS_NATRON
+                            const OfxRGBAColourD* colourPicker,
+#endif
+                            const OfxPointD &penPos,
+                            const OfxPointI &penPosViewport,
+                            double pressure);
+
+        OfxStatus keyAction(const char *action,
+                            OfxTime time,
+                            const OfxPointD &renderScale,
+#ifdef OFX_EXTENSIONS_NUKE
+                            int view,
+#endif
+#ifdef OFX_EXTENSIONS_NATRON
+                            const OfxRGBAColourD* colourPicker,
+#endif
+                            int key,
+                            char* keyString);
+
       public:
         Instance(Descriptor &desc, void *effectInstance);
 

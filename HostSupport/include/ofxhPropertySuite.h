@@ -39,14 +39,16 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ofxCore.h" // OfxStatus, OfxPropertySetHandle
 
-#ifndef WINDOWS
-#if !(__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L))
-#define OFX_EXCEPTION_SPEC throw (OFX::Host::Property::Exception)
-#else
+// OFX_EXCEPTION_SPEC marks the functions that may throw (a Property::Exception, or anything a
+// host's GetHook or NotifyHook override throws, e.g. std::bad_alloc). It is not a dynamic
+// exception specification: under C++98, "throw (OFX::Host::Property::Exception)" turned any other
+// exception into a call to std::unexpected(), then std::terminate() (C++ Core Guidelines E.30:
+// don't use exception specifications; E.12). It is noexcept(false) under C++11 and later, where a
+// destructor (implicitly noexcept) never uses it, and empty under C++98 and on Windows.
+#if !defined(WINDOWS) && (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L))
 #define OFX_EXCEPTION_SPEC noexcept(false)
-#endif
 #else
-#define OFX_EXCEPTION_SPEC 
+#define OFX_EXCEPTION_SPEC
 #endif
 
 namespace OFX {
@@ -102,6 +104,21 @@ namespace OFX {
           return _stat;
         }
       };
+
+      /// Copy the first n values of a dim-dimensional property computed by a GetHook to the
+      /// caller's buffer: propGet*N only gives room for indices 0..n-1. Throws
+      /// kOfxStatErrBadIndex if n is not in [0, dim]. For the GetHook overrides of HostSupport
+      /// (and of hosts): the image effect, clip and interact instances.
+      template<class T>
+      inline void copyHookValuesN(T *dst, const T *src, int n, int dim)
+      {
+        if (n < 0 || n > dim) {
+          throw Exception(kOfxStatErrBadIndex);
+        }
+        for (int i = 0; i < n; ++i) {
+          dst[i] = src[i];
+        }
+      }
 
       /// type of a property
       enum TypeEnum {
@@ -250,16 +267,16 @@ namespace OFX {
         void setPluginReadOnly(bool v) {_pluginReadOnly = v;}
 
         /// override this to return a clone of the property
-        virtual Property *deepCopy() = 0;
+        virtual Property *deepCopy() const = 0;
         
         /// get the name of this property
-        const std::string &getName()
+        const std::string &getName() const
         {
           return _name;
         }
         
         /// get the type of this property
-        TypeEnum getType()
+        TypeEnum getType() const
         {
           return _type;
         }
@@ -297,7 +314,7 @@ namespace OFX {
         virtual void reset() = 0;
 
         // get a string representing the value of this property at element nth
-        virtual std::string getStringValue(int nth) = 0;
+        virtual std::string getStringValue(int nth) const = 0;
       };
       
       /// this represents a generic property.
@@ -330,7 +347,7 @@ namespace OFX {
 
         PropertyTemplate(const PropertyTemplate<T> &pt);
 
-        PropertyTemplate<T> *deepCopy() {
+        PropertyTemplate<T> *deepCopy() const {
           return new PropertyTemplate(*this);
         }
 
@@ -339,7 +356,7 @@ namespace OFX {
         }
 
         /// get the vector
-        const std::vector<Type> &getValues()
+        const std::vector<Type> &getValues() const
         {
           return _value;
         }
@@ -375,7 +392,7 @@ namespace OFX {
         int getDimension() const OFX_EXCEPTION_SPEC;
         
         /// return the value as a string
-        inline std::string getStringValue(int idx) {
+        inline std::string getStringValue(int idx) const {
           return castToString(_value[idx]);
         }
       };
@@ -514,10 +531,10 @@ namespace OFX {
         /// retrieve the named double property
         Double *fetchDoubleProperty(const std::string &name,  bool followChain = false) const;
 
-        /// retrieve the named double property
+        /// retrieve the named pointer property
         Pointer *fetchPointerProperty(const std::string &name, bool followChain = false) const;
 
-        /// retrieve the named double property
+        /// retrieve the named int property
         Int *fetchIntProperty(const std::string &name, bool followChain = false) const;
 
 
@@ -540,13 +557,13 @@ namespace OFX {
         /// get the value of a particular int property
         int getIntProperty(const std::string &property, int index = 0) const;
         
-        /// get the value of a particular double property
+        /// get the first N values of a particular int property
         void getIntPropertyN(const std::string &property,  int *v, int N) const;
 
         /// get the value of a particular double property
         double getDoubleProperty(const std::string &property, int index = 0) const;
 
-        /// get the value of a particular double property
+        /// get the first N values of a particular double property
         void getDoublePropertyN(const std::string &property,  double *v, int N) const;
 
         /// get the value of a particular pointer property
@@ -554,22 +571,22 @@ namespace OFX {
 
 
 
-        /// set a particular string property without fetching via a get hook, useful for notifies
+        /// set a particular string property
         void setStringProperty(const std::string &property, const std::string &value, int index = 0);
 
-        /// get a particular int property
+        /// set a particular int property
         void setIntProperty(const std::string &property, int v, int index = 0);
 
-        /// get a particular double property
+        /// set the first N values of a particular int property
         void setIntPropertyN(const std::string &property, const int *v, int N);
         
-        /// get a particular double property
+        /// set a particular double property
         void setDoubleProperty(const std::string &property, double v, int index = 0);
 
-        /// get a particular double property
+        /// set the first N values of a particular double property
         void setDoublePropertyN(const std::string &property, const double *v, int N);
 
-        /// get a particular double property
+        /// set a particular pointer property
         void setPointerProperty(const std::string &property,  void *v, int index = 0);
         
 
@@ -583,16 +600,71 @@ namespace OFX {
                                      const std::string &propValue) const;
 
 
-        /// get a handle on this object for passing to the C API
+        /// get a handle on this object for passing to the C API. The C handle type is not
+        /// const-qualified, and the property suite modifies the set through it: the const_cast
+        /// is that of the C interface (ES.50).
         OfxPropertySetHandle getHandle() const
         {
-          return (OfxPropertySetHandle)this;
+          return reinterpret_cast<OfxPropertySetHandle>(const_cast<Set *>(this));
         }
 
         /// is this a nice property set, or a dodgy pointer passed back to us
-        bool verifyMagic() { return _magic == kMagic; }
+        bool verifyMagic() const { return _magic == kMagic; }
       };
 
+
+      // Properties that hold an OfxPointD, OfxPointI, OfxRectD or OfxRectI: the struct is copied
+      // through an array, since a struct is not an array of its members, and &rect.x1 is not a
+      // pointer to 4 doubles (Bounds.1, ES.48). Free functions, since they need only the public
+      // interface of Set (C.4).
+
+      /// set a 2-dimensional double property from a point
+      inline void setPointProperty(Set &set, const std::string &property, const OfxPointD &p)
+      {
+        const double v[2] = { p.x, p.y };
+        set.setDoublePropertyN(property, v, 2);
+      }
+
+      /// set a 2-dimensional int property from a point
+      inline void setPointProperty(Set &set, const std::string &property, const OfxPointI &p)
+      {
+        const int v[2] = { p.x, p.y };
+        set.setIntPropertyN(property, v, 2);
+      }
+
+      /// set a 4-dimensional double property (x1, y1, x2, y2) from a rectangle
+      inline void setRectProperty(Set &set, const std::string &property, const OfxRectD &r)
+      {
+        const double v[4] = { r.x1, r.y1, r.x2, r.y2 };
+        set.setDoublePropertyN(property, v, 4);
+      }
+
+      /// set a 4-dimensional int property (x1, y1, x2, y2) from a rectangle
+      inline void setRectProperty(Set &set, const std::string &property, const OfxRectI &r)
+      {
+        const int v[4] = { r.x1, r.y1, r.x2, r.y2 };
+        set.setIntPropertyN(property, v, 4);
+      }
+
+      /// get a 4-dimensional double property (x1, y1, x2, y2) as a rectangle ({0, 0, 0, 0} if the
+      /// set has no such property, as Set::getDoublePropertyN() then leaves the values)
+      inline OfxRectD getRectDProperty(const Set &set, const std::string &property)
+      {
+        double v[4] = { 0., 0., 0., 0. };
+        set.getDoublePropertyN(property, v, 4);
+        const OfxRectD r = { v[0], v[1], v[2], v[3] };
+        return r;
+      }
+
+      /// get a 4-dimensional int property (x1, y1, x2, y2) as a rectangle ({0, 0, 0, 0} if the set
+      /// has no such property)
+      inline OfxRectI getRectIProperty(const Set &set, const std::string &property)
+      {
+        int v[4] = { 0, 0, 0, 0 };
+        set.getIntPropertyN(property, v, 4);
+        const OfxRectI r = { v[0], v[1], v[2], v[3] };
+        return r;
+      }
       
       /// return the OFX function suite that manages properties
       const void *GetSuite(int version);
