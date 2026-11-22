@@ -77,6 +77,10 @@ make -C Examples               # raw C-API examples; HAVE_METAL=0|1 (macOS, defa
 ```
 On Linux and FreeBSD, the plug-in Makefiles link with `-Wl,-z,defs` (`NO_UNDEFINED_FLAG`) and put the system
 libraries (`SYSLIBS`) last. On macOS they target 14.0 unless `MACOSX_DEPLOYMENT_TARGET` is set.
+The Makefiles define no `OFX_EXTENSIONS_*`/`OFX_SUPPORTS_*` (all off, unlike the CMake defaults): pass them with `CXXFLAGS_EXTRA`
+to `Support/Plugins` and `Examples` (in `Support/Plugins` it also covers the Support objects), and with `OPTIMISE` to `HostSupport` and
+`HostSupport/examples`. `libOfxSupport.a` from `make -C Support/Library` is compiled without any, so link it only into a
+plug-in compiled without any (see the rule on these definitions below).
 
 With CMake (3.21 or newer):
 ```sh
@@ -84,7 +88,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 cmake --install build --prefix /path/to/prefix   # provides find_package(openfx): openfx::Api, openfx::Support, openfx::HostSupport
 ```
-Main options:
+Main options (see below for the rule on the `OFX_EXTENSIONS_*` and `OFX_SUPPORTS_*` ones):
 - `OFX_EXTENSIONS_NATRON`, `_NUKE`, `_VEGAS`, `_TUTTLE` (ON) and `_RESOLVE` (OFF): enable the extensions in the Support and HostSupport code. They are PUBLIC compile definitions that change class layouts, so they must match between the libraries and the plug-in or host built with them (the extension headers are always installed). `_NATRON` needs `_NUKE`;
 - `OFX_SUPPORTS_OPENGLRENDER` (ON), `_OPENCLRENDER` and `_CUDARENDER` (OFF): GPU rendering in the libraries and the examples (OpenCL needs the OpenCLHeaders and OpenCLICDLoader packages, except on macOS; CUDA is off on macOS);
 - `OFX_SUPPORTS_MULTITHREAD`, `_DIALOG`, `_PARAMETRIC` and `_PARAMETRIC_V2` (OFF): HostSupport features, only for a host that implements them (they add pure virtual functions, and PARAMETRIC needs the host's `ofxhParametricParam.h`);
@@ -98,6 +102,11 @@ Main options:
 - `OFX_SUPPORT_DRAWCONTEXT_OPENGL` (ON): compile the OpenGL backend of `DrawArgs::getDrawContext()` (`Support/Library/ofxsDrawContextOpenGL.cpp`). Neither openfx::Support nor the plug-ins link OpenGL: the backend loads it at run time. It needs no OpenGL header: it draws with the OpenGL DrawSuite core, `include/ofxDrawSuiteOpenGL.h`, which declares the OpenGL types and constants it uses (hosts can use that header too). OFF compiles it with `OFXS_DRAWCONTEXT_NO_OPENGL` (no OpenGL at all: `getDrawContext()` draws nothing on V1 overlays); Makefile builds can pass `-DOFXS_DRAWCONTEXT_NO_OPENGL`;
 - `BUILD_EXAMPLE_MULTIPLYGPU` (ON) and `OFX_EXAMPLE_GPUGAIN_METAL` (ON on macOS): the GPU samples of `Support/Plugins`;
 - `OFX_DEPLOY_BUNDLES` (for plug-in projects, macOS only, by design): make the installed bundles self-contained with `ofx_deploy_bundle()`. On Linux and Windows, the installers bundle the third-party libraries (on Linux, in `<bundle>/Libraries`, found through the `$ORIGIN/../../Libraries` rpath), and the system libraries are never bundled.
+
+The `OFX_EXTENSIONS_*` and `OFX_SUPPORTS_*` definitions change class layouts, virtual signatures and enum values in Support and HostSupport. Every source file of one plug-in or host binary, including the Support or HostSupport sources compiled into it or into the library it links, must be compiled with the same set. Different binaries may use different sets: in particular, a host built with HostSupport and the plug-ins it loads, built with Support, are separate binaries and need not support the same extensions, so the HostSupport and Support configurations need not match (the extensions are negotiated at run time through properties and suites). A mismatch is a silent ODR violation, not detected at build time (NatronGitHub/openfx#226).
+- With CMake, choose them through these options (and `OFX_EXTRA_DEFINITIONS`), which `openfx::Api`, `openfx::Support` and `openfx::HostSupport` pass on to the targets that link them. Don't add or remove one on such a target or on a single file.
+- A build that compiles the Support or HostSupport sources itself (a Makefile, qmake, or a CMake target that lists them) chooses its own set for each binary, as long as all the sources of that binary get it.
+- The same holds for the consumers' own layout macros, e.g. SupportExt's `OFXS_HAVE_DRAWSUITE`.
 
 `OFX_LINUX_CHECK_BUNDLE` (set by `cmake/OpenFX.cmake`) is the path of `linuxCheckBundle.sh`, which checks installed Linux
 bundles against the EL9 baseline (no bundled system library, `$ORIGIN` rpaths only unless listed in `OFX_ABI_RPATH_ALLOW`,
