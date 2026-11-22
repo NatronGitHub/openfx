@@ -53,6 +53,9 @@ England
 namespace OFX {
 
   namespace Private {
+    // External linkage: the Support files share these globals, and SupportExt declares gThreadSuite
+    // and gLoadCount; its ofxsThreadSuiteCheck() may replace gThreadSuite in each plug-in's load.
+
     /** @brief Pointer to the host */
     extern OfxHost *gHost;
 
@@ -164,7 +167,6 @@ namespace OFX {
     };
       
     typedef std::map<VersionIDKey, EffectContextMap> EffectDescriptorMap;
-    extern EffectDescriptorMap gEffectDescriptors;
 
     /** @brief How the overlay of a draw action was registered (DrawArgs::_overlayRegistration) */
     enum OverlayRegistrationEnum {

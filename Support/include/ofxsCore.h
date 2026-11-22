@@ -365,7 +365,9 @@ namespace OFX {
         properties. */
     static OFXS_THREAD_LOCAL int _gPropLogging;
 
-    /** @brief Do not throw an exception if a host returns 'unsupported' when setting a property */
+    /** @brief Do not throw an exception if a host returns 'unsupported' when setting a property.
+        One flag per plug-in binary, not synchronized: set it in the load action or in describe,
+        before the host may call the plug-ins of the binary from several threads (CP.2). */
     static bool _gThrowOnUnsupported;
 
   public :

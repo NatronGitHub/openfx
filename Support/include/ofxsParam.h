@@ -2331,7 +2331,17 @@ namespace OFX {
 #endif
 
     ////////////////////////////////////////////////////////////////////////////////
-    /** @brief A set of parameters in a plugin instance */
+    /** @brief A set of parameters in a plugin instance
+
+    Ownership (R.3): the ParamSet owns every Param it fetches, and deletes them in its destructor.
+    The pointers returned by the fetch*Param() functions are non-owning: never delete them, and
+    don't use them after the instance is destroyed.
+
+    Threading (CP.2): the first fetch of a parameter inserts it into an unsynchronized map. Fetch
+    the parameters in the constructor of the effect (as the examples do), or at least before the
+    host may call the instance from several threads (e.g. render); later fetches of an already
+    fetched parameter only read the map, and may come from any thread.
+    */
     class ParamSet { 
     protected :
         mDeclareProtectedAssignAndCC(ParamSet);
