@@ -82,9 +82,10 @@ namespace OFX {
     namespace Private {
       // The configuration this library was compiled with: a host compiled with other
       // OFX_EXTENSIONS_*/OFX_SUPPORTS_* macros refers to another name and fails to link
-      // (see OFXH_CONFIGURATION_CHECK in ofxhImageEffect.h). Constant-initialized: no
+      // (see OFXH_CONFIGURATION_NAME in ofxhImageEffect.h). Constant-initialized: no
       // initialization order issue for hosts constructed during static initialization.
-      const int OFXH_CONFIGURATION_CHECK = 1;
+      // (extern: external linkage whatever the declarations seen before, I.2, SF.5)
+      extern const int OFXH_CONFIGURATION_NAME = 1;
     }
 
     namespace ImageEffect {

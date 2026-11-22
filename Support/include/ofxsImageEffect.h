@@ -123,49 +123,64 @@ namespace OFX
     compiled with. The fix is to compile both with the same definitions (with CMake, link
     openfx::Support, whose definitions are usage requirements).
 
+    The check is per translation unit: it compares the translation units that instantiate
+    FactoryMainEntryHelper (those that define the plug-in factories) with the library's
+    ofxsImageEffect.cpp. The other translation units of the plug-in (and of the library) must
+    still be compiled with the same definitions; e.g. a definition added for some files only,
+    such as openfx-io's per-directory -DOFX_SUPPORTS_OPENGLRENDER, must also be given to every
+    other file of the same bundle, the Support sources included.
+
     The read is volatile, so that no optimisation (LTO, MSVC's /OPT:REF, --gc-sections,
-    -dead_strip) can remove the reference, and it runs in code that every plug-in executes. The
-    object is hidden on ELF and Mach-O: it is not exported from the plug-in binaries (which only
-    export the OFX entry points), and a shared object can't leave it undefined until load time.
-    The name must depend on the preprocessor configuration, which only the preprocessor knows:
-    hence these (prefixed, ES.33) macros, despite ES.30 and ES.31.
+    -dead_strip) can remove the reference, and it runs in code that every plug-in executes. This
+    is a deliberate deviation from CP.200 ("Use volatile to talk to non-C++ memory only"): the
+    read is not for synchronization, and C++98 has no other portable way to force an odr-use
+    that these optimisations keep. The object is hidden on ELF and Mach-O: it is not exported
+    from the plug-in binaries (which only export the OFX entry points), and a shared object can't
+    leave it undefined until load time. So the Support code must be linked into each plug-in
+    (compiled with it, or as a static library, as the Makefiles and openfx::Support do): a
+    shared Support library would not export the object. The name must depend on the preprocessor
+    configuration, which only the preprocessor knows: hence these macros, despite ES.30 and
+    ES.31; they have the OFXS_CONFIG prefix (ES.32, ES.33), and the flags are the digits 0 and 1,
+    pasted to literal tokens, so that no macro of the consumer (e.g. a NATRON1) can change the
+    name.
     @{ */
 #ifdef OFX_EXTENSIONS_NATRON
-#  define OFXS_CONFIG_NATRON_ NATRON1
+#  define OFXS_CONFIG_NATRON_ 1
 #else
-#  define OFXS_CONFIG_NATRON_ NATRON0
+#  define OFXS_CONFIG_NATRON_ 0
 #endif
 #ifdef OFX_EXTENSIONS_NUKE
-#  define OFXS_CONFIG_NUKE_ NUKE1
+#  define OFXS_CONFIG_NUKE_ 1
 #else
-#  define OFXS_CONFIG_NUKE_ NUKE0
+#  define OFXS_CONFIG_NUKE_ 0
 #endif
 #ifdef OFX_EXTENSIONS_VEGAS
-#  define OFXS_CONFIG_VEGAS_ VEGAS1
+#  define OFXS_CONFIG_VEGAS_ 1
 #else
-#  define OFXS_CONFIG_VEGAS_ VEGAS0
+#  define OFXS_CONFIG_VEGAS_ 0
 #endif
 #ifdef OFX_EXTENSIONS_TUTTLE
-#  define OFXS_CONFIG_TUTTLE_ TUTTLE1
+#  define OFXS_CONFIG_TUTTLE_ 1
 #else
-#  define OFXS_CONFIG_TUTTLE_ TUTTLE0
+#  define OFXS_CONFIG_TUTTLE_ 0
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-#  define OFXS_CONFIG_OPENGLRENDER_ OPENGLRENDER1
+#  define OFXS_CONFIG_OPENGLRENDER_ 1
 #else
-#  define OFXS_CONFIG_OPENGLRENDER_ OPENGLRENDER0
+#  define OFXS_CONFIG_OPENGLRENDER_ 0
 #endif
 #ifdef OFX_SUPPORTS_DIALOG
-#  define OFXS_CONFIG_DIALOG_ DIALOG1
+#  define OFXS_CONFIG_DIALOG_ 1
 #else
-#  define OFXS_CONFIG_DIALOG_ DIALOG0
+#  define OFXS_CONFIG_DIALOG_ 0
 #endif
-#define OFXS_CONFIG_NAME2_(a, b, c, d, e, f) supportConfiguration_##a##_##b##_##c##_##d##_##e##_##f
-#define OFXS_CONFIG_NAME_(a, b, c, d, e, f) OFXS_CONFIG_NAME2_(a, b, c, d, e, f)
+#define OFXS_CONFIG_NAME2_(a, b, c, d, e, f) \
+  supportConfiguration_NATRON##a##_NUKE##b##_VEGAS##c##_TUTTLE##d##_OPENGLRENDER##e##_DIALOG##f
+#define OFXS_CONFIG_NAME1_(a, b, c, d, e, f) OFXS_CONFIG_NAME2_(a, b, c, d, e, f)
 /** @brief The name of the configuration object of the Support library, see above */
-#define OFXS_CONFIGURATION_CHECK \
-  OFXS_CONFIG_NAME_(OFXS_CONFIG_NATRON_, OFXS_CONFIG_NUKE_, OFXS_CONFIG_VEGAS_, \
-                    OFXS_CONFIG_TUTTLE_, OFXS_CONFIG_OPENGLRENDER_, OFXS_CONFIG_DIALOG_)
+#define OFXS_CONFIGURATION_NAME \
+  OFXS_CONFIG_NAME1_(OFXS_CONFIG_NATRON_, OFXS_CONFIG_NUKE_, OFXS_CONFIG_VEGAS_, \
+                     OFXS_CONFIG_TUTTLE_, OFXS_CONFIG_OPENGLRENDER_, OFXS_CONFIG_DIALOG_)
 #if defined(__GNUC__) && !defined(_WIN32) && !defined(__CYGWIN__)
 #  define OFXS_CONFIG_HIDDEN_ __attribute__((visibility("hidden")))
 #else
@@ -176,7 +191,7 @@ namespace OFX
   namespace Private
   {
     /** @brief Defined in ofxsImageEffect.cpp, read by the FactoryMainEntryHelper constructor */
-    extern OFXS_CONFIG_HIDDEN_ const int OFXS_CONFIGURATION_CHECK;
+    extern OFXS_CONFIG_HIDDEN_ const int OFXS_CONFIGURATION_NAME;
   }
 }
 /** @} */
@@ -451,8 +466,8 @@ namespace OFX {
     FactoryMainEntryHelper(const std::string& id, unsigned int maj, unsigned int min): _id(id), _maj(maj), _min(min)
     {
       // fails to link if this plug-in and its Support code were compiled with other
-      // OFX_EXTENSIONS_*/OFX_SUPPORTS_* macros (see OFXS_CONFIGURATION_CHECK)
-      static_cast<void>(*static_cast<const volatile int*>(&OFX::Private::OFXS_CONFIGURATION_CHECK));
+      // OFX_EXTENSIONS_*/OFX_SUPPORTS_* macros (see OFXS_CONFIGURATION_NAME)
+      static_cast<void>(*static_cast<const volatile int*>(&OFX::Private::OFXS_CONFIGURATION_NAME));
       assert(uid().empty()); // constructor should only be called once
       // "<id>@<major>.<minor>": with separators, so that ("foo", 1, 23) and ("foo", 12, 3) differ
       uid() = id + "@" + toString(maj) + "." + toString(min);

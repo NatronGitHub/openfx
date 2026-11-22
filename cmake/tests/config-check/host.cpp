@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // A minimal host on HostSupport, for the link-time configuration check (NatronGitHub/openfx#226,
-// OFXH_CONFIGURATION_CHECK in ofxhImageEffect.h): it links with the definitions of
+// OFXH_CONFIGURATION_NAME in ofxhImageEffect.h): it links with the definitions of
 // openfx::HostSupport, and fails to link with any other set (see CMakeLists.txt).
 // main() constructs the host, as every host does: the reference is in code that runs (a
 // constructor that nothing calls could be removed by the linker, e.g. with -dead_strip, and

@@ -25,16 +25,26 @@ case "$(uname -s)" in
     "$host" || { echo "config-check: host failed"; exit 1; } ;;
 esac
 # the configuration object is hidden: not exported by the plug-in
+exports="" lister=""
 case "$(uname -s)" in
-  Darwin) exports=$(nm -gU "$plugin") ;;
-  Linux) exports=$(nm -D --defined-only "$plugin") ;;
-  *) exports=$(objdump -p "$plugin") ;;
+  Darwin) lister="nm -gU"; exports=$(nm -gU "$plugin") ;;
+  Linux) lister="nm -D"; exports=$(nm -D --defined-only "$plugin") ;;
+  *) # Windows: MinGW's objdump, or MSVC's dumpbin
+    if command -v objdump > /dev/null 2>&1; then
+      lister="objdump -p"; exports=$(objdump -p "$plugin")
+    elif command -v dumpbin > /dev/null 2>&1; then
+      lister="dumpbin /exports"; exports=$(dumpbin -nologo -exports "$plugin")
+    fi ;;
 esac
+if [ -z "$lister" ]; then
+  echo "config-check: skipped the export check (neither objdump nor dumpbin in PATH)"
 # (a here-string: under pipefail, grep -q could make the writer of a pipe fail with SIGPIPE)
-if grep -q 'Configuration_' <<< "$exports"; then
+elif grep -q 'Configuration_' <<< "$exports"; then
   echo "config-check: the plug-in exports its configuration object:"
   grep 'Configuration_' <<< "$exports"
   exit 1
+else
+  echo "config-check: the plug-in doesn't export its configuration object ($lister)"
 fi
 fail=0 n=0
 while read -r target symbol; do

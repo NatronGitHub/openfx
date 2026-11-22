@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // A minimal plug-in on the Support library, for the link-time configuration check
-// (NatronGitHub/openfx#226, OFXS_CONFIGURATION_CHECK in ofxsImageEffect.h): it links with the
+// (NatronGitHub/openfx#226, OFXS_CONFIGURATION_NAME in ofxsImageEffect.h): it links with the
 // definitions of openfx::Support, and fails to link with any other set (see CMakeLists.txt).
 #include "ofxsImageEffect.h"
 

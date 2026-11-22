@@ -70,55 +70,66 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
     to compile both with the same definitions (with CMake, link openfx::HostSupport, whose
     definitions are usage requirements).
 
+    The check is per translation unit: it compares the translation unit that constructs the
+    host's ImageEffect::Host (the constructor of the host's class) with the library's
+    ofxhImageEffect.cpp. The other translation units of the host (and of the library) must still
+    be compiled with the same definitions.
+
     The read is volatile, so that no optimisation (LTO, MSVC's /OPT:REF, --gc-sections,
-    -dead_strip) can remove the reference. The object is hidden on ELF and Mach-O (HostSupport
-    is a static library), so that a shared object (e.g. the ofxh Python module) can't leave it
-    undefined until load time, and it is not exported. The name must depend on the preprocessor
-    configuration, which only the preprocessor knows: hence these (prefixed, ES.33) macros,
-    despite ES.30 and ES.31.
+    -dead_strip) can remove the reference. This is a deliberate deviation from CP.200 ("Use
+    volatile to talk to non-C++ memory only"): the read is not for synchronization, and C++98 has
+    no other portable way to force an odr-use that these optimisations keep. The object is
+    hidden on ELF and Mach-O, so that a shared object (e.g. the ofxh Python module) can't leave
+    it undefined until load time, and it is not exported: HostSupport must be built as a static
+    library (as its Makefile, its CMake target and Natron do). The name must depend on the
+    preprocessor configuration, which only the preprocessor knows: hence these macros, despite
+    ES.30 and ES.31; they have the OFXH_CONFIG prefix (ES.32, ES.33), and the flags are the
+    digits 0 and 1, pasted to literal tokens, so that no macro of the consumer (e.g. a NATRON1)
+    can change the name.
     @{ */
 #ifdef OFX_EXTENSIONS_NATRON
-#  define OFXH_CONFIG_NATRON_ NATRON1
+#  define OFXH_CONFIG_NATRON_ 1
 #else
-#  define OFXH_CONFIG_NATRON_ NATRON0
+#  define OFXH_CONFIG_NATRON_ 0
 #endif
 #ifdef OFX_EXTENSIONS_NUKE
-#  define OFXH_CONFIG_NUKE_ NUKE1
+#  define OFXH_CONFIG_NUKE_ 1
 #else
-#  define OFXH_CONFIG_NUKE_ NUKE0
+#  define OFXH_CONFIG_NUKE_ 0
 #endif
 #ifdef OFX_EXTENSIONS_VEGAS
-#  define OFXH_CONFIG_VEGAS_ VEGAS1
+#  define OFXH_CONFIG_VEGAS_ 1
 #else
-#  define OFXH_CONFIG_VEGAS_ VEGAS0
+#  define OFXH_CONFIG_VEGAS_ 0
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-#  define OFXH_CONFIG_OPENGLRENDER_ OPENGLRENDER1
+#  define OFXH_CONFIG_OPENGLRENDER_ 1
 #else
-#  define OFXH_CONFIG_OPENGLRENDER_ OPENGLRENDER0
+#  define OFXH_CONFIG_OPENGLRENDER_ 0
 #endif
 #ifdef OFX_SUPPORTS_MULTITHREAD
-#  define OFXH_CONFIG_MULTITHREAD_ MULTITHREAD1
+#  define OFXH_CONFIG_MULTITHREAD_ 1
 #else
-#  define OFXH_CONFIG_MULTITHREAD_ MULTITHREAD0
+#  define OFXH_CONFIG_MULTITHREAD_ 0
 #endif
 #ifdef OFX_SUPPORTS_DIALOG
-#  define OFXH_CONFIG_DIALOG_ DIALOG1
+#  define OFXH_CONFIG_DIALOG_ 1
 #else
-#  define OFXH_CONFIG_DIALOG_ DIALOG0
+#  define OFXH_CONFIG_DIALOG_ 0
 #endif
 #ifdef OFX_USE_STATIC_PLUGINS
-#  define OFXH_CONFIG_STATICPLUGINS_ STATICPLUGINS1
+#  define OFXH_CONFIG_STATICPLUGINS_ 1
 #else
-#  define OFXH_CONFIG_STATICPLUGINS_ STATICPLUGINS0
+#  define OFXH_CONFIG_STATICPLUGINS_ 0
 #endif
-#define OFXH_CONFIG_NAME2_(a, b, c, d, e, f, g) hostSupportConfiguration_##a##_##b##_##c##_##d##_##e##_##f##_##g
-#define OFXH_CONFIG_NAME_(a, b, c, d, e, f, g) OFXH_CONFIG_NAME2_(a, b, c, d, e, f, g)
+#define OFXH_CONFIG_NAME2_(a, b, c, d, e, f, g) \
+  hostSupportConfiguration_NATRON##a##_NUKE##b##_VEGAS##c##_OPENGLRENDER##d##_MULTITHREAD##e##_DIALOG##f##_STATICPLUGINS##g
+#define OFXH_CONFIG_NAME1_(a, b, c, d, e, f, g) OFXH_CONFIG_NAME2_(a, b, c, d, e, f, g)
 /** @brief The name of the configuration object of the HostSupport library, see above */
-#define OFXH_CONFIGURATION_CHECK \
-  OFXH_CONFIG_NAME_(OFXH_CONFIG_NATRON_, OFXH_CONFIG_NUKE_, OFXH_CONFIG_VEGAS_, \
-                    OFXH_CONFIG_OPENGLRENDER_, OFXH_CONFIG_MULTITHREAD_, OFXH_CONFIG_DIALOG_, \
-                    OFXH_CONFIG_STATICPLUGINS_)
+#define OFXH_CONFIGURATION_NAME \
+  OFXH_CONFIG_NAME1_(OFXH_CONFIG_NATRON_, OFXH_CONFIG_NUKE_, OFXH_CONFIG_VEGAS_, \
+                     OFXH_CONFIG_OPENGLRENDER_, OFXH_CONFIG_MULTITHREAD_, OFXH_CONFIG_DIALOG_, \
+                     OFXH_CONFIG_STATICPLUGINS_)
 #if defined(__GNUC__) && !defined(_WIN32) && !defined(__CYGWIN__)
 #  define OFXH_CONFIG_HIDDEN_ __attribute__((visibility("hidden")))
 #else
@@ -128,7 +139,7 @@ namespace OFX {
   namespace Host {
     namespace Private {
       /** @brief Defined in ofxhImageEffect.cpp, read by the ImageEffect::Host constructor */
-      extern OFXH_CONFIG_HIDDEN_ const int OFXH_CONFIGURATION_CHECK;
+      extern OFXH_CONFIG_HIDDEN_ const int OFXH_CONFIGURATION_NAME;
     }
   }
 }
@@ -159,8 +170,8 @@ namespace OFX {
         Host()
         {
           // fails to link if this host and its HostSupport library were compiled with other
-          // OFX_EXTENSIONS_*/OFX_SUPPORTS_* macros (see OFXH_CONFIGURATION_CHECK)
-          static_cast<void>(*static_cast<const volatile int*>(&OFX::Host::Private::OFXH_CONFIGURATION_CHECK));
+          // OFX_EXTENSIONS_*/OFX_SUPPORTS_* macros (see OFXH_CONFIGURATION_NAME)
+          static_cast<void>(*static_cast<const volatile int*>(&OFX::Host::Private::OFXH_CONFIGURATION_NAME));
           addImageEffectHostProperties();
         }
 
