@@ -358,7 +358,7 @@ namespace OFX {
   }
 
   /** @brief map a std::string to a context */
-  ContextEnum mapToContextEnum(const std::string &s) OFX_THROW(std::invalid_argument)
+  ContextEnum mapToContextEnum(const std::string &s)
   {
     if(s == kOfxImageEffectContextGenerator) return eContextGenerator;
     if(s == kOfxImageEffectContextFilter) return eContextFilter;
@@ -377,7 +377,7 @@ namespace OFX {
     throw std::invalid_argument(s);
   }
 
-  const char* mapContextEnumToStr(ContextEnum context) OFX_THROW(std::invalid_argument)
+  const char* mapContextEnumToStr(ContextEnum context)
   {
     switch (context) {
       case eContextGenerator:
@@ -441,7 +441,7 @@ namespace OFX {
   }
 
   /** @brief map a std::string to a context */
-  InstanceChangeReason mapToInstanceChangedReason(const std::string &s) OFX_THROW(std::invalid_argument)
+  InstanceChangeReason mapToInstanceChangedReason(const std::string &s)
   {
     if(s == kOfxChangePluginEdited) return eChangePluginEdit;
     if(s == kOfxChangeUserEdited) return eChangeUserEdit;
@@ -451,7 +451,7 @@ namespace OFX {
   }
 
   /** @brief turns a bit depth string into and enum */
-  BitDepthEnum mapStrToBitDepthEnum(const std::string &str) OFX_THROW(std::invalid_argument)
+  BitDepthEnum mapStrToBitDepthEnum(const std::string &str)
   {
     if(str == kOfxBitDepthByte) {
       return eBitDepthUByte;
@@ -485,7 +485,7 @@ namespace OFX {
   }
 
   /** @brief turns a bit depth string into and enum */
-  const char* mapBitDepthEnumToStr(BitDepthEnum bitDepth) OFX_THROW(std::invalid_argument)
+  const char* mapBitDepthEnumToStr(BitDepthEnum bitDepth)
   {
     switch (bitDepth) {
       case eBitDepthUByte:
@@ -515,7 +515,7 @@ namespace OFX {
   }
 
   /** @brief turns a pixel component string into and enum */
-  PixelComponentEnum mapStrToPixelComponentEnum(const std::string &str) OFX_THROW(std::invalid_argument)
+  PixelComponentEnum mapStrToPixelComponentEnum(const std::string &str)
   {
     if(str == kOfxImageComponentRGBA) {
       return ePixelComponentRGBA;
@@ -548,7 +548,7 @@ namespace OFX {
   }
 
   /** @brief turns a pixel component string into and enum */
-  const char* mapPixelComponentEnumToStr(PixelComponentEnum pixelComponent) OFX_THROW(std::invalid_argument)
+  const char* mapPixelComponentEnumToStr(PixelComponentEnum pixelComponent)
   {
     switch (pixelComponent) {
       case ePixelComponentRGBA:
@@ -578,7 +578,7 @@ namespace OFX {
   }
 
   /** @brief turns a premultiplication string into and enum */
-  static PreMultiplicationEnum mapStrToPreMultiplicationEnum(const std::string &str) OFX_THROW(std::invalid_argument)
+  static PreMultiplicationEnum mapStrToPreMultiplicationEnum(const std::string &str)
   {
     if(str == kOfxImageOpaque) {
       return eImageOpaque;
@@ -595,7 +595,7 @@ namespace OFX {
   }
 
   /** @brief turns a field string into and enum */
-  FieldEnum mapStrToFieldEnum(const std::string &str) OFX_THROW(std::invalid_argument)
+  FieldEnum mapStrToFieldEnum(const std::string &str)
   {
     if(str == kOfxImageFieldNone) {
       return eFieldNone;
@@ -616,7 +616,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_VEGAS
   /** @brief map a std::string to a RenderQuality */
-  VegasRenderQualityEnum mapToVegasRenderQualityEnum(const std::string &s) OFX_THROW(std::invalid_argument)
+  VegasRenderQualityEnum mapToVegasRenderQualityEnum(const std::string &s)
   {
     if(s == kOfxImageEffectPropRenderQualityDraft  )       return eVegasRenderQualityDraft;
     if(s == kOfxImageEffectPropRenderQualityPreview)       return eVegasRenderQualityPreview;
@@ -627,7 +627,7 @@ namespace OFX {
   }
 
   /** @brief map a std::string to a context */
-  VegasContextEnum mapToVegasContextEnum(const std::string &s) OFX_THROW(std::invalid_argument)
+  VegasContextEnum mapToVegasContextEnum(const std::string &s)
   {
     if(s.empty() || s == kOfxImageEffectPropVegasContextUnknown)       return eVegasContextUnknown;
     if(s == kOfxImageEffectPropVegasContextMedia)         return eVegasContextMedia;

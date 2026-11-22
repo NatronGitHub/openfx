@@ -32,6 +32,7 @@ This is version NEXT of the OpenFX API.
 
 ## Behaviour Changes
 
+- **Support: `OFX_THROW`, `OFX_THROW2`, `OFX_THROW3` and `OFX_THROW4` removed** (`ofxsCore.h`): they were dynamic exception specifications (`throw(x, ...)` in C++98, where a function that throws a type not listed calls `std::unexpected()`, then `std::terminate()`; `noexcept(false)` in C++11 and later) on the Support functions, which no longer use them ([E.30](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#re-specifications)). No consumer uses them; a plug-in that does must delete them (NatronGitHub/openfx#224).
 Changes that existing hosts, plugins or SDK users may need to act on:
 
 - **Project-load semantics**: Hosts are now required to send the `instanceChanged` action with `kOfxPropChangeReason` = `kOfxChangePluginEdited` when a clip or parameter was changed while loading a project (issue #184).
@@ -118,6 +119,7 @@ Changes that existing hosts, plugins or SDK users may need to act on:
   - `test_package/CMakeLists.txt` no longer forces C++17 (upstream #234). `cmake/OpenFX.cmake` sets the plug-ins' standard (`OFX_CXX_STANDARD`).
 
 ## Deprecations
+
 
 ## Detailed List of Changes
 

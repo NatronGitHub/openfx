@@ -66,7 +66,7 @@ namespace OFX {
     Suceeds or throws std::bad_alloc
     */   
     void *allocate(size_t nBytes,
-      ImageEffect *handle = 0) OFX_THROW(std::bad_alloc);
+      ImageEffect *handle = 0);
 
     /** @brief release memory
 
