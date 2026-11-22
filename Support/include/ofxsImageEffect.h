@@ -77,13 +77,16 @@ of the direct OFX objects and any library side only functions.
 #include "ofxNatron.h"
 #endif
 
-/** @brief Nasty macro used to define empty protected copy ctors and assign ops */
+/** @brief Declares the copy constructor and the copy assignment of CLASS without defining them
+    (C.81, in the C++98 form: the public headers stay C++98). Used in a protected section: a copy
+    fails to compile outside of CLASS, its derived classes and their friends, and to link inside
+    them. */
 #define mDeclareProtectedAssignAndCC(CLASS) \
-  CLASS &operator=(const CLASS &) {assert(false); return *this;}	\
-  CLASS(const CLASS &) {assert(false); } 
+  CLASS &operator=(const CLASS &); \
+  CLASS(const CLASS &);
 #define mDeclareProtectedAssignAndCCBase(CLASS,BASE) \
-  CLASS &operator=(const CLASS &) {assert(false); return *this;}	\
-  CLASS(const CLASS &c) : BASE(c) {assert(false); }
+  CLASS &operator=(const CLASS &); \
+  CLASS(const CLASS &);
 
 namespace OFX
 {
@@ -607,7 +610,6 @@ namespace OFX {
   class ClipDescriptor {
   protected :
     mDeclareProtectedAssignAndCC(ClipDescriptor);
-    ClipDescriptor(void) {assert(false);}
 
   protected :
     /** @brief name of the clip */
@@ -684,7 +686,6 @@ namespace OFX {
   class CameraDescriptor {
   protected :
     mDeclareProtectedAssignAndCC(CameraDescriptor);
-    CameraDescriptor(void) {assert(false);}
 
   protected :
     /** @brief name of the camera */
@@ -735,7 +736,6 @@ namespace OFX {
   {
   protected :
     mDeclareProtectedAssignAndCCBase(ImageEffectDescriptor,ParamSetDescriptor);
-    ImageEffectDescriptor(void) {assert(false);}
 
   protected :
     /** @brief The effect handle */
@@ -1106,6 +1106,11 @@ namespace OFX {
     OfxInverseDistortionFunctionV1 _inverseDistortionFunction;
     const void* _inverseDistortionFunctionData;
 #endif
+
+  private :
+    // not copyable: the destructors of Image and Texture release the handle (C.21, R.1)
+    ImageBase(const ImageBase &); // not defined: not copyable
+    ImageBase &operator=(const ImageBase &); // not defined: not copyable
 
   public :
     /** @brief ctor */
@@ -1620,6 +1625,11 @@ namespace OFX {
   class ImageMemory {
   protected :
     OfxImageMemoryHandle _handle;
+
+  private :
+    // not copyable: the destructor frees the memory (C.21, R.1)
+    ImageMemory(const ImageMemory &); // not defined: not copyable
+    ImageMemory &operator=(const ImageMemory &); // not defined: not copyable
 
   public :
     /** @brief ctor */

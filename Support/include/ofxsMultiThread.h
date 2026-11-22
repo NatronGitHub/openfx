@@ -98,6 +98,11 @@ namespace OFX {
     protected :
       OfxMutexHandle _handle; /**< @brief The handle */
 
+    private :
+      // not copyable: the destructor destroys the mutex (C.21, R.1)
+      Mutex(const Mutex &); // not defined: not copyable
+      Mutex &operator=(const Mutex &); // not defined: not copyable
+
     public :
       /** @brief ctor */
       Mutex(int lockCount = 0);
@@ -128,6 +133,10 @@ namespace OFX {
     private :
       M* _mutex;
       bool val;
+
+      // not copyable: each copy would unlock the mutex (C.21, R.1)
+      AutoMutexT(const AutoMutexT &); // not defined: not copyable
+      AutoMutexT &operator=(const AutoMutexT &); // not defined: not copyable
     public :
       /// ctor, acquires the lock
       explicit AutoMutexT(M &m)
