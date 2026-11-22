@@ -268,7 +268,13 @@ namespace OFX {
     return NULL;
   }
 
-  namespace Private {        
+  namespace Private {
+    // The configuration this library was compiled with: a plug-in compiled with other
+    // OFX_EXTENSIONS_*/OFX_SUPPORTS_* macros refers to another name and fails to link
+    // (see OFXS_CONFIGURATION_CHECK in ofxsImageEffect.h). Constant-initialized: no
+    // initialization order issue for the plug-in factories, often globals, that read it.
+    const int OFXS_CONFIGURATION_CHECK = 1;
+
     // Suite and host pointers
     OfxHost               *gHost = 0;
     OfxImageEffectSuiteV1 *gEffectSuite = 0;

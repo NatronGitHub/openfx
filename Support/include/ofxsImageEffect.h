@@ -102,6 +102,85 @@ namespace OFX
   }
 }
 
+/** @name Link-time check of the configuration macros (NatronGitHub/openfx#226)
+
+    OFX_EXTENSIONS_NATRON, OFX_EXTENSIONS_NUKE, OFX_EXTENSIONS_VEGAS, OFX_EXTENSIONS_TUTTLE,
+    OFX_SUPPORTS_OPENGLRENDER and OFX_SUPPORTS_DIALOG change the class layouts, the virtual
+    functions and the enum values (e.g. ContextEnum, PixelComponentEnum) of this library. A
+    plug-in compiled with another set of these macros than the Support code it links is an ODR
+    violation that compiles, links and then fails at run time in ways that are hard to diagnose.
+    (The other macros of these headers, e.g. OFX_EXTENSIONS_RESOLVE, OFX_USE_MULTITHREAD_MUTEX or
+    OFXS_DRAWCONTEXT_NO_OPENGL, only add or remove functions or classes: a mismatch is already a
+    compile or link error.)
+
+    So that a mismatch fails to link (C++ Core Guidelines P.5, P.7), the library defines one
+    object whose name encodes the set it was compiled with (ofxsImageEffect.cpp), and the
+    constructor of every plug-in factory (FactoryMainEntryHelper, a template instantiated in the
+    plug-in's code) reads the object named after the plug-in's set. A plug-in compiled with
+    another set than its Support code gets an undefined symbol such as
+    OFX::Private::supportConfiguration_NATRON1_NUKE1_VEGAS1_TUTTLE1_OPENGLRENDER1_DIALOG0 (the
+    set of the plug-in); `nm -C` on the Support objects or library shows the set they were
+    compiled with. The fix is to compile both with the same definitions (with CMake, link
+    openfx::Support, whose definitions are usage requirements).
+
+    The read is volatile, so that no optimisation (LTO, MSVC's /OPT:REF, --gc-sections,
+    -dead_strip) can remove the reference, and it runs in code that every plug-in executes. The
+    object is hidden on ELF and Mach-O: it is not exported from the plug-in binaries (which only
+    export the OFX entry points), and a shared object can't leave it undefined until load time.
+    The name must depend on the preprocessor configuration, which only the preprocessor knows:
+    hence these (prefixed, ES.33) macros, despite ES.30 and ES.31.
+    @{ */
+#ifdef OFX_EXTENSIONS_NATRON
+#  define OFXS_CONFIG_NATRON_ NATRON1
+#else
+#  define OFXS_CONFIG_NATRON_ NATRON0
+#endif
+#ifdef OFX_EXTENSIONS_NUKE
+#  define OFXS_CONFIG_NUKE_ NUKE1
+#else
+#  define OFXS_CONFIG_NUKE_ NUKE0
+#endif
+#ifdef OFX_EXTENSIONS_VEGAS
+#  define OFXS_CONFIG_VEGAS_ VEGAS1
+#else
+#  define OFXS_CONFIG_VEGAS_ VEGAS0
+#endif
+#ifdef OFX_EXTENSIONS_TUTTLE
+#  define OFXS_CONFIG_TUTTLE_ TUTTLE1
+#else
+#  define OFXS_CONFIG_TUTTLE_ TUTTLE0
+#endif
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+#  define OFXS_CONFIG_OPENGLRENDER_ OPENGLRENDER1
+#else
+#  define OFXS_CONFIG_OPENGLRENDER_ OPENGLRENDER0
+#endif
+#ifdef OFX_SUPPORTS_DIALOG
+#  define OFXS_CONFIG_DIALOG_ DIALOG1
+#else
+#  define OFXS_CONFIG_DIALOG_ DIALOG0
+#endif
+#define OFXS_CONFIG_NAME2_(a, b, c, d, e, f) supportConfiguration_##a##_##b##_##c##_##d##_##e##_##f
+#define OFXS_CONFIG_NAME_(a, b, c, d, e, f) OFXS_CONFIG_NAME2_(a, b, c, d, e, f)
+/** @brief The name of the configuration object of the Support library, see above */
+#define OFXS_CONFIGURATION_CHECK \
+  OFXS_CONFIG_NAME_(OFXS_CONFIG_NATRON_, OFXS_CONFIG_NUKE_, OFXS_CONFIG_VEGAS_, \
+                    OFXS_CONFIG_TUTTLE_, OFXS_CONFIG_OPENGLRENDER_, OFXS_CONFIG_DIALOG_)
+#if defined(__GNUC__) && !defined(_WIN32) && !defined(__CYGWIN__)
+#  define OFXS_CONFIG_HIDDEN_ __attribute__((visibility("hidden")))
+#else
+#  define OFXS_CONFIG_HIDDEN_
+#endif
+namespace OFX
+{
+  namespace Private
+  {
+    /** @brief Defined in ofxsImageEffect.cpp, read by the FactoryMainEntryHelper constructor */
+    extern OFXS_CONFIG_HIDDEN_ const int OFXS_CONFIGURATION_CHECK;
+  }
+}
+/** @} */
+
 #ifdef OFX_EXTENSIONS_NATRON
 namespace OFX
 {
@@ -371,6 +450,9 @@ namespace OFX {
     }
     FactoryMainEntryHelper(const std::string& id, unsigned int maj, unsigned int min): _id(id), _maj(maj), _min(min)
     {
+      // fails to link if this plug-in and its Support code were compiled with other
+      // OFX_EXTENSIONS_*/OFX_SUPPORTS_* macros (see OFXS_CONFIGURATION_CHECK)
+      static_cast<void>(*static_cast<const volatile int*>(&OFX::Private::OFXS_CONFIGURATION_CHECK));
       assert(uid().empty()); // constructor should only be called once
       // "<id>@<major>.<minor>": with separators, so that ("foo", 1, 23) and ("foo", 12, 3) differ
       uid() = id + "@" + toString(maj) + "." + toString(min);

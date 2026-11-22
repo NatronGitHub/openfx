@@ -312,6 +312,12 @@ jobs:
         run: |
           set -eo pipefail
           CMAKE_GENERATOR=Ninja .github/scripts/cmake-host-project.sh "$PWD/host project"
+      - name: Link-time check of the configuration macros (MinGW)
+        run: |
+          set -eo pipefail
+          # a plug-in or host compiled with other OFX_EXTENSIONS_*/OFX_SUPPORTS_* macros than its
+          # Support or HostSupport library fails to link (#226)
+          CMAKE_GENERATOR=Ninja .github/scripts/cmake-config-check.sh "$PWD/config check"
       - name: Every plug-in exports OfxGetPlugin
         run: |
           set -eo pipefail

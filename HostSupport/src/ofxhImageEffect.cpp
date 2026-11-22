@@ -79,6 +79,14 @@ namespace OFX {
 
   namespace Host {
 
+    namespace Private {
+      // The configuration this library was compiled with: a host compiled with other
+      // OFX_EXTENSIONS_*/OFX_SUPPORTS_* macros refers to another name and fails to link
+      // (see OFXH_CONFIGURATION_CHECK in ofxhImageEffect.h). Constant-initialized: no
+      // initialization order issue for hosts constructed during static initialization.
+      const int OFXH_CONFIGURATION_CHECK = 1;
+    }
+
     namespace ImageEffect {
       
       /// properties common on an effect and a descriptor
@@ -4923,8 +4931,8 @@ namespace OFX {
         Property::propSpecEnd
       };    
 
-      /// ctor
-      Host::Host() 
+      /// the work of the (inline) constructor
+      void Host::addImageEffectHostProperties()
       {
         /// add the properties for an image effect host, derived classs to set most of them
         _properties.addProperties(hostStuffs);

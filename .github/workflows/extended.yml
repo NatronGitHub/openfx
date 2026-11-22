@@ -74,6 +74,10 @@ jobs:
       - name: Install
         # PLUGIN_INSTALLDIR defaults to the system OFX folder; keep everything in the prefix here
         run: cmake --install build --config ${{ matrix.config }} --prefix install
+      - name: Link-time check of the configuration macros (MSVC, Visual Studio generator)
+        # (once: the check builds openfx with its default options, whatever the matrix's)
+        if: runner.os == 'Windows' && matrix.extensions == 'ON' && matrix.cxx == ''
+        run: .github/scripts/cmake-config-check.sh "$PWD/config check"
       - name: Load the plug-ins with cacheDemo
         if: runner.os != 'Windows'
         run: |

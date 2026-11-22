@@ -50,6 +50,90 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define __PRETTY_FUNCTION__ __FUNCSIG__
 #endif
 
+/** @name Link-time check of the configuration macros (NatronGitHub/openfx#226)
+
+    OFX_EXTENSIONS_NATRON, OFX_EXTENSIONS_NUKE, OFX_EXTENSIONS_VEGAS, OFX_SUPPORTS_OPENGLRENDER,
+    OFX_SUPPORTS_MULTITHREAD, OFX_SUPPORTS_DIALOG and OFX_USE_STATIC_PLUGINS change the class
+    layouts and the virtual functions (and their parameters, e.g. renderAction()) of HostSupport.
+    A host compiled with another set of these macros than the HostSupport library it links is an
+    ODR violation that compiles, links and then fails at run time (e.g. a call through the wrong
+    vtable slot). (The other macros, e.g. OFX_SUPPORTS_PARAMETRIC or OFX_DEBUG_ACTIONS, only
+    change the library's .cpp files.)
+
+    So that a mismatch fails to link (C++ Core Guidelines P.5, P.7), the library defines one
+    object whose name encodes the set it was compiled with (ofxhImageEffect.cpp), and the inline
+    constructor of ImageEffect::Host, which only the host's code instantiates (the class is
+    abstract; the library never constructs one), reads the object named after the host's set. A
+    host compiled with another set than its HostSupport library gets an undefined symbol such as
+    OFX::Host::Private::hostSupportConfiguration_NATRON1_NUKE1_VEGAS1_OPENGLRENDER1_MULTITHREAD1_DIALOG1_STATICPLUGINS0
+    (the set of the host); `nm -C` on the library shows the set it was compiled with. The fix is
+    to compile both with the same definitions (with CMake, link openfx::HostSupport, whose
+    definitions are usage requirements).
+
+    The read is volatile, so that no optimisation (LTO, MSVC's /OPT:REF, --gc-sections,
+    -dead_strip) can remove the reference. The object is hidden on ELF and Mach-O (HostSupport
+    is a static library), so that a shared object (e.g. the ofxh Python module) can't leave it
+    undefined until load time, and it is not exported. The name must depend on the preprocessor
+    configuration, which only the preprocessor knows: hence these (prefixed, ES.33) macros,
+    despite ES.30 and ES.31.
+    @{ */
+#ifdef OFX_EXTENSIONS_NATRON
+#  define OFXH_CONFIG_NATRON_ NATRON1
+#else
+#  define OFXH_CONFIG_NATRON_ NATRON0
+#endif
+#ifdef OFX_EXTENSIONS_NUKE
+#  define OFXH_CONFIG_NUKE_ NUKE1
+#else
+#  define OFXH_CONFIG_NUKE_ NUKE0
+#endif
+#ifdef OFX_EXTENSIONS_VEGAS
+#  define OFXH_CONFIG_VEGAS_ VEGAS1
+#else
+#  define OFXH_CONFIG_VEGAS_ VEGAS0
+#endif
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+#  define OFXH_CONFIG_OPENGLRENDER_ OPENGLRENDER1
+#else
+#  define OFXH_CONFIG_OPENGLRENDER_ OPENGLRENDER0
+#endif
+#ifdef OFX_SUPPORTS_MULTITHREAD
+#  define OFXH_CONFIG_MULTITHREAD_ MULTITHREAD1
+#else
+#  define OFXH_CONFIG_MULTITHREAD_ MULTITHREAD0
+#endif
+#ifdef OFX_SUPPORTS_DIALOG
+#  define OFXH_CONFIG_DIALOG_ DIALOG1
+#else
+#  define OFXH_CONFIG_DIALOG_ DIALOG0
+#endif
+#ifdef OFX_USE_STATIC_PLUGINS
+#  define OFXH_CONFIG_STATICPLUGINS_ STATICPLUGINS1
+#else
+#  define OFXH_CONFIG_STATICPLUGINS_ STATICPLUGINS0
+#endif
+#define OFXH_CONFIG_NAME2_(a, b, c, d, e, f, g) hostSupportConfiguration_##a##_##b##_##c##_##d##_##e##_##f##_##g
+#define OFXH_CONFIG_NAME_(a, b, c, d, e, f, g) OFXH_CONFIG_NAME2_(a, b, c, d, e, f, g)
+/** @brief The name of the configuration object of the HostSupport library, see above */
+#define OFXH_CONFIGURATION_CHECK \
+  OFXH_CONFIG_NAME_(OFXH_CONFIG_NATRON_, OFXH_CONFIG_NUKE_, OFXH_CONFIG_VEGAS_, \
+                    OFXH_CONFIG_OPENGLRENDER_, OFXH_CONFIG_MULTITHREAD_, OFXH_CONFIG_DIALOG_, \
+                    OFXH_CONFIG_STATICPLUGINS_)
+#if defined(__GNUC__) && !defined(_WIN32) && !defined(__CYGWIN__)
+#  define OFXH_CONFIG_HIDDEN_ __attribute__((visibility("hidden")))
+#else
+#  define OFXH_CONFIG_HIDDEN_
+#endif
+namespace OFX {
+  namespace Host {
+    namespace Private {
+      /** @brief Defined in ofxhImageEffect.cpp, read by the ImageEffect::Host constructor */
+      extern OFXH_CONFIG_HIDDEN_ const int OFXH_CONFIGURATION_CHECK;
+    }
+  }
+}
+/** @} */
+
 namespace OFX {
 
   namespace Host {
@@ -72,7 +156,13 @@ namespace OFX {
       /// An image effect host, passed to the setHost function of all image effect plugins
       class Host : public OFX::Host::Host {
       public :
-        Host();
+        Host()
+        {
+          // fails to link if this host and its HostSupport library were compiled with other
+          // OFX_EXTENSIONS_*/OFX_SUPPORTS_* macros (see OFXH_CONFIGURATION_CHECK)
+          static_cast<void>(*static_cast<const volatile int*>(&OFX::Host::Private::OFXH_CONFIGURATION_CHECK));
+          addImageEffectHostProperties();
+        }
 
         /// fetch a suite
         virtual const void *fetchSuite(const char *suiteName, int suiteVersion);
@@ -232,6 +322,10 @@ namespace OFX {
         /// compiling on this call. Only called if supportsOpenCLProgramSuite() returns true.
         /// The default returns kOfxStatErrUnsupported.
         virtual OfxStatus compileOpenCLProgram(const char *pszProgramSource, int fOptional, void *pResult);
+
+      private :
+        /// the constructor's work, out of line (the host properties are defined in ofxhImageEffect.cpp)
+        void addImageEffectHostProperties();
       };
 
       /// our global host object, set when the plugin cache is created
