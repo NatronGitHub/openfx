@@ -62,18 +62,16 @@ each represent the actions that can be carried out on those particular OFX objec
 #endif
 #include "ofxOld.h" // required for kOfxParamDoubleTypeNormalised*
 
-/** @brief Declares the copy constructor and the copy assignment of CLASS deleted (C++11), or,
-    in C++98, without defining them (C.81; OFXS_DELETE, as the public headers must stay C++98).
-    Used in a protected section: a copy fails to compile outside of CLASS, its derived classes and
-    their friends; inside them and their friends it fails to compile in C++11 and to link in C++98. */
-// (Defining them inline would also make the compiler instantiate member destructors, e.g.
-// std::unique_ptr<ParamInteractDescriptor> with an incomplete type, which C++23 libc++ rejects.)
+/** @brief Nasty macro used to define empty protected copy ctors and assign ops */
+// Declared but not defined: these must never be called. (Defining them inline would make
+// the compiler instantiate member destructors, e.g. std::unique_ptr<ParamInteractDescriptor>
+// with an incomplete type, which C++23 libc++ rejects.)
 #define mDeclareProtectedAssignAndCC(CLASS) \
-  CLASS &operator=(const CLASS &) OFXS_DELETE; \
-  CLASS(const CLASS &) OFXS_DELETE;
+  CLASS &operator=(const CLASS &); \
+  CLASS(const CLASS &);
 #define mDeclareProtectedAssignAndCCBase(CLASS,BASE) \
-  CLASS &operator=(const CLASS &) OFXS_DELETE; \
-  CLASS(const CLASS &) OFXS_DELETE;
+  CLASS &operator=(const CLASS &); \
+  CLASS(const CLASS &);
 
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
  */
@@ -262,7 +260,6 @@ namespace OFX {
     class ParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCC(ParamDescriptor);
-        ParamDescriptor(void); // not defined: never called
 
     protected :
         std::string    _paramName;
@@ -426,7 +423,6 @@ namespace OFX {
     class StringParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(StringParamDescriptor,ValueParamDescriptor);
-        StringParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -450,7 +446,6 @@ namespace OFX {
     class IntParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(IntParamDescriptor,ValueParamDescriptor);
-        IntParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -478,7 +473,6 @@ namespace OFX {
     class Int2DParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(Int2DParamDescriptor,ValueParamDescriptor);
-        Int2DParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -508,7 +502,6 @@ namespace OFX {
     class Int3DParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(Int3DParamDescriptor,ValueParamDescriptor);
-        Int3DParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -539,7 +532,6 @@ namespace OFX {
     class BaseDoubleParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(BaseDoubleParamDescriptor,ValueParamDescriptor);
-        BaseDoubleParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -568,7 +560,6 @@ namespace OFX {
     class DoubleParamDescriptor : public BaseDoubleParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(DoubleParamDescriptor,BaseDoubleParamDescriptor);
-        DoubleParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -599,7 +590,6 @@ namespace OFX {
     class Double2DParamDescriptor : public BaseDoubleParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(Double2DParamDescriptor,BaseDoubleParamDescriptor);
-        Double2DParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -653,7 +643,6 @@ namespace OFX {
     class Double3DParamDescriptor : public BaseDoubleParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(Double3DParamDescriptor,BaseDoubleParamDescriptor);
-        Double3DParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -692,7 +681,6 @@ namespace OFX {
     class RGBParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(RGBParamDescriptor,ValueParamDescriptor);
-        RGBParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -732,7 +720,6 @@ namespace OFX {
     class RGBAParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(RGBAParamDescriptor,ValueParamDescriptor);
-        RGBAParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -773,7 +760,6 @@ namespace OFX {
     class BooleanParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(BooleanParamDescriptor,ValueParamDescriptor);
-        BooleanParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -803,7 +789,6 @@ namespace OFX {
     class ChoiceParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(ChoiceParamDescriptor,ValueParamDescriptor);
-        ChoiceParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -856,7 +841,6 @@ namespace OFX {
     {
     protected :
         mDeclareProtectedAssignAndCCBase(StrChoiceParamDescriptor, ValueParamDescriptor);
-        StrChoiceParamDescriptor(); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -884,7 +868,6 @@ namespace OFX {
     class GroupParamDescriptor : public ParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(GroupParamDescriptor,ParamDescriptor);
-        GroupParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -918,7 +901,6 @@ namespace OFX {
     class PageParamDescriptor : public ParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(PageParamDescriptor,ParamDescriptor);
-        PageParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -948,7 +930,6 @@ namespace OFX {
     class PushButtonParamDescriptor : public ParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(PushButtonParamDescriptor,ParamDescriptor);
-        PushButtonParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1018,7 +999,6 @@ namespace OFX {
     class CustomParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(CustomParamDescriptor,ValueParamDescriptor);
-        CustomParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1043,7 +1023,6 @@ namespace OFX {
     class BytesParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(BytesParamDescriptor,ValueParamDescriptor);
-        BytesParamDescriptor(void); // not defined: never called
 
         std::vector<unsigned char> _defaultData; ///< the default value, kept alive while the plug-in is loaded
         OfxBytes _defaultBytes;                  ///< what kOfxParamPropDefault points to
@@ -1274,7 +1253,6 @@ namespace OFX {
     protected :
         // don't ever use these!
         mDeclareProtectedAssignAndCC(Param);
-        Param(void); // not defined: never called
     
     protected :
         const ParamSet      *_paramSet; // who do I belong to
@@ -1362,7 +1340,6 @@ namespace OFX {
     class ValueParam : public Param {
     protected :
         mDeclareProtectedAssignAndCCBase(ValueParam,Param);
-        ValueParam(void); // not defined: never called
     protected :
         /** @brief hidden constructor */
         ValueParam(const ParamSet *paramSet, const std::string &name, ParamTypeEnum type, OfxParamHandle handle);
@@ -1426,7 +1403,6 @@ namespace OFX {
     class IntParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(IntParam,ValueParam);
-        IntParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1482,7 +1458,6 @@ namespace OFX {
     class Int2DParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(Int2DParam,ValueParam);
-        Int2DParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1551,7 +1526,6 @@ namespace OFX {
     class Int3DParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(Int3DParam,ValueParam);
-        Int3DParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1608,7 +1582,6 @@ namespace OFX {
     class BaseDoubleParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(BaseDoubleParam,ValueParam);
-        BaseDoubleParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1640,7 +1613,6 @@ namespace OFX {
     class DoubleParam : public BaseDoubleParam {
     protected :
         mDeclareProtectedAssignAndCCBase(DoubleParam,BaseDoubleParam);
-        DoubleParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1711,7 +1683,6 @@ namespace OFX {
     class Double2DParam : public BaseDoubleParam {
     protected :
         mDeclareProtectedAssignAndCCBase(Double2DParam,BaseDoubleParam);
-        Double2DParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1786,7 +1757,6 @@ namespace OFX {
     class Double3DParam : public BaseDoubleParam {
     protected :
         mDeclareProtectedAssignAndCCBase(Double3DParam,BaseDoubleParam);
-        Double3DParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1855,7 +1825,6 @@ namespace OFX {
     class RGBParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(RGBParam,ValueParam);
-        RGBParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1900,7 +1869,6 @@ namespace OFX {
     class RGBAParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(RGBAParam,ValueParam);
-        RGBAParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1944,7 +1912,6 @@ namespace OFX {
     class StringParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(StringParam,ValueParam);
-        StringParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1989,7 +1956,6 @@ namespace OFX {
     class ChoiceParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(ChoiceParam,ValueParam);
-        ChoiceParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2075,7 +2041,6 @@ namespace OFX {
     {
     protected :
         mDeclareProtectedAssignAndCCBase(StrChoiceParam, StringParam);
-        StrChoiceParam(); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2106,7 +2071,6 @@ namespace OFX {
     class BooleanParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(BooleanParam,ValueParam);
-        BooleanParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2151,7 +2115,6 @@ namespace OFX {
     class GroupParam : public Param {
     protected :
         mDeclareProtectedAssignAndCCBase(GroupParam,Param);
-        GroupParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2171,7 +2134,6 @@ namespace OFX {
     class PageParam : public Param {
     protected :
         mDeclareProtectedAssignAndCCBase(PageParam,Param);
-        PageParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2187,7 +2149,6 @@ namespace OFX {
     class CustomParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(CustomParam,ValueParam);
-        CustomParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2232,7 +2193,6 @@ namespace OFX {
     class BytesParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(BytesParam,ValueParam);
-        BytesParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2271,7 +2231,6 @@ namespace OFX {
     class PushButtonParam : public Param {
     protected :
         mDeclareProtectedAssignAndCCBase(PushButtonParam,Param);
-        PushButtonParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2287,7 +2246,6 @@ namespace OFX {
     class ParametricParam : public Param {
     private:
         mDeclareProtectedAssignAndCCBase(ParametricParam,Param);
-        ParametricParam(void) {assert( false);}
 
     protected:
         /** @brief hidden constructor */
@@ -2355,7 +2313,6 @@ namespace OFX {
     class CameraParam : public Param {
     private:
         mDeclareProtectedAssignAndCCBase(CameraParam,Param);
-        CameraParam(void); // not defined: never called
 
     protected:
         /** @brief hidden constructor */
@@ -2515,8 +2472,8 @@ namespace OFX {
             }
         private:
             // not copyable: each copy would end the edit block (C.21, R.1)
-            EditBlock(const EditBlock &) OFXS_DELETE;
-            EditBlock &operator=(const EditBlock &) OFXS_DELETE;
+            EditBlock(const EditBlock &); // not defined: not copyable
+            EditBlock &operator=(const EditBlock &); // not defined: not copyable
 
             ParamSet& _paramSet;
             bool _cond;

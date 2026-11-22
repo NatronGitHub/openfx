@@ -175,15 +175,6 @@ struct Ofx3DPointD {
   double x, y, z;
 };
 
-/** @brief "= delete" where available (C++11), e.g. on the copy operations of a non-copyable
-    class (C.81). In C++98 it is empty: the function is declared and never defined, so a copy
-    fails to link instead of failing to compile. */
-#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
-#  define OFXS_DELETE = delete
-#else
-#  define OFXS_DELETE
-#endif
-
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
 */
 namespace OFX {
