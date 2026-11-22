@@ -38,6 +38,7 @@
 #include "ofxhUtilities.h"
 
 #include <iostream>
+#include <new> // std::bad_alloc
 #include <set>
 #if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
 #include <mutex>
@@ -611,6 +612,10 @@ namespace OFX {
         try {
           for (PropertyMap::const_iterator i = other._props.begin(); i != other._props.end(); ++i) {
             Property *copyProp = i->second->deepCopy();
+            if (!copyProp) {
+              // (a host's deepCopy() override that fails without throwing)
+              throw std::bad_alloc();
+            }
             try {
               _props[i->first] = copyProp;
             } catch (...) {

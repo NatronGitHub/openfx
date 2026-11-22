@@ -53,7 +53,9 @@
 #include <stdexcept>
 #include "ofxhPluginAPICache.h"
 #if !defined(_WIN32)
+#include <dlfcn.h> // dlopen(RTLD_NOLOAD) (checkScanThrows)
 #include <fcntl.h> // open (lowestFreeFd)
+#include <sys/stat.h> // mkdir (checkCachedDanglingBinary)
 #include <unistd.h> // close
 #endif
 #ifdef OFX_EXTENSIONS_NUKE
@@ -876,7 +878,9 @@ namespace {
   {
     {
       PluginBinary pb("/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx", "/nonexistent/x.ofx.bundle", 0, 0);
-      check("a cached binary that doesn't exist is invalid, and changed", pb.isInvalid() && pb.hasBinaryChanged());
+      check("a cached binary that doesn't exist (mtime 0, size 0) is invalid, and not changed", pb.isInvalid() && !pb.hasBinaryChanged());
+      PluginBinary pb2("/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx", "/nonexistent/x.ofx.bundle", 1, 2);
+      check("a cached binary that doesn't exist (another mtime and size) is invalid, and changed", pb2.isInvalid() && pb2.hasBinaryChanged());
     }
     std::string missing = cache;
     const size_t invert = missing.find("example-Invert-support.ofx.bundle");
@@ -914,12 +918,104 @@ namespace {
     ImageEffect::gImageEffectHost = &host;
   }
 
+#if !defined(_WIN32)
+  /// a cached binary that is a dangling symlink, recorded in the cache as such (mtime and size 0)
+  /// with a <plugin>: its plug-in is not read, and reading the cache and scanning leave the cache
+  /// clean (dirty() false), so that a host doesn't rewrite it at each launch. The bundle is in a
+  /// directory of its own, the only one in the plug-in path, with the architecture directory of
+  /// the Invert binary of the cache (the one the scan picks if it is the first of the host's).
+  void checkCachedDanglingBinary(MyHost::Host &host, const std::string &cache)
+  {
+    const size_t version = cache.find("<cache version=\"");
+    const size_t versionEnd = version == std::string::npos ? version : cache.find("\">", version);
+    const size_t invert = cache.find("/example-Invert-support.ofx\"");
+    const size_t archEnd = invert == std::string::npos ? invert : cache.rfind('/', invert);
+    const size_t archBegin = archEnd == std::string::npos ? archEnd : cache.rfind('/', archEnd - 1);
+    check("the cache has a version and an Invert binary path", versionEnd != std::string::npos && archBegin != std::string::npos);
+    if (versionEnd == std::string::npos || archBegin == std::string::npos) {
+      return;
+    }
+    const std::string arch = cache.substr(archBegin + 1, archEnd - archBegin - 1);
+    char tmpl[] = "/tmp/suiteHandleChecks.XXXXXX";
+    const char *dirp = mkdtemp(tmpl);
+    check("mkdtemp", dirp != NULL);
+    if (!dirp) {
+      return;
+    }
+    const std::string dir = dirp;
+    const std::string bundle = dir + "/hsqw-dangling.ofx.bundle";
+    const std::string archDir = bundle + "/Contents/" + arch;
+    const std::string binary = archDir + "/hsqw-dangling.ofx";
+    const bool made = mkdir(bundle.c_str(), 0700) == 0 && mkdir((bundle + "/Contents").c_str(), 0700) == 0 &&
+                      mkdir(archDir.c_str(), 0700) == 0 && symlink((dir + "/no-such-file").c_str(), binary.c_str()) == 0;
+    check("a bundle whose binary is a dangling symlink", made);
+    if (made) {
+      const std::string text = cache.substr(version, versionEnd + 2 - version) + "\n<bundle>\n"
+        "  <binary static_bin=\"0\" bundle_path=\"" + bundle + "\" path=\"" + binary + "\" mtime=\"0\" size=\"0\"/>\n"
+        "  <plugin name=\"hsqw.dangling\" index=\"0\" api=\"" kOfxImageEffectPluginApi "\" api_version=\"1\" major_version=\"1\" minor_version=\"0\">\n"
+        "    <apiproperties>\n    </apiproperties>\n  </plugin>\n</bundle>\n</cache>\n";
+      // only this directory in the plug-in path (the constructor reads OFX_PLUGIN_PATH)
+      const char *saved = std::getenv("OFX_PLUGIN_PATH");
+      const std::string savedPath = saved ? saved : "";
+      setenv("OFX_PLUGIN_PATH", dir.c_str(), 1);
+      {
+        ImageEffect::PluginCache otherEffects(&host); // (destroyed after the plug-ins of other)
+        PluginCache other;
+        otherEffects.registerInCache(other);
+        std::istringstream is(text);
+        bool ok = true;
+        try {
+          other.readCache(is);
+        } catch (const std::exception &e) {
+          std::printf("suiteHandleChecks: readCache: %s\n", e.what());
+          ok = false;
+        }
+        const size_t nRead = other.getPlugins().size() + otherEffects.getPlugins().size();
+        other.scanPluginFiles();
+        std::ostringstream rewritten;
+        other.writePluginCache(rewritten);
+        if (rewritten.str().find("path=\"" + binary + "\"") == std::string::npos) {
+          // the host's first architecture directory is not that of the Invert binary
+          std::printf("suiteHandleChecks: the scan doesn't pick %s: the dangling binary checks are skipped\n", binary.c_str());
+        } else {
+          check("a cached dangling binary: its cached plug-in is not read, and the scan finds none",
+                ok && nRead == 0 && other.getPlugins().empty() && otherEffects.getPlugins().empty() &&
+                rewritten.str().find("<plugin ") == std::string::npos);
+          check("a cached dangling binary recorded as such: reading the cache and scanning leave it clean (dirty() false)",
+                ok && !other.dirty());
+        }
+      }
+      if (saved) {
+        setenv("OFX_PLUGIN_PATH", savedPath.c_str(), 1);
+      } else {
+        unsetenv("OFX_PLUGIN_PATH");
+      }
+      ImageEffect::gImageEffectHost = &host;
+    }
+    unlink(binary.c_str());
+    rmdir(archDir.c_str());
+    rmdir((bundle + "/Contents").c_str());
+    rmdir(bundle.c_str());
+    rmdir(dir.c_str());
+  }
+#endif
+
   /// an image effect API cache whose newPlugin() throws, as when it runs out of memory
   class ThrowingEffectsCache : public ImageEffect::PluginCache {
   public:
-    explicit ThrowingEffectsCache(ImageEffect::Host *host) : ImageEffect::PluginCache(host) {}
+    std::string throwFor;  ///< the file of the binary whose plug-ins make it throw (empty: all)
+    std::string thrownFor; ///< the file of the binary whose plug-in made it throw
+    explicit ThrowingEffectsCache(ImageEffect::Host *host, const std::string &binary)
+      : ImageEffect::PluginCache(host), throwFor(binary) {}
     using ImageEffect::PluginCache::newPlugin;
-    virtual Plugin *newPlugin(PluginBinary *, int, OfxPlugin *) { throw std::bad_alloc(); }
+    virtual Plugin *newPlugin(PluginBinary *pb, int pi, OfxPlugin *plug)
+    {
+      if (!throwFor.empty() && pb->getFilePath() != throwFor) {
+        return ImageEffect::PluginCache::newPlugin(pb, pi, plug);
+      }
+      thrownFor = pb->getFilePath();
+      throw std::bad_alloc();
+    }
   };
 
 #if !defined(_WIN32)
@@ -934,16 +1030,53 @@ namespace {
   }
 #endif
 
+  /// A binary of the cache that is not loaded and that the system unloads after a dlopen() and
+  /// a dlclose() (macOS never unloads an image with thread-local variables, e.g. the Support
+  /// library's plug-ins; glibc keeps a library with GNU unique symbols), or "" (none, or Windows)
+  std::string unloadableBinary(const std::string &cache)
+  {
+#if !defined(_WIN32)
+    const std::string attr = " path=\"";
+    for (size_t b = cache.find("<binary "); b != std::string::npos; b = cache.find("<binary ", b + 1)) {
+      const size_t p = cache.find(attr, b);
+      const size_t e = p == std::string::npos ? p : cache.find('"', p + attr.size());
+      if (e == std::string::npos) {
+        break;
+      }
+      const std::string path = cache.substr(p + attr.size(), e - p - attr.size());
+      if (void *h = dlopen(path.c_str(), RTLD_LAZY | RTLD_NOLOAD)) {
+        dlclose(h); // loaded: something holds it
+        continue;
+      }
+      void *h = dlopen(path.c_str(), RTLD_LAZY | RTLD_LOCAL);
+      if (!h) {
+        continue;
+      }
+      dlclose(h);
+      if (void *still = dlopen(path.c_str(), RTLD_LAZY | RTLD_NOLOAD)) {
+        dlclose(still); // not unloadable
+        continue;
+      }
+      return path;
+    }
+#else
+    (void)cache;
+#endif
+    return std::string();
+  }
+
   /// NatronGitHub/openfx#232: a scan that throws (here from the API cache, while a binary that is
-  /// not in the cache is scanned) closes the directories it opened, and keeps no binary
-  void checkScanThrows(MyHost::Host &host)
+  /// not in the cache, and that the system can unload, is scanned) closes the directories it
+  /// opened, keeps no binary that threw, and unloads it
+  void checkScanThrows(MyHost::Host &host, const std::string &binary)
   {
 #if !defined(_WIN32)
     const int fd = lowestFreeFd();
 #endif
     bool thrown = false;
+    std::string thrownFor;
     {
-      ThrowingEffectsCache throwingEffects(&host); // (destroyed after the plug-ins of other)
+      ThrowingEffectsCache throwingEffects(&host, binary); // (throws for that binary, or all if "") // (destroyed after the plug-ins of other)
       PluginCache other;
       throwingEffects.registerInCache(other);
       try {
@@ -951,14 +1084,30 @@ namespace {
       } catch (const std::bad_alloc &) {
         thrown = true;
       }
+      thrownFor = throwingEffects.thrownFor;
       std::ostringstream written;
       other.writePluginCache(written);
-      // (the binaries scanned before the throw, which have no image effect plug-in, may be kept)
-      check("a scan that throws: the exception reaches the caller, and no plug-in is kept",
-            thrown && written.str().find("<plugin ") == std::string::npos && other.getPlugins().empty());
+      // (the binaries scanned before the throw are kept, the one that threw is not)
+      check("a scan that throws: the exception reaches the caller, and the binary that threw is not kept",
+            thrown && !thrownFor.empty() && written.str().find("path=\"" + thrownFor + "\"") == std::string::npos &&
+            other.getPlugins().empty());
     }
 #if !defined(_WIN32)
     check("a scan that throws closes the directories it opened", lowestFreeFd() == fd);
+    // and unloads the binary it was scanning, if nothing else held it before the scan (else the
+    // check would say nothing, and is skipped)
+    check("a scan that throws: a binary was being scanned", !thrownFor.empty());
+    if (!thrownFor.empty()) {
+      if (binary.empty()) {
+        std::printf("suiteHandleChecks: no binary of the cache can be unloaded: the unload check is skipped\n");
+      } else {
+        void *h = dlopen(thrownFor.c_str(), RTLD_LAZY | RTLD_NOLOAD);
+        check(("a scan that throws unloads the binary it was scanning (" + thrownFor + ")").c_str(), h == NULL);
+        if (h) {
+          dlclose(h); // (the reference that RTLD_NOLOAD took)
+        }
+      }
+    }
 #endif
     ImageEffect::gImageEffectHost = &host;
   }
@@ -1112,8 +1261,11 @@ namespace {
     if (!cache.empty()) {
       checkChangedBinary(host, cache, pluginId, nInvert);
       checkCachedInvalidBinary(host, cache);
+#if !defined(_WIN32)
+      checkCachedDanglingBinary(host, cache);
+#endif
     }
-    checkScanThrows(host);
+    checkScanThrows(host, unloadableBinary(cache));
   }
 }
 

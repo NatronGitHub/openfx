@@ -404,7 +404,13 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
         continue;
       }
       
-      _plugins.push_back(api->newPlugin(this, i, plug));
+      Plugin *p = api->newPlugin(this, i, plug);
+      try {
+        _plugins.push_back(p); // (no reallocation after the reserve() above, but be safe)
+      } catch (...) {
+        delete p;
+        throw;
+      }
     }
   }
 }
@@ -416,8 +422,13 @@ PluginBinary::~PluginBinary() {
 void PluginBinary::destroyPlugins() {
   std::vector<Plugin*>::iterator i = _plugins.begin();
   while (i != _plugins.end()) {
-    const APICache::PluginAPICacheI &api = (*i)->getApiHandler();
-    api.unloadPlugin(*i);
+    // cleanup must not throw (it runs in the destructor, and while an exception is handled:
+    // E.16, C.36): an exception from the plug-in's unload is dropped
+    try {
+      const APICache::PluginAPICacheI &api = (*i)->getApiHandler();
+      api.unloadPlugin(*i);
+    } catch (...) {
+    }
     delete *i;
     i++;
   }
@@ -865,7 +876,14 @@ void PluginCache::scanPluginFiles()
       if (binChanged) {
         // The static PluginBinary already had loadPluginInfo called anyway at this point
         if (!pb->isStaticallyLinkedPlugin()) {
-          pb->loadPluginInfo(this);
+          try {
+            pb->loadPluginInfo(this);
+          } catch (...) {
+            // unload the binary (the reference loadPluginInfo() took); pb stays in _binaries,
+            // owned by the cache, and is scanned again at the next scan (still changed)
+            pb->releaseScanReference();
+            throw;
+          }
         }
         _dirty = true;
       }
@@ -1049,7 +1067,9 @@ void PluginCache::elementBeginCallback(void */*userData*/, const XML_Char *name,
     return;
   }
   
-  if (ename == "plugin" && _xmlCurrentBinary && !_xmlCurrentBinary->hasBinaryChanged()) {
+  // (the plug-ins of a changed binary are scanned again, and a binary that can't be stat()ed has none)
+  if (ename == "plugin" && _xmlCurrentBinary && !_xmlCurrentBinary->hasBinaryChanged() &&
+      !_xmlCurrentBinary->isInvalid()) {
     const char *plugAtts[] = {"api", "name", "index", "api_version", "major_version", "minor_version", NULL};
     
     if (!mapHasAll(attmap, plugAtts)) {

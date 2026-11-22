@@ -29,6 +29,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <ctype.h>
 #include <stdlib.h>
 
 #include <string>
@@ -74,19 +75,20 @@ namespace OFX
         return it == map.end() ? std::string() : it->second;
       }
 
-      /// a non-negative integer attribute (strtol: the whole string, in range): a malformed one
-      /// is a corrupt cache, which throws
+      /// a non-negative integer attribute: decimal digits only (no sign, no space), in the range
+      /// of long. A malformed one is a corrupt cache, which throws.
       static long nonNegativeAttribute(const std::map<std::string, std::string> &map, const char *name)
       {
         const std::string str = attributeValue(map, name);
+        // (strtol would accept leading spaces, a '+' and a '-')
+        if (str.empty() || !isdigit(static_cast<unsigned char>(str[0]))) {
+          throw std::runtime_error(std::string("malformed plugin cache: bad property ") + name);
+        }
         char *end = NULL;
         errno = 0;
         const long value = strtol(str.c_str(), &end, 10);
-        if (str.empty() || *end != '\0' || errno == ERANGE) {
+        if (*end != '\0' || errno == ERANGE) {
           throw std::runtime_error(std::string("malformed plugin cache: bad property ") + name);
-        }
-        if (value < 0) {
-          throw std::runtime_error(std::string("malformed plugin cache: negative property ") + name);
         }
         return value;
       }
