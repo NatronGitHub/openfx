@@ -128,7 +128,8 @@ namespace OFX
     ofxsImageEffect.cpp. The other translation units of the plug-in (and of the library) must
     still be compiled with the same definitions; e.g. a definition added for some files only,
     such as openfx-io's per-directory -DOFX_SUPPORTS_OPENGLRENDER, must also be given to every
-    other file of the same bundle, the Support sources included.
+    other file of the same bundle, the Support sources included (openfx-io does: each of its
+    directories builds one bundle with its own Support objects).
 
     The read is volatile, so that no optimisation (LTO, MSVC's /OPT:REF, --gc-sections,
     -dead_strip) can remove the reference, and it runs in code that every plug-in executes. This
