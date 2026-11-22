@@ -217,12 +217,19 @@ namespace OFX {
     OfxPlugin* _plug;
   };
   typedef std::map<std::string, OfxPlugInfo> OfxPlugInfoMap;
-  OfxPlugInfoMap plugInfoMap;
+  // The plug-ins of this binary, filled by OFX::Private::init() (OfxGetNumberOfPlugins) and never
+  // restructured afterwards: kOfxActionUnload only clears an entry (see unloadAction), so that
+  // mainEntryStr can look them up from any thread without a lock. Internal linkage (I.2, I.22).
+  static OfxPlugInfoMap plugInfoMap;
 
   typedef std::vector<OfxPlugin*> OfxPluginArray;
-  OfxPluginArray ofxPlugs;
+  static OfxPluginArray ofxPlugs;
 
   /** @brief the global host description */
+  // External linkage: SupportExt (ofxsThreadSuite.cpp) declares gHostDescription, and
+  // Support/tests/DrawContextOpenGLTest.cpp gHostDescriptionHasInit. Written only by the first
+  // load action of a plug-in of the binary (the loads of the other plug-ins don't write them) and
+  // reset by the last unload action, so reading them from other actions needs no lock.
   ImageEffectHostDescription gHostDescription;
   bool gHostDescriptionHasInit = false;
 
@@ -308,7 +315,7 @@ namespace OFX {
 
     // @brief the set of descriptors, one per context used by kOfxActionDescribeInContext,
     //'eContextNone' is the one used by the kOfxActionDescribe
-    EffectDescriptorMap gEffectDescriptors;
+    static EffectDescriptorMap gEffectDescriptors;
 
     // Create the entries of a plug-in in gEffectDescriptors, one per context, with NULL
     // descriptors. Called from init(), before any action: afterwards, describe and unload only
@@ -4665,7 +4672,8 @@ namespace OFX {
       return OFX::PropertySet(propHandle);
     }
 
-    /** @brief Keeps count of how many times load/unload have been called */
+    /** @brief Keeps count of how many times load/unload have been called.
+        External linkage: SupportExt (ofxsThreadSuite.cpp) declares it. */
     int gLoadCount = 0;
 
     /** @brief Library side load action, this fetches all the suite pointers */

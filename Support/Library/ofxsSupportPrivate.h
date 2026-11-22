@@ -53,6 +53,15 @@ England
 namespace OFX {
 
   namespace Private {
+    // The host pointer below is set by setHost(), and the suite pointers by the first
+    // kOfxActionLoad of a plug-in of the binary (gLoadCount 0), and they are reset by the last
+    // kOfxActionUnload (gLoadCount back to 0). kOfxActionLoad is sent per plug-in, so the load of
+    // a later plug-in may overlap the actions of instances of a plug-in loaded before: it doesn't
+    // fetch the suites again, and the other actions read them without a lock. The exception is
+    // gThreadSuite: SupportExt's ofxsThreadSuiteCheck() (ofxsThreadSuite.cpp), which plug-ins call
+    // in their load(), may replace it, in each plug-in's load. They have external linkage because
+    // the Support files share them, and SupportExt declares gThreadSuite and gLoadCount.
+
     /** @brief Pointer to the host */
     extern OfxHost *gHost;
 
@@ -164,7 +173,6 @@ namespace OFX {
     };
       
     typedef std::map<VersionIDKey, EffectContextMap> EffectDescriptorMap;
-    extern EffectDescriptorMap gEffectDescriptors;
 
     /** @brief How the overlay of a draw action was registered (DrawArgs::_overlayRegistration) */
     enum OverlayRegistrationEnum {

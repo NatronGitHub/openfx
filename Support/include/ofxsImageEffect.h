@@ -2310,6 +2310,9 @@ namespace OFX {
     /** @brief Fetch the named clip from this instance
 
     The returned clip \em must not be deleted by the client code. This is all managed by the ImageEffect itself.
+
+    The first fetch of a clip inserts it into an unsynchronized map: fetch the clips in the
+    constructor of the effect, as for the parameters (see ParamSet).
     */
     Clip *fetchClip(const std::string &name);
 
@@ -2317,6 +2320,7 @@ namespace OFX {
     /** @brief Fetch the named camera from this instance
 
     The returned camera param \em must not be deleted by the client code. This is all managed by the ImageEffect itself.
+    The first fetch of a camera inserts it into an unsynchronized map, as fetchClip() does.
     */
     Camera* fetchCamera(const std::string& name);
 #endif
