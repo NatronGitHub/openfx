@@ -80,6 +80,17 @@ namespace OFX {
   namespace Host {
 
     namespace ImageEffect {
+
+      // The per-clip properties of the action arguments are named by a prefix followed by the clip
+      // name, e.g. "OfxImageClipPropRoI_Source" for the Source clip (ofxImageEffect.h).
+      static const char kClipPropRoIPrefix[] = "OfxImageClipPropRoI_";
+      static const char kClipPropFrameRangePrefix[] = "OfxImageClipPropFrameRange_";
+#     ifdef OFX_EXTENSIONS_NUKE
+      static const char kClipPropFrameRangeViewPrefix[] = "OfxImageClipPropFrameRangeView_";
+#     endif
+      static const char kClipPropComponentsPrefix[] = "OfxImageClipPropComponents_";
+      static const char kClipPropDepthPrefix[] = "OfxImageClipPropDepth_";
+      static const char kClipPropPARPrefix[] = "OfxImageClipPropPAR_";
       
       /// properties common on an effect and a descriptor
       static const Property::PropSpec effectDescriptorStuff[] = {
@@ -936,19 +947,6 @@ namespace OFX {
       }
 
 
-      /// Copy the first n values of a dim-dimensional hooked property to the
-      /// caller's buffer: propGet*N only gives room for indices 0..n-1.
-      template<class T>
-      static void copyHookValuesN(T *dst, const T *src, int n, int dim)
-      {
-        if (n < 0 || n > dim) {
-          throw Property::Exception(kOfxStatErrBadIndex);
-        }
-        for (int i = 0; i < n; ++i) {
-          dst[i] = src[i];
-        }
-      }
-
       // get the virutals for viewport size, pixel scale, background colour
       double Instance::getDoubleProperty(const std::string &name, int index) const OFX_EXCEPTION_SPEC
       {
@@ -992,27 +990,27 @@ namespace OFX {
         double values[2];
         if(name==kOfxImageEffectPropProjectSize){
           getProjectSize(values[0],values[1]);
-          copyHookValuesN(first, values, n, 2);
+          Property::copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectOffset){
           getProjectOffset(values[0],values[1]);
-          copyHookValuesN(first, values, n, 2);
+          Property::copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectExtent){
           getProjectExtent(values[0],values[1]);
-          copyHookValuesN(first, values, n, 2);
+          Property::copyHookValuesN(first, values, n, 2);
         }
         else if(name==kOfxImageEffectPropProjectPixelAspectRatio){
           values[0] = getProjectPixelAspectRatio();
-          copyHookValuesN(first, values, n, 1);
+          Property::copyHookValuesN(first, values, n, 1);
         }
         else if(name==kOfxImageEffectInstancePropEffectDuration){
           values[0] = getEffectDuration();
-          copyHookValuesN(first, values, n, 1);
+          Property::copyHookValuesN(first, values, n, 1);
         }
         else if(name==kOfxImageEffectPropFrameRate){
           values[0] = getFrameRate();
-          copyHookValuesN(first, values, n, 1);
+          Property::copyHookValuesN(first, values, n, 1);
         }
         else
           throw Property::Exception(kOfxStatErrUnknown);
@@ -2231,7 +2229,7 @@ namespace OFX {
 #             endif
               getContext() == kOfxImageEffectContextGenerator) {
             Property::PropSpec s;
-            std::string name = "OfxImageClipPropRoI_"+it->first;
+            std::string name = kClipPropRoIPrefix + it->first;
 
             s.name = name.c_str();
             s.type = Property::eDouble;
@@ -2276,7 +2274,7 @@ namespace OFX {
           for(std::map<std::string, ClipInstance*>::iterator it=_clips.begin();
               it!=_clips.end();
               ++it) {
-            std::string name = "OfxImageClipPropRoI_"+it->first;
+            std::string name = kClipPropRoIPrefix + it->first;
             OfxRectD thisRoi;
             thisRoi.x1 = outArgs.getDoubleProperty(name,0);
             thisRoi.y1 = outArgs.getDoubleProperty(name,1);
@@ -2298,7 +2296,7 @@ namespace OFX {
               getContext() == kOfxImageEffectContextGenerator) {
             if (it->second->isOutput() || it->second->getConnected()) { // needed to be able to fetch the RoD
                   
-              std::string name = "OfxImageClipPropRoI_"+it->first;
+              std::string name = kClipPropRoIPrefix + it->first;
               OfxRectD thisRoi;
               thisRoi.x1 = outArgs.getDoubleProperty(name,0);
               thisRoi.y1 = outArgs.getDoubleProperty(name,1);
@@ -2484,7 +2482,7 @@ namespace OFX {
                ++it) {
               if (!it->second->isOutput()) {
                   Property::PropSpec s;
-                  std::string name = "OfxImageClipPropFrameRangeView_" + it->first;
+                  std::string name = kClipPropFrameRangeViewPrefix + it->first;
                   
                   s.name = name.c_str();
                   s.type = Property::eDouble;
@@ -2516,7 +2514,7 @@ namespace OFX {
               for(std::map<std::string, ClipInstance*>::iterator it=_clips.begin();
                   it!=_clips.end();
                   ++it) {
-                  std::string name = "OfxImageClipPropFrameRangeView_" + it->first;
+                  std::string name = kClipPropFrameRangeViewPrefix + it->first;
                   std::cout << it->first << "->[";
                   
                   int nRanges = outArgs.getDimension(name);
@@ -2562,7 +2560,7 @@ namespace OFX {
                   
                   std::map<int,std::vector<OfxRangeD> > frameViewMap;
                   
-                  std::string name = "OfxImageClipPropFrameRangeView_" + it->first;
+                  std::string name = kClipPropFrameRangeViewPrefix + it->first;
                   int nRanges = outArgs.getDimension(name);
                   for (int r = 0 ; r < nRanges; ){
                       OfxRangeD range;
@@ -2624,7 +2622,7 @@ namespace OFX {
               ++it) {
             if(!it->second->isOutput()) {
               Property::PropSpec s;
-              std::string name = "OfxImageClipPropFrameRange_"+it->first;
+              std::string name = kClipPropFrameRangePrefix + it->first;
               
               s.name = name.c_str();
               s.type = Property::eDouble;
@@ -2657,7 +2655,7 @@ namespace OFX {
                     ClipInstance *clip = it->second;
 
                     if(!clip->isOutput()) {
-                        std::string name = "OfxImageClipPropFrameRange_"+it->first;
+                        std::string name = kClipPropFrameRangePrefix + it->first;
                         std::cout << it->first << "->[";
 
                         int nRanges = outArgs.getDimension(name);
@@ -2692,7 +2690,7 @@ namespace OFX {
               rangeMap[clip].push_back(defaultRange);
             }
             else {
-              std::string name = "OfxImageClipPropFrameRange_"+it->first;
+              std::string name = kClipPropFrameRangePrefix + it->first;
           
               int nRanges = outArgs.getDimension(name);
               if(nRanges%2 != 0)
@@ -3068,9 +3066,9 @@ namespace OFX {
             ++it) {
           ClipInstance *clip = it->second;
 
-          std::string componentParamName = "OfxImageClipPropComponents_"+it->first;
-          std::string depthParamName     = "OfxImageClipPropDepth_"+it->first;
-          std::string parParamName       = "OfxImageClipPropPAR_"+it->first;
+          std::string componentParamName = kClipPropComponentsPrefix + it->first;
+          std::string depthParamName     = kClipPropDepthPrefix + it->first;
+          std::string parParamName       = kClipPropPARPrefix + it->first;
 
           Property::PropSpec specComp = {componentParamName.c_str(),  Property::eString, 0, false,          ""}; // note the support for multi-planar clips
           outArgs.createProperty(specComp);
@@ -3171,9 +3169,9 @@ namespace OFX {
             ++it) {
             ClipInstance *clip = it->second;
 
-            std::string componentParamName = "OfxImageClipPropComponents_"+it->first;
-            std::string depthParamName = "OfxImageClipPropDepth_"+it->first;
-            std::string parParamName = "OfxImageClipPropPAR_"+it->first;
+            std::string componentParamName = kClipPropComponentsPrefix + it->first;
+            std::string depthParamName = kClipPropDepthPrefix + it->first;
+            std::string parParamName = kClipPropPARPrefix + it->first;
 
 #       ifdef OFX_DEBUG_ACTIONS
             std::cout << it->first<<"->"<<outArgs.getStringProperty(depthParamName)<<","<<outArgs.getStringProperty(componentParamName)<<","<<outArgs.getDoubleProperty(parParamName)<<" ";

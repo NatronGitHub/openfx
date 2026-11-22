@@ -272,19 +272,6 @@ namespace OFX {
       }
 
 
-      /// Copy the first n values of a dim-dimensional hooked property to the
-      /// caller's buffer: propGet*N only gives room for indices 0..n-1.
-      template<class T>
-      static void copyHookValuesN(T *dst, const T *src, int n, int dim)
-      {
-        if (n < 0 || n > dim) {
-          throw Property::Exception(kOfxStatErrBadIndex);
-        }
-        for (int i = 0; i < n; ++i) {
-          dst[i] = src[i];
-        }
-      }
-
       double Instance::getDoubleProperty(const std::string &name, int index) const OFX_EXCEPTION_SPEC
       {   
         if (index < 0) throw Property::Exception(kOfxStatErrBadIndex);
@@ -334,11 +321,11 @@ namespace OFX {
         double values[3];
         if(name == kOfxInteractPropPixelScale){
           getPixelScale(values[0],values[1]);
-          copyHookValuesN(first, values, n, 2);
+          Property::copyHookValuesN(first, values, n, 2);
         }
         else if(name == kOfxInteractPropBackgroundColour){
           getBackgroundColour(values[0],values[1],values[2]);
-          copyHookValuesN(first, values, n, 3);
+          Property::copyHookValuesN(first, values, n, 3);
         }
         else if(name == kOfxInteractPropSuggestedColour
 #ifdef OFX_EXTENSIONS_NUKE
@@ -347,18 +334,18 @@ namespace OFX {
                 ){
           bool stat = getSuggestedColour(values[0],values[1],values[2]);
           if (!stat) throw Property::Exception(kOfxStatReplyDefault);
-          copyHookValuesN(first, values, n, 3);
+          Property::copyHookValuesN(first, values, n, 3);
         }
 #ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
         else if(name == kOfxInteractPropViewportSize){
           getViewportSize(values[0],values[1]);
-          copyHookValuesN(first, values, n, 2);
+          Property::copyHookValuesN(first, values, n, 2);
         }
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
         else if (name == kOfxInteractPropScreenPixelRatio) {
           values[0] = getScreenPixelRatio();
-          copyHookValuesN(first, values, n, 1);
+          Property::copyHookValuesN(first, values, n, 1);
         }
 #endif
         else
@@ -540,17 +527,18 @@ namespace OFX {
         return kOfxStatErrMissingHostFeature;
       }
 
-      OfxStatus Instance::penMotionAction(OfxTime time,
-                                          const OfxPointD &renderScale,
+      OfxStatus Instance::penAction(const char *action,
+                                    OfxTime time,
+                                    const OfxPointD &renderScale,
 #ifdef OFX_EXTENSIONS_NUKE
-                                          int view,
+                                    int view,
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
-                                          const OfxRGBAColourD* colourPicker,
+                                    const OfxRGBAColourD* colourPicker,
 #endif
-                                          const OfxPointD &penPos,
-                                          const OfxPointI &penPosViewport,
-                                          double  pressure)
+                                    const OfxPointD &penPos,
+                                    const OfxPointI &penPosViewport,
+                                    double pressure)
       {
         if ( OFX::IsNaN(time) ) {
           return kOfxStatErrValue;
@@ -566,11 +554,66 @@ namespace OFX {
 #endif
                     );
         setPenArgProps(penPos, penPosViewport, pressure);
-        OfxStatus st = callEntry(kOfxInteractActionPenMotion,&_argProperties);
+        OfxStatus st = callEntry(action, &_argProperties);
 #ifdef OFX_EXTENSIONS_NATRON
         notifyCursor(st);
 #endif
         return st;
+      }
+
+      OfxStatus Instance::keyAction(const char *action,
+                                    OfxTime time,
+                                    const OfxPointD &renderScale,
+#ifdef OFX_EXTENSIONS_NUKE
+                                    int view,
+#endif
+#ifdef OFX_EXTENSIONS_NATRON
+                                    const OfxRGBAColourD* colourPicker,
+#endif
+                                    int key,
+                                    char* keyString)
+      {
+        if ( OFX::IsNaN(time) ) {
+          return kOfxStatErrValue;
+        }
+        initArgProp(_argProperties,
+                    time,
+                    renderScale
+#ifdef OFX_EXTENSIONS_NUKE
+                    , view
+#endif
+#ifdef OFX_EXTENSIONS_NATRON
+                    , colourPicker
+#endif
+                    );
+        setKeyArgProps(key, keyString);
+        OfxStatus st = callEntry(action, &_argProperties);
+#ifdef OFX_EXTENSIONS_NATRON
+        notifyCursor(st);
+#endif
+        return st;
+      }
+
+      OfxStatus Instance::penMotionAction(OfxTime time,
+                                          const OfxPointD &renderScale,
+#ifdef OFX_EXTENSIONS_NUKE
+                                          int view,
+#endif
+#ifdef OFX_EXTENSIONS_NATRON
+                                          const OfxRGBAColourD* colourPicker,
+#endif
+                                          const OfxPointD &penPos,
+                                          const OfxPointI &penPosViewport,
+                                          double  pressure)
+      {
+        return penAction(kOfxInteractActionPenMotion, time, renderScale,
+#ifdef OFX_EXTENSIONS_NUKE
+                         view,
+#endif
+#ifdef OFX_EXTENSIONS_NATRON
+                         colourPicker,
+#endif
+                         penPos, penPosViewport, pressure);
       }
 
       OfxStatus Instance::penUpAction(OfxTime time,
@@ -585,25 +628,14 @@ namespace OFX {
                                       const OfxPointI &penPosViewport,
                                       double pressure)
       {
-        if ( OFX::IsNaN(time) ) {
-          return kOfxStatErrValue;
-        }
-        initArgProp(_argProperties,
-                    time,
-                    renderScale
+        return penAction(kOfxInteractActionPenUp, time, renderScale,
 #ifdef OFX_EXTENSIONS_NUKE
-                    , view
+                         view,
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
-                    , colourPicker
+                         colourPicker,
 #endif
-                    );
-        setPenArgProps(penPos, penPosViewport, pressure);
-        OfxStatus st = callEntry(kOfxInteractActionPenUp,&_argProperties);
-#ifdef OFX_EXTENSIONS_NATRON
-        notifyCursor(st);
-#endif
-        return st;
+                         penPos, penPosViewport, pressure);
       }
 
       OfxStatus Instance::penDownAction(OfxTime time,
@@ -618,25 +650,14 @@ namespace OFX {
                                         const OfxPointI &penPosViewport,
                                         double pressure)
       {
-        if ( OFX::IsNaN(time) ) {
-          return kOfxStatErrValue;
-        }
-        initArgProp(_argProperties,
-                    time,
-                    renderScale
+        return penAction(kOfxInteractActionPenDown, time, renderScale,
 #ifdef OFX_EXTENSIONS_NUKE
-                    , view
+                         view,
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
-                    , colourPicker
+                         colourPicker,
 #endif
-                    );
-        setPenArgProps(penPos, penPosViewport, pressure);
-        OfxStatus st = callEntry(kOfxInteractActionPenDown,&_argProperties);
-#ifdef OFX_EXTENSIONS_NATRON
-        notifyCursor(st);
-#endif
-        return st;
+                         penPos, penPosViewport, pressure);
       }
 
       OfxStatus Instance::keyDownAction(OfxTime time,
@@ -650,25 +671,14 @@ namespace OFX {
                                         int     key,
                                         char*   keyString)
       {
-        if ( OFX::IsNaN(time) ) {
-          return kOfxStatErrValue;
-        }
-        initArgProp(_argProperties,
-                    time,
-                    renderScale
+        return keyAction(kOfxInteractActionKeyDown, time, renderScale,
 #ifdef OFX_EXTENSIONS_NUKE
-                    , view
+                         view,
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
-                    , colourPicker
+                         colourPicker,
 #endif
-                    );
-        setKeyArgProps(key, keyString);
-        OfxStatus st = callEntry(kOfxInteractActionKeyDown,&_argProperties);
-#ifdef OFX_EXTENSIONS_NATRON
-        notifyCursor(st);
-#endif
-        return st;
+                         key, keyString);
       }
 
       OfxStatus Instance::keyUpAction(OfxTime time,
@@ -682,25 +692,14 @@ namespace OFX {
                                       int     key,
                                       char*   keyString)
       {
-        if ( OFX::IsNaN(time) ) {
-          return kOfxStatErrValue;
-        }
-        initArgProp(_argProperties,
-                    time,
-                    renderScale
+        return keyAction(kOfxInteractActionKeyUp, time, renderScale,
 #ifdef OFX_EXTENSIONS_NUKE
-                    , view
+                         view,
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
-                    , colourPicker
+                         colourPicker,
 #endif
-                    );
-        setKeyArgProps(key, keyString);
-        OfxStatus st = callEntry(kOfxInteractActionKeyUp,&_argProperties);
-#ifdef OFX_EXTENSIONS_NATRON
-        notifyCursor(st);
-#endif
-        return st;
+                         key, keyString);
       }
 
       OfxStatus Instance::keyRepeatAction(OfxTime time,
@@ -714,25 +713,14 @@ namespace OFX {
                                           int     key,
                                           char*   keyString)
       {
-        if ( OFX::IsNaN(time) ) {
-          return kOfxStatErrValue;
-        }
-        initArgProp(_argProperties,
-                    time,
-                    renderScale
+        return keyAction(kOfxInteractActionKeyRepeat, time, renderScale,
 #ifdef OFX_EXTENSIONS_NUKE
-                    , view
+                         view,
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
-                    , colourPicker
+                         colourPicker,
 #endif
-                    );
-        setKeyArgProps(key, keyString);
-        OfxStatus st = callEntry(kOfxInteractActionKeyRepeat,&_argProperties);
-#ifdef OFX_EXTENSIONS_NATRON
-        notifyCursor(st);
-#endif
-        return st;
+                         key, keyString);
       }
       
       OfxStatus Instance::gainFocusAction(OfxTime time,

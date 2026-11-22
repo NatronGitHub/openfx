@@ -103,6 +103,21 @@ namespace OFX {
         }
       };
 
+      /// Copy the first n values of a dim-dimensional property computed by a GetHook to the
+      /// caller's buffer: propGet*N only gives room for indices 0..n-1. Throws
+      /// kOfxStatErrBadIndex if n is not in [0, dim]. For the GetHook overrides of HostSupport
+      /// (and of hosts): the image effect, clip and interact instances.
+      template<class T>
+      inline void copyHookValuesN(T *dst, const T *src, int n, int dim)
+      {
+        if (n < 0 || n > dim) {
+          throw Exception(kOfxStatErrBadIndex);
+        }
+        for (int i = 0; i < n; ++i) {
+          dst[i] = src[i];
+        }
+      }
+
       /// type of a property
       enum TypeEnum {
         eNone = -1,
