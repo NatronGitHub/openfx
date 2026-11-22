@@ -67,7 +67,7 @@ namespace OFX
 
   private :
     // not copyable (C++98 style: private and not defined): the destructor unloads the library,
-    // so that a copy would unload it twice (C.21, C.67)
+    // so that a copy would unload it twice (C.21)
     Binary(const Binary &);
     Binary &operator=(const Binary &);
 
