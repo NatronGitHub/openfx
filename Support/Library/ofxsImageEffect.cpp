@@ -217,9 +217,9 @@ namespace OFX {
     OfxPlugin* _plug;
   };
   typedef std::map<std::string, OfxPlugInfo> OfxPlugInfoMap;
-  // The plug-ins of this binary, filled by OFX::Private::init() (OfxGetNumberOfPlugins) and never
+  // The plug-ins of this binary, filled by init() (OfxGetNumberOfPlugins) and never
   // restructured afterwards: kOfxActionUnload only clears an entry (see unloadAction), so that
-  // mainEntryStr can look them up from any thread without a lock. Internal linkage (I.2, I.22).
+  // mainEntryStr can look them up from any thread without a lock. Internal linkage (I.2, SF.22).
   static OfxPlugInfoMap plugInfoMap;
 
   typedef std::vector<OfxPlugin*> OfxPluginArray;
