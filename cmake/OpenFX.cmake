@@ -163,10 +163,12 @@ set(OFX_PLUGIN_RPATH "" CACHE STRING "Extra install rpath directories of the plu
 # (BUILD_WITH_INSTALL_RPATH). Otherwise CMake gives the build-tree binary its build rpath, padded
 # with ':' to the length of the install rpath so that `cmake --install` can rewrite it in place:
 # the empty entries mean the current directory to the loader. ON, the build-tree and installed
-# binaries have the same RUNPATH, and nothing is rewritten at install. Turn it OFF for a project
-# whose plug-ins, run from the build tree, need a shared library that the project builds, or one
-# in a prefix inside the source or build tree that is not in RPATH or OFX_PLUGIN_RPATH (the install
-# rpath has neither)
+# binaries have the same RUNPATH, and nothing is rewritten at install. While it is ON, BUILD_RPATH,
+# CMAKE_BUILD_RPATH and CMAKE_SKIP_BUILD_RPATH don't affect the plug-ins. INSTALL_RPATH_USE_LINK_PATH
+# skips the link directories inside the source and binary trees: a library in an in-tree prefix
+# (e.g. a dependency built in the checkout) needs add_ofx_plugin(RPATH) or OFX_PLUGIN_RPATH, as for
+# the installed bundle. Turn it OFF for a project whose plug-ins, run from the build tree, need a
+# shared library that the project builds, or one in such a prefix that is not passed that way
 option(OFX_PLUGIN_BUILD_WITH_INSTALL_RPATH "Linux/FreeBSD: build the plug-ins with their install rpath (no padded build rpath)" ON)
 # Linux and FreeBSD: link the plug-ins with -z defs (no undefined symbols). OFF for sanitizer builds
 # with clang, which links its sanitizer runtime into executables only (or use -shared-libsan); gcc links

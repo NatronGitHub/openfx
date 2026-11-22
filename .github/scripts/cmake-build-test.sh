@@ -48,6 +48,7 @@ if [ "$(uname -s)" = Linux ]; then
   n=0
   while IFS= read -r -d '' f; do
     rp=$(readelf -d "$f" | sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\]/\1/p')
+    [ -n "$rp" ] || { echo "build-tree $f: no RUNPATH"; exit 1; }
     case "$rp" in :*|*:|*::*) echo "build-tree $f: empty RUNPATH/RPATH entry: '$rp'"; exit 1 ;; esac
     i="$build/install/OFX/Plugins/${f#"$build/Plugins/"}"
     [ -f "$i" ] || { echo "build-tree $f: not installed as $i"; exit 1; }
