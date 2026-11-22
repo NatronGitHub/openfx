@@ -77,7 +77,7 @@ namespace OFX {
     PropertySet interactProperties(propHandle);
 
     // get the effect handle from this handle
-    OfxImageEffectHandle effectHandle = (OfxImageEffectHandle) interactProperties.propGetPointer(kOfxPropEffectInstance);
+    OfxImageEffectHandle effectHandle = static_cast<OfxImageEffectHandle>(interactProperties.propGetPointer(kOfxPropEffectInstance));
 
     // get the effect properties 
     return OFX::Private::retrieveImageEffectPointer(effectHandle);
@@ -270,8 +270,9 @@ namespace OFX {
       OfxStatus stat = kOfxStatReplyDefault;
 
       try {
-        // Cast the raw handle to be an image effect handle, because that is what it is
-        OfxInteractHandle handle = (OfxInteractHandle) handleRaw;
+        // The entry point gets the handle as a const void*, and the suites take it non-const:
+        // that const is the C API's, the object is not const (ES.50)
+        OfxInteractHandle handle = static_cast<OfxInteractHandle>(const_cast<void *>(handleRaw));
 
         // Turn the arguments into wrapper objects to make our lives easier
         OFX::PropertySet inArgs(inArgsRaw);

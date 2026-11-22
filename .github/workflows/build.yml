@@ -5,7 +5,8 @@ name: Build
 # required for merging (macOS arm64 runners are scarce); extended.yml builds it weekly:
 #   - Linux (ubuntu-24.04): CMake (.github/scripts/cmake-build-test.sh: build, install, the hostDemo
 #     checks, a plug-in project built against the installed package, and a host project using
-#     HostSupport with add_subdirectory and the system expat), plus the header and
+#     HostSupport with add_subdirectory and the system expat), plus the header (all together, and
+#     each HostSupport and Support header on its own) and
 #     property metadata checks and the Python tests (HostSupport/examples/python and
 #     Support/Plugins/tests on both ofxhost backends, hostDemo and in-process, and the HostSupport
 #     Python bindings, HostSupport/python/tests, with the extensions off and on)
@@ -92,6 +93,18 @@ jobs:
               for h in $(cd HostSupport/include && ls ofxh*.h); do
                 printf '#include "%s"\n' "$h" | g++ -x c++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude -IHostSupport/include - \
                   || { echo "::error::HostSupport/include/$h does not compile on its own ($std $D)"; exit 1; }
+              done
+            done
+          done
+      - name: Each Support header compiles on its own (C++98, C++17; no extensions, all of them)
+        run: |
+          # a plug-in may include any of them first (SF.11); ofxsHWNDInteract.h needs <windows.h>
+          for std in c++98 c++17; do
+            for D in "" "-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC_V2 -DOFX_USE_MULTITHREAD_MUTEX"; do
+              echo "== $std $D"
+              for h in $(cd Support/include && ls ofxs*.h | grep -v ofxsHWNDInteract.h); do
+                printf '#include "%s"\n' "$h" | g++ -x c++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude -ISupport/include - \
+                  || { echo "::error::Support/include/$h does not compile on its own ($std $D)"; exit 1; }
               done
             done
           done

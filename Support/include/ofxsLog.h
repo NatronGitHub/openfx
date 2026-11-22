@@ -40,6 +40,8 @@ England
 /** @file This file contains OFX logging header code
 */
 
+#include <string> // std::string (SF.11: the header includes what it uses)
+
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
 */
 namespace OFX {

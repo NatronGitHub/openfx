@@ -77,13 +77,16 @@ of the direct OFX objects and any library side only functions.
 #include "ofxNatron.h"
 #endif
 
-/** @brief Nasty macro used to define empty protected copy ctors and assign ops */
+/** @brief Declares the copy constructor and the copy assignment of CLASS without defining them
+    (used in a protected section): a copy fails to compile outside of CLASS and its derived
+    classes, and to link inside them (C.81; the C++98 form of "= delete", as the public headers
+    must stay C++98). */
 #define mDeclareProtectedAssignAndCC(CLASS) \
-  CLASS &operator=(const CLASS &) {assert(false); return *this;}	\
-  CLASS(const CLASS &) {assert(false); } 
+  CLASS &operator=(const CLASS &); \
+  CLASS(const CLASS &);
 #define mDeclareProtectedAssignAndCCBase(CLASS,BASE) \
-  CLASS &operator=(const CLASS &) {assert(false); return *this;}	\
-  CLASS(const CLASS &c) : BASE(c) {assert(false); }
+  CLASS &operator=(const CLASS &); \
+  CLASS(const CLASS &);
 
 namespace OFX
 {
@@ -302,36 +305,39 @@ namespace OFX {
 
 #endif
 
+  // The map* functions below throw std::invalid_argument on a string or a value they don't know,
+  // except mapMessageTypeEnumToStr (returns NULL) and mapToMessageReplyEnum (eMessageReplyFailed).
+
   /** @brief turns a field string into and enum */
-  FieldEnum mapStrToFieldEnum(const std::string &str)  OFX_THROW(std::invalid_argument);
+  FieldEnum mapStrToFieldEnum(const std::string &str);
 
 #ifdef OFX_EXTENSIONS_VEGAS
   /** @brief map a std::string to a RenderQuality */
-  VegasRenderQualityEnum mapToVegasRenderQualityEnum(const std::string &s) OFX_THROW(std::invalid_argument);
+  VegasRenderQualityEnum mapToVegasRenderQualityEnum(const std::string &s);
 
   /** @brief map a std::string to a context */
-  VegasContextEnum mapToVegasContextEnum(const std::string &s) OFX_THROW(std::invalid_argument);
+  VegasContextEnum mapToVegasContextEnum(const std::string &s);
 #endif
 
   ////////////////////////////////////////////////////////////////////////////////
   /** @brief map a std::string to a context enum */
-  ContextEnum mapToContextEnum(const std::string &s) OFX_THROW(std::invalid_argument);
+  ContextEnum mapToContextEnum(const std::string &s);
 
-  const char* mapContextEnumToStr(ContextEnum context) OFX_THROW(std::invalid_argument);
+  const char* mapContextEnumToStr(ContextEnum context);
 
   const char* mapMessageTypeEnumToStr(OFX::Message::MessageTypeEnum type);
 
   OFX::Message::MessageReplyEnum mapToMessageReplyEnum(OfxStatus stat);
 
-  InstanceChangeReason mapToInstanceChangedReason(const std::string &s) OFX_THROW(std::invalid_argument);
+  InstanceChangeReason mapToInstanceChangedReason(const std::string &s);
 
-  BitDepthEnum mapStrToBitDepthEnum(const std::string &str) OFX_THROW(std::invalid_argument);
+  BitDepthEnum mapStrToBitDepthEnum(const std::string &str);
 
-  const char* mapBitDepthEnumToStr(BitDepthEnum bitDepth) OFX_THROW(std::invalid_argument);
+  const char* mapBitDepthEnumToStr(BitDepthEnum bitDepth);
 
-  PixelComponentEnum mapStrToPixelComponentEnum(const std::string &str) OFX_THROW(std::invalid_argument);
+  PixelComponentEnum mapStrToPixelComponentEnum(const std::string &str);
 
-  const char* mapPixelComponentEnumToStr(PixelComponentEnum pixelComponent) OFX_THROW(std::invalid_argument);
+  const char* mapPixelComponentEnumToStr(PixelComponentEnum pixelComponent);
 
 #if defined(OFX_EXTENSIONS_NATRON)
   /** @brief extract a custom Natron plane defined in the multi-plane extension from the kOfxImageEffectPropComponents property value, @see getPixelComponentsProperty() */
@@ -607,7 +613,7 @@ namespace OFX {
   class ClipDescriptor {
   protected :
     mDeclareProtectedAssignAndCC(ClipDescriptor);
-    ClipDescriptor(void) {assert(false);}
+    ClipDescriptor(void); // not defined: never called
 
   protected :
     /** @brief name of the clip */
@@ -684,7 +690,7 @@ namespace OFX {
   class CameraDescriptor {
   protected :
     mDeclareProtectedAssignAndCC(CameraDescriptor);
-    CameraDescriptor(void) {assert(false);}
+    CameraDescriptor(void); // not defined: never called
 
   protected :
     /** @brief name of the camera */
@@ -735,7 +741,7 @@ namespace OFX {
   {
   protected :
     mDeclareProtectedAssignAndCCBase(ImageEffectDescriptor,ParamSetDescriptor);
-    ImageEffectDescriptor(void) {assert(false);}
+    ImageEffectDescriptor(void); // not defined: never called
 
   protected :
     /** @brief The effect handle */
@@ -1107,6 +1113,12 @@ namespace OFX {
     const void* _inverseDistortionFunctionData;
 #endif
 
+  private :
+    // not copyable: the destructors of Image and Texture release the handle (C.21, R.1).
+    // Declared, not defined (the C++98 form of "= delete").
+    ImageBase(const ImageBase &);
+    ImageBase &operator=(const ImageBase &);
+
   public :
     /** @brief ctor */
     ImageBase(OfxPropertySetHandle props);
@@ -1434,7 +1446,7 @@ namespace OFX {
     OfxRangeD getUnmappedFrameRange(void) const;
 
     /** @brief get the RoD for this clip in the cannonical coordinate system */
-    OfxRectD getRegionOfDefinition(double t);
+    OfxRectD getRegionOfDefinition(double t) const;
 
 #ifdef OFX_EXTENSIONS_RESOLVE // kOfxImageClipPropThumbnail is Resolve-specific, not in OFX 1.5
     /** @brief is the clip for thumbnail */
@@ -1444,7 +1456,7 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
     
     /** @brief get the RoD for this clip in the cannonical coordinate system for the given view */
-    OfxRectD getRegionOfDefinition(double t, int view);
+    OfxRectD getRegionOfDefinition(double t, int view) const;
       
     /** @brief fetch an image for the given plane and view
 
@@ -1620,6 +1632,11 @@ namespace OFX {
   class ImageMemory {
   protected :
     OfxImageMemoryHandle _handle;
+
+  private :
+    // not copyable: the destructor frees the memory (C.21, R.1). Declared, not defined.
+    ImageMemory(const ImageMemory &);
+    ImageMemory &operator=(const ImageMemory &);
 
   public :
     /** @brief ctor */
@@ -2133,7 +2150,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_VEGAS
     /** @brief the Vegas context this effect exists in */
-    VegasContextEnum getVegasContext(void);
+    VegasContextEnum getVegasContext(void) const;
 #endif
 
     /** @brief size of the project */
@@ -2170,7 +2187,7 @@ namespace OFX {
     bool getSupportsTiles(void) const;
 
     /** @brief get plugin file path */
-    std::string getPluginFilePath(void) { return _effectProps.propGetString(kOfxPluginPropFilePath); }
+    std::string getPluginFilePath(void) const { return _effectProps.propGetString(kOfxPluginPropFilePath); }
     
 #ifdef OFX_EXTENSIONS_NUKE
     /** @brief indicate that a plugin or host can handle transform effects */
@@ -2310,6 +2327,9 @@ namespace OFX {
     /** @brief Fetch the named clip from this instance
 
     The returned clip \em must not be deleted by the client code. This is all managed by the ImageEffect itself.
+
+    The first fetch of a clip inserts it into an unsynchronized map: fetch the clips in the
+    constructor of the effect, as for the parameters (see ParamSet).
     */
     Clip *fetchClip(const std::string &name);
 
@@ -2317,6 +2337,7 @@ namespace OFX {
     /** @brief Fetch the named camera from this instance
 
     The returned camera param \em must not be deleted by the client code. This is all managed by the ImageEffect itself.
+    The first fetch of a camera inserts it into an unsynchronized map, as fetchClip() does.
     */
     Camera* fetchCamera(const std::string& name);
 #endif

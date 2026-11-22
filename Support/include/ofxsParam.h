@@ -62,10 +62,12 @@ each represent the actions that can be carried out on those particular OFX objec
 #endif
 #include "ofxOld.h" // required for kOfxParamDoubleTypeNormalised*
 
-/** @brief Nasty macro used to define empty protected copy ctors and assign ops */
-// Declared but not defined: these must never be called. (Defining them inline would make
-// the compiler instantiate member destructors, e.g. std::unique_ptr<ParamInteractDescriptor>
-// with an incomplete type, which C++23 libc++ rejects.)
+/** @brief Declares the copy constructor and the copy assignment of CLASS without defining them
+    (used in a protected section): a copy fails to compile outside of CLASS and its derived
+    classes, and to link inside them (C.81; the C++98 form of "= delete", as the public headers
+    must stay C++98). */
+// (Defining them inline would also make the compiler instantiate member destructors, e.g.
+// std::unique_ptr<ParamInteractDescriptor> with an incomplete type, which C++23 libc++ rejects.)
 #define mDeclareProtectedAssignAndCC(CLASS) \
   CLASS &operator=(const CLASS &); \
   CLASS(const CLASS &);
@@ -249,7 +251,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_VEGAS
     VegasInterpolationEnum 
-    mapToInterpolationEnum(const std::string &s) OFX_THROW(std::invalid_argument);
+    mapToInterpolationEnum(const std::string &s);
 
     const char* 
     mapToInterpolationTypeEnum(OFX::VegasInterpolationEnum type);
@@ -260,7 +262,7 @@ namespace OFX {
     class ParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCC(ParamDescriptor);
-        ParamDescriptor(void) {assert(false);}
+        ParamDescriptor(void); // not defined: never called
 
     protected :
         std::string    _paramName;
@@ -424,7 +426,7 @@ namespace OFX {
     class StringParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(StringParamDescriptor,ValueParamDescriptor);
-        StringParamDescriptor(void) {assert(false);}
+        StringParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -448,7 +450,7 @@ namespace OFX {
     class IntParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(IntParamDescriptor,ValueParamDescriptor);
-        IntParamDescriptor(void) {assert(false);}
+        IntParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -476,7 +478,7 @@ namespace OFX {
     class Int2DParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(Int2DParamDescriptor,ValueParamDescriptor);
-        Int2DParamDescriptor(void) {assert(false);}
+        Int2DParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -506,7 +508,7 @@ namespace OFX {
     class Int3DParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(Int3DParamDescriptor,ValueParamDescriptor);
-        Int3DParamDescriptor(void) {assert(false);}
+        Int3DParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -537,7 +539,7 @@ namespace OFX {
     class BaseDoubleParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(BaseDoubleParamDescriptor,ValueParamDescriptor);
-        BaseDoubleParamDescriptor(void) {assert(false);}
+        BaseDoubleParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -566,7 +568,7 @@ namespace OFX {
     class DoubleParamDescriptor : public BaseDoubleParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(DoubleParamDescriptor,BaseDoubleParamDescriptor);
-        DoubleParamDescriptor(void) {assert(false);}
+        DoubleParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -597,7 +599,7 @@ namespace OFX {
     class Double2DParamDescriptor : public BaseDoubleParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(Double2DParamDescriptor,BaseDoubleParamDescriptor);
-        Double2DParamDescriptor(void) {assert(false);}
+        Double2DParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -651,7 +653,7 @@ namespace OFX {
     class Double3DParamDescriptor : public BaseDoubleParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(Double3DParamDescriptor,BaseDoubleParamDescriptor);
-        Double3DParamDescriptor(void) {assert(false);}
+        Double3DParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -690,7 +692,7 @@ namespace OFX {
     class RGBParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(RGBParamDescriptor,ValueParamDescriptor);
-        RGBParamDescriptor(void) {assert(false);}
+        RGBParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -730,7 +732,7 @@ namespace OFX {
     class RGBAParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(RGBAParamDescriptor,ValueParamDescriptor);
-        RGBAParamDescriptor(void) {assert(false);}
+        RGBAParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -771,7 +773,7 @@ namespace OFX {
     class BooleanParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(BooleanParamDescriptor,ValueParamDescriptor);
-        BooleanParamDescriptor(void) {assert(false);}
+        BooleanParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -801,7 +803,7 @@ namespace OFX {
     class ChoiceParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(ChoiceParamDescriptor,ValueParamDescriptor);
-        ChoiceParamDescriptor(void) {assert(false);}
+        ChoiceParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -854,7 +856,7 @@ namespace OFX {
     {
     protected :
         mDeclareProtectedAssignAndCCBase(StrChoiceParamDescriptor, ValueParamDescriptor);
-        StrChoiceParamDescriptor() { assert(false); }
+        StrChoiceParamDescriptor(); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -882,7 +884,7 @@ namespace OFX {
     class GroupParamDescriptor : public ParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(GroupParamDescriptor,ParamDescriptor);
-        GroupParamDescriptor(void) {assert(false);}
+        GroupParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -916,7 +918,7 @@ namespace OFX {
     class PageParamDescriptor : public ParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(PageParamDescriptor,ParamDescriptor);
-        PageParamDescriptor(void) {assert(false);}
+        PageParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -946,7 +948,7 @@ namespace OFX {
     class PushButtonParamDescriptor : public ParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(PushButtonParamDescriptor,ParamDescriptor);
-        PushButtonParamDescriptor(void) {assert(false);}
+        PushButtonParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1016,7 +1018,7 @@ namespace OFX {
     class CustomParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(CustomParamDescriptor,ValueParamDescriptor);
-        CustomParamDescriptor(void) {assert(false);}
+        CustomParamDescriptor(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1041,7 +1043,7 @@ namespace OFX {
     class BytesParamDescriptor : public ValueParamDescriptor {
     protected :
         mDeclareProtectedAssignAndCCBase(BytesParamDescriptor,ValueParamDescriptor);
-        BytesParamDescriptor(void) {assert(false);}
+        BytesParamDescriptor(void); // not defined: never called
 
         std::vector<unsigned char> _defaultData; ///< the default value, kept alive while the plug-in is loaded
         OfxBytes _defaultBytes;                  ///< what kOfxParamPropDefault points to
@@ -1081,7 +1083,7 @@ namespace OFX {
 #                 ifdef DEBUG
                     throw std::logic_error("Trying to redefine existing param '" + name + "'");
 #                 else
-                    paramPtr = (T *) param; // could be a dynamic cast here
+                    paramPtr = static_cast<T *>(param); // the type was checked above (C.146, ES.49)
                     return true;
 #                 endif
                 } else {
@@ -1115,7 +1117,7 @@ namespace OFX {
             // have we made it already in this param set and is it an int?
             if(ParamDescriptor *param  = findPreviouslyDefinedParam(name)) {
                 if(param->getType() == paramType) {
-                    paramPtr = (T *) param; // could be a dynamic cast here
+                    paramPtr = static_cast<T *>(param); // the type was checked above (C.146, ES.49)
                 }
                 else
                   throw OFX::Exception::TypeRequest("Fetching param and attempting to return the wrong type");
@@ -1271,9 +1273,8 @@ namespace OFX {
     class Param {
     protected :
         // don't ever use these!
-        Param &operator=(const Param &/*v1*/) {assert(false); return *this;}
-        Param(const Param &v) : _paramSet(v._paramSet) {assert(false); } 
-        Param(void) {assert(false);}
+        mDeclareProtectedAssignAndCC(Param);
+        Param(void); // not defined: never called
     
     protected :
         const ParamSet      *_paramSet; // who do I belong to
@@ -1361,7 +1362,7 @@ namespace OFX {
     class ValueParam : public Param {
     protected :
         mDeclareProtectedAssignAndCCBase(ValueParam,Param);
-        ValueParam(void) {assert(false);}
+        ValueParam(void); // not defined: never called
     protected :
         /** @brief hidden constructor */
         ValueParam(const ParamSet *paramSet, const std::string &name, ParamTypeEnum type, OfxParamHandle handle);
@@ -1393,14 +1394,15 @@ namespace OFX {
         CacheInvalidationEnum getCacheInvalidation(void) const;
 
         /** @brief if the param is animating, the number of keys in it, otherwise 0 */
-        unsigned int getNumKeys(void);
+        unsigned int getNumKeys(void) const;
 
-        /** @brief get the time of the nth key, nth must be between 0 and getNumKeys-1 */
-        double getKeyTime(int nthKey) OFX_THROW2(OFX::Exception::Suite, std::out_of_range);
+        /** @brief get the time of the nth key, nth must be between 0 and getNumKeys-1, else
+            std::out_of_range is thrown */
+        double getKeyTime(int nthKey) const;
 
         /** @brief find the index of a key by a time */
         int getKeyIndex(double time, 
-                        KeySearchEnum searchDir);
+                        KeySearchEnum searchDir) const;
     
         /** @brief deletes a key at the given time */
         void deleteKeyAtTime(double time);
@@ -1413,7 +1415,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_VEGAS
         /** @brief gets the interpolation type of a key at the given time */
-        VegasInterpolationEnum getKeyInterpolation(double time);
+        VegasInterpolationEnum getKeyInterpolation(double time) const;
     
         /** @brief sets the interpolation type of a key at the given time */
         void setKeyInterpolation(double time, VegasInterpolationEnum interpolation);
@@ -1425,7 +1427,7 @@ namespace OFX {
     class IntParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(IntParam,ValueParam);
-        IntParam(void) {assert(false);}
+        IntParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1443,16 +1445,16 @@ namespace OFX {
         void setDisplayRange(int min, int max);
 
         /** @brief get the default value */
-        void getDefault(int &v);
+        void getDefault(int &v) const;
 
         /** @brief get the default value */
-        int getDefault(void) {int v; getDefault(v); return v;}
+        int getDefault(void) const {int v; getDefault(v); return v;}
 
-        /** @brief set the hard min/max range, default is INT_MIN, INT_MAX */
-        void getRange(int &min, int &max);
+        /** @brief get the hard min/max range, default is INT_MIN, INT_MAX */
+        void getRange(int &min, int &max) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
-        void getDisplayRange(int &min, int &max);
+        /** @brief get the display min and max, default is to be the same as the range param */
+        void getDisplayRange(int &min, int &max) const;
 
         /** @brief get value */
         void  getValue(int &v) const;
@@ -1481,7 +1483,7 @@ namespace OFX {
     class Int2DParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(Int2DParam,ValueParam);
-        Int2DParam(void) {assert(false);}
+        Int2DParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1504,18 +1506,18 @@ namespace OFX {
                             int maxX, int maxY);
 
         /** @brief get the default value */
-        void getDefault(int &x, int &y);
+        void getDefault(int &x, int &y) const;
 
         /** @brief get the default value */
-        OfxPointI getDefault(void) {OfxPointI v; getDefault(v.x, v.y); return v;}
+        OfxPointI getDefault(void) const {OfxPointI v; getDefault(v.x, v.y); return v;}
 
-        /** @brief set the hard min/max range, default is INT_MIN, INT_MAX */
+        /** @brief get the hard min/max range, default is INT_MIN, INT_MAX */
         void getRange(int &minX, int &minY,
-                      int& maxX, int &maxY);
+                      int& maxX, int &maxY) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
+        /** @brief get the display min and max, default is to be the same as the range param */
         void getDisplayRange(int &minX, int &minY,
-                            int &maxX, int &maxY);
+                            int &maxX, int &maxY) const;
 
         /** @brief get value */
         void getValue(int &x, int &y) const;
@@ -1550,7 +1552,7 @@ namespace OFX {
     class Int3DParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(Int3DParam,ValueParam);
-        Int3DParam(void) {assert(false);}
+        Int3DParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1570,15 +1572,18 @@ namespace OFX {
                             int maxX, int maxY, int maxZ);
 
         /** @brief get the default value */
-        void getDefault(int &x, int &y, int &z);
+        void getDefault(int &x, int &y, int &z) const;
 
-        /** @brief set the hard min/max range, default is INT_MIN, INT_MAX */
+        /** @brief get the default value */
+        Ofx3DPointI getDefault(void) const {Ofx3DPointI v; getDefault(v.x, v.y, v.z); return v;}
+
+        /** @brief get the hard min/max range, default is INT_MIN, INT_MAX */
         void getRange(int &minX, int &minY, int &minZ,
-                      int& maxX, int &maxY, int &maxZ);
+                      int& maxX, int &maxY, int &maxZ) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
+        /** @brief get the display min and max, default is to be the same as the range param */
         void getDisplayRange(int &minX, int &minY, int &minZ,
-                            int& maxX, int &maxY, int &maxZ);
+                            int& maxX, int &maxY, int &maxZ) const;
 
         /** @brief get value */
         void getValue(int &x, int &y, int &z) const;
@@ -1607,7 +1612,7 @@ namespace OFX {
     class BaseDoubleParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(BaseDoubleParam,ValueParam);
-        BaseDoubleParam(void) {assert(false);}
+        BaseDoubleParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1622,24 +1627,24 @@ namespace OFX {
         void setDigits(int v);
 
         /** @brief get the sensitivity of any gui slider */
-        void getIncrement(double &v);
+        void getIncrement(double &v) const;
 
         /** @brief get the number of digits printed after a decimal point in any gui */
-        void getDigits(int &v);
+        void getDigits(int &v) const;
 
         /** @brief get the type of the double param */
-        void getDoubleType(DoubleTypeEnum &v);
+        void getDoubleType(DoubleTypeEnum &v) const;
 
         /** @brief get the type of coordinate system for default values */
-        void getDefaultCoordinateSystem(DefaultCoordinateSystemEnum &v);
+        void getDefaultCoordinateSystem(DefaultCoordinateSystemEnum &v) const;
     };
 
     ////////////////////////////////////////////////////////////////////////////////
-    /** @brief Wraps up an doubleeger param */
+    /** @brief Wraps up a double param */
     class DoubleParam : public BaseDoubleParam {
     protected :
         mDeclareProtectedAssignAndCCBase(DoubleParam,BaseDoubleParam);
-        DoubleParam(void) {assert(false);}
+        DoubleParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1660,16 +1665,16 @@ namespace OFX {
         void setDisplayRange(double min, double max);
 
         /** @brief get the default value */
-        void getDefault(double &v);
+        void getDefault(double &v) const;
 
         /** @brief get the default value */
-        double getDefault(void) {double v; getDefault(v); return v;}
+        double getDefault(void) const {double v; getDefault(v); return v;}
 
-        /** @brief set the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
-        void getRange(double &min, double &max);
+        /** @brief get the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
+        void getRange(double &min, double &max) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
-        void getDisplayRange(double &min, double &max);
+        /** @brief get the display min and max, default is to be the same as the range param */
+        void getDisplayRange(double &min, double &max) const;
 
         /** @brief get value */
         void getValue(double &v) const;
@@ -1706,11 +1711,11 @@ namespace OFX {
     };
 
     ////////////////////////////////////////////////////////////////////////////////
-    /** @brief Wraps up an doubleeger param */
+    /** @brief Wraps up a double param */
     class Double2DParam : public BaseDoubleParam {
     protected :
         mDeclareProtectedAssignAndCCBase(Double2DParam,BaseDoubleParam);
-        Double2DParam(void) {assert(false);}
+        Double2DParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1730,15 +1735,18 @@ namespace OFX {
                             double maxX, double maxY);
 
         /** @brief get the default value */
-        void getDefault(double &x, double &y);
+        void getDefault(double &x, double &y) const;
 
-        /** @brief set the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
+        /** @brief get the default value */
+        OfxPointD getDefault(void) const {OfxPointD v; getDefault(v.x, v.y); return v;}
+
+        /** @brief get the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
         void getRange(double &minX, double &minY,
-                      double& maxX, double &maxY);
+                      double& maxX, double &maxY) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
+        /** @brief get the display min and max, default is to be the same as the range param */
         void getDisplayRange(double &minX, double &minY,
-                            double &maxX, double &maxY);
+                            double &maxX, double &maxY) const;
 
         /** @brief get value */
         void getValue(double &x, double &y) const;
@@ -1781,11 +1789,11 @@ namespace OFX {
     };
 
     ////////////////////////////////////////////////////////////////////////////////
-    /** @brief Wraps up an doubleeger param */
+    /** @brief Wraps up a double param */
     class Double3DParam : public BaseDoubleParam {
     protected :
         mDeclareProtectedAssignAndCCBase(Double3DParam,BaseDoubleParam);
-        Double3DParam(void) {assert(false);}
+        Double3DParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1805,15 +1813,18 @@ namespace OFX {
                             double maxX, double maxY, double maxZ);
 
         /** @brief get the default value */
-        void getDefault(double &x, double &y, double &z);
+        void getDefault(double &x, double &y, double &z) const;
 
-        /** @brief set the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
+        /** @brief get the default value */
+        Ofx3DPointD getDefault(void) const {Ofx3DPointD v; getDefault(v.x, v.y, v.z); return v;}
+
+        /** @brief get the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
         void getRange(double &minX, double &minY, double &minZ,
-                      double& maxX, double &maxY, double &maxZ);
+                      double& maxX, double &maxY, double &maxZ) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
+        /** @brief get the display min and max, default is to be the same as the range param */
         void getDisplayRange(double &minX, double &minY, double &minZ,
-                            double& maxX, double &maxY, double &maxZ);
+                            double& maxX, double &maxY, double &maxZ) const;
 
         /** @brief get value */
         void getValue(double &x, double &y, double &z) const;
@@ -1854,7 +1865,7 @@ namespace OFX {
     class RGBParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(RGBParam,ValueParam);
-        RGBParam(void) {assert(false);}
+        RGBParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1869,7 +1880,10 @@ namespace OFX {
         void setDefault(double r, double g, double b);
 
         /** @brief get default value */
-        void getDefault(double &r, double &g, double &b);
+        void getDefault(double &r, double &g, double &b) const;
+
+        /** @brief get the default value */
+        OfxRGBColourD getDefault(void) const {OfxRGBColourD v; getDefault(v.r, v.g, v.b); return v;}
 
         /** @brief get value */
         void getValue(double &r, double &g, double &b) const;
@@ -1899,7 +1913,7 @@ namespace OFX {
     class RGBAParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(RGBAParam,ValueParam);
-        RGBAParam(void) {assert(false);}
+        RGBAParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1914,7 +1928,10 @@ namespace OFX {
         void setDefault(double r, double g, double b, double a);
 
         /** @brief get default value */
-        void getDefault(double &r, double &g, double &b, double &a);
+        void getDefault(double &r, double &g, double &b, double &a) const;
+
+        /** @brief get the default value */
+        OfxRGBAColourD getDefault(void) const {OfxRGBAColourD v; getDefault(v.r, v.g, v.b, v.a); return v;}
 
         /** @brief get value */
         void getValue(double &r, double &g, double &b, double &a) const;
@@ -1943,7 +1960,7 @@ namespace OFX {
     class StringParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(StringParam,ValueParam);
-        StringParam(void) {assert(false);}
+        StringParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -1959,7 +1976,7 @@ namespace OFX {
         void setDefault(const std::string &v);
 
         /** @brief get the default value */
-        void getDefault(std::string &v);
+        void getDefault(std::string &v) const;
 
         /** @brief get value */
         void getValue(std::string &v) const;
@@ -1988,7 +2005,7 @@ namespace OFX {
     class ChoiceParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(ChoiceParam,ValueParam);
-        ChoiceParam(void) {assert(false);}
+        ChoiceParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2001,10 +2018,10 @@ namespace OFX {
         void setDefault(int v);
 
         /** @brief get the default value */
-        void getDefault(int &v);
+        void getDefault(int &v) const;
 
         /** @brief how many options do we have */
-        int getNOptions(void);
+        int getNOptions(void) const;
 
         /** @brief append an option, default is to have not there */
         void appendOption(const std::string &label, const std::string& hint = "", const std::string& name = "");
@@ -2019,7 +2036,7 @@ namespace OFX {
         void setOption(int item, const std::string &str);
     
         /** @brief get the option label */
-        void getOption(int ix, std::string &v);
+        void getOption(int ix, std::string &v) const;
 
 #ifdef OFX_EXTENSIONS_NATRON
 
@@ -2027,11 +2044,11 @@ namespace OFX {
         void setEnum(int item, const std::string &name);
 
         /** @brief get the option enum */
-        void getEnum(int ix, std::string &name);
+        void getEnum(int ix, std::string &name) const;
 #endif
       
         /** @brief get all options at once. Optionally, the label of the options can be retrieved at the same time*/
-        void getOptions(std::vector<std::string>* options,std::vector<std::string>* optionsHints = 0, std::vector<std::string>* optionsNames = 0);
+        void getOptions(std::vector<std::string>* options,std::vector<std::string>* optionsHints = 0, std::vector<std::string>* optionsNames = 0) const;
 
         /** @brief clear all the options so as to add some new ones in */
         void resetOptions(const std::vector<std::string>& newEntries = std::vector<std::string>(),
@@ -2040,10 +2057,10 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_NATRON
         /** @brief whether the menu should be cascading, and each option contains a slash-separated path to the item, defaults to false. */
-        bool getIsCascading(void);
+        bool getIsCascading(void) const;
 
         /** @brief Indicate whether the host can add a new choice on its own (probably via a GUI specific to this parameter). */
-        bool getHostCanAddOptions();
+        bool getHostCanAddOptions() const;
 #endif
 
         /** @brief get value */
@@ -2074,7 +2091,7 @@ namespace OFX {
     {
     protected :
         mDeclareProtectedAssignAndCCBase(StrChoiceParam, StringParam);
-        StrChoiceParam() { assert(false); }
+        StrChoiceParam(); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2085,7 +2102,7 @@ namespace OFX {
         
     public :
         /** @brief how many options do we have */
-        int getNOptions();
+        int getNOptions() const;
 
         /** @brief append an option. order: UI position (kOfxParamPropChoiceOrder, OFX 1.5), INT_MIN to not set it */
         void appendOption(const std::string& p_Enum, const std::string& p_Option, int order = INT_MIN);
@@ -2094,7 +2111,7 @@ namespace OFX {
         void setOption(const std::string& p_Index, const std::string& p_Option);
 
         /** @brief get the option value */
-        void getOption(const std::string& p_Index, std::string& p_Option);
+        void getOption(const std::string& p_Index, std::string& p_Option) const;
 
         /** @brief clear all the options so as to add some new ones in */
         void resetOptions();
@@ -2105,7 +2122,7 @@ namespace OFX {
     class BooleanParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(BooleanParam,ValueParam);
-        BooleanParam(void) {assert(false);}
+        BooleanParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2118,10 +2135,10 @@ namespace OFX {
         void setDefault(bool v);
 
         /** @brief get the default value */
-        void getDefault(bool &v);
+        void getDefault(bool &v) const;
 
         /** @brief get the default value */
-        bool getDefault(void) {bool v; getDefault(v); return v;}
+        bool getDefault(void) const {bool v; getDefault(v); return v;}
 
         /** @brief get value */
         void getValue(bool &v) const;
@@ -2150,7 +2167,7 @@ namespace OFX {
     class GroupParam : public Param {
     protected :
         mDeclareProtectedAssignAndCCBase(GroupParam,Param);
-        GroupParam(void) {assert(false);}
+        GroupParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2160,7 +2177,7 @@ namespace OFX {
         friend class ParamSet;
     public :
         /** @brief check whether the group is open or closed in a hierarchical layout, defaults to true */
-        bool getIsOpen();
+        bool getIsOpen() const;
         /** @brief whether the group is open or closed in a hierarchical layout */
         void setOpen(const bool v);
     };
@@ -2170,7 +2187,7 @@ namespace OFX {
     class PageParam : public Param {
     protected :
         mDeclareProtectedAssignAndCCBase(PageParam,Param);
-        PageParam(void) {assert(false);}
+        PageParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2186,7 +2203,7 @@ namespace OFX {
     class CustomParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(CustomParam,ValueParam);
-        CustomParam(void) {assert(false);}
+        CustomParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2199,7 +2216,7 @@ namespace OFX {
         void setDefault(const std::string &v);    
 
         /** @brief get the default value of the param */
-        void getDefault(std::string &v);    
+        void getDefault(std::string &v) const;    
 
         /** @brief get value */
         void getValue(std::string &v) const;
@@ -2231,7 +2248,7 @@ namespace OFX {
     class BytesParam : public ValueParam {
     protected :
         mDeclareProtectedAssignAndCCBase(BytesParam,ValueParam);
-        BytesParam(void) {assert(false);}
+        BytesParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2270,7 +2287,7 @@ namespace OFX {
     class PushButtonParam : public Param {
     protected :
         mDeclareProtectedAssignAndCCBase(PushButtonParam,Param);
-        PushButtonParam(void) {assert(false);}
+        PushButtonParam(void); // not defined: never called
 
     protected :
         /** @brief hidden constructor */
@@ -2298,7 +2315,7 @@ namespace OFX {
     public:
 
         /** @brief get the parametric range */
-        void getRange(double &min, double &max);
+        void getRange(double &min, double &max) const;
 
         /** @brief set the hard min/max range, default is -DBL_MAX, DBL_MAX */
         void setDimensionRange(int curveIndex, double min, double max);
@@ -2306,11 +2323,11 @@ namespace OFX {
         /** @brief set the display min and max, default is to be the same as the range param */
         void setDimensionDisplayRange(int curveIndex, double min, double max);
 
-        /** @brief set the hard min/max range, default is -DBL_MAX, DBL_MAX */
-        void getDimensionRange(int curveIndex, double &min, double &max);
+        /** @brief get the hard min/max range, default is -DBL_MAX, DBL_MAX */
+        void getDimensionRange(int curveIndex, double &min, double &max) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
-        void getDimensionDisplayRange(int curveIndex, double &min, double &max);
+        /** @brief get the display min and max, default is to be the same as the range param */
+        void getDimensionDisplayRange(int curveIndex, double &min, double &max) const;
 
         double getValue(int curveIndex,
                         OfxTime time,
@@ -2354,7 +2371,7 @@ namespace OFX {
     class CameraParam : public Param {
     private:
         mDeclareProtectedAssignAndCCBase(CameraParam,Param);
-        CameraParam(void) {assert(false);}
+        CameraParam(void); // not defined: never called
 
     protected:
         /** @brief hidden constructor */
@@ -2372,7 +2389,17 @@ namespace OFX {
 #endif
 
     ////////////////////////////////////////////////////////////////////////////////
-    /** @brief A set of parameters in a plugin instance */
+    /** @brief A set of parameters in a plugin instance
+
+    Ownership (R.3): the ParamSet owns every Param it fetches, and deletes them in its destructor.
+    The pointers returned by the fetch*Param() functions are non-owning: never delete them, and
+    don't use them after the instance is destroyed.
+
+    Threading (CP.2): the first fetch of a parameter inserts it into an unsynchronized map. Fetch
+    the parameters in the constructor of the effect (as the examples do), or at least before the
+    host may call the instance from several threads (e.g. render); later fetches of an already
+    fetched parameter only read the map, and may come from any thread.
+    */
     class ParamSet { 
     protected :
         mDeclareProtectedAssignAndCC(ParamSet);
@@ -2402,7 +2429,7 @@ namespace OFX {
             // have we made it already in this param set and is it an int?
             if(Param *param  = findPreviouslyFetchedParam(name)) {
                 if(param->getType() == paramType) {
-                    paramPtr = (T *) param; // could be a dynamic cast here
+                    paramPtr = static_cast<T *>(param); // the type was checked above (C.146, ES.49)
                 }
                 else
                   throw OFX::Exception::TypeRequest("Fetching param and attempting to return the wrong type");
@@ -2513,6 +2540,10 @@ namespace OFX {
                 }
             }
         private:
+            // not copyable: each copy would end the edit block (C.21, R.1). Declared, not defined.
+            EditBlock(const EditBlock &);
+            EditBlock &operator=(const EditBlock &);
+
             ParamSet& _paramSet;
             bool _cond;
         };

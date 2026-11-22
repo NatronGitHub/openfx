@@ -48,7 +48,7 @@ namespace OFX {
   static OfxPointD getPixelScale(const PropertySet &props)
   {
     OfxPointD pixelScale = {1., 1.};
-    props.propGetDoubleN(kOfxInteractPropPixelScale, &pixelScale.x, 2);
+    OFX::Private::propGetN(props, kOfxInteractPropPixelScale, pixelScale);
 
     return pixelScale;
   }
@@ -57,7 +57,7 @@ namespace OFX {
   static OfxPointD getRenderScale(const PropertySet &props)
   {
     OfxPointD v = {1., 1.};
-    props.propGetDoubleN(kOfxImageEffectPropRenderScale, &v.x, 2);
+    OFX::Private::propGetN(props, kOfxImageEffectPropRenderScale, v);
 
     return v;
   }
@@ -66,7 +66,7 @@ namespace OFX {
   static OfxRGBColourD getBackgroundColour(const PropertySet &props)
   {
     OfxRGBColourD backGroundColour = {0., 0., 0.};
-    props.propGetDoubleN(kOfxInteractPropBackgroundColour, &backGroundColour.r, 3);
+    OFX::Private::propGetN(props, kOfxInteractPropBackgroundColour, backGroundColour);
 
     return backGroundColour;
   }
@@ -81,7 +81,7 @@ namespace OFX {
     PropertySet interactProperties(propHandle);
 
     // get the effect handle from this handle
-    OfxImageEffectHandle effectHandle = (OfxImageEffectHandle) interactProperties.propGetPointer(kOfxPropEffectInstance);
+    OfxImageEffectHandle effectHandle = static_cast<OfxImageEffectHandle>(interactProperties.propGetPointer(kOfxPropEffectInstance));
 
     // get the effect properties 
     return OFX::Private::retrieveImageEffectPointer(effectHandle);
@@ -150,17 +150,22 @@ namespace OFX {
     if (stat == kOfxStatReplyDefault || (stat == kOfxStatOK && dim < 3) ) {
       return false;
     }
+    // the members of c are not an array (Bounds.1)
+    double rgb[3] = { c.r, c.g, c.b };
     if (stat == kOfxStatOK) {
-      stat = OFX::Private::gPropSuite->propGetDoubleN(_interactProperties.propSetHandle(), kOfxInteractPropSuggestedColour, 3, &c.r);
+      stat = OFX::Private::gPropSuite->propGetDoubleN(_interactProperties.propSetHandle(), kOfxInteractPropSuggestedColour, 3, rgb);
     }
 #ifdef OFX_EXTENSIONS_NUKE
     if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
-      stat = OFX::Private::gPropSuite->propGetDoubleN(_interactProperties.propSetHandle(), kOfxPropOverlayColour, 3, &c.r);
+      stat = OFX::Private::gPropSuite->propGetDoubleN(_interactProperties.propSetHandle(), kOfxPropOverlayColour, 3, rgb);
     }
 #endif
     if (stat != kOfxStatOK) {
       return false; // host gave no suggestion (replied kOfxStatReplyDefault or property is unknown to host)
     }
+    c.r = rgb[0];
+    c.g = rgb[1];
+    c.b = rgb[2];
     return true;
   }
 
@@ -384,7 +389,7 @@ namespace OFX {
     if ( !props.propExists(kNatronOfxPropPickerColour) ) {
       hasPickerColour = false;
     } else {
-      props.propGetDoubleN(kNatronOfxPropPickerColour, &pickerColour.r, 4, false);
+      OFX::Private::propGetN(props, kNatronOfxPropPickerColour, pickerColour, false);
       hasPickerColour = (pickerColour.r != -1. || pickerColour.g != -1. || pickerColour.b != -1. || pickerColour.a != -1.);
     }
     screenPixelRatio = 1.;
@@ -500,7 +505,7 @@ namespace OFX {
     // OFX 1.5 DrawSuite: kOfxInteractPropDrawContext in the draw action inArgs
     OfxDrawContextHandle handle = NULL;
     if (OFX::Private::gDrawSuite) {
-      handle = (OfxDrawContextHandle)props.propGetPointer(kOfxInteractPropDrawContext, false);
+      handle = static_cast<OfxDrawContextHandle>(props.propGetPointer(kOfxInteractPropDrawContext, false));
     }
     _drawContextStorage = DrawContext(handle);
     if (handle) {
@@ -508,7 +513,7 @@ namespace OFX {
     }
 #ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
     viewportSize.x = viewportSize.y = 0.;
-    props.propGetDoubleN(kOfxInteractPropViewportSize, &viewportSize.x, 2, false);
+    OFX::Private::propGetN(props, kOfxInteractPropViewportSize, viewportSize, false);
 #endif
     backGroundColour = getBackgroundColour(props);
     pixelScale       = getPixelScale(props);
@@ -571,15 +576,15 @@ namespace OFX {
   {
 #ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
     viewportSize.x = viewportSize.y = 0.;
-    props.propGetDoubleN(kOfxInteractPropViewportSize, &viewportSize.x, 2, false);
+    OFX::Private::propGetN(props, kOfxInteractPropViewportSize, viewportSize, false);
 #endif
     pixelScale    = getPixelScale(props);
     backGroundColour = getBackgroundColour(props);
     penPosition.x = penPosition.y = 0;
-    props.propGetDoubleN(kOfxInteractPropPenPosition, &penPosition.x, 2);
+    OFX::Private::propGetN(props, kOfxInteractPropPenPosition, penPosition);
     // Introduced in OFX 1.2. Return (-1,-1) if not available
     OfxPointI pen = {-1, -1};
-    props.propGetIntN(kOfxInteractPropPenViewportPosition, &pen.x, 2, false);
+    OFX::Private::propGetN(props, kOfxInteractPropPenViewportPosition, pen, false);
     penViewportPosition.x = pen.x;
     penViewportPosition.y = pen.y;
     penPressure   = props.propGetDouble(kOfxInteractPropPenPressure);
@@ -601,7 +606,7 @@ namespace OFX {
   {
 #ifdef kOfxInteractPropViewportSize // removed in OFX 1.4
     viewportSize.x = viewportSize.y = 0.;
-    props.propGetDoubleN(kOfxInteractPropViewportSize, &viewportSize.x, 2, false);
+    OFX::Private::propGetN(props, kOfxInteractPropViewportSize, viewportSize, false);
 #endif
     pixelScale       = getPixelScale(props);
     backGroundColour = getBackgroundColour(props);
@@ -648,7 +653,7 @@ namespace OFX {
   OfxPointI ParamInteract::getInteractSize() const
   {
     OfxPointI ret = {0, 0};
-    _interactProperties.propGetIntN(kOfxParamPropInteractSize, &ret.x, 2);
+    OFX::Private::propGetN(_interactProperties, kOfxParamPropInteractSize, ret);
 
     return ret;
   }
@@ -853,8 +858,9 @@ namespace OFX {
       OfxStatus stat = kOfxStatReplyDefault;
 
       try {
-        // Cast the raw handle to be an image effect handle, because that is what it is
-        OfxInteractHandle handle = (OfxInteractHandle) handleRaw;
+        // The entry point gets the handle as a const void*, and the suites take it non-const:
+        // that const is the C API's, the object is not const (ES.50)
+        OfxInteractHandle handle = static_cast<OfxInteractHandle>(const_cast<void *>(handleRaw));
 
         // Turn the arguments into wrapper objects to make our lives easier
         OFX::PropertySet inArgs(inArgsRaw);

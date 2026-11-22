@@ -53,6 +53,12 @@ England
 namespace OFX {
 
   namespace Private {
+    // The host and suite pointers below are set by setHost() and the first kOfxActionLoad, and
+    // reset by the last kOfxActionUnload. Hosts send no other action to the binary during those
+    // (load comes first, unload last), so the other actions read them without a lock. They have
+    // external linkage because the Support files share them, and SupportExt
+    // (ofxsThreadSuite.cpp) declares gThreadSuite and gLoadCount.
+
     /** @brief Pointer to the host */
     extern OfxHost *gHost;
 
@@ -112,6 +118,77 @@ namespace OFX {
 #endif
 #endif
 
+    // The N-dimensional properties of the OFX structs (OfxPointD, OfxRectI, OfxRangeD, ...).
+    // The members of a struct are not an array (Bounds.1): propGetN and propSetN copy them through
+    // a local array, of the dimension of the struct. propGetN keeps the values of the struct as
+    // the defaults, for a host that doesn't set them (e.g. throwOnFailure false).
+    template <class T> struct PropStruct; // value_type, N, toArray, fromArray
+
+#define OFXS_PROP_STRUCT2(T, V, A, B) \
+    template <> struct PropStruct<T> { \
+      typedef V value_type; enum { N = 2 }; \
+      static void toArray(const T &s, V *a) { a[0] = s.A; a[1] = s.B; } \
+      static void fromArray(const V *a, T &s) { s.A = a[0]; s.B = a[1]; } \
+    };
+#define OFXS_PROP_STRUCT3(T, V, A, B, C) \
+    template <> struct PropStruct<T> { \
+      typedef V value_type; enum { N = 3 }; \
+      static void toArray(const T &s, V *a) { a[0] = s.A; a[1] = s.B; a[2] = s.C; } \
+      static void fromArray(const V *a, T &s) { s.A = a[0]; s.B = a[1]; s.C = a[2]; } \
+    };
+#define OFXS_PROP_STRUCT4(T, V, A, B, C, D) \
+    template <> struct PropStruct<T> { \
+      typedef V value_type; enum { N = 4 }; \
+      static void toArray(const T &s, V *a) { a[0] = s.A; a[1] = s.B; a[2] = s.C; a[3] = s.D; } \
+      static void fromArray(const V *a, T &s) { s.A = a[0]; s.B = a[1]; s.C = a[2]; s.D = a[3]; } \
+    };
+    OFXS_PROP_STRUCT2(OfxPointD, double, x, y)
+    OFXS_PROP_STRUCT2(OfxPointI, int, x, y)
+    OFXS_PROP_STRUCT2(OfxRangeD, double, min, max)
+    OFXS_PROP_STRUCT3(OfxRGBColourD, double, r, g, b)
+    OFXS_PROP_STRUCT4(OfxRGBAColourD, double, r, g, b, a)
+    OFXS_PROP_STRUCT4(OfxRectD, double, x1, y1, x2, y2)
+    OFXS_PROP_STRUCT4(OfxRectI, int, x1, y1, x2, y2)
+#undef OFXS_PROP_STRUCT2
+#undef OFXS_PROP_STRUCT3
+#undef OFXS_PROP_STRUCT4
+
+    inline void propGetArray(const PropertySet &props, const char *name, double *a, int n, bool throwOnFailure)
+    {
+      props.propGetDoubleN(name, a, n, throwOnFailure);
+    }
+    inline void propGetArray(const PropertySet &props, const char *name, int *a, int n, bool throwOnFailure)
+    {
+      props.propGetIntN(name, a, n, throwOnFailure);
+    }
+    inline void propSetArray(PropertySet &props, const char *name, const double *a, int n, bool throwOnFailure)
+    {
+      props.propSetDoubleN(name, a, n, throwOnFailure);
+    }
+    inline void propSetArray(PropertySet &props, const char *name, const int *a, int n, bool throwOnFailure)
+    {
+      props.propSetIntN(name, a, n, throwOnFailure);
+    }
+
+    /** @brief gets the N-dimensional property name into s; s is unchanged if this throws */
+    template <class T>
+    void propGetN(const PropertySet &props, const char *name, T &s, bool throwOnFailure = true)
+    {
+      typename PropStruct<T>::value_type a[PropStruct<T>::N];
+      PropStruct<T>::toArray(s, a);
+      propGetArray(props, name, a, PropStruct<T>::N, throwOnFailure);
+      PropStruct<T>::fromArray(a, s);
+    }
+
+    /** @brief sets the N-dimensional property name from s */
+    template <class T>
+    void propSetN(PropertySet &props, const char *name, const T &s, bool throwOnFailure = true)
+    {
+      typename PropStruct<T>::value_type a[PropStruct<T>::N];
+      PropStruct<T>::toArray(s, a);
+      propSetArray(props, name, a, PropStruct<T>::N, throwOnFailure);
+    }
+
     /** @brief Support lib function called on an ofx load action */
     void loadAction(void);
 
@@ -121,6 +198,11 @@ namespace OFX {
     /** @brief The plugin function that gets passed the host structure. 
     */
     void setHost(OfxHost *host);
+
+    /** @brief kOfxActionCreateInstance: makes the instance (stored in the handle's
+        kOfxPropInstanceData) and validates the instance properties; deletes the instance if the
+        validation throws (ofxsImageEffect.cpp) */
+    ImageEffect *createInstanceAction(PluginFactory *factory, OfxImageEffectHandle handle);
 
     /** @brief fetches our pointer out of the props on the handle */
     ImageEffect *retrieveImageEffectPointer(OfxImageEffectHandle handle);
@@ -164,7 +246,6 @@ namespace OFX {
     };
       
     typedef std::map<VersionIDKey, EffectContextMap> EffectDescriptorMap;
-    extern EffectDescriptorMap gEffectDescriptors;
 
     /** @brief How the overlay of a draw action was registered (DrawArgs::_overlayRegistration) */
     enum OverlayRegistrationEnum {
@@ -335,7 +416,7 @@ namespace OFX {
       /** @brief var args constructor that is use to describe properties */
       PropertyDescription(const char *name, OFX::PropertyTypeEnum ilk, int dimension, ...);
 
-      /** @brief Die! Die! Die! */
+      /** @brief dtor */
       virtual ~PropertyDescription(void) {}
 
       /** @brief See if the property exists in the containing property set and has the correct dimension */

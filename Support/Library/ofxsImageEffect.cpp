@@ -217,12 +217,19 @@ namespace OFX {
     OfxPlugin* _plug;
   };
   typedef std::map<std::string, OfxPlugInfo> OfxPlugInfoMap;
-  OfxPlugInfoMap plugInfoMap;
+  // The plug-ins of this binary, filled by OFX::Private::init() (OfxGetNumberOfPlugins) and never
+  // restructured afterwards: kOfxActionUnload only clears an entry (see unloadAction), so that
+  // mainEntryStr can look them up from any thread without a lock. Internal linkage (I.2, I.22).
+  static OfxPlugInfoMap plugInfoMap;
 
   typedef std::vector<OfxPlugin*> OfxPluginArray;
-  OfxPluginArray ofxPlugs;
+  static OfxPluginArray ofxPlugs;
 
   /** @brief the global host description */
+  // External linkage: SupportExt (ofxsThreadSuite.cpp) declares gHostDescription, and
+  // Support/tests/DrawContextOpenGLTest.cpp gHostDescriptionHasInit. Written only by the load
+  // action (kOfxActionLoad, before any other action) and reset by the last unload action, so
+  // reading them from other actions needs no lock.
   ImageEffectHostDescription gHostDescription;
   bool gHostDescriptionHasInit = false;
 
@@ -308,7 +315,7 @@ namespace OFX {
 
     // @brief the set of descriptors, one per context used by kOfxActionDescribeInContext,
     //'eContextNone' is the one used by the kOfxActionDescribe
-    EffectDescriptorMap gEffectDescriptors;
+    static EffectDescriptorMap gEffectDescriptors;
 
     // Create the entries of a plug-in in gEffectDescriptors, one per context, with NULL
     // descriptors. Called from init(), before any action: afterwards, describe and unload only
@@ -358,7 +365,7 @@ namespace OFX {
   }
 
   /** @brief map a std::string to a context */
-  ContextEnum mapToContextEnum(const std::string &s) OFX_THROW(std::invalid_argument)
+  ContextEnum mapToContextEnum(const std::string &s)
   {
     if(s == kOfxImageEffectContextGenerator) return eContextGenerator;
     if(s == kOfxImageEffectContextFilter) return eContextFilter;
@@ -377,7 +384,7 @@ namespace OFX {
     throw std::invalid_argument(s);
   }
 
-  const char* mapContextEnumToStr(ContextEnum context) OFX_THROW(std::invalid_argument)
+  const char* mapContextEnumToStr(ContextEnum context)
   {
     switch (context) {
       case eContextGenerator:
@@ -441,7 +448,7 @@ namespace OFX {
   }
 
   /** @brief map a std::string to a context */
-  InstanceChangeReason mapToInstanceChangedReason(const std::string &s) OFX_THROW(std::invalid_argument)
+  InstanceChangeReason mapToInstanceChangedReason(const std::string &s)
   {
     if(s == kOfxChangePluginEdited) return eChangePluginEdit;
     if(s == kOfxChangeUserEdited) return eChangeUserEdit;
@@ -451,7 +458,7 @@ namespace OFX {
   }
 
   /** @brief turns a bit depth string into and enum */
-  BitDepthEnum mapStrToBitDepthEnum(const std::string &str) OFX_THROW(std::invalid_argument)
+  BitDepthEnum mapStrToBitDepthEnum(const std::string &str)
   {
     if(str == kOfxBitDepthByte) {
       return eBitDepthUByte;
@@ -485,7 +492,7 @@ namespace OFX {
   }
 
   /** @brief turns a bit depth string into and enum */
-  const char* mapBitDepthEnumToStr(BitDepthEnum bitDepth) OFX_THROW(std::invalid_argument)
+  const char* mapBitDepthEnumToStr(BitDepthEnum bitDepth)
   {
     switch (bitDepth) {
       case eBitDepthUByte:
@@ -515,7 +522,7 @@ namespace OFX {
   }
 
   /** @brief turns a pixel component string into and enum */
-  PixelComponentEnum mapStrToPixelComponentEnum(const std::string &str) OFX_THROW(std::invalid_argument)
+  PixelComponentEnum mapStrToPixelComponentEnum(const std::string &str)
   {
     if(str == kOfxImageComponentRGBA) {
       return ePixelComponentRGBA;
@@ -548,7 +555,7 @@ namespace OFX {
   }
 
   /** @brief turns a pixel component string into and enum */
-  const char* mapPixelComponentEnumToStr(PixelComponentEnum pixelComponent) OFX_THROW(std::invalid_argument)
+  const char* mapPixelComponentEnumToStr(PixelComponentEnum pixelComponent)
   {
     switch (pixelComponent) {
       case ePixelComponentRGBA:
@@ -578,7 +585,7 @@ namespace OFX {
   }
 
   /** @brief turns a premultiplication string into and enum */
-  static PreMultiplicationEnum mapStrToPreMultiplicationEnum(const std::string &str) OFX_THROW(std::invalid_argument)
+  static PreMultiplicationEnum mapStrToPreMultiplicationEnum(const std::string &str)
   {
     if(str == kOfxImageOpaque) {
       return eImageOpaque;
@@ -595,7 +602,7 @@ namespace OFX {
   }
 
   /** @brief turns a field string into and enum */
-  FieldEnum mapStrToFieldEnum(const std::string &str) OFX_THROW(std::invalid_argument)
+  FieldEnum mapStrToFieldEnum(const std::string &str)
   {
     if(str == kOfxImageFieldNone) {
       return eFieldNone;
@@ -616,7 +623,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_VEGAS
   /** @brief map a std::string to a RenderQuality */
-  VegasRenderQualityEnum mapToVegasRenderQualityEnum(const std::string &s) OFX_THROW(std::invalid_argument)
+  VegasRenderQualityEnum mapToVegasRenderQualityEnum(const std::string &s)
   {
     if(s == kOfxImageEffectPropRenderQualityDraft  )       return eVegasRenderQualityDraft;
     if(s == kOfxImageEffectPropRenderQualityPreview)       return eVegasRenderQualityPreview;
@@ -627,7 +634,7 @@ namespace OFX {
   }
 
   /** @brief map a std::string to a context */
-  VegasContextEnum mapToVegasContextEnum(const std::string &s) OFX_THROW(std::invalid_argument)
+  VegasContextEnum mapToVegasContextEnum(const std::string &s)
   {
     if(s.empty() || s == kOfxImageEffectPropVegasContextUnknown)       return eVegasContextUnknown;
     if(s == kOfxImageEffectPropVegasContextMedia)         return eVegasContextMedia;
@@ -2020,7 +2027,7 @@ namespace OFX {
     _uniqueID = _imageProps.propGetString(kOfxImagePropUniqueIdentifier);
 
     _renderScale.x = _renderScale.y = 1.;
-    _imageProps.propGetDoubleN(kOfxImageEffectPropRenderScale, &_renderScale.x, 2, false);
+    OFX::Private::propGetN(_imageProps, kOfxImageEffectPropRenderScale, _renderScale, false);
 
 #if defined(OFX_EXTENSIONS_NATRON) || defined(OFX_EXTENSIONS_NUKE)
     bool gotDistortion = false;
@@ -2177,7 +2184,7 @@ namespace OFX {
     Clip::getFormat(OfxRectI &format) const
   {
     format.x1 = format.y1 = format.x2 = format.y2 = 0; // default value
-    _clipProps.propGetIntN(kOfxImageClipPropFormat, &format.x1, 4, false);
+    OFX::Private::propGetN(_clipProps, kOfxImageClipPropFormat, format, false);
   }
 #endif
 
@@ -2413,7 +2420,7 @@ namespace OFX {
   OfxRangeD Clip::getFrameRange(void) const
   {
     OfxRangeD v = {0., 0.};
-    _clipProps.propGetDoubleN(kOfxImageEffectPropFrameRange, &v.min, 2);
+    OFX::Private::propGetN(_clipProps, kOfxImageEffectPropFrameRange, v);
     return v;
   }
 
@@ -2427,12 +2434,12 @@ namespace OFX {
   OfxRangeD Clip::getUnmappedFrameRange(void) const
   {
     OfxRangeD v = {0., 0.};
-    _clipProps.propGetDoubleN(kOfxImageEffectPropUnmappedFrameRange, &v.min, 2);
+    OFX::Private::propGetN(_clipProps, kOfxImageEffectPropUnmappedFrameRange, v);
     return v;
   }
 
   /** @brief get the RoD for this clip in the cannonical coordinate system */
-  OfxRectD Clip::getRegionOfDefinition(double t)
+  OfxRectD Clip::getRegionOfDefinition(double t) const
   {
 #  ifndef NDEBUG
     if ( OFX::IsNaN(t) ) {
@@ -2510,7 +2517,7 @@ namespace OFX {
   }
     
 #ifdef OFX_EXTENSIONS_NUKE
-  OfxRectD Clip::getRegionOfDefinition(double t, int view)
+  OfxRectD Clip::getRegionOfDefinition(double t, int view) const
   {
 #  ifndef NDEBUG
     if ( OFX::IsNaN(t) ) {
@@ -2932,7 +2939,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_VEGAS
   /** @brief the Vegas context this effect exists in */
-  VegasContextEnum ImageEffect::getVegasContext(void)
+  VegasContextEnum ImageEffect::getVegasContext(void) const
   {
     // fetch the context
     std::string ctxt = _effectProps.propGetString(kOfxImageEffectPropVegasContext, false);
@@ -2944,7 +2951,7 @@ namespace OFX {
   OfxRectD ImageEffect::getSelectionRectangle() const
   {
     OfxRectD bounds = { 0., 0., 0., 0. };
-    _effectProps.propGetDoubleN(kNatronOfxImageEffectSelectionRectangle, &bounds.x1, 4, false);
+    OFX::Private::propGetN(_effectProps, kNatronOfxImageEffectSelectionRectangle, bounds, false);
     return bounds;
   }
 
@@ -3194,7 +3201,7 @@ namespace OFX {
   OfxPointD ImageEffect::getProjectSize(void) const
   {
     OfxPointD v = {0., 0.};
-    _effectProps.propGetDoubleN(kOfxImageEffectPropProjectSize, &v.x, 2);
+    OFX::Private::propGetN(_effectProps, kOfxImageEffectPropProjectSize, v);
     return v;
   }
 
@@ -3202,7 +3209,7 @@ namespace OFX {
   OfxPointD ImageEffect::getProjectOffset(void) const
   {
     OfxPointD v = {0., 0.};
-    _effectProps.propGetDoubleN(kOfxImageEffectPropProjectOffset, &v.x, 2);
+    OFX::Private::propGetN(_effectProps, kOfxImageEffectPropProjectOffset, v);
     return v;
   }
 
@@ -3210,7 +3217,7 @@ namespace OFX {
   OfxPointD ImageEffect::getProjectExtent(void) const
   {
     OfxPointD v = {0., 0.};
-    _effectProps.propGetDoubleN(kOfxImageEffectPropProjectExtent, &v.x, 2);
+    OFX::Private::propGetN(_effectProps, kOfxImageEffectPropProjectExtent, v);
     return v;
   }
 
@@ -4012,15 +4019,15 @@ namespace OFX {
   void ImageEffect::progressStart(const std::string &message, const std::string &messageid)
   {
     if(OFX::Private::gProgressSuiteV2) {
-      OfxStatus stat = OFX::Private::gProgressSuiteV2->progressStart((void *) _effectHandle, message.c_str(), messageid.c_str());
+      OfxStatus stat = OFX::Private::gProgressSuiteV2->progressStart(_effectHandle, message.c_str(), messageid.c_str());
       _progressStartSuccess = ( stat == kOfxStatOK );
 #ifdef OFX_EXTENSIONS_VEGAS
     } else if(OFX::Private::gVegasProgressSuite) {
-        OfxStatus stat = OFX::Private::gVegasProgressSuite->progressStart((void *) _effectHandle, message.c_str(), messageid.c_str());
+        OfxStatus stat = OFX::Private::gVegasProgressSuite->progressStart(_effectHandle, message.c_str(), messageid.c_str());
         _progressStartSuccess = ( stat == kOfxStatOK );
 #endif
     } else if(OFX::Private::gProgressSuiteV1) {
-      OfxStatus stat = OFX::Private::gProgressSuiteV1->progressStart((void *) _effectHandle, message.c_str());
+      OfxStatus stat = OFX::Private::gProgressSuiteV1->progressStart(_effectHandle, message.c_str());
       _progressStartSuccess = ( stat == kOfxStatOK );
     }
 
@@ -4031,13 +4038,13 @@ namespace OFX {
   {
     if(_progressStartSuccess) {
       if(OFX::Private::gProgressSuiteV2) {
-        OFX::Private::gProgressSuiteV2->progressEnd((void *) _effectHandle);
+        OFX::Private::gProgressSuiteV2->progressEnd(_effectHandle);
 #ifdef OFX_EXTENSIONS_VEGAS
       } else if(OFX::Private::gVegasProgressSuite) {
-        OFX::Private::gVegasProgressSuite->progressEnd((void *) _effectHandle);
+        OFX::Private::gVegasProgressSuite->progressEnd(_effectHandle);
 #endif
       } else if(OFX::Private::gProgressSuiteV1) {
-        OFX::Private::gProgressSuiteV1->progressEnd((void *) _effectHandle);
+        OFX::Private::gProgressSuiteV1->progressEnd(_effectHandle);
       }
       // "\post - you can no longer call progressUpdate on the instance" (ofxProgress.h):
       // progressUpdate() and progressEnd() don't call the host again until the next progressStart()
@@ -4056,17 +4063,17 @@ namespace OFX {
 #  endif
     if(_progressStartSuccess) {
       if(OFX::Private::gProgressSuiteV2) {
-        OfxStatus stat = OFX::Private::gProgressSuiteV2->progressUpdate((void *) _effectHandle, t);
+        OfxStatus stat = OFX::Private::gProgressSuiteV2->progressUpdate(_effectHandle, t);
         if(stat == kOfxStatReplyNo)
           return false;
 #ifdef OFX_EXTENSIONS_VEGAS
       } else if(OFX::Private::gVegasProgressSuite) {
-          OfxStatus stat = OFX::Private::gVegasProgressSuite->progressUpdate((void *) _effectHandle, t);
+          OfxStatus stat = OFX::Private::gVegasProgressSuite->progressUpdate(_effectHandle, t);
           if(stat == kOfxStatReplyNo)
               return false;
 #endif
       } else if(OFX::Private::gProgressSuiteV1) {
-        OfxStatus stat = OFX::Private::gProgressSuiteV1->progressUpdate((void *) _effectHandle, t);
+        OfxStatus stat = OFX::Private::gProgressSuiteV1->progressUpdate(_effectHandle, t);
         if(stat == kOfxStatReplyNo)
           return false;
       }
@@ -4080,7 +4087,7 @@ namespace OFX {
   {
     if(OFX::Private::gTimeLineSuite) {
       double time;
-      if(OFX::Private::gTimeLineSuite->getTime((void *) _effectHandle, &time) == kOfxStatOK)
+      if(OFX::Private::gTimeLineSuite->getTime(_effectHandle, &time) == kOfxStatOK)
         return time;
     }
     return 0;
@@ -4095,7 +4102,7 @@ namespace OFX {
     }
 #  endif
     if(OFX::Private::gTimeLineSuite) {
-      OFX::Private::gTimeLineSuite->gotoTime((void *) _effectHandle, t);
+      OFX::Private::gTimeLineSuite->gotoTime(_effectHandle, t);
     }
   }
 
@@ -4103,7 +4110,7 @@ namespace OFX {
   void ImageEffect:: timeLineGetBounds(double &t1, double &t2)
   {
     if(OFX::Private::gTimeLineSuite) {
-      OFX::Private::gTimeLineSuite->getTimeBounds((void *) _effectHandle, &t1, &t2);
+      OFX::Private::gTimeLineSuite->getTimeBounds(_effectHandle, &t1, &t2);
       return;
     }
     t1 = t2 = 0;
@@ -4665,7 +4672,34 @@ namespace OFX {
       return OFX::PropertySet(propHandle);
     }
 
-    /** @brief Keeps count of how many times load/unload have been called */
+    /** @brief kOfxActionCreateInstance: makes the instance of the effect for the context of the
+        handle, which the ImageEffect constructor stores in kOfxPropInstanceData. If a step after
+        PluginFactory::createInstance() throws, the instance is deleted (its destructor clears
+        kOfxPropInstanceData) before the exception is rethrown: neither the instance leaks nor
+        does the host keep a dangling pointer (R.11, E.6). */
+    ImageEffect *createInstanceAction(PluginFactory *factory, OfxImageEffectHandle handle)
+    {
+      // fetch the effect props to figure the context
+      PropertySet effectProps = fetchEffectProps(handle);
+
+      // get the context and turn it into an enum
+      std::string str = effectProps.propGetString(kOfxImageEffectPropContext);
+      ContextEnum context = mapToContextEnum(str);
+
+      // make the image effect instance for this context
+      ImageEffect *instance = factory->createInstance(handle, context);
+      try {
+        // validate the plugin handle's properties, set by the instance's constructor
+        OFX::Validation::validatePluginInstanceProperties(fetchEffectProps(handle));
+      } catch (...) {
+        delete instance;
+        throw;
+      }
+      return instance;
+    }
+
+    /** @brief Keeps count of how many times load/unload have been called.
+        External linkage: SupportExt (ofxsThreadSuite.cpp) declares it. */
     int gLoadCount = 0;
 
     /** @brief Library side load action, this fetches all the suite pointers */
@@ -4949,10 +4983,10 @@ namespace OFX {
       args.time = inArgs.propGetDouble(kOfxPropTime);
 
       args.renderScale.x = args.renderScale.y = 1.;
-      inArgs.propGetDoubleN(kOfxImageEffectPropRenderScale, &args.renderScale.x, 2);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRenderScale, args.renderScale);
 
       args.renderWindow.x1 = args.renderWindow.y1 = args.renderWindow.x2 = args.renderWindow.y2 = 0;
-      inArgs.propGetIntN(kOfxImageEffectPropRenderWindow, &args.renderWindow.x1, 4);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRenderWindow, args.renderWindow);
 
       args.isEnabledOpenCLRender = inArgs.propGetInt(kOfxImageEffectPropOpenCLEnabled, false) != 0;
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
@@ -5007,10 +5041,8 @@ namespace OFX {
         args.fieldToRender = mapStrToFieldEnum(str);
       }
       catch (const std::invalid_argument&) {
-        // dud field?
+        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
-
-        // HACK need to throw something to cause a failure
       }
 
 #ifdef OFX_EXTENSIONS_VEGAS
@@ -5060,12 +5092,12 @@ namespace OFX {
       args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
 
       args.frameRange.min = args.frameRange.max = 0.;
-      inArgs.propGetDoubleN(kOfxImageEffectPropFrameRange, &args.frameRange.min, 2);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropFrameRange, args.frameRange);
 
       args.frameStep      = inArgs.propGetDouble(kOfxImageEffectPropFrameStep, 0);
 
       args.renderScale.x = args.renderScale.y = 1.;
-      inArgs.propGetDoubleN(kOfxImageEffectPropRenderScale, &args.renderScale.x, 2);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRenderScale, args.renderScale);
 
       args.isEnabledOpenCLRender = inArgs.propGetInt(kOfxImageEffectPropOpenCLEnabled, false) != 0;
       args.isEnabledCudaRender   = inArgs.propGetInt(kOfxImageEffectPropCudaEnabled, false) != 0;
@@ -5118,7 +5150,7 @@ namespace OFX {
       args.pCudaStream           = inArgs.propGetPointer(kOfxImageEffectPropCudaStream, false);
       args.pMetalCmdQ            = inArgs.propGetPointer(kOfxImageEffectPropMetalCommandQueue, false);
       args.renderScale.x = args.renderScale.y = 1.;
-      inArgs.propGetDoubleN(kOfxImageEffectPropRenderScale, &args.renderScale.x, 2);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRenderScale, args.renderScale);
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
       // Don't throw an exception if the following inArgs are not present.
@@ -5154,25 +5186,24 @@ namespace OFX {
       args.time = inArgs.propGetDouble(kOfxPropTime);
 
       args.renderScale.x = args.renderScale.y = 1.;
-      inArgs.propGetDoubleN(kOfxImageEffectPropRenderScale, &args.renderScale.x, 2);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRenderScale, args.renderScale);
 
       args.renderWindow.x1 = args.renderWindow.y1 = args.renderWindow.x2 = args.renderWindow.y2 = 0;
-      inArgs.propGetIntN(kOfxImageEffectPropRenderWindow, &args.renderWindow.x1, 4);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRenderWindow, args.renderWindow);
 
 #ifdef OFX_EXTENSIONS_NUKE
       args.view = inArgs.propGetInt(kFnOfxImageEffectPropView, 0, false);
       args.plane = inArgs.propGetString(kOfxImageEffectPropIdentityPlane, 0, false);
 #endif
         
+      args.fieldToRender = eFieldNone; // if the host's value is invalid (it was left uninitialized, ES.20)
       std::string str = inArgs.propGetString(kOfxImageEffectPropFieldToRender);
       try {
         args.fieldToRender = mapStrToFieldEnum(str);
       }
       catch (const std::invalid_argument&) {
-        // dud field?
+        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
-
-        // HACK need to throw something to cause a failure
       }
     }
 
@@ -5222,7 +5253,7 @@ namespace OFX {
       args.isThumbnailRender = getIsThumbnailRender(inArgs);
 
       args.renderScale.x = args.renderScale.y = 1.;
-      inArgs.propGetDoubleN(kOfxImageEffectPropRenderScale, &args.renderScale.x, 2);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRenderScale, args.renderScale);
 
       args.time = inArgs.propGetDouble(kOfxPropTime);
 
@@ -5235,7 +5266,7 @@ namespace OFX {
       bool v = effectInstance->getRegionOfDefinition(args, rod);
 
       if(v) {
-        outArgs.propSetDoubleN(kOfxImageEffectPropRegionOfDefinition, &rod.x1, 4);
+        OFX::Private::propSetN(outArgs, kOfxImageEffectPropRegionOfDefinition, rod);
         return true;
       }
       return false;
@@ -5296,7 +5327,7 @@ namespace OFX {
           const std::string& propName = it->second;
 
           // and set it
-          outArgs_.propSetDoubleN(propName.c_str(), &roi.x1, 4);
+          OFX::Private::propSetN(outArgs_, propName.c_str(), roi);
 
           // and record the face we have done something
           doneSomething_ = true;
@@ -5310,10 +5341,10 @@ namespace OFX {
 
       // fetch in arguments from the prop handle
       args.renderScale.x = args.renderScale.y = 1.;
-      inArgs.propGetDoubleN(kOfxImageEffectPropRenderScale, &args.renderScale.x, 2);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRenderScale, args.renderScale);
 
       args.regionOfInterest.x1 = args.regionOfInterest.y1 = args.regionOfInterest.x2 = args.regionOfInterest.y2 = 0.;
-      inArgs.propGetDoubleN(kOfxImageEffectPropRegionOfInterest, &args.regionOfInterest.x1, 4);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRegionOfInterest, args.regionOfInterest);
 
       args.time = inArgs.propGetDouble(kOfxPropTime);
         
@@ -5439,7 +5470,7 @@ namespace OFX {
       bool v = effectInstance->getTimeDomain(timeDomain);
 
       if(v) {
-        outArgs.propSetDoubleN(kOfxImageEffectPropFrameRange, &timeDomain.min, 2);
+        OFX::Private::propSetN(outArgs, kOfxImageEffectPropFrameRange, timeDomain);
       }
 
       return v;
@@ -5558,7 +5589,7 @@ namespace OFX {
       args.reason = mapToInstanceChangedReason(reasonStr);
       args.time = inArgs.propGetDouble(kOfxPropTime);
       args.renderScale.x = args.renderScale.y = 1.;
-      inArgs.propGetDoubleN(kOfxImageEffectPropRenderScale, &args.renderScale.x, 2);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRenderScale, args.renderScale);
 
       // what changed
       std::string changedType = inArgs.propGetString(kOfxPropType);
@@ -5686,7 +5717,7 @@ namespace OFX {
       args.time = inArgs.propGetDouble(kOfxPropTime);
 
       args.renderScale.x = args.renderScale.y = 1.;
-      inArgs.propGetDoubleN(kOfxImageEffectPropRenderScale, &args.renderScale.x, 2);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRenderScale, args.renderScale);
 
       // kOfxImageEffectPropRenderQualityDraft appeared in OFX 1.4
       args.renderQualityDraft = inArgs.propGetInt(kOfxImageEffectPropRenderQualityDraft, false) != 0;
@@ -5698,10 +5729,8 @@ namespace OFX {
         args.fieldToRender = eFieldBoth;
         args.fieldToRender = mapStrToFieldEnum(str);
       } catch (const std::invalid_argument&) {
-        // dud field?
+        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
-
-        // HACK need to throw something to cause a failure
       }
 
       // and call the plugin client getTransform code
@@ -5731,7 +5760,7 @@ namespace OFX {
       args.time = inArgs.propGetDouble(kOfxPropTime);
 
       args.renderScale.x = args.renderScale.y = 1.;
-      inArgs.propGetDoubleN(kOfxImageEffectPropRenderScale, &args.renderScale.x, 2);
+      OFX::Private::propGetN(inArgs, kOfxImageEffectPropRenderScale, args.renderScale);
 
       // kOfxImageEffectPropRenderQualityDraft appeared in OFX 1.4
       args.renderQualityDraft = inArgs.propGetInt(kOfxImageEffectPropRenderQualityDraft, false) != 0;
@@ -5743,10 +5772,8 @@ namespace OFX {
         args.fieldToRender = eFieldBoth;
         args.fieldToRender = mapStrToFieldEnum(str);
       } catch (const std::invalid_argument&) {
-        // dud field?
+        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
-
-        // HACK need to throw something to cause a failure
       }
 
       // and call the plugin client getTransform code
@@ -5850,8 +5877,9 @@ namespace OFX {
 
         OFX::PluginFactory* factory = it->second._factory;
 
-        // Cast the raw handle to be an image effect handle, because that is what it is
-        OfxImageEffectHandle handle = (OfxImageEffectHandle) handleRaw;
+        // The entry point gets the handle as a const void*, and the suites take it non-const:
+        // that const is the C API's, the object is not const (ES.50)
+        OfxImageEffectHandle handle = static_cast<OfxImageEffectHandle>(const_cast<void *>(handleRaw));
 
         // Turn the arguments into wrapper objects to make our lives easier
         OFX::PropertySet inArgs(inArgsRaw);
@@ -5950,19 +5978,9 @@ namespace OFX {
         else if(action == kOfxActionCreateInstance) {
           checkMainHandles(actionRaw, handleRaw, inArgsRaw, outArgsRaw, false, true, true);
 
-          // fetch the effect props to figure the context
-          PropertySet effectProps = fetchEffectProps(handle);
-
-          // get the context and turn it into an enum
-          std::string str = effectProps.propGetString(kOfxImageEffectPropContext);
-          ContextEnum context = mapToContextEnum(str);
-
-          // make the image effect instance for this context
-          ImageEffect *instance = factory->createInstance(handle, context);
-          (void)instance;
-
-          // validate the plugin handle's properties
-          OFX::Validation::validatePluginInstanceProperties(fetchEffectProps(handle));
+          // the instance is owned by the host's handle (kOfxPropInstanceData), until
+          // kOfxActionDestroyInstance
+          createInstanceAction(factory, handle);
 
           // got here, must be good
           stat = kOfxStatOK;
@@ -6278,8 +6296,9 @@ namespace OFX {
       (void)plugname; // OFX_CLIENT_EXCEPTION_HANDLER may not use it
 #endif
       try {
-        // Cast the raw handle to be an image effect handle, because that is what it is
-        OfxImageEffectHandle handle = (OfxImageEffectHandle) handleRaw;
+        // The entry point gets the handle as a const void*, and the suites take it non-const:
+        // that const is the C API's, the object is not const (ES.50)
+        OfxImageEffectHandle handle = static_cast<OfxImageEffectHandle>(const_cast<void *>(handleRaw));
 
         // Turn the arguments into wrapper objects to make our lives easier
         OFX::PropertySet inArgs(inArgsRaw);

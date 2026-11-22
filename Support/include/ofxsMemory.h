@@ -43,6 +43,9 @@ This file only holds code that is visible to a plugin implementation, and so hid
 of the direct OFX objects and any library side only functions.
 */
 
+#include <stddef.h> // ::size_t (SF.11: the header includes what it uses)
+#include "ofxsCore.h" // OFX_NOTHROW
+
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
 */
 namespace OFX {
@@ -63,7 +66,7 @@ namespace OFX {
     Suceeds or throws std::bad_alloc
     */   
     void *allocate(size_t nBytes,
-      ImageEffect *handle = 0) OFX_THROW(std::bad_alloc);
+      ImageEffect *handle = 0);
 
     /** @brief release memory
 

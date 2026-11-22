@@ -243,9 +243,6 @@
 		1E08327019A1E23C00A819A5 /* osxDeploy.sh */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.sh; name = osxDeploy.sh; path = include/osxDeploy.sh; sourceTree = "<group>"; };
 		1E08327119A1E23C00A819A5 /* osxSymbols */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = osxSymbols; path = include/osxSymbols; sourceTree = "<group>"; };
 		1E08327219A1E23C00A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
-		1E08327319A1E23C00A819A5 /* ofxSupport.dsp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = ofxSupport.dsp; path = Library/ofxSupport.dsp; sourceTree = "<group>"; };
-		1E08327419A1E23C00A819A5 /* ofxsupport.dsw */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = ofxsupport.dsw; path = Library/ofxsupport.dsw; sourceTree = "<group>"; };
-		1E08327519A1E23C00A819A5 /* ofxsupport.vcproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; name = ofxsupport.vcproj; path = Library/ofxsupport.vcproj; sourceTree = "<group>"; };
 		1E08327619A1E25600A819A5 /* ofxsHWNDInteract.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ofxsHWNDInteract.cpp; sourceTree = "<group>"; };
 		1E08327819A1E2C100A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
 		1E08327919A1E2C100A819A5 /* pluginLoader.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = pluginLoader.cpp; sourceTree = "<group>"; };
@@ -441,9 +438,6 @@
 				1E08326F19A1E23C00A819A5 /* linuxSymbols */,
 				1E08327019A1E23C00A819A5 /* osxDeploy.sh */,
 				1E08327119A1E23C00A819A5 /* osxSymbols */,
-				1E08327319A1E23C00A819A5 /* ofxSupport.dsp */,
-				1E08327419A1E23C00A819A5 /* ofxsupport.dsw */,
-				1E08327519A1E23C00A819A5 /* ofxsupport.vcproj */,
 				1E08326B19A1E1B900A819A5 /* LICENSE */,
 				1E08326C19A1E1B900A819A5 /* README */,
 				1E08326D19A1E1B900A819A5 /* support.doxy */,

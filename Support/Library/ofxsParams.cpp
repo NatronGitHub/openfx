@@ -225,7 +225,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_VEGAS
   /** @brief map a std::string to a keyframe interpolation type */
-  VegasInterpolationEnum mapToInterpolationEnum(const std::string &s) OFX_THROW(std::invalid_argument)
+  VegasInterpolationEnum mapToInterpolationEnum(const std::string &s)
   {
     if(s == kOfxVegasKeyframeInterpolationUnknown) return eVegasInterpolationUnknown;
     if(s == kOfxVegasKeyframeInterpolationLinear)  return eVegasInterpolationLinear;
@@ -2187,7 +2187,7 @@ namespace OFX {
 
   /** @brief if the param is animating, the number of keys in it, otherwise 0 */
   unsigned int 
-    ValueParam::getNumKeys(void)
+    ValueParam::getNumKeys(void) const
   {
     if(!OFX::Private::gParamSuite->paramGetNumKeys) throwHostMissingSuiteException("paramGetNumKeys");
     unsigned int v = 0;
@@ -2198,7 +2198,7 @@ namespace OFX {
 
   /** @brief get the time of the nth key, nth must be between 0 and getNumKeys-1 */
   double 
-    ValueParam::getKeyTime(int nthKey) OFX_THROW2(OFX::Exception::Suite, std::out_of_range)
+    ValueParam::getKeyTime(int nthKey) const
   {
     if(!OFX::Private::gParamSuite->paramGetKeyTime) throwHostMissingSuiteException("paramGetKeyTime");
     double v = 0;
@@ -2215,7 +2215,7 @@ namespace OFX {
   /** @brief find the index of a key by a time */
   int 
     ValueParam::getKeyIndex(double time, 
-    KeySearchEnum searchDir)
+    KeySearchEnum searchDir) const
   {
 #  ifndef NDEBUG
     if ( OFX::IsNaN(time) ) {
@@ -2273,7 +2273,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_VEGAS
   /** @brief gets the interpolation type of a key at the given time */
-  VegasInterpolationEnum ValueParam::getKeyInterpolation(double time)
+  VegasInterpolationEnum ValueParam::getKeyInterpolation(double time) const
   {
 #  ifndef NDEBUG
     if ( OFX::IsNaN(time) ) {
@@ -2331,20 +2331,20 @@ namespace OFX {
   }
 
   /** @brief get the default value */
-  void IntParam::getDefault(int &v)
+  void IntParam::getDefault(int &v) const
   {    
     v = _paramProps.propGetInt(kOfxParamPropDefault);
   }
 
-  /** @brief set the hard min/max range, default is INT_MIN, INT_MAX */
-  void IntParam::getRange(int &min, int &max)
+  /** @brief get the hard min/max range, default is INT_MIN, INT_MAX */
+  void IntParam::getRange(int &min, int &max) const
   {
     min = _paramProps.propGetInt(kOfxParamPropMin);
     max = _paramProps.propGetInt(kOfxParamPropMax);
   }
 
-  /** @brief set the display min and max, default is to be the same as the range param */
-  void IntParam::getDisplayRange(int &min, int &max)
+  /** @brief get the display min and max, default is to be the same as the range param */
+  void IntParam::getDisplayRange(int &min, int &max) const
   {
     min = _paramProps.propGetInt(kOfxParamPropDisplayMin);
     max = _paramProps.propGetInt(kOfxParamPropDisplayMax);
@@ -2437,17 +2437,17 @@ namespace OFX {
   }
 
   /** @brief het the default value */
-  void Int2DParam::getDefault(int &x, int &y)
+  void Int2DParam::getDefault(int &x, int &y) const
   {    
     x = _paramProps.propGetInt(kOfxParamPropDefault, 0);
     y = _paramProps.propGetInt(kOfxParamPropDefault, 1);
   }
 
 
-  /** @brief set the hard min/max range, default is INT_MIN, INT_MAX */
+  /** @brief get the hard min/max range, default is INT_MIN, INT_MAX */
   void 
     Int2DParam::getRange(int &xmin, int &ymin,
-    int &xmax, int &ymax)
+    int &xmax, int &ymax) const
   {
     xmin = _paramProps.propGetInt(kOfxParamPropMin, 0);
     ymin = _paramProps.propGetInt(kOfxParamPropMin, 1);
@@ -2455,10 +2455,10 @@ namespace OFX {
     ymax = _paramProps.propGetInt(kOfxParamPropMax, 1);
   }
 
-  /** @brief set the display min and max, default is to be the same as the range param */
+  /** @brief get the display min and max, default is to be the same as the range param */
   void 
     Int2DParam::getDisplayRange(int &xmin, int &ymin,
-    int &xmax, int &ymax)
+    int &xmax, int &ymax) const
   {
     xmin = _paramProps.propGetInt(kOfxParamPropDisplayMin, 0);
     ymin = _paramProps.propGetInt(kOfxParamPropDisplayMin, 1);
@@ -2554,7 +2554,7 @@ namespace OFX {
   }
 
   /** @brief get the default value */
-  void Int3DParam::getDefault(int &x, int &y, int &z)
+  void Int3DParam::getDefault(int &x, int &y, int &z) const
   {    
     x = _paramProps.propGetInt(kOfxParamPropDefault, 0);
     y = _paramProps.propGetInt(kOfxParamPropDefault, 1);
@@ -2562,10 +2562,10 @@ namespace OFX {
   }
 
 
-  /** @brief set the hard min/max range, default is INT_MIN, INT_MAX */
+  /** @brief get the hard min/max range, default is INT_MIN, INT_MAX */
   void 
     Int3DParam::getRange(int &xmin, int &ymin, int &zmin,
-    int &xmax, int &ymax, int &zmax)
+    int &xmax, int &ymax, int &zmax) const
   {
     xmin = _paramProps.propGetInt(kOfxParamPropMin, 0);
     ymin = _paramProps.propGetInt(kOfxParamPropMin, 1);
@@ -2575,10 +2575,10 @@ namespace OFX {
     zmax = _paramProps.propGetInt(kOfxParamPropMax, 2);
   }
 
-  /** @brief set the display min and max, default is to be the same as the range param */
+  /** @brief get the display min and max, default is to be the same as the range param */
   void 
     Int3DParam::getDisplayRange(int &xmin, int &ymin, int &zmin,
-    int &xmax, int &ymax, int &zmax)
+    int &xmax, int &ymax, int &zmax) const
   {
     xmin = _paramProps.propGetInt(kOfxParamPropDisplayMin, 0);
     ymin = _paramProps.propGetInt(kOfxParamPropDisplayMin, 1);
@@ -2658,19 +2658,19 @@ namespace OFX {
   }
 
   /** @brief get the sensitivity of any gui slider */
-  void BaseDoubleParam::getIncrement(double &v)
+  void BaseDoubleParam::getIncrement(double &v) const
   {
     v = _paramProps.propGetDouble(kOfxParamPropIncrement);
   }
 
   /** @brief get the number of digits printed after a decimal point in any gui */
-  void BaseDoubleParam::getDigits(int &v)
+  void BaseDoubleParam::getDigits(int &v) const
   {
     v = _paramProps.propGetInt(kOfxParamPropDigits);
   }
 
   /** @brief get the type of the double param, defaults to eDoubleTypePlain */
-  void BaseDoubleParam::getDoubleType(DoubleTypeEnum &v)
+  void BaseDoubleParam::getDoubleType(DoubleTypeEnum &v) const
   {
     std::string str = _paramProps.propGetString(kOfxParamPropDoubleType);
 
@@ -2715,7 +2715,7 @@ namespace OFX {
   }
 
   /** @brief get the type of coordinate system for default values */
-  void BaseDoubleParam::getDefaultCoordinateSystem(DefaultCoordinateSystemEnum &v)
+  void BaseDoubleParam::getDefaultCoordinateSystem(DefaultCoordinateSystemEnum &v) const
   {
     std::string str = _paramProps.propGetString(kOfxParamPropDefaultCoordinateSystem);
 
@@ -2755,20 +2755,20 @@ namespace OFX {
   }
 
   /** @brief get the default value */
-  void DoubleParam::getDefault(double &v)
+  void DoubleParam::getDefault(double &v) const
   {    
     v = _paramProps.propGetDouble(kOfxParamPropDefault);
   }
 
-  /** @brief set the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
-  void DoubleParam::getRange(double &min, double &max)
+  /** @brief get the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
+  void DoubleParam::getRange(double &min, double &max) const
   {
     min = _paramProps.propGetDouble(kOfxParamPropMin);
     max = _paramProps.propGetDouble(kOfxParamPropMax);
   }
 
-  /** @brief set the display min and max, default is to be the same as the range param */
-  void DoubleParam::getDisplayRange(double &min, double &max)
+  /** @brief get the display min and max, default is to be the same as the range param */
+  void DoubleParam::getDisplayRange(double &min, double &max) const
   {
     min = _paramProps.propGetDouble(kOfxParamPropDisplayMin);
     max = _paramProps.propGetDouble(kOfxParamPropDisplayMax);
@@ -2892,17 +2892,17 @@ namespace OFX {
   }
 
   /** @brief get the default value */
-  void Double2DParam::getDefault(double &x, double &y)
+  void Double2DParam::getDefault(double &x, double &y) const
   {    
     x = _paramProps.propGetDouble(kOfxParamPropDefault, 0);
     y = _paramProps.propGetDouble(kOfxParamPropDefault, 1);
   }
 
 
-  /** @brief set the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
+  /** @brief get the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
   void 
     Double2DParam::getRange(double &xmin, double &ymin,
-    double &xmax, double &ymax)
+    double &xmax, double &ymax) const
   {
     xmin = _paramProps.propGetDouble(kOfxParamPropMin, 0);
     ymin = _paramProps.propGetDouble(kOfxParamPropMin, 1);
@@ -2910,10 +2910,10 @@ namespace OFX {
     ymax = _paramProps.propGetDouble(kOfxParamPropMax, 1);
   }
 
-  /** @brief set the display min and max, default is to be the same as the range param */
+  /** @brief get the display min and max, default is to be the same as the range param */
   void 
     Double2DParam::getDisplayRange(double &xmin, double &ymin,
-    double &xmax, double &ymax)
+    double &xmax, double &ymax) const
   {
     xmin = _paramProps.propGetDouble(kOfxParamPropDisplayMin, 0);
     ymin = _paramProps.propGetDouble(kOfxParamPropDisplayMin, 1);
@@ -3039,7 +3039,7 @@ namespace OFX {
   }
 
   /** @brief get the default value */
-  void Double3DParam::getDefault(double &x, double &y, double &z)
+  void Double3DParam::getDefault(double &x, double &y, double &z) const
   {    
     x = _paramProps.propGetDouble(kOfxParamPropDefault, 0);
     y = _paramProps.propGetDouble(kOfxParamPropDefault, 1);
@@ -3047,10 +3047,10 @@ namespace OFX {
   }
 
 
-  /** @brief set the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
+  /** @brief get the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
   void 
     Double3DParam::getRange(double &xmin, double &ymin, double &zmin,
-    double &xmax, double &ymax, double &zmax)
+    double &xmax, double &ymax, double &zmax) const
   {
     xmin = _paramProps.propGetDouble(kOfxParamPropMin, 0);
     ymin = _paramProps.propGetDouble(kOfxParamPropMin, 1);
@@ -3060,10 +3060,10 @@ namespace OFX {
     zmax = _paramProps.propGetDouble(kOfxParamPropMax, 2);
   }
 
-  /** @brief set the display min and max, default is to be the same as the range param */
+  /** @brief get the display min and max, default is to be the same as the range param */
   void 
     Double3DParam::getDisplayRange(double &xmin, double &ymin, double &zmin,
-    double &xmax, double &ymax, double &zmax)
+    double &xmax, double &ymax, double &zmax) const
   {
     xmin = _paramProps.propGetDouble(kOfxParamPropDisplayMin, 0);
     ymin = _paramProps.propGetDouble(kOfxParamPropDisplayMin, 1);
@@ -3175,7 +3175,7 @@ namespace OFX {
 
 
   /** @brief get the default value */
-  void RGBParam::getDefault(double &r, double &g, double &b)
+  void RGBParam::getDefault(double &r, double &g, double &b) const
   {    
     r = _paramProps.propGetDouble(kOfxParamPropDefault, 0);
     g = _paramProps.propGetDouble(kOfxParamPropDefault, 1);
@@ -3258,7 +3258,7 @@ namespace OFX {
 
 
   /** @brief get the default value */
-  void RGBAParam::getDefault(double &r, double &g, double &b, double &a)
+  void RGBAParam::getDefault(double &r, double &g, double &b, double &a) const
   {    
     r = _paramProps.propGetDouble(kOfxParamPropDefault, 0);
     g = _paramProps.propGetDouble(kOfxParamPropDefault, 1);
@@ -3340,7 +3340,7 @@ namespace OFX {
   }
 
   /** @brief get the default value */
-  void StringParam::getDefault(std::string &v)
+  void StringParam::getDefault(std::string &v) const
   {    
     v = _paramProps.propGetString(kOfxParamPropDefault);
   }
@@ -3433,7 +3433,7 @@ namespace OFX {
   }
 
   /** @brief get the default value */
-  void BooleanParam::getDefault(bool &v)
+  void BooleanParam::getDefault(bool &v) const
   {    
     v = _paramProps.propGetInt(kOfxParamPropDefault) != 0;
   }
@@ -3508,7 +3508,7 @@ namespace OFX {
   }
 
   /** @brief get the default value */
-  void ChoiceParam::getDefault(int &v)
+  void ChoiceParam::getDefault(int &v) const
   {    
     v = _paramProps.propGetInt(kOfxParamPropDefault);
   }
@@ -3548,14 +3548,14 @@ namespace OFX {
   }
 
   /** @brief how many options do we have */
-  int ChoiceParam::getNOptions(void)
+  int ChoiceParam::getNOptions(void) const
   {
     int nCurrentValues = _paramProps.propGetDimension(kOfxParamPropChoiceOption);
     return nCurrentValues;
   }
 
   /** @brief get the option value */
-  void ChoiceParam::getOption(int ix, std::string &v)
+  void ChoiceParam::getOption(int ix, std::string &v) const
   {    
     v = _paramProps.propGetString(kOfxParamPropChoiceOption, ix);
   }
@@ -3567,13 +3567,13 @@ namespace OFX {
   }
 
   /** @brief get the option enum */
-  void ChoiceParam::getEnum(int ix, std::string &name)
+  void ChoiceParam::getEnum(int ix, std::string &name) const
   {
     name = _paramProps.propGetString(kOfxParamPropChoiceEnum, ix, false);
   }
 #endif
 
-  void ChoiceParam::getOptions(std::vector<std::string>* options, std::vector<std::string>* optionsHints, std::vector<std::string>* optionsNames)
+  void ChoiceParam::getOptions(std::vector<std::string>* options, std::vector<std::string>* optionsHints, std::vector<std::string>* optionsNames) const
   {
     _paramProps.propGetStringN(kOfxParamPropChoiceOption, options);
 #ifdef OFX_EXTENSIONS_TUTTLE
@@ -3702,7 +3702,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_NATRON
     /** @brief whether the menu should be cascading, and each option contains a slash-separated path to the item, defaults to false. */
-    bool ChoiceParam::getIsCascading()
+    bool ChoiceParam::getIsCascading() const
     {
         bool v = _paramProps.propGetInt(kNatronOfxParamPropChoiceCascading, false) != 0;
         return v;
@@ -3720,7 +3720,7 @@ namespace OFX {
   }
 
   /** @brief how many options do we have */
-  int StrChoiceParam::getNOptions()
+  int StrChoiceParam::getNOptions() const
   {
       const int numOptions = _paramProps.propGetDimension(kOfxParamPropChoiceOption);
       assert(numOptions == _paramProps.propGetDimension(kOfxParamPropChoiceEnum));
@@ -3760,7 +3760,7 @@ namespace OFX {
   }
 
   /** @brief get the option value */
-  void StrChoiceParam::getOption(const std::string& p_Index, std::string& p_Option)
+  void StrChoiceParam::getOption(const std::string& p_Index, std::string& p_Option) const
   {
       const int numOptions = _paramProps.propGetDimension(kOfxParamPropChoiceOption);
       assert(numOptions == _paramProps.propGetDimension(kOfxParamPropChoiceEnum));
@@ -3803,7 +3803,7 @@ namespace OFX {
   }
 
   /** @brief get the default value */
-  void CustomParam::getDefault(std::string &v)
+  void CustomParam::getDefault(std::string &v) const
   {    
     v = _paramProps.propGetString(kOfxParamPropDefault);
   }
@@ -3979,7 +3979,7 @@ namespace OFX {
   }
 
   /** @brief whether the group is open or closed in a hierarchical layout */
-  bool GroupParam::getIsOpen()
+  bool GroupParam::getIsOpen() const
   {
     bool v = _paramProps.propGetInt(kOfxParamPropGroupOpen, false) != 0; // introduced in OFX 1.2
     return v;
@@ -4017,7 +4017,7 @@ namespace OFX {
       : Param(paramSet, name, eParametricParam, handle)
   {}
 
-  void ParametricParam::getRange(double &min, double &max)
+  void ParametricParam::getRange(double &min, double &max) const
   {
     double r[2] = {0., 0.};
     _paramProps.propGetDoubleN(kOfxParamPropParametricRange, r, 2);
@@ -4041,15 +4041,15 @@ namespace OFX {
     _paramProps.propSetDouble(kOfxParamPropDisplayMax, max, curveIndex, false);
   }
 
-  /** @brief set the hard min/max range, default is -DBL_MAX, DBL_MAX */
-  void ParametricParam::getDimensionRange(int curveIndex, double &min, double &max)
+  /** @brief get the hard min/max range, default is -DBL_MAX, DBL_MAX */
+  void ParametricParam::getDimensionRange(int curveIndex, double &min, double &max) const
   {
     min = _paramProps.propGetDouble(kOfxParamPropMin, curveIndex, false);
     max = _paramProps.propGetDouble(kOfxParamPropMax, curveIndex, false);
   }
 
-  /** @brief set the display min and max, default is to be the same as the range param */
-  void ParametricParam::getDimensionDisplayRange(int curveIndex, double &min, double &max)
+  /** @brief get the display min and max, default is to be the same as the range param */
+  void ParametricParam::getDimensionDisplayRange(int curveIndex, double &min, double &max) const
   {
     min = _paramProps.propGetDouble(kOfxParamPropDisplayMin, curveIndex, false);
     max = _paramProps.propGetDouble(kOfxParamPropDisplayMax, curveIndex, false);

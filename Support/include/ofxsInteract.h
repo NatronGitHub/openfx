@@ -85,11 +85,6 @@ of the direct OFX objects and any library side only functions.
 
 #include <list>
 
-/** @brief Nasty macro used to define empty protected copy ctors and assign ops */
-#define mDeclareProtectedAssignAndCC(CLASS) \
-  CLASS &operator=(const CLASS &) {assert(false); return *this;}      \
-  CLASS(const CLASS &) {assert(false); } 
-
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
 */
 namespace OFX {
@@ -877,9 +872,6 @@ namespace OFX {
 
   template<class DESC, class INSTANCE> std::string OFX::DefaultParamInteractDescriptor<DESC, INSTANCE>::_paramNameStatic;
 };
-
-
-#undef mDeclareProtectedAssignAndCC
 
 #endif
 
