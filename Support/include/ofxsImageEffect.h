@@ -42,6 +42,7 @@ England
 This file only holds code that is visible to a plugin implementation, and so hides much
 of the direct OFX objects and any library side only functions.
 */
+#include <cstddef> // std::ptrdiff_t
 #include <map>
 #include <string>
 #include <sstream> // stringstream
@@ -1188,6 +1189,16 @@ namespace OFX {
     void     *_pixelData;                    /**< @brief the base address of the image */
     void     *_OpenCLImage;                  /**< @brief the OpenCL Image handle (cl_mem), or NULL (OFX 1.5) */
 
+    /** @brief the offset in bytes of the pixel (x,y) from the base address of an image of the given
+        bounds, row bytes and pixel bytes. Signed: kOfxImagePropRowBytes may be negative (an image
+        stored top to bottom), and an unsigned offset would only work by wrapping around (ES.100,
+        ES.102, ES.106). (x,y) must be in the bounds. */
+    static std::ptrdiff_t pixelOffset(int x, int y, const OfxRectI &bounds, int rowBytes, int pixelBytes)
+    {
+      return static_cast<std::ptrdiff_t>(y - bounds.y1) * rowBytes
+        + static_cast<std::ptrdiff_t>(x - bounds.x1) * pixelBytes;
+    }
+
   public :
     /** @brief ctor */
     Image(OfxPropertySetHandle props);
@@ -1221,9 +1232,7 @@ namespace OFX {
       if (x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0) {
         return 0;
       }
-      char *pix = static_cast<char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
-      pix += (x - _bounds.x1) * _pixelBytes;
-      return static_cast<void *>(pix);
+      return static_cast<char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
     }
 
     /** @brief return a pixel pointer, returns NULL if (x,y) is outside the image bounds
@@ -1238,9 +1247,7 @@ namespace OFX {
       if (x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0) {
         return 0;
       }
-      const char *pix = static_cast<const char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
-      pix += (x - _bounds.x1) * _pixelBytes;
-      return static_cast<const void *>(pix);
+      return static_cast<const char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
     }
 
     /** @brief return a pixel pointer, returns the nearest pixel if (x,y) is outside the image bounds
@@ -1257,9 +1264,7 @@ namespace OFX {
       x = (x > _bounds.x1) ? x : _bounds.x1;
       y = (y < _bounds.y2 - 1) ? y : (_bounds.y2 - 1);
       y = (y > _bounds.y1) ? y : _bounds.y1;
-      char *pix = static_cast<char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
-      pix += (x - _bounds.x1) * _pixelBytes;
-      return static_cast<void *>(pix);
+      return static_cast<char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
     }
 
     /** @brief return a pixel pointer, returns the nearest pixel if (x,y) is outside the image bounds
@@ -1275,9 +1280,7 @@ namespace OFX {
       x = (x > _bounds.x1) ? x : _bounds.x1;
       y = (y < _bounds.y2 - 1) ? y : (_bounds.y2 - 1);
       y = (y > _bounds.y1) ? y : _bounds.y1;
-      const char *pix = static_cast<const char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
-      pix += (x - _bounds.x1) * _pixelBytes;
-      return static_cast<const void *>(pix);
+      return static_cast<const char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
     }
   };
 
