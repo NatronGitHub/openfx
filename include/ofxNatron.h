@@ -240,7 +240,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
 #define kNatronOfxParamPropChoiceHostCanAddOptions "NatronOfxParamPropChoiceHostCanAddOptions"
 
 /** @brief
- The name of the standard Choice parameter that sets the output plane (channels) of a plugin (e.g. Shuffle, WriteOIIO).
+ The name of the standard Choice parameter that sets the output plane (channels) of a plugin (e.g. openfx-io's WriteOIIO).
  A host that supports user-created planes (Natron) uses this parameter as the output plane selector of the effect, and may add the planes created by the user to its options.
  */
 #define kNatronOfxParamOutputChannels "outputChannels"
