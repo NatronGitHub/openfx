@@ -130,15 +130,6 @@ of the direct OFX objects and any library side only functions.
 #  define OFXS_THREAD_LOCAL
 #endif
 
-/** @brief Deprecated, expand to nothing. They were dynamic exception specifications
-    (throw(x, ...) in C++98, noexcept(false) in C++11), which the Support library no longer uses
-    (E.30): in C++98 a function that throws a type not listed calls std::unexpected(), then
-    std::terminate(). Kept, empty, for the plug-ins that may use them. */
-#define OFX_THROW(x)
-#define OFX_THROW2(x,y)
-#define OFX_THROW3(x,y,z)
-#define OFX_THROW4(x,y,z,w)
-
 // Is noexcept supported?
 // "noexcept" is only supported since the Visual Studio 2015, as stated here: https://msdn.microsoft.com/en-us/library/wfa0edys.aspx
 #if defined(__clang__)
