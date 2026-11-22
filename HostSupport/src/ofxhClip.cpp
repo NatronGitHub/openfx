@@ -451,7 +451,6 @@ namespace OFX {
       }
 #endif
 
-
       // get the virutals for viewport size, pixel scale, background colour
       void ClipInstance::getDoublePropertyN(const std::string &name, double *values, int n) const OFX_EXCEPTION_SPEC
       {
