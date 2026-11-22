@@ -157,7 +157,6 @@ namespace OFX {
         { kNatronOfxImageEffectPropInstanceId, Property::eString, 1, true, "" },
         { kNatronOfxPropDescriptionIsMarkdown, Property::eInt,     1, false, "0" },
         { kNatronOfxImageEffectSelectionRectangle, Property::eDouble,     4, false, "" },
-        { kNatronOfxImageEffectPropDefaultCursors, Property::eString,     0, true, "" },
         { kNatronOfxImageEffectPropInViewerContextParamsOrder, Property::eString,     0, false, "" },
         { kNatronOfxImageEffectPropInViewerContextDefaultShortcuts, Property::eString, 0, false, "" },
         { kNatronOfxImageEffectPropInViewerContextShortcutSymbol, Property::eInt, 0, false, "" },
@@ -507,19 +506,6 @@ namespace OFX {
         for (int i = 0; i < nItems; ++i) {
           std::string paramName = _properties.getStringProperty(kNatronOfxImageEffectPropInViewerContextParamsOrder, i);
           parameterNames->push_back(paramName);
-        }
-      }
-
-      // Get a list of the cursors used by this plug-in
-      void Base::getDefaultCursors(std::list<std::string>* cursors) const
-      {
-        if (!cursors) {
-          return;
-        }
-        const int nItems = _properties.getDimension(kNatronOfxImageEffectPropDefaultCursors);
-        for (int i = 0; i < nItems; ++i) {
-          std::string cursor = _properties.getStringProperty(kNatronOfxImageEffectPropDefaultCursors, i);
-          cursors->push_back(cursor);
         }
       }
 
@@ -4902,7 +4888,6 @@ namespace OFX {
         { kNatronOfxImageEffectPropHostMasking, Property::eInt, 1, true, "0" },
         { kNatronOfxImageEffectPropHostMixing, Property::eInt, 1, true, "0" },
         { kNatronOfxPropDescriptionIsMarkdown, Property::eInt, 1, true, "0" },
-        { kNatronOfxImageEffectPropDefaultCursors, Property::eString, 0, true, "" },
         { kNatronOfxPropNativeOverlays, Property::eString, 0, true, ""},
         { kOfxImageEffectPropCanDistort, Property::eInt, 1, false, "0" },
         // extension 13 of ofxNatron.h. A host application that sets this to 1 should override

@@ -220,7 +220,6 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
 #define kNatronOfxParamPropChoiceCascading "NatronOfxParamPropChoiceCascading"
 
 /** @brief
- DEPRECATED: No longer used as of Natron 3
  int x1 property on a choice parameter descriptor (read/write) and choice parameter instance (read-only) to indicate whether
  the host can add a new choice on its own (probably via a GUI specific to this parameter).
  The plugin may then retrieve the option enum whenever a choice value is out of its initial range.
@@ -240,9 +239,9 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
  */
 #define kNatronOfxParamPropChoiceHostCanAddOptions "NatronOfxParamPropChoiceHostCanAddOptions"
 
-/** @brief 
- DEPRECATED: No longer used as of Natron 3
- The standard parameter for setting output channels of a plugin (used by Shuffle)
+/** @brief
+ The name of the standard Choice parameter that sets the output plane (channels) of a plugin (e.g. openfx-io's WriteOIIO).
+ A host that supports user-created planes (Natron) uses this parameter as the output plane selector of the effect, and may add the planes created by the user to its options.
  */
 #define kNatronOfxParamOutputChannels "outputChannels"
 
@@ -561,7 +560,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
     7) A lot of overlay interacts require some sort of selection where the user can draw a rectangle to select specific items. Rather than re-create a new custom-looking selection rectangle, let the host make one for us through its own interact actions and notify us if needed.
         A new parameter with a special name can be used to let the host know we are interested in knowing the state of the selection.
  
-    8) Let the plug-in a way to control the host application cursor. Deprecated: see kNatronOfxParamCursorName; use the interact cursor extension of ofxInteract.h instead.
+    8) Let the plug-in control the host application cursor: this is now the InteractCursor extension of ofxInteract.h (kOfxInteractPropCursor), proposed for standardization.
     9) Add a way to show a custom dialog with fields represented as parameters. This is implemented as a property on a group parameter whether its content can be represented as a non-modal dialog or not.
     10) Plug-ins description (kOfxPropPluginDescription) and parameters hint (kOfxParamPropHint) may be written in markdown.
     11) A plug-in might want to be able to access the host undo/redo actions of the Edit menu when doing special actions from within the overlay interact actions not involving parameters.
@@ -629,8 +628,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
     A clear that no overlay action preceded sees the last state known to that effect, which may be stale: e.g. a clear sent to an effect whose overlay is not displayed, or while the host's overlays are hidden. A plug-in that keeps its selection on a clear when a modifier is held may then keep a selection that is not shown.
     Compatibility: Natron versions without Natron#1196 (2.6.0-alpha1 and earlier) only look for a parameter named "NatronOfxImageEffectSelectionRectangle" (the name of the property), and don't force the notification (a drag that keeps the value at 1 notifies once); later versions still accept that name.
 
- 8) DEPRECATED, see kNatronOfxParamCursorName. The host application cursor can be controled by the plug-in via a secret String parameter with the name kNatronOfxParamCursorName. If this parameter is found, the host should display a cursor depending on the value of this parameter.  The value of the parameter should be the name of the cursor. Several default cursor can be made available by the host as advertised by the kNatronOfxImageEffectPropDefaultCursors property. The plug-in may also embed custom cursors as PNG files located in the Resources directory of the plug-in bundle. To specify one the image in the plug-in bundle as an icon, you may set the value of this parameter to the filename of the image without any leading path. This is up to the host to figure out the path to the plug-in bundle Resources directory.
-     Whenever an event is sent to overlay interacts (PenDown, PenMotion, PenUp, KeyDown, KeyUp, KeyRepeat, GainFocus, LoseFocus, the OFX Host should set the cursor to the one of the first interact which catches the event by returning kOfxStatOK to the corresponding action. If no overlay interact returns kOfxStatOK, the cursor should be set to the default cursor.
+ 8) The plug-in controls the host application cursor with the InteractCursor extension of ofxInteract.h ("Interact cursors (proposed extension)", NatronGitHub/openfx#4): it sets kOfxInteractPropCursor (and, for a custom cursor, kOfxInteractPropCursorImage and kOfxInteractPropCursorHotSpot) on its interact instance, among the cursors that the host lists in kOfxInteractHostPropSupportedCursors. The Support library wraps it as OFX::Interact::setCursor().
  
  9) It may be useful to show a dialog to a user to request a little information before doing a task such as an analysis.
  Instead of embedding the parameters in the settings of an image effect, the host could display a temporary dialog with the parameters requested. If the property kNatronOfxGroupParamPropIsDialog is set to 1, then whenever the property kOfxParamPropGroupOpen is set to 1, the dialog should be displayed by the host.
@@ -786,38 +784,6 @@ property is set to 1.
 #define kNatronOfxParamSelectionRectangleState "NatronOfxParamSelectionRectangleState"
 
 /**
- The name of the string parameter that should be used to implement host cursors. See 8) of the extension description.
-
- DEPRECATED: replaced by the interact cursor extension (InteractCursor group in ofxInteract.h:
- kOfxInteractHostPropSupportedCursors, kOfxInteractPropCursor, kOfxInteractPropCursorImage,
- kOfxInteractPropCursorHotSpot), proposed for standardization in NatronGitHub/openfx#4. That
- extension sets the cursor on the interact instance (one per view) instead of through a
- persistent, undoable parameter shared by all views, uses CSS cursor names, and supports a hot
- spot for custom images. New plug-ins should use OFX::Interact::setCursor() instead. Kept for
- existing plug-ins and hosts.
-
- Mapping of the kNatronOfx*Cursor names to the kOfxInteractCursor* (CSS) names:
- | kNatronOfx*Cursor                   | kOfxInteractCursor*                  |
- |-------------------------------------|--------------------------------------|
- | DefaultCursor, ArrowCursor          | Default ("default")                  |
- | BlankCursor ("kNatronOfxBlankCursor") | None ("none")                      |
- | CrossCursor                         | Crosshair ("crosshair")              |
- | IBeamCursor                         | Text ("text")                        |
- | WaitCursor / BusyCursor             | Wait ("wait") / Progress ("progress") |
- | ForbiddenCursor                     | NotAllowed ("not-allowed")           |
- | PointingHandCursor                  | Pointer ("pointer")                  |
- | WhatsThisCursor                     | Help ("help")                        |
- | SizeVerCursor / SizeHorCursor       | NSResize ("ns-resize") / EWResize ("ew-resize") |
- | SizeBDiagCursor / SizeFDiagCursor   | NESWResize ("nesw-resize") / NWSEResize ("nwse-resize") |
- | SizeAllCursor                       | Move ("move")                        |
- | SplitVCursor / SplitHCursor         | RowResize ("row-resize") / ColResize ("col-resize") |
- | OpenHandCursor / ClosedHandCursor   | Grab ("grab") / Grabbing ("grabbing") |
- | UpArrowCursor                       | (no equivalent)                      |
- | custom PNG file name                | Custom, with kOfxInteractPropCursorImage and kOfxInteractPropCursorHotSpot |
- */
-#define kNatronOfxParamCursorName "NatronOfxParamCursorName"
-
-/**
  double property that defines the current selection rectangle drawn by the user on the host viewport.
  See 7) for the associated extension. The host updates this value before it calls the kOfxActionInstanceChanged action for the parameter kNatronOfxParamSelectionRectangleState, so that the plug-in can synchronize its selection.
 
@@ -832,76 +798,6 @@ property is set to 1.
     extension: natron
 */
 #define kNatronOfxImageEffectSelectionRectangle "NatronOfxImageEffectSelectionRectangle"
-
-/** 
- string property indicating for a host, which are the default cursors provided to the plug-in and for a plug-in which are the cursor that it provides a drawing for.
-
- DEPRECATED, together with the kNatronOfx*Cursor values below: replaced by
- kOfxInteractHostPropSupportedCursors and the kOfxInteractCursor* names (InteractCursor group in
- ofxInteract.h, NatronGitHub/openfx#4). See kNatronOfxParamCursorName for the name mapping.
-
- - Type - string x N
- - Property Set -  host descriptor (read only)
- - Default - kNatronOfxDefaultCursor
- - Valid Values: Any of the cursor defined below by the properties kNatronOfx*Cursor
-    For a plug-in, any cursor defined by the properties kNatronOfx*Cursor
- 
- The special value of kNatronOfxDefaultCursor means that the host should keep the default cursor.
- The special value of kNatronOfxBlankCursor means that the host should not draw any cursor at all.
- 
- Whenever an event is sent to overlay interacts (PenDown, PenMotion, PenUp, KeyDown, KeyUp, KeyRepeat, GainFocus, LoseFocus, the OFX Host should set the cursor to the one of the first interact which catches the event by returning kOfxStatOK to the corresponding action. If no overlay interact returns kOfxStatOK, the cursor should be set to the default cursor.
-
-    @propdef
-    type: enum
-    dimension: N
-    values:
-      - NatronOfxDefaultCursor
-      - kNatronOfxBlankCursor
-      - NatronOfxArrowCursor
-      - NatronOfxUpArrowCursor
-      - NatronOfxCrossCursor
-      - NatronOfxIBeamCursor
-      - NatronOfxWaitCursor
-      - NatronOfxBusyCursor
-      - NatronOfxForbiddenCursor
-      - NatronOfxPointingHandCursor
-      - NatronOfxWhatsThisCursor
-      - NatronOfxSizeVerCursor
-      - NatronOfxSizeHorCursor
-      - NatronOfxSizeBDiagCursor
-      - NatronOfxSizeFDiagCursor
-      - NatronOfxSizeAllCursor
-      - NatronOfxSplitVCursor
-      - NatronOfxSplitHCursor
-      - NatronOfxOpenHandCursor
-      - NatronOfxClosedHandCursor
-    extension: natron
-*/
-#define kNatronOfxImageEffectPropDefaultCursors "NatronOfxImageEffectPropDefaultCursors"
-
-// Default cursors that can be defined by a host, see http://doc.qt.io/qt-4.8/qcursor.html for an illustration to how they could look
-// DEPRECATED: use the kOfxInteractCursor* (CSS) names of the InteractCursor extension (ofxInteract.h,
-// NatronGitHub/openfx#4); see kNatronOfxParamCursorName for the mapping
-#define kNatronOfxDefaultCursor "NatronOfxDefaultCursor"
-#define kNatronOfxBlankCursor "kNatronOfxBlankCursor"
-#define kNatronOfxArrowCursor "NatronOfxArrowCursor"
-#define kNatronOfxUpArrowCursor "NatronOfxUpArrowCursor"
-#define kNatronOfxCrossCursor "NatronOfxCrossCursor"
-#define kNatronOfxIBeamCursor "NatronOfxIBeamCursor"
-#define kNatronOfxWaitCursor "NatronOfxWaitCursor"
-#define kNatronOfxBusyCursor "NatronOfxBusyCursor"
-#define kNatronOfxForbiddenCursor "NatronOfxForbiddenCursor"
-#define kNatronOfxPointingHandCursor "NatronOfxPointingHandCursor"
-#define kNatronOfxWhatsThisCursor "NatronOfxWhatsThisCursor"
-#define kNatronOfxSizeVerCursor "NatronOfxSizeVerCursor"
-#define kNatronOfxSizeHorCursor "NatronOfxSizeHorCursor"
-#define kNatronOfxSizeBDiagCursor "NatronOfxSizeBDiagCursor"
-#define kNatronOfxSizeFDiagCursor "NatronOfxSizeFDiagCursor"
-#define kNatronOfxSizeAllCursor "NatronOfxSizeAllCursor"
-#define kNatronOfxSplitVCursor "NatronOfxSplitVCursor"
-#define kNatronOfxSplitHCursor "NatronOfxSplitHCursor"
-#define kNatronOfxOpenHandCursor "NatronOfxOpenHandCursor"
-#define kNatronOfxClosedHandCursor "NatronOfxClosedHandCursor"
 
 /**
  string property on the image effect descriptor that defines which parameters should have an interface on the host viewport

@@ -47,7 +47,7 @@ An interact that loses focus or is destroyed no longer owns the cursor, and the 
 
 **Custom images.** `kOfxInteractPropCursorHotSpot` is in pixels of the 1x image. For an `@2x` file the hot spot in that image's pixels is twice that (with Qt: `QPixmap::setDevicePixelRatio(2)`, hot spot unchanged).
 
-**Why a property on the interact instance, and not a parameter?** The existing Natron extension uses a secret String parameter (`kNatronOfxParamCursorName`). Parameters are persistent: they are saved in the project, can be undone, trigger `kOfxActionInstanceChanged`, and are shared by all views. The cursor is transient UI state of the view under the pen. The interact instance is the right place for it. Some hosts create one per view; others, like Natron, share one instance between views. Such hosts read the current request with `getCursor()` after each event in the view that received it (see "Host strategies").
+**Why a property on the interact instance, and not a parameter?** A secret String parameter holding the cursor name would also work, but parameters are persistent: they are saved in the project, can be undone, trigger `kOfxActionInstanceChanged`, and are shared by all views. The cursor is transient UI state of the view under the pen. The interact instance is the right place for it. Some hosts create one per view; others, like Natron, share one instance between views. Such hosts read the current request with `getCursor()` after each event in the view that received it (see "Host strategies").
 
 ## Impact
 
@@ -55,26 +55,24 @@ This is a new feature with no compatibility impact. It adds only new properties,
 
 - **Host implements it, plug-in doesn't:** nothing changes.
 - **Plug-in implements it, host doesn't:** the plug-in sees no `kOfxInteractHostPropSupportedCursors` and does not set the property. If it sets the property anyway, the call fails with `kOfxStatErrUnknown`, which is harmless.
-- **Natron:** it can support both mechanisms, with the old parameter taking priority when present. Natron's cursor names map onto the CSS names as follows:
+- **Qt-based hosts (e.g. Natron):** the CSS names map onto `Qt::CursorShape` as follows:
 
-| Natron (`ofxNatron.h`) | CSS |
+| CSS | Qt (`Qt::CursorShape`) |
 |---|---|
-| DefaultCursor | default |
-| BlankCursor (value `"kNatronOfxBlankCursor"`) | none |
-| ArrowCursor | default |
-| UpArrowCursor | — (none) |
-| CrossCursor | crosshair |
-| IBeamCursor | text |
-| WaitCursor | wait |
-| BusyCursor | progress |
-| ForbiddenCursor | not-allowed |
-| PointingHandCursor | pointer |
-| WhatsThisCursor | help |
-| SizeVerCursor / SizeHorCursor | ns-resize / ew-resize |
-| SizeBDiagCursor / SizeFDiagCursor | nesw-resize / nwse-resize |
-| SizeAllCursor | move |
-| SplitVCursor / SplitHCursor | row-resize / col-resize |
-| OpenHandCursor / ClosedHandCursor | grab / grabbing |
+| default | ArrowCursor |
+| none | BlankCursor |
+| crosshair | CrossCursor |
+| text | IBeamCursor |
+| wait | WaitCursor |
+| progress | BusyCursor |
+| not-allowed | ForbiddenCursor |
+| pointer | PointingHandCursor |
+| help | WhatsThisCursor |
+| ns-resize / ew-resize | SizeVerCursor / SizeHorCursor |
+| nesw-resize / nwse-resize | SizeBDiagCursor / SizeFDiagCursor |
+| move | SizeAllCursor |
+| row-resize / col-resize | SplitVCursor / SplitHCursor |
+| grab / grabbing | OpenHandCursor / ClosedHandCursor |
 
 ## Documentation impact
 
@@ -94,8 +92,7 @@ This is a new feature with no compatibility impact. It adds only new properties,
    - `Interact::Instance::getCursor()` to poll an interact's current request when arbitrating;
    - the host restores its own cursor when an interact that owns it is destroyed (HostSupport can't call a virtual from the destructor).
 3. **Natron:**
-   - map the names to Qt cursors, and apply the rule above in `ViewerGL`;
-   - keep the old parameter-based extension working.
+   - map the names to Qt cursors, and apply the rule above in `ViewerGL`.
 4. **openfx-misc:**
    - use the cursor in `ofxsTransformInteract` (move, rotate, scale handles);
    - use a `none` cursor with a drawn brush or crosshair where an overlay already draws one.
