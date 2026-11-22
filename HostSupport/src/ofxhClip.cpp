@@ -107,6 +107,7 @@ namespace OFX {
         } 
       }
 
+      /// short label of the clip: kOfxPropShortLabel, else its label (getLabel())
       const std::string &ClipBase::getShortLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropShortLabel);
@@ -116,6 +117,7 @@ namespace OFX {
         return s;
       }
       
+      /// label of the clip: kOfxPropLabel, else its name (getName())
       const std::string &ClipBase::getLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLabel);
@@ -125,6 +127,7 @@ namespace OFX {
         return s;
       }
       
+      /// long label of the clip: kOfxPropLongLabel, else its label (getLabel())
       const std::string &ClipBase::getLongLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLongLabel);
