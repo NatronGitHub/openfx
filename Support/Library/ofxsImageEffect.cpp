@@ -4654,6 +4654,32 @@ namespace OFX {
         
     }
 
+    /** @brief kOfxActionCreateInstance: makes the instance of the effect for the context of the
+        handle, which the ImageEffect constructor stores in kOfxPropInstanceData. If a step after
+        PluginFactory::createInstance() throws, the instance is deleted (its destructor clears
+        kOfxPropInstanceData) before the exception is rethrown: neither the instance leaks nor
+        does the host keep a dangling pointer (R.11, E.6). */
+    ImageEffect *createInstanceAction(PluginFactory *factory, OfxImageEffectHandle handle)
+    {
+      // fetch the effect props to figure the context
+      PropertySet effectProps = fetchEffectProps(handle);
+
+      // get the context and turn it into an enum
+      std::string str = effectProps.propGetString(kOfxImageEffectPropContext);
+      ContextEnum context = mapToContextEnum(str);
+
+      // make the image effect instance for this context
+      ImageEffect *instance = factory->createInstance(handle, context);
+      try {
+        // validate the plugin handle's properties, set by the instance's constructor
+        OFX::Validation::validatePluginInstanceProperties(fetchEffectProps(handle));
+      } catch (...) {
+        delete instance;
+        throw;
+      }
+      return instance;
+    }
+
     /** @brief fetch the effect property set from the ImageEffectHandle */
     OFX::PropertySet
       fetchEffectProps(OfxImageEffectHandle handle)
@@ -5950,19 +5976,9 @@ namespace OFX {
         else if(action == kOfxActionCreateInstance) {
           checkMainHandles(actionRaw, handleRaw, inArgsRaw, outArgsRaw, false, true, true);
 
-          // fetch the effect props to figure the context
-          PropertySet effectProps = fetchEffectProps(handle);
-
-          // get the context and turn it into an enum
-          std::string str = effectProps.propGetString(kOfxImageEffectPropContext);
-          ContextEnum context = mapToContextEnum(str);
-
-          // make the image effect instance for this context
-          ImageEffect *instance = factory->createInstance(handle, context);
-          (void)instance;
-
-          // validate the plugin handle's properties
-          OFX::Validation::validatePluginInstanceProperties(fetchEffectProps(handle));
+          // the instance is owned by the host's handle (kOfxPropInstanceData), until
+          // kOfxActionDestroyInstance
+          createInstanceAction(factory, handle);
 
           // got here, must be good
           stat = kOfxStatOK;

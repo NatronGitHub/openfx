@@ -122,6 +122,11 @@ namespace OFX {
     */
     void setHost(OfxHost *host);
 
+    /** @brief kOfxActionCreateInstance: makes the instance (stored in the handle's
+        kOfxPropInstanceData) and validates the instance properties; deletes the instance if the
+        validation throws (ofxsImageEffect.cpp) */
+    ImageEffect *createInstanceAction(PluginFactory *factory, OfxImageEffectHandle handle);
+
     /** @brief fetches our pointer out of the props on the handle */
     ImageEffect *retrieveImageEffectPointer(OfxImageEffectHandle handle);
 

@@ -7,6 +7,9 @@
 
   - a null action passed to the interact entry point returns kOfxStatFailed (it was turned into a
     std::string, which is undefined behaviour);
+  - kOfxActionCreateInstance (OFX::Private::createInstanceAction()) deletes the new instance, and so
+    clears kOfxPropInstanceData, when a step after PluginFactory::createInstance() throws (it
+    leaked, and the host kept the pointer), on a minimal fake host;
   - OFX::MultiThread::AutoMutexT's destructor doesn't throw (std::terminate()) when the mutex's
     unlock() throws;
   - with OFX_EXTENSIONS_NATRON, OFX::Private::decodeNativeOverlayHandle(), which decodes the host's
@@ -19,6 +22,7 @@
 */
 
 #include <cstdio>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 
@@ -153,6 +157,215 @@ namespace {
   }
 #endif
 
+  // A minimal fake host for kOfxActionCreateInstance: the property suite knows the instance's
+  // kOfxImageEffectPropContext and kOfxPropInstanceData only (the host description gets the
+  // defaults), and the effect suite's getPropertySet can be made to fail.
+  namespace FakeHost {
+    int gEffectPropsStorage = 0;
+    OfxPropertySetHandle const kEffectProps = reinterpret_cast<OfxPropertySetHandle>(&gEffectPropsStorage);
+    int gEffectStorage = 0;
+    OfxImageEffectHandle const kEffect = reinterpret_cast<OfxImageEffectHandle>(&gEffectStorage);
+    int gHostPropsStorage = 0;
+
+    void *gInstanceData = NULL;
+    int gGetPropertySetCalls = 0;
+    int gFailGetPropertySetFrom = -1; // the calls from that one on fail, -1: none
+
+    OfxStatus unknown() { return kOfxStatErrUnknown; }
+
+    OfxStatus propSetPointer(OfxPropertySetHandle props, const char *name, int index, void *value)
+    {
+      if (props == kEffectProps && index == 0 && std::strcmp(name, kOfxPropInstanceData) == 0) {
+        gInstanceData = value;
+        return kOfxStatOK;
+      }
+      return unknown();
+    }
+    OfxStatus propSetString(OfxPropertySetHandle, const char *, int, const char *) { return unknown(); }
+    OfxStatus propSetDouble(OfxPropertySetHandle, const char *, int, double) { return unknown(); }
+    OfxStatus propSetInt(OfxPropertySetHandle, const char *, int, int) { return unknown(); }
+    OfxStatus propSetPointerN(OfxPropertySetHandle, const char *, int, void *const *) { return unknown(); }
+    OfxStatus propSetStringN(OfxPropertySetHandle, const char *, int, const char *const *) { return unknown(); }
+    OfxStatus propSetDoubleN(OfxPropertySetHandle, const char *, int, const double *) { return unknown(); }
+    OfxStatus propSetIntN(OfxPropertySetHandle, const char *, int, const int *) { return unknown(); }
+    OfxStatus propGetPointer(OfxPropertySetHandle props, const char *name, int index, void **value)
+    {
+      if (props == kEffectProps && index == 0 && std::strcmp(name, kOfxPropInstanceData) == 0) {
+        *value = gInstanceData;
+        return kOfxStatOK;
+      }
+      return unknown();
+    }
+    OfxStatus propGetString(OfxPropertySetHandle props, const char *name, int index, const char **value)
+    {
+      if (props == kEffectProps && index == 0 && std::strcmp(name, kOfxImageEffectPropContext) == 0) {
+        *value = kOfxImageEffectContextFilter;
+        return kOfxStatOK;
+      }
+      return unknown();
+    }
+    OfxStatus propGetDouble(OfxPropertySetHandle, const char *, int, double *) { return unknown(); }
+    OfxStatus propGetInt(OfxPropertySetHandle, const char *, int, int *) { return unknown(); }
+    OfxStatus propGetPointerN(OfxPropertySetHandle, const char *, int, void **) { return unknown(); }
+    OfxStatus propGetStringN(OfxPropertySetHandle, const char *, int, const char **) { return unknown(); }
+    OfxStatus propGetDoubleN(OfxPropertySetHandle, const char *, int, double *) { return unknown(); }
+    OfxStatus propGetIntN(OfxPropertySetHandle, const char *, int, int *) { return unknown(); }
+    OfxStatus propReset(OfxPropertySetHandle, const char *) { return unknown(); }
+    OfxStatus propGetDimension(OfxPropertySetHandle, const char *, int *) { return unknown(); }
+
+    OfxStatus getPropertySet(OfxImageEffectHandle effect, OfxPropertySetHandle *props)
+    {
+      const int call = gGetPropertySetCalls++;
+      if (effect != kEffect || (gFailGetPropertySetFrom >= 0 && call >= gFailGetPropertySetFrom)) {
+        return kOfxStatErrBadHandle;
+      }
+      *props = kEffectProps;
+      return kOfxStatOK;
+    }
+    OfxStatus getParamSet(OfxImageEffectHandle, OfxParamSetHandle *paramSet)
+    {
+      *paramSet = NULL; // ParamSet::setParamSetHandle(NULL) fetches nothing
+      return kOfxStatOK;
+    }
+
+    OfxPropertySuiteV1 gPropSuite;
+    OfxImageEffectSuiteV1 gEffectSuite;
+    // never called by the actions tested: only their presence is checked by the load action
+    OfxParameterSuiteV1 gParamSuite;
+    OfxMemorySuiteV1 gMemorySuite;
+    OfxMultiThreadSuiteV1 gThreadSuite;
+    OfxMessageSuiteV1 gMessageSuite;
+
+    const void *fetchSuite(OfxPropertySetHandle, const char *name, int version)
+    {
+      if (version != 1) return NULL;
+      if (std::strcmp(name, kOfxPropertySuite) == 0) return &gPropSuite;
+      if (std::strcmp(name, kOfxImageEffectSuite) == 0) return &gEffectSuite;
+      if (std::strcmp(name, kOfxParameterSuite) == 0) return &gParamSuite;
+      if (std::strcmp(name, kOfxMemorySuite) == 0) return &gMemorySuite;
+      if (std::strcmp(name, kOfxMultiThreadSuite) == 0) return &gThreadSuite;
+      if (std::strcmp(name, kOfxMessageSuite) == 0) return &gMessageSuite;
+      return NULL;
+    }
+
+    OfxHost gHost;
+
+    /** @brief sets the suites, and loads (kOfxActionLoad: the host description) */
+    void load()
+    {
+      std::memset(&gPropSuite, 0, sizeof(gPropSuite));
+      gPropSuite.propSetPointer = propSetPointer;
+      gPropSuite.propSetString = propSetString;
+      gPropSuite.propSetDouble = propSetDouble;
+      gPropSuite.propSetInt = propSetInt;
+      gPropSuite.propSetPointerN = propSetPointerN;
+      gPropSuite.propSetStringN = propSetStringN;
+      gPropSuite.propSetDoubleN = propSetDoubleN;
+      gPropSuite.propSetIntN = propSetIntN;
+      gPropSuite.propGetPointer = propGetPointer;
+      gPropSuite.propGetString = propGetString;
+      gPropSuite.propGetDouble = propGetDouble;
+      gPropSuite.propGetInt = propGetInt;
+      gPropSuite.propGetPointerN = propGetPointerN;
+      gPropSuite.propGetStringN = propGetStringN;
+      gPropSuite.propGetDoubleN = propGetDoubleN;
+      gPropSuite.propGetIntN = propGetIntN;
+      gPropSuite.propReset = propReset;
+      gPropSuite.propGetDimension = propGetDimension;
+      std::memset(&gEffectSuite, 0, sizeof(gEffectSuite));
+      gEffectSuite.getPropertySet = getPropertySet;
+      gEffectSuite.getParamSet = getParamSet;
+      std::memset(&gParamSuite, 0, sizeof(gParamSuite));
+      std::memset(&gMemorySuite, 0, sizeof(gMemorySuite));
+      std::memset(&gThreadSuite, 0, sizeof(gThreadSuite));
+      std::memset(&gMessageSuite, 0, sizeof(gMessageSuite));
+      gHost.host = reinterpret_cast<OfxPropertySetHandle>(&gHostPropsStorage);
+      gHost.fetchSuite = fetchSuite;
+
+      // the host lacks every host property: read them as absent instead of throwing
+      OFX::PropertySet::setThrowOnUnsupportedProperties(false);
+      OFX::Private::setHost(&gHost);
+      OFX::Private::loadAction();
+      OFX::PropertySet::setThrowOnUnsupportedProperties(true);
+    }
+  } // namespace FakeHost
+
+  int gTestEffectsAlive = 0;
+
+  class TestEffect : public OFX::ImageEffect {
+  public:
+    TestEffect(OfxImageEffectHandle handle, bool failAfterCreation)
+      : OFX::ImageEffect(handle)
+    {
+      ++gTestEffectsAlive;
+      if (failAfterCreation) {
+        // the host fails from now on, i.e. after PluginFactory::createInstance()
+        FakeHost::gFailGetPropertySetFrom = FakeHost::gGetPropertySetCalls;
+      }
+    }
+    virtual ~TestEffect() { --gTestEffectsAlive; }
+    virtual void render(const OFX::RenderArguments &) {}
+  };
+
+  class TestFactory : public OFX::PluginFactoryHelper<TestFactory> {
+  public:
+    explicit TestFactory(bool failAfterCreation)
+      : OFX::PluginFactoryHelper<TestFactory>("net.sf.openfx.supportLibraryTest", 1, 0)
+      , _failAfterCreation(failAfterCreation)
+    {}
+    virtual void describe(OFX::ImageEffectDescriptor &) {}
+    virtual void describeInContext(OFX::ImageEffectDescriptor &, OFX::ContextEnum) {}
+    virtual OFX::ImageEffect *createInstance(OfxImageEffectHandle handle, OFX::ContextEnum)
+    {
+      return new TestEffect(handle, _failAfterCreation);
+    }
+  private:
+    bool _failAfterCreation;
+  };
+
+  // Must run last: it loads the Support library on the fake host (OFX::Private::setHost() and
+  // loadAction()) and leaves it loaded. The unload action (static in ofxsImageEffect.cpp, run by
+  // the entry point) needs a plug-in registered by OfxGetNumberOfPlugins (plugInfoMap), which
+  // this test has not.
+  void testCreateInstanceFailureDeletesInstance()
+  {
+    FakeHost::load();
+
+    // success: the instance is in kOfxPropInstanceData
+    {
+      TestFactory factory(false);
+      OFX::ImageEffect *instance = NULL;
+      try {
+        instance = OFX::Private::createInstanceAction(&factory, FakeHost::kEffect);
+      } catch (...) {
+        CHECK(!"createInstanceAction threw");
+      }
+      CHECK(instance != NULL);
+      CHECK(FakeHost::gInstanceData == instance);
+      CHECK(gTestEffectsAlive == 1);
+      delete instance; // kOfxActionDestroyInstance
+      CHECK(FakeHost::gInstanceData == NULL);
+      CHECK(gTestEffectsAlive == 0);
+    }
+
+    // the step after createInstance() throws: the exception goes on, the instance is deleted, and
+    // the host's kOfxPropInstanceData doesn't point to it any more
+    {
+      TestFactory factory(true);
+      bool caught = false;
+      try {
+        OFX::Private::createInstanceAction(&factory, FakeHost::kEffect);
+      } catch (const OFX::Exception::Suite &e) {
+        caught = e.status() == kOfxStatErrBadHandle;
+      } catch (...) {
+      }
+      CHECK(caught);
+      CHECK(gTestEffectsAlive == 0);
+      CHECK(FakeHost::gInstanceData == NULL);
+    }
+    FakeHost::gFailGetPropertySetFrom = -1;
+  }
+
 } // namespace
 
 int main()
@@ -164,6 +377,7 @@ int main()
 #else
   std::printf("support-library-test: OFX_EXTENSIONS_NATRON is off, decodeNativeOverlayHandle() not tested\n");
 #endif
+  testCreateInstanceFailureDeletesInstance(); // last: leaves the Support library loaded
   if (gFailures) {
     std::printf("support-library-test: %d failed check(s)\n", gFailures);
     return 1;
