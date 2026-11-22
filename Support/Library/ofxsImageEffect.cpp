@@ -5007,10 +5007,8 @@ namespace OFX {
         args.fieldToRender = mapStrToFieldEnum(str);
       }
       catch (const std::invalid_argument&) {
-        // dud field?
+        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
-
-        // HACK need to throw something to cause a failure
       }
 
 #ifdef OFX_EXTENSIONS_VEGAS
@@ -5164,15 +5162,14 @@ namespace OFX {
       args.plane = inArgs.propGetString(kOfxImageEffectPropIdentityPlane, 0, false);
 #endif
         
+      args.fieldToRender = eFieldNone; // if the host's value is invalid (it was left uninitialized, ES.20)
       std::string str = inArgs.propGetString(kOfxImageEffectPropFieldToRender);
       try {
         args.fieldToRender = mapStrToFieldEnum(str);
       }
       catch (const std::invalid_argument&) {
-        // dud field?
+        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
-
-        // HACK need to throw something to cause a failure
       }
     }
 
@@ -5698,10 +5695,8 @@ namespace OFX {
         args.fieldToRender = eFieldBoth;
         args.fieldToRender = mapStrToFieldEnum(str);
       } catch (const std::invalid_argument&) {
-        // dud field?
+        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
-
-        // HACK need to throw something to cause a failure
       }
 
       // and call the plugin client getTransform code
@@ -5743,10 +5738,8 @@ namespace OFX {
         args.fieldToRender = eFieldBoth;
         args.fieldToRender = mapStrToFieldEnum(str);
       } catch (const std::invalid_argument&) {
-        // dud field?
+        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
-
-        // HACK need to throw something to cause a failure
       }
 
       // and call the plugin client getTransform code

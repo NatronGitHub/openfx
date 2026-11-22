@@ -14,8 +14,8 @@
   ofxsInteract.cpp only calls this backend through virtual functions, so a plug-in that never
   calls getDrawContext() doesn't link this file from a static library (libOfxSupport.a, CMake's
   openfx::Support). With Support/Plugins/Makefile.master, whose SUPPORTOBJECTS are object files,
-  every plug-in links it. The legacy project files (Support.xcodeproj, .vcproj, .dsp) are not
-  maintained and don't list this file.
+  every plug-in links it. The legacy Xcode project (Support.xcodeproj) is not maintained and
+  doesn't list this file.
 
   It doesn't link OpenGL: it has no undefined OpenGL symbol, and loads the OpenGL 1.1 functions it
   uses at run time, the first time getDrawContext() needs OpenGL: in a draw action called through

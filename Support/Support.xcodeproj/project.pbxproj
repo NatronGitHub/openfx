@@ -243,52 +243,29 @@
 		1E08327019A1E23C00A819A5 /* osxDeploy.sh */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.sh; name = osxDeploy.sh; path = include/osxDeploy.sh; sourceTree = "<group>"; };
 		1E08327119A1E23C00A819A5 /* osxSymbols */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = osxSymbols; path = include/osxSymbols; sourceTree = "<group>"; };
 		1E08327219A1E23C00A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
-		1E08327319A1E23C00A819A5 /* ofxSupport.dsp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = ofxSupport.dsp; path = Library/ofxSupport.dsp; sourceTree = "<group>"; };
-		1E08327419A1E23C00A819A5 /* ofxsupport.dsw */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = ofxsupport.dsw; path = Library/ofxsupport.dsw; sourceTree = "<group>"; };
-		1E08327519A1E23C00A819A5 /* ofxsupport.vcproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; name = ofxsupport.vcproj; path = Library/ofxsupport.vcproj; sourceTree = "<group>"; };
 		1E08327619A1E25600A819A5 /* ofxsHWNDInteract.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ofxsHWNDInteract.cpp; sourceTree = "<group>"; };
 		1E08327819A1E2C100A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
 		1E08327919A1E2C100A819A5 /* pluginLoader.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = pluginLoader.cpp; sourceTree = "<group>"; };
 		1E08327D19A1E30D00A819A5 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1E08327E19A1E30D00A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
-		1E08327F19A1E30D00A819A5 /* propTester.dsp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = propTester.dsp; sourceTree = "<group>"; };
-		1E08328019A1E30D00A819A5 /* propTester.dsw */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = propTester.dsw; sourceTree = "<group>"; };
-		1E08328119A1E30D00A819A5 /* propTester.vcproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; path = propTester.vcproj; sourceTree = "<group>"; };
-		1E08328219A1E32500A819A5 /* ExamplePlugs.sln */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = ExamplePlugs.sln; sourceTree = "<group>"; };
-		1E08328419A1E34E00A819A5 /* basic.dsp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = basic.dsp; sourceTree = "<group>"; };
-		1E08328519A1E34E00A819A5 /* basic.dsw */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = basic.dsw; sourceTree = "<group>"; };
-		1E08328619A1E34E00A819A5 /* basic.vcproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; path = basic.vcproj; sourceTree = "<group>"; };
 		1E08328719A1E34E00A819A5 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1E08328819A1E34E00A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
 		1E08328919A1E36800A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
 		1E08328A19A1E36800A819A5 /* Makefile.master */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Makefile.master; sourceTree = "<group>"; };
-		1E08328C19A1E39600A819A5 /* field.vcproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; path = field.vcproj; sourceTree = "<group>"; };
 		1E08328D19A1E39600A819A5 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1E08328E19A1E39600A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
 		1E08329019A1E3C300A819A5 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1E08329119A1E3C300A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
-		1E08329219A1E3C300A819A5 /* noise.dsp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = noise.dsp; sourceTree = "<group>"; };
-		1E08329319A1E3C400A819A5 /* noise.dsw */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = noise.dsw; sourceTree = "<group>"; };
-		1E08329419A1E3C400A819A5 /* noise.vcproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; path = noise.vcproj; sourceTree = "<group>"; };
 		1E08329919A1E43500A819A5 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		1E08329A19A1E43500A819A5 /* invert.vcproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; path = invert.vcproj; sourceTree = "<group>"; };
 		1E08329B19A1E43500A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
 		1E08329C19A1E46C00A819A5 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1E08329D19A1E46C00A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
-		1E08329E19A1E46C00A819A5 /* multibundle.vcproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; path = multibundle.vcproj; sourceTree = "<group>"; };
 		1E08329F19A1E48500A819A5 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1E0832A019A1E48500A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
-		1E0832A119A1E48500A819A5 /* Tester.vcproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; path = Tester.vcproj; sourceTree = "<group>"; };
-		1E0832A219A1E4A600A819A5 /* crossFade.dsp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = crossFade.dsp; sourceTree = "<group>"; };
-		1E0832A319A1E4A600A819A5 /* crossFade.dsw */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = crossFade.dsw; sourceTree = "<group>"; };
-		1E0832A419A1E4A600A819A5 /* crossFade.vcproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; path = crossFade.vcproj; sourceTree = "<group>"; };
 		1E0832A519A1E4A600A819A5 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1E0832A619A1E4A600A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
 		1E0832A819A1E4D900A819A5 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Retimer/Info.plist; sourceTree = "<group>"; };
 		1E0832A919A1E4D900A819A5 /* Makefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.make; name = Makefile; path = Retimer/Makefile; sourceTree = "<group>"; };
-		1E0832AA19A1E4D900A819A5 /* retimer.dsp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = retimer.dsp; path = Retimer/retimer.dsp; sourceTree = "<group>"; };
-		1E0832AB19A1E4D900A819A5 /* retimer.dsw */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = retimer.dsw; path = Retimer/retimer.dsw; sourceTree = "<group>"; };
-		1E0832AC19A1E4D900A819A5 /* retimer.vcproj */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; name = retimer.vcproj; path = Retimer/retimer.vcproj; sourceTree = "<group>"; };
 		1E0832AE19A1E50100A819A5 /* README */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = README; sourceTree = "<group>"; };
 		1E378A86194DCF4200800F5F /* ofxReadWrite.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ofxReadWrite.h; sourceTree = "<group>"; };
 		1E3E3CA417995BEE005F2132 /* basic.ofx.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = basic.ofx.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -441,9 +418,6 @@
 				1E08326F19A1E23C00A819A5 /* linuxSymbols */,
 				1E08327019A1E23C00A819A5 /* osxDeploy.sh */,
 				1E08327119A1E23C00A819A5 /* osxSymbols */,
-				1E08327319A1E23C00A819A5 /* ofxSupport.dsp */,
-				1E08327419A1E23C00A819A5 /* ofxsupport.dsw */,
-				1E08327519A1E23C00A819A5 /* ofxsupport.vcproj */,
 				1E08326B19A1E1B900A819A5 /* LICENSE */,
 				1E08326C19A1E1B900A819A5 /* README */,
 				1E08326D19A1E1B900A819A5 /* support.doxy */,
@@ -467,9 +441,6 @@
 				1E3E3D95179963B4005F2132 /* propTester.cpp */,
 				1E08327D19A1E30D00A819A5 /* Info.plist */,
 				1E08327E19A1E30D00A819A5 /* Makefile */,
-				1E08327F19A1E30D00A819A5 /* propTester.dsp */,
-				1E08328019A1E30D00A819A5 /* propTester.dsw */,
-				1E08328119A1E30D00A819A5 /* propTester.vcproj */,
 			);
 			path = PropTester;
 			sourceTree = "<group>";
@@ -478,9 +449,6 @@
 			isa = PBXGroup;
 			children = (
 				1E3E3CB217995CC9005F2132 /* basic.cpp */,
-				1E08328419A1E34E00A819A5 /* basic.dsp */,
-				1E08328519A1E34E00A819A5 /* basic.dsw */,
-				1E08328619A1E34E00A819A5 /* basic.vcproj */,
 				1E08328719A1E34E00A819A5 /* Info.plist */,
 				1E08328819A1E34E00A819A5 /* Makefile */,
 			);
@@ -491,7 +459,6 @@
 			isa = PBXGroup;
 			children = (
 				1E3E3CDA17995DF6005F2132 /* field.cpp */,
-				1E08328C19A1E39600A819A5 /* field.vcproj */,
 				1E08328D19A1E39600A819A5 /* Info.plist */,
 				1E08328E19A1E39600A819A5 /* Makefile */,
 			);
@@ -506,9 +473,6 @@
 				1E3E3CF017995F2C005F2132 /* randomGenerator.H */,
 				1E08329019A1E3C300A819A5 /* Info.plist */,
 				1E08329119A1E3C300A819A5 /* Makefile */,
-				1E08329219A1E3C300A819A5 /* noise.dsp */,
-				1E08329319A1E3C400A819A5 /* noise.dsw */,
-				1E08329419A1E3C400A819A5 /* noise.vcproj */,
 			);
 			path = Generator;
 			sourceTree = "<group>";
@@ -518,7 +482,6 @@
 			children = (
 				1E3E3D0617995F83005F2132 /* invert.cpp */,
 				1E08329919A1E43500A819A5 /* Info.plist */,
-				1E08329A19A1E43500A819A5 /* invert.vcproj */,
 				1E08329B19A1E43500A819A5 /* Makefile */,
 			);
 			path = Invert;
@@ -531,7 +494,6 @@
 				1E3E3D1C1799602A005F2132 /* multibundle2.cpp */,
 				1E08329C19A1E46C00A819A5 /* Info.plist */,
 				1E08329D19A1E46C00A819A5 /* Makefile */,
-				1E08329E19A1E46C00A819A5 /* multibundle.vcproj */,
 			);
 			path = MultiBundle;
 			sourceTree = "<group>";
@@ -542,7 +504,6 @@
 				1E3E3D6517996262005F2132 /* Tester.cpp */,
 				1E08329F19A1E48500A819A5 /* Info.plist */,
 				1E0832A019A1E48500A819A5 /* Makefile */,
-				1E0832A119A1E48500A819A5 /* Tester.vcproj */,
 			);
 			path = Tester;
 			sourceTree = "<group>";
@@ -551,9 +512,6 @@
 			isa = PBXGroup;
 			children = (
 				1E3E3D7F179962DE005F2132 /* crossFade.cpp */,
-				1E0832A219A1E4A600A819A5 /* crossFade.dsp */,
-				1E0832A319A1E4A600A819A5 /* crossFade.dsw */,
-				1E0832A419A1E4A600A819A5 /* crossFade.vcproj */,
 				1E0832A519A1E4A600A819A5 /* Info.plist */,
 				1E0832A619A1E4A600A819A5 /* Makefile */,
 			);
@@ -565,9 +523,6 @@
 			children = (
 				1E0832A819A1E4D900A819A5 /* Info.plist */,
 				1E0832A919A1E4D900A819A5 /* Makefile */,
-				1E0832AA19A1E4D900A819A5 /* retimer.dsp */,
-				1E0832AB19A1E4D900A819A5 /* retimer.dsw */,
-				1E0832AC19A1E4D900A819A5 /* retimer.vcproj */,
 				1E3E3D4E179961D6005F2132 /* retimer.cpp */,
 			);
 			name = Retimer;
@@ -614,7 +569,6 @@
 			children = (
 				1E08328919A1E36800A819A5 /* Makefile */,
 				1E08328A19A1E36800A819A5 /* Makefile.master */,
-				1E08328219A1E32500A819A5 /* ExamplePlugs.sln */,
 				1E08328319A1E33700A819A5 /* Basic */,
 				1E08328B19A1E37B00A819A5 /* Field */,
 				1E08328F19A1E3A200A819A5 /* Generator */,
