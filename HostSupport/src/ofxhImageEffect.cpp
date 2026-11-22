@@ -29,6 +29,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <math.h>
 #include <new> // std::bad_alloc
+#include <iostream>
 
 // ofx
 #include "ofxCore.h"
@@ -916,9 +917,14 @@ namespace OFX {
         return kOfxStatOK;
       }
 
-      // do nothing
+      // a property calls its GetHook's getDimension() only if it has a variable dimension, and the
+      // image effect instance hooks fixed-dimension double properties only: this is not called
       int Instance::getDimension(const std::string &name) const OFX_EXCEPTION_SPEC {
-        printf("failing in %s with name=%s\n", __PRETTY_FUNCTION__, name.c_str());
+#       ifdef OFX_DEBUG_PROPERTIES
+        std::cout << "OFX: failing in " << __PRETTY_FUNCTION__ << " with name=" << name << std::endl;
+#       else
+        (void)name;
+#       endif
         throw Property::Exception(kOfxStatErrMissingHostFeature);
       }
 
@@ -928,12 +934,16 @@ namespace OFX {
 
       void Instance::notify(const std::string &/*name*/, bool /*singleValue*/, int /*indexOrN*/) OFX_EXCEPTION_SPEC
       { 
-        printf("failing in %s\n", __PRETTY_FUNCTION__);
+#       ifdef OFX_DEBUG_PROPERTIES
+        std::cout << "OFX: failing in " << __PRETTY_FUNCTION__ << std::endl;
+#       endif
       }
 
       // don't know what to do
       void Instance::reset(const std::string &/*name*/) OFX_EXCEPTION_SPEC {
-        printf("failing in %s\n", __PRETTY_FUNCTION__);
+#       ifdef OFX_DEBUG_PROPERTIES
+        std::cout << "OFX: failing in " << __PRETTY_FUNCTION__ << std::endl;
+#       endif
         throw Property::Exception(kOfxStatErrMissingHostFeature);
       }
 
@@ -3930,24 +3940,27 @@ namespace OFX {
         }
       }
 
-      // should processing be aborted?
-      static int abort(OfxImageEffectHandle imageEffect)
+      // OfxImageEffectSuiteV1::abort: should processing be aborted? "@returns - 0 if the effect
+      // should continue whatever processing it is doing - 1 if the effect should abort whatever
+      // processing it is doing" (ofxImageEffect.h). The result is not an OfxStatus: a handle that
+      // is not an image effect instance (NULL, a descriptor, garbage), or an exception from the
+      // host's Instance::abort(), gives 1, so that the plug-in stops (it used to be
+      // kOfxStatErrBadHandle, which a plug-in also read as "abort", being non-zero). Named
+      // effectAbort, not abort, so that it doesn't hide ::abort() in this file.
+      static int effectAbort(OfxImageEffectHandle imageEffect)
       {
         try {
-        ImageEffect::Base *effectBase = reinterpret_cast<ImageEffect::Base*>(imageEffect);
-
-        if (!effectBase || !effectBase->verifyMagic()) {
-          return kOfxStatErrBadHandle;
-        }
-
-        ImageEffect::Instance *effectInstance = dynamic_cast<ImageEffect::Instance*>(effectBase);
-
-        if(effectInstance) 
-          return effectInstance->abort();
-        else 
-          return kOfxStatErrBadHandle;        
+          ImageEffect::Base *effectBase = reinterpret_cast<ImageEffect::Base*>(imageEffect);
+          if (!effectBase || !effectBase->verifyMagic()) {
+            return 1;
+          }
+          ImageEffect::Instance *effectInstance = dynamic_cast<ImageEffect::Instance*>(effectBase);
+          if (!effectInstance) {
+            return 1;
+          }
+          return effectInstance->abort() != 0 ? 1 : 0;
         } catch (...) {
-          return kOfxStatErrBadHandle;
+          return 1;
         }
       }
       
@@ -4067,7 +4080,7 @@ namespace OFX {
         clipGetImage,
         clipReleaseImage,
         clipGetRegionOfDefinition,
-        abort,
+        effectAbort,
         imageMemoryAlloc,
         imageMemoryFree,
         imageMemoryLock,

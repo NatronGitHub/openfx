@@ -300,7 +300,14 @@ namespace OFX {
         if (_binary->isInvalid()) {
           _binaryInvalid = true;
         }
-        loadPluginInfo(cache);
+        try {
+          loadPluginInfo(cache);
+        } catch (...) {
+          // (e.g. from the host's loadingBinary() or the API cache's newPlugin(): the destructor
+          // won't run, so release what loadPluginInfo() made, and the binary)
+          destroyPlugins();
+          throw;
+        }
       }
       
        /// create the plug-in object from function pointers directly, this is useful for statically linked plug-ins.
@@ -332,7 +339,13 @@ namespace OFX {
           }
         }
         if (_binaryChanged) {
-          loadPluginInfo(cache);
+          try {
+            loadPluginInfo(cache);
+          } catch (...) {
+            // (the destructor won't run: release the plug-ins that loadPluginInfo() made)
+            destroyPlugins();
+            throw;
+          }
         }
       }
 
@@ -393,6 +406,15 @@ namespace OFX {
       }
 
       void loadPluginInfo(PluginCache *);
+
+    private :
+      /// unload (dropping exceptions) and delete the plug-ins, and clear the list; keep the Binary
+      void deletePlugins();
+
+      /// what the destructor does: unload and delete the plug-ins, then the binary
+      void destroyPlugins();
+
+    public :
 
       /// how many plugins?
       int getNPlugins() const {return (int)_plugins.size(); }
