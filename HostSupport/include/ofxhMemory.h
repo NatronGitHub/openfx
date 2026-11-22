@@ -65,6 +65,12 @@ namespace OFX {
       protected:
         char*   _ptr;
         int     _locked;
+
+      private:
+        // not copyable (C++98 style: private and not defined): the instance owns _ptr, which
+        // freeMem() and the destructor delete[], so that a copy would free it twice (C.21, C.67)
+        Instance(const Instance &);
+        Instance &operator=(const Instance &);
       };
 
     } // Memory
