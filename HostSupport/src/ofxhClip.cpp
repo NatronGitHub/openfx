@@ -837,8 +837,8 @@ namespace OFX {
                    const OfxRectI &bounds,
                    const OfxRectI &rod,
                    int rowBytes,
-                   std::string field,
-                   std::string uniqueIdentifier) 
+                   const std::string &field,
+                   const std::string &uniqueIdentifier) 
         : Property::Set(imageBaseStuffs)
         , _referenceCount(1)
       {
@@ -917,8 +917,8 @@ namespace OFX {
                    const OfxRectI &bounds,
                    const OfxRectI &rod,
                    int rowBytes,
-                   std::string field,
-                   std::string uniqueIdentifier) 
+                   const std::string &field,
+                   const std::string &uniqueIdentifier) 
         : ImageBase(instance, renderScaleX, renderScaleY, bounds, rod, rowBytes, field, uniqueIdentifier)
       {
         addProperties(imageStuffs);
@@ -959,8 +959,8 @@ namespace OFX {
                    const OfxRectI &bounds,
                    const OfxRectI &rod,
                    int rowBytes,
-                   std::string field,
-                   std::string uniqueIdentifier) 
+                   const std::string &field,
+                   const std::string &uniqueIdentifier) 
         : ImageBase(instance, renderScaleX, renderScaleY, bounds, rod, rowBytes, field, uniqueIdentifier)
       {
         addProperties(textureStuffs);

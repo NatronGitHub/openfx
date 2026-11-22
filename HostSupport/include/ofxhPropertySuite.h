@@ -248,16 +248,16 @@ namespace OFX {
         void setPluginReadOnly(bool v) {_pluginReadOnly = v;}
 
         /// override this to return a clone of the property
-        virtual Property *deepCopy() = 0;
+        virtual Property *deepCopy() const = 0;
         
         /// get the name of this property
-        const std::string &getName()
+        const std::string &getName() const
         {
           return _name;
         }
         
         /// get the type of this property
-        TypeEnum getType()
+        TypeEnum getType() const
         {
           return _type;
         }
@@ -295,7 +295,7 @@ namespace OFX {
         virtual void reset() = 0;
 
         // get a string representing the value of this property at element nth
-        virtual std::string getStringValue(int nth) = 0;
+        virtual std::string getStringValue(int nth) const = 0;
       };
       
       /// this represents a generic property.
@@ -328,7 +328,7 @@ namespace OFX {
 
         PropertyTemplate(const PropertyTemplate<T> &pt);
 
-        PropertyTemplate<T> *deepCopy() {
+        PropertyTemplate<T> *deepCopy() const {
           return new PropertyTemplate(*this);
         }
 
@@ -337,7 +337,7 @@ namespace OFX {
         }
 
         /// get the vector
-        const std::vector<Type> &getValues()
+        const std::vector<Type> &getValues() const
         {
           return _value;
         }
@@ -373,7 +373,7 @@ namespace OFX {
         int getDimension() const OFX_EXCEPTION_SPEC;
         
         /// return the value as a string
-        inline std::string getStringValue(int idx) {
+        inline std::string getStringValue(int idx) const {
           return castToString(_value[idx]);
         }
       };
@@ -588,7 +588,7 @@ namespace OFX {
         }
 
         /// is this a nice property set, or a dodgy pointer passed back to us
-        bool verifyMagic() { return _magic == kMagic; }
+        bool verifyMagic() const { return _magic == kMagic; }
       };
 
       

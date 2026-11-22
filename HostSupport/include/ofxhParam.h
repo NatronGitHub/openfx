@@ -340,7 +340,7 @@ namespace OFX {
         PageInstance(Descriptor& descriptor, Param::SetInstance* instance = 0) : Instance(descriptor,instance) {}
         const std::map<int,Param::Instance*> &getChildren() const;
       protected :
-        mutable std::map<int,Param::Instance*> _children; // if set in a notify hook, this need not be mutable
+        mutable std::map<int,Param::Instance*> _children; ///< a cache, filled by getChildren() const on its first call
       };
 
       class IntegerInstance : public Instance, public KeyframeParam {

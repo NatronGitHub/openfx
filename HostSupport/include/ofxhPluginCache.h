@@ -189,7 +189,7 @@ namespace OFX {
 
       virtual APICache::PluginAPICacheI &getApiHandler() = 0;
 
-      bool trumps(Plugin *other) {
+      bool trumps(const Plugin *other) const {
         int myMajor = getVersionMajor();
         int theirMajor = other->getVersionMajor();
 
@@ -207,7 +207,7 @@ namespace OFX {
         return false;
       }
 
-      bool equals(Plugin *other) {
+      bool equals(const Plugin *other) const {
         int myMajor = getVersionMajor();
         int theirMajor = other->getVersionMajor();
 
@@ -346,7 +346,7 @@ namespace OFX {
       	return _fileModificationTime;
       }
     
-      off_t getFileSize() {
+      off_t getFileSize() const {
       	return _fileSize;
       }
 

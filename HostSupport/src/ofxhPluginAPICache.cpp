@@ -62,14 +62,21 @@ namespace OFX
         pluginCache.registerAPICache(_apiName, _apiVersionMin, _apiVersionMax, this);
       }      
 
+      /// the value of an attribute of an XML element, or "" if it has none
+      static std::string attributeValue(const std::map<std::string, std::string> &map, const char *name)
+      {
+        const std::map<std::string, std::string>::const_iterator it = map.find(name);
+        return it == map.end() ? std::string() : it->second;
+      }
+
       void propertySetXMLRead(const std::string &el,
-                              std::map<std::string, std::string> map,
+                              const std::map<std::string, std::string> &map,
                               Property::Set &set,
                               Property::Property *&currentProp) {
         if (el == "property") {
-          std::string propName = map["name"];
-          std::string propType = map["type"];
-          int dimension = atoi(map["dimension"].c_str());
+          const std::string propName = attributeValue(map, "name");
+          const std::string propType = attributeValue(map, "type");
+          int dimension = atoi(attributeValue(map, "dimension").c_str());
           if (dimension < 0) {
             throw std::runtime_error("malformed plugin cache: negative property dimension");
           }
@@ -100,7 +107,7 @@ namespace OFX
         }
 
         if (el == "value") {
-          const std::string indexStr = map["index"];
+          const std::string indexStr = attributeValue(map, "index");
           char *end = NULL;
           errno = 0;
           const long index = strtol(indexStr.c_str(), &end, 10);
@@ -117,7 +124,7 @@ namespace OFX
           if (fixedDimension ? index >= fixedDimension : index > currentProp->getDimension()) {
             throw std::runtime_error("malformed plugin cache: property index out of range");
           }
-          std::string value = map["value"];
+          const std::string value = attributeValue(map, "value");
           
           switch (currentProp->getType()) {
           case Property::eInt:

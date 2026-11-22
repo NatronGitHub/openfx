@@ -462,8 +462,8 @@ namespace OFX {
               const OfxRectI &bounds,
               const OfxRectI &rod,
               int rowBytes,
-              std::string field,
-              std::string uniqueIdentifier);
+              const std::string &field,
+              const std::string &uniqueIdentifier);
 
         // OfxImageClipHandle getHandle();
         OfxPropertySetHandle getPropHandle() const { return Property::Set::getHandle(); }
@@ -541,8 +541,8 @@ namespace OFX {
               const OfxRectI &bounds,
               const OfxRectI &rod,
               int rowBytes,
-              std::string field,
-              std::string uniqueIdentifier);
+              const std::string &field,
+              const std::string &uniqueIdentifier);
       };
 
 #   ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -611,8 +611,8 @@ namespace OFX {
                 const OfxRectI &bounds,
                 const OfxRectI &rod,
                 int rowBytes,
-                std::string field,
-                std::string uniqueIdentifier);
+                const std::string &field,
+                const std::string &uniqueIdentifier);
       };
 #   endif
     } // Memory
