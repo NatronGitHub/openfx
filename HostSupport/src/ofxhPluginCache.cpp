@@ -326,13 +326,16 @@ using namespace OFX::Host;
 
 /// try to open the plugin bundle object and query it for plugins
 void PluginBinary::loadPluginInfo(PluginCache *cache) {      
+  if (_binary) {
+    // also for a binary that can't be stat()ed (0, 0): a cache that recorded it valid is then
+    // rewritten once, with the mtime and size of a failed stat(), and stays clean afterwards
+    _fileModificationTime = _binary->getTime();
+    _fileSize = _binary->getSize();
+  }
   if (isInvalid()) {
     return;
   }
   if (_binary) {
-    _fileModificationTime = _binary->getTime();
-    _fileSize = _binary->getSize();
-    
     // Take a reference to keep the binary loaded during its scan: the plug-in cache releases it
     // after the scan (releaseScanReference()), else the destructor does. While a PluginHandle
     // holds the binary, it stays loaded (Host::keepPluginsLoadedAfterScan()).
