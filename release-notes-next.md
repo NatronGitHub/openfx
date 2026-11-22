@@ -95,6 +95,7 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 
 ## Documentation Improvements
 
+- **Support and HostSupport configuration macros**: the README says to set `OFX_EXTENSIONS_*`/`OFX_SUPPORTS_*` only through openfx's CMake options (the library targets pass them on), never per target or per file, and that a Makefile must compile the Support or HostSupport sources with the same definitions as the plug-in or host: they change class layouts, and a mismatch is not detected at build time (NatronGitHub/openfx#226).
 - Removed the outdated "Properties by object reference" page; the generated Property Sets reference replaces it (issue #173).
 - Moved the 1.1 to 1.2 API changes chapter from the Reference section to the Release Notes section of the documentation.
 - Fixed broken links to the Programming Guide by Example (issue #229) and typos in the `ofxGPURender.h` and `ofxParam.h` comments (issues #42, #44).
