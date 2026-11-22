@@ -101,7 +101,7 @@ namespace OFX
       };
       
       /// helper function to build a property set from XML. Really should be a member of the property set!!!
-      void propertySetXMLRead(const std::string &el, std::map<std::string, std::string> map, Property::Set &set, Property::Property*&);
+      void propertySetXMLRead(const std::string &el, const std::map<std::string, std::string> &map, Property::Set &set, Property::Property*&);
 
       /// helper function to write a property set to XML. Really should be a member of the property set!!!
       void propertySetXMLWrite(std::ostream &o, const Property::Set &set, int indent=0);
