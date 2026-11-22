@@ -78,7 +78,7 @@ make -C Examples               # raw C-API examples; HAVE_METAL=0|1 (macOS, defa
 On Linux and FreeBSD, the plug-in Makefiles link with `-Wl,-z,defs` (`NO_UNDEFINED_FLAG`) and put the system
 libraries (`SYSLIBS`) last. On macOS they target 14.0 unless `MACOSX_DEPLOYMENT_TARGET` is set.
 The Makefiles define no `OFX_EXTENSIONS_*`/`OFX_SUPPORTS_*` (all off, unlike the CMake defaults): pass them with `CXXFLAGS_EXTRA`
-to `Support/Plugins` and `Examples` (it covers the plug-in and the Support objects), and with `OPTIMISE` to `HostSupport` and
+to `Support/Plugins` and `Examples` (in `Support/Plugins` it also covers the Support objects), and with `OPTIMISE` to `HostSupport` and
 `HostSupport/examples`. `libOfxSupport.a` from `make -C Support/Library` is compiled without any, so link it only into a
 plug-in compiled without any (see the rule on these definitions below).
 
