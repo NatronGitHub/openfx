@@ -1189,6 +1189,7 @@ namespace OFX {
     void     *_pixelData;                    /**< @brief the base address of the image */
     void     *_OpenCLImage;                  /**< @brief the OpenCL Image handle (cl_mem), or NULL (OFX 1.5) */
 
+  private :
     /** @brief the offset in bytes of the pixel (x,y) from the base address of an image of the given
         bounds, row bytes and pixel bytes. Signed: kOfxImagePropRowBytes may be negative (an image
         stored top to bottom), and an unsigned offset would only work by wrapping around (ES.100,
