@@ -201,20 +201,17 @@ namespace OFX {
         return _properties;
       }
 
-      /// name of the clip
+      /// short label of the effect: kOfxPropShortLabel, else its label (getLabel())
       const std::string &Base::getShortLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropShortLabel);
         if(s == "") {
-          const std::string &s2 = _properties.getStringProperty(kOfxPropLabel);
-          if(s2 == "") {
-            return _properties.getStringProperty(kOfxPropName);
-          }
+          return getLabel();
         }
         return s;
       }
         
-      /// name of the clip
+      /// label of the effect: kOfxPropLabel, else its name (kOfxPropName)
       const std::string &Base::getLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLabel);
@@ -224,15 +221,12 @@ namespace OFX {
         return s;
       }
         
-      /// name of the clip
+      /// long label of the effect: kOfxPropLongLabel, else its label (getLabel())
       const std::string &Base::getLongLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLongLabel);
         if(s == "") {
-          const std::string &s2 = _properties.getStringProperty(kOfxPropLabel);
-          if(s2 == "") {
-            return _properties.getStringProperty(kOfxPropName);
-          }
+          return getLabel();
         }
         return s;
       }
@@ -790,25 +784,14 @@ namespace OFX {
         _properties.setStringProperty(kOfxImageEffectPropContext,context);
         _properties.setIntProperty(kOfxPropIsInteractive,interactive);
 
+        // the double properties of the instance are computed by the host (getDoubleProperty()
+        // and getDoublePropertyN()): hook them. The others (e.g. the context, kOfxPropIsInteractive,
+        // kOfxImageEffectInstancePropSequentialRender) are stored in the set.
         while(effectInstanceStuff[i].name) {
-          
-          // don't set hooks for context or isinteractive or kOfxImageEffectInstancePropSequentialRender
-          // since we only set hook on the double properties anyway, don't do these comparisons since these properties
-          // are not of type Property::eDouble
-
-          //if(strcmp(effectInstanceStuff[i].name,kOfxImageEffectPropContext) &&
-          //   strcmp(effectInstanceStuff[i].name,kOfxPropIsInteractive) &&
-          //   strcmp(effectInstanceStuff[i].name,kOfxImageEffectInstancePropSequentialRender) )
-            {
-              const Property::PropSpec& spec = effectInstanceStuff[i];
-              switch (spec.type) {
-              case Property::eDouble:
-                _properties.setGetHook(spec.name, this);
-                break;
-              default:
-                break;
-              }
-            }
+          const Property::PropSpec& spec = effectInstanceStuff[i];
+          if (spec.type == Property::eDouble) {
+            _properties.setGetHook(spec.name, this);
+          }
           i++;
         }
       }
@@ -3037,8 +3020,6 @@ namespace OFX {
 #endif
 
 
-
-
         bool multipleClipsPAR = supportsMultipleClipPARs();
         /// get the PAR of inputs, if it has different PARs and the effect does not support multiple clips PAR, throw an exception
         double inputPar = 1.;
@@ -4151,7 +4132,6 @@ namespace OFX {
       }
 
 
-
       /// get the rod on the given clip at the given time for the given view
       static OfxStatus clipGetRegionOfDefinition(OfxImageClipHandle clip,
                                                  OfxTime            time,
@@ -5063,14 +5043,6 @@ namespace OFX {
             return NULL;
         }
 #     ifdef OFX_EXTENSIONS_VEGAS
-#      if 0
-        else if (strcmp(suiteName, kOfxVegasKeyframeSuite)==0) {
-            if(suiteVersion == 1)
-                return (void*)&gVegasKeyframeSuite;
-            else
-                return NULL;
-        }
-#      endif
         else if (strcmp(suiteName, kOfxVegasStereoscopicImageEffectSuite)==0) {
             if(suiteVersion == 1)
                 return (void*)&gVegasStereoscopicImageEffectSuite;

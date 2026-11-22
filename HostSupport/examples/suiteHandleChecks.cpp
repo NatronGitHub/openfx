@@ -462,6 +462,29 @@ namespace {
     }
   }
 
+  /// the labels of an image effect fall back to the label, then to the name (#229: the short and
+  /// long labels gave "" when only the label was set)
+  void checkEffectLabels()
+  {
+    static const Property::PropSpec spec[] = {
+      { kOfxPropName, Property::eString, 1, false, "name" },
+      { kOfxPropLabel, Property::eString, 1, false, "" },
+      { kOfxPropShortLabel, Property::eString, 1, false, "" },
+      { kOfxPropLongLabel, Property::eString, 1, false, "" },
+      Property::propSpecEnd
+    };
+    ImageEffect::Base effect(spec);
+    check("effect labels: no label, the name",
+          effect.getLabel() == "name" && effect.getShortLabel() == "name" && effect.getLongLabel() == "name");
+    effect.getProps().setStringProperty(kOfxPropLabel, "label");
+    check("effect labels: a label, no short or long label: the label",
+          effect.getLabel() == "label" && effect.getShortLabel() == "label" && effect.getLongLabel() == "label");
+    effect.getProps().setStringProperty(kOfxPropShortLabel, "short");
+    effect.getProps().setStringProperty(kOfxPropLongLabel, "long");
+    check("effect labels: the short and long labels",
+          effect.getLabel() == "label" && effect.getShortLabel() == "short" && effect.getLongLabel() == "long");
+  }
+
   /// the host descriptor lists the pixel depths, components and contexts that hostDemo supports
   /// (openfx-misc#222: HostSupport leaves them empty): the depths and components of MyImage, and
   /// the contexts of -c. With --ofx14 too: they are OFX 1.4 host properties.
@@ -1297,6 +1320,9 @@ int main()
 
   // pointer defaults, exact doubles, malformed properties in the plug-in cache
   checkPropertyFixes();
+
+  // the effect labels' fallbacks (#229)
+  checkEffectLabels();
 
   // a real effect instance (the progress and timeline functions on a valid handle)
   checkEffectInstance(host);
