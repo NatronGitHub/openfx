@@ -120,7 +120,10 @@ case $os in Darwin) want="_OfxGetNumberOfPlugins _OfxGetPlugin " ;; *) want="Ofx
 [ "$exports" = "$want" ] || fail "exported: '$exports', expected '$want'"
 case $os in
   Darwin) [ "$rpath" = "@loader_path/../Frameworks @loader_path/../Libraries " ] || fail "rpath: '$rpath'" ;;
-  Linux|FreeBSD) [ "$rpath" = '$ORIGIN/../../Libraries ' ] || fail "rpath: '$rpath'" ;;
+  Linux|FreeBSD) [ "$rpath" = '$ORIGIN/../../Libraries ' ] || fail "rpath: '$rpath'"
+     # the build-tree binary too (OFX_PLUGIN_BUILD_WITH_INSTALL_RPATH): no padded build rpath
+     brpath=$(readelf -d "$built/InvertBundle.ofx.bundle/Contents/$arch/InvertBundle.ofx" | sed -n 's/.*R.*PATH.*\[\(.*\)\]/\1/p' | tr '\n' ' ')
+     [ "$brpath" = "$rpath" ] || fail "build-tree rpath: '$brpath', installed: '$rpath'" ;;
 esac
 # the installed binaries are executable (Debian's CMake strips the execute bit of modules; the CI
 # runners have Kitware's CMake, so this only guards against regressions)

@@ -43,6 +43,20 @@ if [ "$(uname -s)" = Linux ]; then
   OFX_ABI_GLIBC=99 OFX_ABI_GLIBCXX=99 OFX_ABI_CXXABI=99 OFX_ABI_GCC=99 OFX_ABI_GOMP=99 \
     OFX_ABI_LIBATOMIC=99 OFX_ABI_ZLIB=99 \
     "$root/Support/include/linuxCheckBundle.sh" "$build/install/OFX/Plugins"
+  # the build-tree plug-ins have the install rpath (OFX_PLUGIN_BUILD_WITH_INSTALL_RPATH), not
+  # CMake's build rpath padded with ':' (empty entries: the current directory)
+  n=0
+  while IFS= read -r -d '' f; do
+    rp=$(readelf -d "$f" | sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\]/\1/p')
+    case "$rp" in :*|*:|*::*) echo "build-tree $f: empty RUNPATH/RPATH entry: '$rp'"; exit 1 ;; esac
+    i="$build/install/OFX/Plugins/${f#"$build/Plugins/"}"
+    [ -f "$i" ] || { echo "build-tree $f: not installed as $i"; exit 1; }
+    irp=$(readelf -d "$i" | sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\]/\1/p')
+    [ "$rp" = "$irp" ] || { echo "build-tree $f: RUNPATH '$rp', installed: '$irp'"; exit 1; }
+    n=$((n + 1))
+  done < <(find "$build/Plugins" -path '*.ofx.bundle/Contents/Linux-*/*.ofx' -type f -print0)
+  [ "$n" -gt 0 ] || { echo "no build-tree plug-in found in $build/Plugins"; exit 1; }
+  echo "build-tree RUNPATH: $n plug-ins, no empty entry, same as installed"
 fi
 # one plug-in's install component installs that bundle only (cmake/OpenFX.cmake)
 rm -rf "$build/component"

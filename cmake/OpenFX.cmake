@@ -159,6 +159,15 @@ set(OFX_OPTFLAG "" CACHE STRING "Extra optimization flags of the plug-ins' relea
 # Extra install rpath directories of every plug-in (e.g. dependency prefixes inside the source
 # tree, which INSTALL_RPATH_USE_LINK_PATH skips), after the bundle's own Libraries directory
 set(OFX_PLUGIN_RPATH "" CACHE STRING "Extra install rpath directories of the plug-ins (;-separated)")
+# Linux and FreeBSD: link the plug-ins in the build tree with their install rpath
+# (BUILD_WITH_INSTALL_RPATH). Otherwise CMake gives the build-tree binary its build rpath, padded
+# with ':' to the length of the install rpath so that `cmake --install` can rewrite it in place:
+# the empty entries mean the current directory to the loader. ON, the build-tree and installed
+# binaries have the same RUNPATH, and nothing is rewritten at install. Turn it OFF for a project
+# whose plug-ins, run from the build tree, need a shared library that the project builds, or one
+# in a prefix inside the source or build tree that is not in RPATH or OFX_PLUGIN_RPATH (the install
+# rpath has neither)
+option(OFX_PLUGIN_BUILD_WITH_INSTALL_RPATH "Linux/FreeBSD: build the plug-ins with their install rpath (no padded build rpath)" ON)
 # Linux and FreeBSD: link the plug-ins with -z defs (no undefined symbols). OFF for sanitizer builds
 # with clang, which links its sanitizer runtime into executables only (or use -shared-libsan); gcc links
 # its shared sanitizer runtime by default, so it works with -z defs
@@ -251,6 +260,9 @@ unset(_ofx_check_bundle)
 #   Unlike Makefile.master's list, it has no system directory (/usr/lib64, ...): CMake leaves
 #   out its implicit link directories, which the loader searches anyway. (CMake puts the
 #   directories of the linked libraries before the others in the installed binary.)
+#   On Linux and FreeBSD, the build-tree binary has the install rpath too
+#   (OFX_PLUGIN_BUILD_WITH_INSTALL_RPATH, default ON), not CMake's build rpath padded with empty
+#   entries. Still, ship and check the installed bundle, never the build tree.
 # - The installed binary is mode 755 (Debian's CMake strips the execute bit of modules).
 # - OFX_OPTFLAG is added to the compile options of the release configurations (not with MSVC).
 # - RPATH and OFX_PLUGIN_RPATH are ignored on Windows.
@@ -374,6 +386,11 @@ function(add_ofx_plugin TARGET)
     # (macOS: the rpaths into /opt/local, /usr/local and /opt/homebrew are deleted at install, see
     # below; the others stay, e.g. for libraries with @rpath install names in an SDK prefix)
     set_target_properties(${TARGET} PROPERTIES INSTALL_RPATH "${_rpath}" INSTALL_RPATH_USE_LINK_PATH ON)
+  endif()
+  # Linux and FreeBSD: the build-tree binary gets the install rpath too, not CMake's build rpath
+  # padded with ':' (empty entries: the current directory), see OFX_PLUGIN_BUILD_WITH_INSTALL_RPATH
+  if(CMAKE_SYSTEM_NAME MATCHES "Linux|FreeBSD" AND OFX_PLUGIN_BUILD_WITH_INSTALL_RPATH)
+    set_target_properties(${TARGET} PROPERTIES BUILD_WITH_INSTALL_RPATH ON)
   endif()
   ofx_target_optflag(${TARGET})
 
