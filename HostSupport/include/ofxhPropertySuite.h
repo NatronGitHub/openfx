@@ -527,10 +527,10 @@ namespace OFX {
         /// retrieve the named double property
         Double *fetchDoubleProperty(const std::string &name,  bool followChain = false) const;
 
-        /// retrieve the named double property
+        /// retrieve the named pointer property
         Pointer *fetchPointerProperty(const std::string &name, bool followChain = false) const;
 
-        /// retrieve the named double property
+        /// retrieve the named int property
         Int *fetchIntProperty(const std::string &name, bool followChain = false) const;
 
 
@@ -544,7 +544,7 @@ namespace OFX {
         /// get a particular pointer property without fetching via a get hook, useful for notifies
         void *getPointerPropertyRaw(const std::string &property, int index = 0) const;
 
-        /// get a particular string property
+        /// get a particular string property without fetching via a get hook, useful for notifies
         const std::string &getStringPropertyRaw(const std::string &property, int index = 0) const;
                 
         /// get the value of a particular string property
@@ -553,13 +553,13 @@ namespace OFX {
         /// get the value of a particular int property
         int getIntProperty(const std::string &property, int index = 0) const;
         
-        /// get the value of a particular double property
+        /// get the first N values of a particular int property
         void getIntPropertyN(const std::string &property,  int *v, int N) const;
 
         /// get the value of a particular double property
         double getDoubleProperty(const std::string &property, int index = 0) const;
 
-        /// get the value of a particular double property
+        /// get the first N values of a particular double property
         void getDoublePropertyN(const std::string &property,  double *v, int N) const;
 
         /// get the value of a particular pointer property
@@ -567,22 +567,22 @@ namespace OFX {
 
 
 
-        /// set a particular string property without fetching via a get hook, useful for notifies
+        /// set a particular string property
         void setStringProperty(const std::string &property, const std::string &value, int index = 0);
 
-        /// get a particular int property
+        /// set a particular int property
         void setIntProperty(const std::string &property, int v, int index = 0);
 
-        /// get a particular double property
+        /// set the first N values of a particular int property
         void setIntPropertyN(const std::string &property, const int *v, int N);
         
-        /// get a particular double property
+        /// set a particular double property
         void setDoubleProperty(const std::string &property, double v, int index = 0);
 
-        /// get a particular double property
+        /// set the first N values of a particular double property
         void setDoublePropertyN(const std::string &property, const double *v, int N);
 
-        /// get a particular double property
+        /// set a particular pointer property
         void setPointerProperty(const std::string &property,  void *v, int index = 0);
         
 

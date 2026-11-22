@@ -269,13 +269,13 @@ namespace OFX {
         /// get the properties set, const version
         const Property::Set &getProps() const;
 
-        /// name of the clip
+        /// short label of the effect: kOfxPropShortLabel, else its label (getLabel())
         const std::string &getShortLabel() const;
         
-        /// name of the clip
+        /// label of the effect: kOfxPropLabel, else its name (kOfxPropName)
         const std::string &getLabel() const;
         
-        /// name of the clip
+        /// long label of the effect: kOfxPropLongLabel, else its label (getLabel())
         const std::string &getLongLabel() const;
 
         /// is the given context supported

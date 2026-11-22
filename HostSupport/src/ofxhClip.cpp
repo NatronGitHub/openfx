@@ -107,7 +107,7 @@ namespace OFX {
         } 
       }
 
-      /// name of the clip
+      /// short label of the clip: kOfxPropShortLabel, else its label (getLabel())
       const std::string &ClipBase::getShortLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropShortLabel);
@@ -117,7 +117,7 @@ namespace OFX {
         return s;
       }
       
-      /// name of the clip
+      /// label of the clip: kOfxPropLabel, else its name (getName())
       const std::string &ClipBase::getLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLabel);
@@ -127,7 +127,7 @@ namespace OFX {
         return s;
       }
       
-      /// name of the clip
+      /// long label of the clip: kOfxPropLongLabel, else its label (getLabel())
       const std::string &ClipBase::getLongLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLongLabel);
@@ -410,7 +410,6 @@ namespace OFX {
 
       // don't know what to do
       void ClipInstance::reset(const std::string &/*name*/) OFX_EXCEPTION_SPEC {
-        //printf("failing in %s\n", __PRETTY_FUNCTION__);
         throw Property::Exception(kOfxStatErrMissingHostFeature);
       }
 

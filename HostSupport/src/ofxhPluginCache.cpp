@@ -1039,11 +1039,7 @@ void PluginCache::elementBeginCallback(void */*userData*/, const XML_Char *name,
     
     std::string identifier = rawIdentifier;
     
-    // Who says the pluginIdentifier is case-insensitive? OFX 1.3 spec doesn't mention this.
-    // http://openfx.sourceforge.net/Documentation/1.3/ofxProgrammingReference.html#id472588
-    //for (size_t i=0;i<identifier.size();i++) {
-    //  identifier[i] = tolower(identifier[i]);
-    //}
+    // (the identifier is kept as is: the spec doesn't say that it is case-insensitive)
     
     int idx = OFX::Host::Property::stringToInt(attmap["index"]);
     int api_version = OFX::Host::Property::stringToInt(attmap["api_version"]);
