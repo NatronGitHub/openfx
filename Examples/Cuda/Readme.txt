@@ -9,8 +9,7 @@ cuda.cpp is the plug-in (no CUDA dependency), kernel.cu the kernel and its
 launch, compiled by nvcc. Build with CMake -DOFX_SUPPORTS_CUDARENDER=ON (Linux,
 or Windows with MSVC), or on Linux with Makefile (CUDAPATH, CUDA_ARCH; the CUDA
 runtime is linked statically, as CMake does), or "make HAVE_CUDA=1" in
-Examples/. macOS has had no CUDA since 10.13: MakefileOSX is kept from the 2015
-example, but can't be used with current systems.
+Examples/. macOS has had no CUDA since 10.13.
 
 Describe
 --------

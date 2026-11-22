@@ -1,7 +1,0 @@
-CXXFLAGS = -I../../include
-OPTIMIZER = -g
-
-overlay.ofx : overlay.o
-	$(CXX) -bundle overlay.o -o overlay.ofx -framework OpenGL
-	mkdir -p overlay.ofx.bundle/Contents/MacOS/
-	cp overlay.ofx overlay.ofx.bundle/Contents/MacOS/
