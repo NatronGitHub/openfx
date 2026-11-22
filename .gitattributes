@@ -26,15 +26,6 @@ CMakeLists.txt text whitespace=tab-in-indent,trail,space
 *.sh            eol=lf
 
 # Declare files that will always have CRLF line endings on checkout.
-# VS 20xx files
-*.sln text eol=crlf
-*.vcproj text eol=crlf merge=union
-*.vcxproj text eol=crlf merge=union
-*.vcxproj.filters text eol=crlf
-# VC6 files
-*.dsw text eol=crlf
-*.dsp text eol=crlf
-*.dsptemplate text eol=crlf
 # Other 'windows-specific' files
 *.bat text eol=crlf
 *.bat.in text eol=crlf
@@ -52,7 +43,6 @@ CMakeLists.txt text whitespace=tab-in-indent,trail,space
 *.dll binary
 
 *.pdf binary
-*.pbxproj text eof=lf
 *.vec binary
 *.doc binary
 

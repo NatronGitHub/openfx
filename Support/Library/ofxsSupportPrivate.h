@@ -335,7 +335,7 @@ namespace OFX {
       /** @brief var args constructor that is use to describe properties */
       PropertyDescription(const char *name, OFX::PropertyTypeEnum ilk, int dimension, ...);
 
-      /** @brief Die! Die! Die! */
+      /** @brief dtor */
       virtual ~PropertyDescription(void) {}
 
       /** @brief See if the property exists in the containing property set and has the correct dimension */

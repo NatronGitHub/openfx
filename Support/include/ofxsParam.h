@@ -1610,7 +1610,7 @@ namespace OFX {
     };
 
     ////////////////////////////////////////////////////////////////////////////////
-    /** @brief Wraps up an doubleeger param */
+    /** @brief Wraps up a double param */
     class DoubleParam : public BaseDoubleParam {
     protected :
         mDeclareProtectedAssignAndCCBase(DoubleParam,BaseDoubleParam);
@@ -1680,7 +1680,7 @@ namespace OFX {
     };
 
     ////////////////////////////////////////////////////////////////////////////////
-    /** @brief Wraps up an doubleeger param */
+    /** @brief Wraps up a double param */
     class Double2DParam : public BaseDoubleParam {
     protected :
         mDeclareProtectedAssignAndCCBase(Double2DParam,BaseDoubleParam);
@@ -1754,7 +1754,7 @@ namespace OFX {
     };
 
     ////////////////////////////////////////////////////////////////////////////////
-    /** @brief Wraps up an doubleeger param */
+    /** @brief Wraps up a double param */
     class Double3DParam : public BaseDoubleParam {
     protected :
         mDeclareProtectedAssignAndCCBase(Double3DParam,BaseDoubleParam);

@@ -1,7 +1,0 @@
-CXXFLAGS = -I../../include
-OPTIMIZER = -g
-
-rectangle.ofx : rectangle.o
-	$(CXX) -bundle rectangle.o -o rectangle.ofx
-	mkdir -p rectangle.ofx.bundle/Contents/MacOS/
-	cp rectangle.ofx rectangle.ofx.bundle/Contents/MacOS/

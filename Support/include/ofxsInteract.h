@@ -199,8 +199,6 @@ namespace OFX {
    From libOfxSupport.a (CMake's openfx::Support), plug-ins that don't call it don't link it;
    Support/Plugins/Makefile.master's SUPPORTOBJECTS are plain object files, so every plug-in built
    with it links ofxsDrawContextOpenGL.o.
-   The legacy project files (Support/Support.xcodeproj, the .vcproj and .dsp files) are not
-   maintained and don't list ofxsDrawContextOpenGL.cpp.
    */
   class DrawContext {
   public:

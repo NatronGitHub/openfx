@@ -1,7 +1,0 @@
-CXXFLAGS = -I../../include -I../include
-OPTIMIZER = -g
-
-oclplugin.ofx : oclplugin.o
-	$(CXX) -bundle oclplugin.o -o oclplugin.ofx -framework OpenCL
-	mkdir -p oclplugin.ofx.bundle/Contents/MacOS/
-	cp oclplugin.ofx oclplugin.ofx.bundle/Contents/MacOS/

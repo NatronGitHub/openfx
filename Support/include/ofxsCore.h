@@ -46,22 +46,22 @@ This support library skins the raw OFX C API with a set of C++ classes and funct
 
 <HR>
 
-@section fifteenLineGuide Fifteen Line Plugin Writing Guide
+@section fifteenLineGuide Plugin Writing Guide
 
-- work from the examples
-- you need to write the following functions....
-- void OFX::Plugin::getPluginID(OFX::PluginID &id)
-- gives the unique name and version numbers of the plug-in
-- void OFX::Plugin::loadAction(void)
-- called after the plug-in is first loaded, and before any instance has been made,
-- void OFX::Plugin::unloadAction(void)
-- called before the plug-in is unloaded, and all instances have been destroyed,
-- void OFX::Plugin::describe(OFX::ImageEffectDescriptor &desc) 
-- called to describe the plugin to the host
-- void OFX::Plugin::describeInContext(OFX::ImageEffectDescriptor &desc, OFX::ContextEnum context) 
-- called to describe the plugin to the host for a context reported in OFX::Plugin::describe
--  OFX::ImageEffect * OFX::Plugin::createInstance(OfxImageEffectHandle handle, OFX::ContextEnum context)
-- called when a new instance of a plug-in needs to be created. You need to derive a class from ImageEffect, new it and return it.
+- work from the examples (Support/Plugins, e.g. Invert/invert.cpp)
+- derive a class from OFX::ImageEffect: its constructor fetches the clips and the parameters
+  (fetchClip(), fetch*Param()), and it overrides the actions it handles (render(),
+  isIdentity(), getRegionOfDefinition(), changedParam(), ...)
+- declare the plug-in factory with mDeclarePluginFactory(MyPluginFactory, {}, {}) (the last two
+  arguments are the bodies of load() and unload()), and define its member functions:
+- void MyPluginFactory::describe(OFX::ImageEffectDescriptor &desc)
+- describes the plug-in to the host (labels, contexts, pixel depths, ...)
+- void MyPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, OFX::ContextEnum context)
+- defines the clips and the parameters for a context reported in describe()
+- OFX::ImageEffect* MyPluginFactory::createInstance(OfxImageEffectHandle handle, OFX::ContextEnum context)
+- called when a new instance of the plug-in is needed: new your OFX::ImageEffect subclass and return it
+- register the factory, which gives the plug-in identifier and version:
+  static MyPluginFactory p("com.example.myPlugin", 1, 0); mRegisterPluginFactoryInstance(p)
 
 The OFX::ImageEffect class has a set of members you can override to do various things, like rendering an effect. Again, look at the examples.
 
