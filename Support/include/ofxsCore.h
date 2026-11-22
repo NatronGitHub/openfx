@@ -132,7 +132,7 @@ of the direct OFX objects and any library side only functions.
 
 /** @brief Deprecated, expand to nothing. They were dynamic exception specifications
     (throw(x, ...) in C++98, noexcept(false) in C++11), which the Support library no longer uses
-    (E.30, E.12): in C++98 a function that throws a type not listed calls std::unexpected(), then
+    (E.30): in C++98 a function that throws a type not listed calls std::unexpected(), then
     std::terminate(). Kept, empty, for the plug-ins that may use them. */
 #define OFX_THROW(x)
 #define OFX_THROW2(x,y)
@@ -360,8 +360,6 @@ namespace OFX {
   class ImageEffect;
 
   /** @brief This class wraps up an OFX property set
-
-  A non-owning handle: copies refer to the same host property set.
 
   The prop* functions throw std::bad_alloc, OFX::Exception::PropertyUnknownToHost,
   OFX::Exception::PropertyValueIllegalToHost or OFX::Exception::Suite when the property suite

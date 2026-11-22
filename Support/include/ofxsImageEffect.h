@@ -303,7 +303,9 @@ namespace OFX {
 #endif
 
   // The map* functions below throw std::invalid_argument on a string or a value they don't know,
-  // except mapMessageTypeEnumToStr (returns NULL) and mapToMessageReplyEnum (eMessageReplyFailed).
+  // except mapStrToBitDepthEnum (returns eBitDepthCustom), mapStrToPixelComponentEnum
+  // (ePixelComponentCustom), mapMessageTypeEnumToStr (NULL) and mapToMessageReplyEnum
+  // (eMessageReplyFailed).
 
   /** @brief turns a field string into and enum */
   FieldEnum mapStrToFieldEnum(const std::string &str);
