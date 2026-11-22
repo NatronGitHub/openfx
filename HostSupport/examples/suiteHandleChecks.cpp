@@ -634,6 +634,58 @@ namespace {
     ImageEffect::gImageEffectHost = &host;
   }
 
+  /// NatronGitHub/openfx#235: a binary of the plug-in cache that can't be stat()ed (e.g. removed)
+  /// is invalid, and the plug-ins the cache has for it are not used, even if the cache recorded
+  /// the mtime and size that a failed stat() gives (0)
+  void checkCachedInvalidBinary(MyHost::Host &host, const std::string &cache)
+  {
+    {
+      PluginBinary pb("/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx", "/nonexistent/x.ofx.bundle", 0, 0);
+      check("a cached binary that doesn't exist (mtime 0, size 0) is invalid, and not changed", pb.isInvalid() && !pb.hasBinaryChanged());
+      PluginBinary pb2("/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx", "/nonexistent/x.ofx.bundle", 1, 2);
+      check("a cached binary that doesn't exist (another mtime and size) is invalid, and changed", pb2.isInvalid() && pb2.hasBinaryChanged());
+      // a binary cached valid that can no longer be stat()ed: its scan records the mtime and size
+      // of a failed stat(), so that the cache is rewritten once, and then stays clean
+      pb2.loadPluginInfo(NULL);
+      check("a cached binary that doesn't exist: loadPluginInfo() records mtime 0 and size 0",
+            pb2.getFileModificationTime() == 0 && pb2.getFileSize() == 0 && pb2.getNPlugins() == 0);
+    }
+    std::string missing = cache;
+    const size_t invert = missing.find("example-Invert-support.ofx.bundle");
+    const size_t bundle = invert == std::string::npos ? invert : missing.rfind("<bundle>", invert);
+    const size_t path = bundle == std::string::npos ? bundle : missing.find(" path=\"", bundle);
+    const size_t pathEnd = path == std::string::npos ? path : missing.find('"', path + strlen(" path=\""));
+    const size_t mtime = pathEnd == std::string::npos ? pathEnd : missing.find(" mtime=\"", pathEnd);
+    const size_t end = mtime == std::string::npos ? mtime : missing.find("/>", mtime);
+    const size_t plugin = end == std::string::npos ? end : missing.find("<plugin ", end);
+    const bool hasPlugin = plugin != std::string::npos && plugin < missing.find("</bundle>", end);
+    check("the Invert <bundle> of the cache has a <binary> with a path and an mtime, and a <plugin>", hasPlugin);
+    if (!hasPlugin) {
+      return;
+    }
+    missing.replace(mtime, end - mtime, " mtime=\"0\" size=\"0\"");
+    missing.replace(path, pathEnd + 1 - path, " path=\"/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx\"");
+    ImageEffect::PluginCache otherEffects(&host); // (destroyed after the plug-ins of other)
+    PluginCache other;
+    otherEffects.registerInCache(other);
+    std::istringstream is(missing);
+    bool ok = true;
+    try {
+      other.readCache(is);
+    } catch (const std::exception &e) {
+      std::printf("suiteHandleChecks: readCache: %s\n", e.what());
+      ok = false;
+    }
+    std::ostringstream rewritten;
+    other.writePluginCache(rewritten);
+    const std::string w = rewritten.str();
+    const size_t wBundle = w.find("/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx");
+    const size_t wEnd = wBundle == std::string::npos ? wBundle : w.find("</bundle>", wBundle);
+    check("a cached binary that doesn't exist (mtime 0, size 0): its cached plug-ins are not read",
+          ok && wEnd != std::string::npos && w.substr(wBundle, wEnd - wBundle).find("<plugin ") == std::string::npos);
+    ImageEffect::gImageEffectHost = &host;
+  }
+
   /// HostSupport review fixes (plug-in cache, clips): a rescan doesn't duplicate the plug-ins; the
   /// cache reads into the PluginCache that reads it (not the singleton), and a malformed cache is
   /// discarded; a plug-in's kFnOfxImageEffectPropComponentsPresent value belongs to its clip;
@@ -889,6 +941,7 @@ namespace {
     PluginCache::clearPluginCache();
     if (!cache.empty()) {
       checkChangedBinary(host, cache, pluginId, nInvert);
+      checkCachedInvalidBinary(host, cache);
     }
   }
 }

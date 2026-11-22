@@ -269,9 +269,13 @@ namespace OFX {
         , _scanRef(false)
         , _loadGeneration(0)
       {
-        if (isInvalid()) {
+        if (_binary->isInvalid()) {
+          // the binary can't be stat()ed (e.g. it was removed, or is a dangling symlink): the
+          // plug-ins the cache has for it are not read (readCache() skips them), and a scan
+          // finds none (loadPluginInfo() does nothing). It is "changed" only if the cache has
+          // another mtime or size than a failed stat() gives (0), so that a cache that already
+          // records it as such isn't rewritten at each launch (dirty()).
           _binaryInvalid = true;
-          return;
         }
         if (_fileModificationTime != _binary->getTime() || _fileSize != _binary->getSize()) {
           _binaryChanged = true;
