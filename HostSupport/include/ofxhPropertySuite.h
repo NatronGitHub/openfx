@@ -39,12 +39,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "ofxCore.h" // OfxStatus, OfxPropertySetHandle
 
-// OFX_EXCEPTION_SPEC marks the functions that may throw (a Property::Exception, or anything a
-// host's GetHook or NotifyHook override throws, e.g. std::bad_alloc). It is not a dynamic
-// exception specification: under C++98, "throw (OFX::Host::Property::Exception)" turned any other
-// exception into a call to std::unexpected(), then std::terminate() (C++ Core Guidelines E.30:
-// don't use exception specifications; E.12). It is noexcept(false) under C++11 and later, where a
-// destructor (implicitly noexcept) never uses it, and empty under C++98 and on Windows.
+// OFX_EXCEPTION_SPEC marks the functions that may throw: noexcept(false) under C++11 and later,
+// empty otherwise, never a dynamic exception specification (C++ Core Guidelines E.30).
 #if !defined(WINDOWS) && (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L))
 #define OFX_EXCEPTION_SPEC noexcept(false)
 #else
