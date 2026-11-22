@@ -297,9 +297,10 @@ function(add_ofx_plugin TARGET)
     target_sources(${TARGET} PRIVATE ${OFX_SOURCES})
   endif()
   # the C API headers and the usage requirements (definitions); openfx::Support for C++ plug-ins
-  # (the OFX_EXTENSIONS_*/OFX_SUPPORTS_* definitions change class layouts: never add one to a
-  # plug-in target or file, set openfx's options instead, see README.md and #226)
   # (through LINK_LIBRARIES, so that the consumer may use either target_link_libraries form)
+  # The OFX_EXTENSIONS_*/OFX_SUPPORTS_* definitions change class layouts and come from openfx's
+  # options through openfx::Api/Support: don't add or remove one on this target or its files, it
+  # would differ from openfx::Support's (README.md, NatronGitHub/openfx#226).
   if(TARGET openfx::Api)
     set_property(TARGET ${TARGET} APPEND PROPERTY LINK_LIBRARIES openfx::Api)
   endif()
