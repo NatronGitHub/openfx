@@ -451,42 +451,29 @@ namespace OFX {
       }
 #endif
 
-      /// Copy the first n values of a dim-dimensional hooked property to the
-      /// caller's buffer: propGet*N only gives room for indices 0..n-1.
-      template<class T>
-      static void copyHookValuesN(T *dst, const T *src, int n, int dim)
-      {
-        if (n < 0 || n > dim) {
-          throw Property::Exception(kOfxStatErrBadIndex);
-        }
-        for (int i = 0; i < n; ++i) {
-          dst[i] = src[i];
-        }
-      }
-
       // get the virutals for viewport size, pixel scale, background colour
       void ClipInstance::getDoublePropertyN(const std::string &name, double *values, int n) const OFX_EXCEPTION_SPEC
       {
         double v[2];
         if(name==kOfxImagePropPixelAspectRatio){
           v[0] = getAspectRatio();
-          copyHookValuesN(values, v, n, 1);
+          Property::copyHookValuesN(values, v, n, 1);
         }
         else if(name==kOfxImageEffectPropFrameRate){
           v[0] = getFrameRate();
-          copyHookValuesN(values, v, n, 1);
+          Property::copyHookValuesN(values, v, n, 1);
         }
         else if(name==kOfxImageEffectPropFrameRange){
           getFrameRange(v[0], v[1]);
-          copyHookValuesN(values, v, n, 2);
+          Property::copyHookValuesN(values, v, n, 2);
         }
         else if(name==kOfxImageEffectPropUnmappedFrameRate){
           v[0] = getUnmappedFrameRate();
-          copyHookValuesN(values, v, n, 1);
+          Property::copyHookValuesN(values, v, n, 1);
         }
         else if(name==kOfxImageEffectPropUnmappedFrameRange){
           getUnmappedFrameRange(v[0], v[1]);
-          copyHookValuesN(values, v, n, 2);
+          Property::copyHookValuesN(values, v, n, 2);
         }
         else
           throw Property::Exception(kOfxStatErrValue);
@@ -562,12 +549,12 @@ namespace OFX {
         if(name==kOfxImageClipPropFormat){
           OfxRectI format = getFormat();
           int v[4] = { format.x1, format.y1, format.x2, format.y2 };
-          copyHookValuesN(values, v, n, 4);
+          Property::copyHookValuesN(values, v, n, 4);
         } else
 #endif
         {
           int v = getIntProperty(name, 0);
-          copyHookValuesN(values, &v, n, 1);
+          Property::copyHookValuesN(values, &v, n, 1);
         }
       }
 
