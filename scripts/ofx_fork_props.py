@@ -76,7 +76,7 @@ NAMES = [
     (r"(kNatronOfxHostName|kOfxSonyVegas\w*HostName)", "host name"),
     (r"kNukeOfxCameraParam\w+", "Nuke camera parameter name"),
     (r"kNatronOfxParam(StringSublabelName|OutputChannels|Process[RGBA](Label|Hint)?|UndoRedoText"
-     r"|UndoRedoState|RightClickMenu|SelectionRectangleState|CursorName)",
+     r"|UndoRedoState|RightClickMenu|SelectionRectangleState)",
      "Natron parameter name, label or hint"),
     (r"kNatronParam(Tracking\w+|Format\w+)", "Natron parameter name"),
     (r"kNatronOfxImageComponentsPlane\w+", "Natron multi-plane component encoding"),

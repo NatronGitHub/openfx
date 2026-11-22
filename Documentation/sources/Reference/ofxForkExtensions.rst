@@ -57,11 +57,8 @@ Plug-ins that are superseded (by a newer version, by another plug-in, or by
 a host-internal node) set the standard ``kOfxImageEffectPluginPropObsolete``;
 the former Natron ``NatronOfxImageEffectPropDeprecated`` extension was removed.
 
-The parameter-based cursor extension (``kNatronOfxParamCursorName``,
-``kNatronOfxImageEffectPropDefaultCursors``) is deprecated in favour of the
-proposed :doc:`interact cursors <ofxInteractCursors>`. Natron 2.6 (the RB-2.6
-branch, unreleased) no longer honours it (Natron#1108): plug-ins that still set the cursor parameter get the
-default cursor there.
+Plug-ins control the host cursor with the proposed :doc:`interact cursors
+<ofxInteractCursors>` extension.
 
 Nuke (``include/nuke/``, ``OFX_EXTENSIONS_NUKE``)
 -------------------------------------------------

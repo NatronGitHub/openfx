@@ -420,9 +420,6 @@ namespace OFX {
         // Get a list of the parameters name that are to be displayed in the viewport
         void getInViewportParametersName(std::list<std::string>* parameterNames) const;
 
-        // Get a list of the cursors used by this plug-in
-        void getDefaultCursors(std::list<std::string>* cursors) const;
-
         // Update the selection rectangle property
         void setSelectionRectangleState(double x1, double y1, double x2, double y2);
 #endif

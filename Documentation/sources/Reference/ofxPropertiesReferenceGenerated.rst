@@ -1189,37 +1189,6 @@ Enumeration Properties
   - ``OfxImageComponentAlpha``
 - **Doc**: For detailed doc, see :c:macro:`kNatronOfxImageEffectPropChannelSelector`.
 
-.. _prop_NatronOfxImageEffectPropDefaultCursors:
-
-**NatronOfxImageEffectPropDefaultCursors**
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-- **C #define**: :c:macro:`kNatronOfxImageEffectPropDefaultCursors`
-- **Type**: enum
-- **Dimension**: Variable (0 or more)
-- **Valid Values**:
-  - ``NatronOfxDefaultCursor``
-  - ``kNatronOfxBlankCursor``
-  - ``NatronOfxArrowCursor``
-  - ``NatronOfxUpArrowCursor``
-  - ``NatronOfxCrossCursor``
-  - ``NatronOfxIBeamCursor``
-  - ``NatronOfxWaitCursor``
-  - ``NatronOfxBusyCursor``
-  - ``NatronOfxForbiddenCursor``
-  - ``NatronOfxPointingHandCursor``
-  - ``NatronOfxWhatsThisCursor``
-  - ``NatronOfxSizeVerCursor``
-  - ``NatronOfxSizeHorCursor``
-  - ``NatronOfxSizeBDiagCursor``
-  - ``NatronOfxSizeFDiagCursor``
-  - ``NatronOfxSizeAllCursor``
-  - ``NatronOfxSplitVCursor``
-  - ``NatronOfxSplitHCursor``
-  - ``NatronOfxOpenHandCursor``
-  - ``NatronOfxClosedHandCursor``
-- **Doc**: For detailed doc, see :c:macro:`kNatronOfxImageEffectPropDefaultCursors`.
-
 .. _prop_OfxHostPropSupportedParametricInterpolations:
 
 **OfxHostPropSupportedParametricInterpolations**

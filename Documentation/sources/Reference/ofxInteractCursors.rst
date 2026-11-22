@@ -34,6 +34,3 @@ leaves. Trapping the event is not required. Several interacts can share a view,
 so the host decides which request to display; it should read the current
 request of every interact of the view after each event (in HostSupport:
 ``OFX::Host::Interact::Instance::getCursor()``).
-
-It replaces the parameter-based Natron extension
-(``kNatronOfxParamCursorName``), which is deprecated.
