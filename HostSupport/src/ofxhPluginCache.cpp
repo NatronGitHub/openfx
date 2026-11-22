@@ -404,13 +404,7 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
         continue;
       }
       
-      Plugin *p = api->newPlugin(this, i, plug);
-      try {
-        _plugins.push_back(p); // (no reallocation after the reserve() above, but be safe)
-      } catch (...) {
-        delete p;
-        throw;
-      }
+      _plugins.push_back(api->newPlugin(this, i, plug)); // (no reallocation after the reserve() above)
     }
   }
 }
@@ -885,10 +879,13 @@ void PluginCache::scanPluginFiles()
           } catch (...) {
             // delete the plug-ins made so far (a later loadPluginInfo() would only clear the list:
             // R.1), then unload the binary (the reference loadPluginInfo() took); pb and its
-            // Binary stay in _binaries, owned by the cache, and are scanned again at the next scan
-            // (still changed)
+            // Binary stay in _binaries, owned by the cache. loadPluginInfo() already recorded the
+            // binary's mtime and size: reset them, so that a cache written now records it as
+            // changed, and the next scan loads it again, instead of keeping it with no plug-ins
             pb->deletePlugins();
             pb->releaseScanReference();
+            pb->_fileModificationTime = 0;
+            pb->_fileSize = 0;
             throw;
           }
         }

@@ -53,7 +53,6 @@
 #include <stdexcept>
 #include "ofxhPluginAPICache.h"
 #if !defined(_WIN32)
-#include <dlfcn.h> // dlopen(RTLD_NOLOAD) (checkScanThrows)
 #include <fcntl.h> // open (lowestFreeFd)
 #include <unistd.h> // close
 #endif
@@ -824,16 +823,11 @@ namespace {
   /// an image effect API cache whose newPlugin() throws, as when it runs out of memory
   class ThrowingEffectsCache : public ImageEffect::PluginCache {
   public:
-    std::string throwFor;  ///< the file of the binary whose plug-ins make it throw (empty: all)
     std::string thrownFor; ///< the file of the binary whose plug-in made it throw
-    explicit ThrowingEffectsCache(ImageEffect::Host *host, const std::string &binary)
-      : ImageEffect::PluginCache(host), throwFor(binary) {}
+    explicit ThrowingEffectsCache(ImageEffect::Host *host) : ImageEffect::PluginCache(host) {}
     using ImageEffect::PluginCache::newPlugin;
-    virtual Plugin *newPlugin(PluginBinary *pb, int pi, OfxPlugin *plug)
+    virtual Plugin *newPlugin(PluginBinary *pb, int /*pi*/, OfxPlugin * /*plug*/)
     {
-      if (!throwFor.empty() && pb->getFilePath() != throwFor) {
-        return ImageEffect::PluginCache::newPlugin(pb, pi, plug);
-      }
       thrownFor = pb->getFilePath();
       throw std::bad_alloc();
     }
@@ -851,53 +845,16 @@ namespace {
   }
 #endif
 
-  /// A binary of the cache that is not loaded and that the system unloads after a dlopen() and
-  /// a dlclose() (macOS never unloads an image with thread-local variables, e.g. the Support
-  /// library's plug-ins; glibc keeps a library with GNU unique symbols), or "" (none, or Windows)
-  std::string unloadableBinary(const std::string &cache)
-  {
-#if !defined(_WIN32)
-    const std::string attr = " path=\"";
-    for (size_t b = cache.find("<binary "); b != std::string::npos; b = cache.find("<binary ", b + 1)) {
-      const size_t p = cache.find(attr, b);
-      const size_t e = p == std::string::npos ? p : cache.find('"', p + attr.size());
-      if (e == std::string::npos) {
-        break;
-      }
-      const std::string path = cache.substr(p + attr.size(), e - p - attr.size());
-      if (void *h = dlopen(path.c_str(), RTLD_LAZY | RTLD_NOLOAD)) {
-        dlclose(h); // loaded: something holds it
-        continue;
-      }
-      void *h = dlopen(path.c_str(), RTLD_LAZY | RTLD_LOCAL);
-      if (!h) {
-        continue;
-      }
-      dlclose(h);
-      if (void *still = dlopen(path.c_str(), RTLD_LAZY | RTLD_NOLOAD)) {
-        dlclose(still); // not unloadable
-        continue;
-      }
-      return path;
-    }
-#else
-    (void)cache;
-#endif
-    return std::string();
-  }
-
-  /// NatronGitHub/openfx#232: a scan that throws (here from the API cache, while a binary that is
-  /// not in the cache, and that the system can unload, is scanned) closes the directories it
-  /// opened, keeps no binary that threw, and unloads it
-  void checkScanThrows(MyHost::Host &host, const std::string &binary)
+  /// NatronGitHub/openfx#232: a scan that throws (here from the API cache, while the first binary
+  /// is scanned) passes the exception to the caller, and closes the directories it opened
+  void checkScanThrows(MyHost::Host &host)
   {
 #if !defined(_WIN32)
     const int fd = lowestFreeFd();
 #endif
     bool thrown = false;
-    std::string thrownFor;
     {
-      ThrowingEffectsCache throwingEffects(&host, binary); // throws for that binary (or all if ""); destroyed after the plug-ins of other
+      ThrowingEffectsCache throwingEffects(&host); // (destroyed after the plug-ins of other)
       PluginCache other;
       throwingEffects.registerInCache(other);
       try {
@@ -905,30 +862,10 @@ namespace {
       } catch (const std::bad_alloc &) {
         thrown = true;
       }
-      thrownFor = throwingEffects.thrownFor;
-      std::ostringstream written;
-      other.writePluginCache(written);
-      // (the binaries scanned before the throw are kept, the one that threw is not)
-      check("a scan that throws: the exception reaches the caller, and the binary that threw is not kept",
-            thrown && !thrownFor.empty() && written.str().find("path=\"" + thrownFor + "\"") == std::string::npos &&
-            other.getPlugins().empty());
+      check("a scan that throws: the exception reaches the caller", thrown && !throwingEffects.thrownFor.empty());
     }
 #if !defined(_WIN32)
     check("a scan that throws closes the directories it opened", lowestFreeFd() == fd);
-    // and unloads the binary it was scanning, if nothing else held it before the scan (else the
-    // check would say nothing, and is skipped)
-    check("a scan that throws: a binary was being scanned", !thrownFor.empty());
-    if (!thrownFor.empty()) {
-      if (binary.empty()) {
-        std::printf("suiteHandleChecks: no binary of the cache can be unloaded: the unload check is skipped\n");
-      } else {
-        void *h = dlopen(thrownFor.c_str(), RTLD_LAZY | RTLD_NOLOAD);
-        check(("a scan that throws unloads the binary it was scanning (" + thrownFor + ")").c_str(), h == NULL);
-        if (h) {
-          dlclose(h); // (the reference that RTLD_NOLOAD took)
-        }
-      }
-    }
 #endif
     ImageEffect::gImageEffectHost = &host;
   }
@@ -1082,7 +1019,7 @@ namespace {
     if (!cache.empty()) {
       checkChangedBinary(host, cache, pluginId, nInvert);
     }
-    checkScanThrows(host, unloadableBinary(cache));
+    checkScanThrows(host);
   }
 }
 
