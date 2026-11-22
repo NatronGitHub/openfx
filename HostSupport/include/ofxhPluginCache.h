@@ -124,20 +124,16 @@ namespace OFX {
 
 
       /// constructor for the case where we have already loaded the plugin binary and 
-      /// are populating this object from it
-      PluginDesc(OfxPlugin *ofxPlugin) {
-        _pluginApi = ofxPlugin->pluginApi;
-        _apiVersion = ofxPlugin->apiVersion;
-        _rawIdentifier = ofxPlugin->pluginIdentifier;
-        _identifier = ofxPlugin->pluginIdentifier;
-
-        // Who says the pluginIdentifier is case-insensitive? OFX 1.3 spec doesn't mention this.
-        // http://openfx.sourceforge.net/Documentation/1.3/ofxProgrammingReference.html#id472588
-        //for (size_t i=0;i<_identifier.size();i++) {
-        //  _identifier[i] = tolower(_identifier[i]);
-        //}
-        _versionMajor = ofxPlugin->pluginVersionMajor;
-        _versionMinor = ofxPlugin->pluginVersionMinor;
+      /// are populating this object from it. The identifier is kept as is: the spec doesn't say
+      /// that it is case-insensitive (OfxPlugin::pluginIdentifier, ofxCore.h).
+      explicit PluginDesc(OfxPlugin *ofxPlugin)
+        : _pluginApi(ofxPlugin->pluginApi)
+        , _apiVersion(ofxPlugin->apiVersion)
+        , _identifier(ofxPlugin->pluginIdentifier)
+        , _rawIdentifier(ofxPlugin->pluginIdentifier)
+        , _versionMajor(ofxPlugin->pluginVersionMajor)
+        , _versionMinor(ofxPlugin->pluginVersionMinor)
+      {
       }
 
     };
@@ -147,8 +143,9 @@ namespace OFX {
     /// owned by the PluginBinary it lives inside
     /// Plugins can only be pass about either by pointer or reference
     private :
-      Plugin(const Plugin&) : PluginDesc() {}                          ///< hidden
-      Plugin &operator= (const Plugin&) {return *this;} ///< hidden
+      // not copyable (C++98 style: private and not defined)
+      Plugin(const Plugin&);
+      Plugin &operator= (const Plugin&);
 
     protected :
       PluginBinary *_binary; ///< the file I live inside
@@ -407,6 +404,11 @@ namespace OFX {
     class PluginHandle {
       PluginBinary *_b;
       OfxPlugin *_op;
+
+      // not copyable (C++98 style: private and not defined): the destructor releases the
+      // reference to the binary that the constructor took
+      PluginHandle(const PluginHandle &);
+      PluginHandle &operator=(const PluginHandle &);
 
     public:
       PluginHandle(Plugin *p, OFX::Host::Host *_host);

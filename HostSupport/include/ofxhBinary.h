@@ -64,11 +64,18 @@ namespace OFX
     time_t _time;
     off_t _size;
     int _users;
+
+  private :
+    // not copyable (C++98 style: private and not defined): the destructor unloads the library,
+    // so that a copy would unload it twice (C.21, C.67)
+    Binary(const Binary &);
+    Binary &operator=(const Binary &);
+
   public :
 
     /// create object representing the binary.  will stat() it, 
     /// and this fails, will set binary to be invalid.
-    Binary(const std::string &binaryPath);
+    explicit Binary(const std::string &binaryPath);
 
     ~Binary() { unload(); }
 
