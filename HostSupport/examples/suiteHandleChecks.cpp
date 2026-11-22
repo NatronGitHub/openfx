@@ -52,6 +52,11 @@
 #include <sstream>
 #include <stdexcept>
 #include "ofxhPluginAPICache.h"
+#if !defined(_WIN32)
+#include <dlfcn.h> // dlopen(RTLD_NOLOAD) (checkScanThrows)
+#include <fcntl.h> // open (lowestFreeFd)
+#include <unistd.h> // close
+#endif
 #ifdef OFX_EXTENSIONS_NUKE
 #include "nuke/fnOfxExtensions.h"
 #endif
@@ -361,9 +366,17 @@ namespace {
     std::map<std::string, std::string> thumbnailArg;
     std::map<std::string, std::string> unlicensedArg;
     std::string unlicensedBehaviour;
+    int abortValue; ///< what abort() returns; -1: it throws
     RecordingEffectInstance(ImageEffect::ImageEffectPlugin *plugin, ImageEffect::Descriptor &desc, const std::string &context)
-      : StatusEffectInstance(plugin, desc, context) {}
+      : StatusEffectInstance(plugin, desc, context), abortValue(0) {}
     virtual std::string getBehaviourWhenUnlicensed() const { return unlicensedBehaviour; }
+    virtual int abort()
+    {
+      if (abortValue == -1) {
+        throw std::runtime_error("abort");
+      }
+      return abortValue;
+    }
     virtual void setCustomInArgs(const std::string &action, Property::Set &inArgs)
     {
       StatusEffectInstance::setCustomInArgs(action, inArgs);
@@ -492,6 +505,55 @@ namespace {
           p.findStringPropValueIndex(kOfxImageEffectPropSupportedContexts, kOfxImageEffectContextGeneral) != -1);
   }
 
+  /// an int property that counts its live copies, and whose deepCopy() can throw
+  /// (inside the class, Property names the base class OFX::Host::Property::Property)
+  typedef OFX::Host::Property::Int IntProperty;
+  class CountedInt : public IntProperty {
+  public:
+    static int live;
+    bool throwOnCopy;
+    CountedInt(const std::string &name, bool throws)
+      : IntProperty(name, 1, false, 0), throwOnCopy(throws) { ++live; }
+    CountedInt(const CountedInt &other) : IntProperty(other), throwOnCopy(other.throwOnCopy) { ++live; }
+    virtual ~CountedInt() { --live; }
+    virtual CountedInt *deepCopy() const
+    {
+      if (throwOnCopy) {
+        throw std::bad_alloc();
+      }
+      return new CountedInt(*this);
+    }
+  };
+  int CountedInt::live = 0;
+
+  /// NatronGitHub/openfx#232: the copy of a property set that throws midway deletes the copies
+  /// that it made (the properties are copied in the order of their names: C throws, after A and B)
+  void checkSetCopyThrows()
+  {
+    {
+      Property::Set set;
+      set.addProperty(new CountedInt("A", false));
+      set.addProperty(new CountedInt("B", false));
+      set.addProperty(new CountedInt("C", true));
+      bool thrown = false;
+      try {
+        Property::Set copy(set);
+      } catch (const std::bad_alloc &) {
+        thrown = true;
+      }
+      check("Set(const Set&): a property copy that throws: the exception reaches the caller, and no copy leaks",
+            thrown && CountedInt::live == 3);
+      Property::Set noThrow;
+      noThrow.addProperty(new CountedInt("A", false));
+      {
+        Property::Set copy(noThrow);
+        check("Set(const Set&) copies the properties", CountedInt::live == 5 && copy.fetchProperty("A") != NULL &&
+              copy.fetchProperty("A") != noThrow.fetchProperty("A"));
+      }
+    }
+    check("the properties are deleted with their sets", CountedInt::live == 0);
+  }
+
   /// HostSupport review fixes (properties): a pointer property defaults to NULL, whatever the
   /// default string of its spec; doubles turn into strings that read back exactly (the plug-in
   /// cache, and the numeric param limits); a malformed property in the cache is an error
@@ -585,6 +647,7 @@ namespace {
             ok && set.getDimension("TestDoubles") == 3 && set.getDoubleProperty("TestDoubles", 0) == DBL_MAX &&
             set.getDoubleProperty("TestDoubles", 1) == -DBL_MAX && set.getDoubleProperty("TestDoubles", 2) == DBL_MIN);
     }
+    checkSetCopyThrows();
   }
 
   /// the number of image effect plug-ins of a plug-in cache with this identifier
@@ -758,6 +821,118 @@ namespace {
 #endif
   }
 
+  /// an image effect API cache whose newPlugin() throws, as when it runs out of memory
+  class ThrowingEffectsCache : public ImageEffect::PluginCache {
+  public:
+    std::string throwFor;  ///< the file of the binary whose plug-ins make it throw (empty: all)
+    std::string thrownFor; ///< the file of the binary whose plug-in made it throw
+    explicit ThrowingEffectsCache(ImageEffect::Host *host, const std::string &binary)
+      : ImageEffect::PluginCache(host), throwFor(binary) {}
+    using ImageEffect::PluginCache::newPlugin;
+    virtual Plugin *newPlugin(PluginBinary *pb, int pi, OfxPlugin *plug)
+    {
+      if (!throwFor.empty() && pb->getFilePath() != throwFor) {
+        return ImageEffect::PluginCache::newPlugin(pb, pi, plug);
+      }
+      thrownFor = pb->getFilePath();
+      throw std::bad_alloc();
+    }
+  };
+
+#if !defined(_WIN32)
+  /// the lowest free file descriptor: it is higher if one leaked
+  int lowestFreeFd()
+  {
+    const int fd = open("/dev/null", O_RDONLY);
+    if (fd >= 0) {
+      close(fd);
+    }
+    return fd;
+  }
+#endif
+
+  /// A binary of the cache that is not loaded and that the system unloads after a dlopen() and
+  /// a dlclose() (macOS never unloads an image with thread-local variables, e.g. the Support
+  /// library's plug-ins; glibc keeps a library with GNU unique symbols), or "" (none, or Windows)
+  std::string unloadableBinary(const std::string &cache)
+  {
+#if !defined(_WIN32)
+    const std::string attr = " path=\"";
+    for (size_t b = cache.find("<binary "); b != std::string::npos; b = cache.find("<binary ", b + 1)) {
+      const size_t p = cache.find(attr, b);
+      const size_t e = p == std::string::npos ? p : cache.find('"', p + attr.size());
+      if (e == std::string::npos) {
+        break;
+      }
+      const std::string path = cache.substr(p + attr.size(), e - p - attr.size());
+      if (void *h = dlopen(path.c_str(), RTLD_LAZY | RTLD_NOLOAD)) {
+        dlclose(h); // loaded: something holds it
+        continue;
+      }
+      void *h = dlopen(path.c_str(), RTLD_LAZY | RTLD_LOCAL);
+      if (!h) {
+        continue;
+      }
+      dlclose(h);
+      if (void *still = dlopen(path.c_str(), RTLD_LAZY | RTLD_NOLOAD)) {
+        dlclose(still); // not unloadable
+        continue;
+      }
+      return path;
+    }
+#else
+    (void)cache;
+#endif
+    return std::string();
+  }
+
+  /// NatronGitHub/openfx#232: a scan that throws (here from the API cache, while a binary that is
+  /// not in the cache, and that the system can unload, is scanned) closes the directories it
+  /// opened, keeps no binary that threw, and unloads it
+  void checkScanThrows(MyHost::Host &host, const std::string &binary)
+  {
+#if !defined(_WIN32)
+    const int fd = lowestFreeFd();
+#endif
+    bool thrown = false;
+    std::string thrownFor;
+    {
+      ThrowingEffectsCache throwingEffects(&host, binary); // throws for that binary (or all if ""); destroyed after the plug-ins of other
+      PluginCache other;
+      throwingEffects.registerInCache(other);
+      try {
+        other.scanPluginFiles();
+      } catch (const std::bad_alloc &) {
+        thrown = true;
+      }
+      thrownFor = throwingEffects.thrownFor;
+      std::ostringstream written;
+      other.writePluginCache(written);
+      // (the binaries scanned before the throw are kept, the one that threw is not)
+      check("a scan that throws: the exception reaches the caller, and the binary that threw is not kept",
+            thrown && !thrownFor.empty() && written.str().find("path=\"" + thrownFor + "\"") == std::string::npos &&
+            other.getPlugins().empty());
+    }
+#if !defined(_WIN32)
+    check("a scan that throws closes the directories it opened", lowestFreeFd() == fd);
+    // and unloads the binary it was scanning, if nothing else held it before the scan (else the
+    // check would say nothing, and is skipped)
+    check("a scan that throws: a binary was being scanned", !thrownFor.empty());
+    if (!thrownFor.empty()) {
+      if (binary.empty()) {
+        std::printf("suiteHandleChecks: no binary of the cache can be unloaded: the unload check is skipped\n");
+      } else {
+        void *h = dlopen(thrownFor.c_str(), RTLD_LAZY | RTLD_NOLOAD);
+        check(("a scan that throws unloads the binary it was scanning (" + thrownFor + ")").c_str(), h == NULL);
+        if (h) {
+          dlclose(h); // (the reference that RTLD_NOLOAD took)
+        }
+      }
+    }
+#endif
+    ImageEffect::gImageEffectHost = &host;
+  }
+
   /// the progress and timeline suites on a valid effect instance handle: a real instance of a
   /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
   void checkEffectInstance(MyHost::Host &host)
@@ -837,6 +1012,23 @@ namespace {
               rec->unlicensedArg[kOfxImageEffectActionBeginSequenceRender] == "absent" &&
               rec->unlicensedArg[kOfxImageEffectActionRender] == "absent");
         rec->unlicensedBehaviour.clear();
+
+        // OfxImageEffectSuiteV1::abort: "0 if the effect should continue [...] 1 if the effect
+        // should abort" (ofxImageEffect.h), whatever the host's Instance::abort() returns
+        const OfxImageEffectSuiteV1 *ies = (const OfxImageEffectSuiteV1 *)host.fetchSuite(kOfxImageEffectSuite, 1);
+        check("image effect suite (abort)", ies != NULL);
+        if (ies) {
+          const OfxImageEffectHandle ih = instance->getHandle();
+          rec->abortValue = 0;
+          check("abort(instance), Instance::abort() = 0: 0", ies->abort(ih) == 0);
+          rec->abortValue = 1;
+          check("abort(instance), Instance::abort() = 1: 1", ies->abort(ih) == 1);
+          rec->abortValue = 2;
+          check("abort(instance), Instance::abort() = 2: 1", ies->abort(ih) == 1);
+          rec->abortValue = -1;
+          check("abort(instance), Instance::abort() throws: 1", ies->abort(ih) == 1);
+          rec->abortValue = 0;
+        }
       }
       void *h = (void *)instance->getHandle();
       const OfxProgressSuiteV1 *progress1 = (const OfxProgressSuiteV1 *)host.fetchSuite(kOfxProgressSuite, 1);
@@ -890,6 +1082,7 @@ namespace {
     if (!cache.empty()) {
       checkChangedBinary(host, cache, pluginId, nInvert);
     }
+    checkScanThrows(host, unloadableBinary(cache));
   }
 }
 
@@ -1235,6 +1428,15 @@ int main()
       check(i == 0 ? "progress and timeline(NULL) = kOfxStatErrBadHandle" :
                      "progress and timeline(descriptor) = kOfxStatErrBadHandle", bad);
     }
+  }
+
+  // OfxImageEffectSuiteV1::abort returns 0 or 1 ("1 if the effect should abort"), not a status:
+  // a handle that is not an effect instance gives 1 (it was kOfxStatErrBadHandle, #232)
+  const OfxImageEffectSuiteV1 *ies = (const OfxImageEffectSuiteV1 *)host.fetchSuite(kOfxImageEffectSuite, 1);
+  check("image effect suite", ies != NULL);
+  if (ies) {
+    check("abort(NULL) = 1", ies->abort(NULL) == 1);
+    check("abort(descriptor) = 1", ies->abort((OfxImageEffectHandle)effectDescHandle) == 1);
   }
 
   // the interact suite and the DrawSuite (no plug-in needed: a test interact)
