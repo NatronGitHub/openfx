@@ -84,27 +84,22 @@ jobs:
               g++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude -IHostSupport/include all.cpp
             done
           done
-      - name: Each HostSupport header compiles on its own (C++98, C++17; no extensions, all of them)
+      - name: Each HostSupport and Support header compiles on its own (C++98, C++17; no extensions, all of them)
         run: |
-          # a host may include any of them first: each one includes what it uses
-          for std in c++98 c++17; do
-            for D in "" "-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC -DOFX_SUPPORTS_PARAMETRIC_V2 -DOFX_SUPPORTS_MULTITHREAD -DOFX_USE_STATIC_PLUGINS"; do
-              echo "== $std $D"
-              for h in $(cd HostSupport/include && ls ofxh*.h); do
-                printf '#include "%s"\n' "$h" | g++ -x c++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude -IHostSupport/include - \
-                  || { echo "::error::HostSupport/include/$h does not compile on its own ($std $D)"; exit 1; }
-              done
-            done
-          done
-      - name: Each Support header compiles on its own (C++98, C++17; no extensions, all of them)
-        run: |
-          # a plug-in may include any of them first (SF.11); ofxsHWNDInteract.h needs <windows.h>
-          for std in c++98 c++17; do
-            for D in "" "-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC_V2 -DOFX_USE_MULTITHREAD_MUTEX"; do
-              echo "== $std $D"
-              for h in $(cd Support/include && ls ofxs*.h | grep -v ofxsHWNDInteract.h); do
-                printf '#include "%s"\n' "$h" | g++ -x c++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude -ISupport/include - \
-                  || { echo "::error::Support/include/$h does not compile on its own ($std $D)"; exit 1; }
+          # a host or a plug-in may include any of them first: each one includes what it uses (SF.11);
+          # ofxsHWNDInteract.h needs <windows.h>
+          hs_on="-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC -DOFX_SUPPORTS_PARAMETRIC_V2 -DOFX_SUPPORTS_MULTITHREAD -DOFX_USE_STATIC_PLUGINS"
+          s_on="-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC_V2 -DOFX_USE_MULTITHREAD_MUTEX"
+          for dir in HostSupport Support; do
+            if [ $dir = HostSupport ]; then on=$hs_on; hdrs=$(cd HostSupport/include && ls ofxh*.h)
+            else on=$s_on; hdrs=$(cd Support/include && ls ofxs*.h | grep -v ofxsHWNDInteract.h); fi
+            for std in c++98 c++17; do
+              for D in "" "$on"; do
+                echo "== $dir $std $D"
+                for h in $hdrs; do
+                  printf '#include "%s"\n' "$h" | g++ -x c++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude -I$dir/include - \
+                    || { echo "::error::$dir/include/$h does not compile on its own ($std $D)"; exit 1; }
+                done
               done
             done
           done
