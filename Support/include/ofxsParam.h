@@ -1371,15 +1371,15 @@ namespace OFX {
         CacheInvalidationEnum getCacheInvalidation(void) const;
 
         /** @brief if the param is animating, the number of keys in it, otherwise 0 */
-        unsigned int getNumKeys(void);
+        unsigned int getNumKeys(void) const;
 
         /** @brief get the time of the nth key, nth must be between 0 and getNumKeys-1, else
             std::out_of_range is thrown */
-        double getKeyTime(int nthKey);
+        double getKeyTime(int nthKey) const;
 
         /** @brief find the index of a key by a time */
         int getKeyIndex(double time, 
-                        KeySearchEnum searchDir);
+                        KeySearchEnum searchDir) const;
     
         /** @brief deletes a key at the given time */
         void deleteKeyAtTime(double time);
@@ -1392,7 +1392,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_VEGAS
         /** @brief gets the interpolation type of a key at the given time */
-        VegasInterpolationEnum getKeyInterpolation(double time);
+        VegasInterpolationEnum getKeyInterpolation(double time) const;
     
         /** @brief sets the interpolation type of a key at the given time */
         void setKeyInterpolation(double time, VegasInterpolationEnum interpolation);
@@ -1421,16 +1421,16 @@ namespace OFX {
         void setDisplayRange(int min, int max);
 
         /** @brief get the default value */
-        void getDefault(int &v);
+        void getDefault(int &v) const;
 
         /** @brief get the default value */
-        int getDefault(void) {int v; getDefault(v); return v;}
+        int getDefault(void) const {int v; getDefault(v); return v;}
 
-        /** @brief set the hard min/max range, default is INT_MIN, INT_MAX */
-        void getRange(int &min, int &max);
+        /** @brief get the hard min/max range, default is INT_MIN, INT_MAX */
+        void getRange(int &min, int &max) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
-        void getDisplayRange(int &min, int &max);
+        /** @brief get the display min and max, default is to be the same as the range param */
+        void getDisplayRange(int &min, int &max) const;
 
         /** @brief get value */
         void  getValue(int &v) const;
@@ -1481,18 +1481,18 @@ namespace OFX {
                             int maxX, int maxY);
 
         /** @brief get the default value */
-        void getDefault(int &x, int &y);
+        void getDefault(int &x, int &y) const;
 
         /** @brief get the default value */
-        OfxPointI getDefault(void) {OfxPointI v; getDefault(v.x, v.y); return v;}
+        OfxPointI getDefault(void) const {OfxPointI v; getDefault(v.x, v.y); return v;}
 
-        /** @brief set the hard min/max range, default is INT_MIN, INT_MAX */
+        /** @brief get the hard min/max range, default is INT_MIN, INT_MAX */
         void getRange(int &minX, int &minY,
-                      int& maxX, int &maxY);
+                      int& maxX, int &maxY) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
+        /** @brief get the display min and max, default is to be the same as the range param */
         void getDisplayRange(int &minX, int &minY,
-                            int &maxX, int &maxY);
+                            int &maxX, int &maxY) const;
 
         /** @brief get value */
         void getValue(int &x, int &y) const;
@@ -1546,15 +1546,15 @@ namespace OFX {
                             int maxX, int maxY, int maxZ);
 
         /** @brief get the default value */
-        void getDefault(int &x, int &y, int &z);
+        void getDefault(int &x, int &y, int &z) const;
 
-        /** @brief set the hard min/max range, default is INT_MIN, INT_MAX */
+        /** @brief get the hard min/max range, default is INT_MIN, INT_MAX */
         void getRange(int &minX, int &minY, int &minZ,
-                      int& maxX, int &maxY, int &maxZ);
+                      int& maxX, int &maxY, int &maxZ) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
+        /** @brief get the display min and max, default is to be the same as the range param */
         void getDisplayRange(int &minX, int &minY, int &minZ,
-                            int& maxX, int &maxY, int &maxZ);
+                            int& maxX, int &maxY, int &maxZ) const;
 
         /** @brief get value */
         void getValue(int &x, int &y, int &z) const;
@@ -1597,16 +1597,16 @@ namespace OFX {
         void setDigits(int v);
 
         /** @brief get the sensitivity of any gui slider */
-        void getIncrement(double &v);
+        void getIncrement(double &v) const;
 
         /** @brief get the number of digits printed after a decimal point in any gui */
-        void getDigits(int &v);
+        void getDigits(int &v) const;
 
         /** @brief get the type of the double param */
-        void getDoubleType(DoubleTypeEnum &v);
+        void getDoubleType(DoubleTypeEnum &v) const;
 
         /** @brief get the type of coordinate system for default values */
-        void getDefaultCoordinateSystem(DefaultCoordinateSystemEnum &v);
+        void getDefaultCoordinateSystem(DefaultCoordinateSystemEnum &v) const;
     };
 
     ////////////////////////////////////////////////////////////////////////////////
@@ -1634,16 +1634,16 @@ namespace OFX {
         void setDisplayRange(double min, double max);
 
         /** @brief get the default value */
-        void getDefault(double &v);
+        void getDefault(double &v) const;
 
         /** @brief get the default value */
-        double getDefault(void) {double v; getDefault(v); return v;}
+        double getDefault(void) const {double v; getDefault(v); return v;}
 
-        /** @brief set the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
-        void getRange(double &min, double &max);
+        /** @brief get the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
+        void getRange(double &min, double &max) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
-        void getDisplayRange(double &min, double &max);
+        /** @brief get the display min and max, default is to be the same as the range param */
+        void getDisplayRange(double &min, double &max) const;
 
         /** @brief get value */
         void getValue(double &v) const;
@@ -1703,15 +1703,15 @@ namespace OFX {
                             double maxX, double maxY);
 
         /** @brief get the default value */
-        void getDefault(double &x, double &y);
+        void getDefault(double &x, double &y) const;
 
-        /** @brief set the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
+        /** @brief get the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
         void getRange(double &minX, double &minY,
-                      double& maxX, double &maxY);
+                      double& maxX, double &maxY) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
+        /** @brief get the display min and max, default is to be the same as the range param */
         void getDisplayRange(double &minX, double &minY,
-                            double &maxX, double &maxY);
+                            double &maxX, double &maxY) const;
 
         /** @brief get value */
         void getValue(double &x, double &y) const;
@@ -1777,15 +1777,15 @@ namespace OFX {
                             double maxX, double maxY, double maxZ);
 
         /** @brief get the default value */
-        void getDefault(double &x, double &y, double &z);
+        void getDefault(double &x, double &y, double &z) const;
 
-        /** @brief set the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
+        /** @brief get the hard min/max range, default is DOUBLE_MIN, DOUBLE_MAX */
         void getRange(double &minX, double &minY, double &minZ,
-                      double& maxX, double &maxY, double &maxZ);
+                      double& maxX, double &maxY, double &maxZ) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
+        /** @brief get the display min and max, default is to be the same as the range param */
         void getDisplayRange(double &minX, double &minY, double &minZ,
-                            double& maxX, double &maxY, double &maxZ);
+                            double& maxX, double &maxY, double &maxZ) const;
 
         /** @brief get value */
         void getValue(double &x, double &y, double &z) const;
@@ -1840,7 +1840,7 @@ namespace OFX {
         void setDefault(double r, double g, double b);
 
         /** @brief get default value */
-        void getDefault(double &r, double &g, double &b);
+        void getDefault(double &r, double &g, double &b) const;
 
         /** @brief get value */
         void getValue(double &r, double &g, double &b) const;
@@ -1884,7 +1884,7 @@ namespace OFX {
         void setDefault(double r, double g, double b, double a);
 
         /** @brief get default value */
-        void getDefault(double &r, double &g, double &b, double &a);
+        void getDefault(double &r, double &g, double &b, double &a) const;
 
         /** @brief get value */
         void getValue(double &r, double &g, double &b, double &a) const;
@@ -1928,7 +1928,7 @@ namespace OFX {
         void setDefault(const std::string &v);
 
         /** @brief get the default value */
-        void getDefault(std::string &v);
+        void getDefault(std::string &v) const;
 
         /** @brief get value */
         void getValue(std::string &v) const;
@@ -1969,10 +1969,10 @@ namespace OFX {
         void setDefault(int v);
 
         /** @brief get the default value */
-        void getDefault(int &v);
+        void getDefault(int &v) const;
 
         /** @brief how many options do we have */
-        int getNOptions(void);
+        int getNOptions(void) const;
 
         /** @brief append an option, default is to have not there */
         void appendOption(const std::string &label, const std::string& hint = "", const std::string& name = "");
@@ -1987,7 +1987,7 @@ namespace OFX {
         void setOption(int item, const std::string &str);
     
         /** @brief get the option label */
-        void getOption(int ix, std::string &v);
+        void getOption(int ix, std::string &v) const;
 
 #ifdef OFX_EXTENSIONS_NATRON
 
@@ -1995,11 +1995,11 @@ namespace OFX {
         void setEnum(int item, const std::string &name);
 
         /** @brief get the option enum */
-        void getEnum(int ix, std::string &name);
+        void getEnum(int ix, std::string &name) const;
 #endif
       
         /** @brief get all options at once. Optionally, the label of the options can be retrieved at the same time*/
-        void getOptions(std::vector<std::string>* options,std::vector<std::string>* optionsHints = 0, std::vector<std::string>* optionsNames = 0);
+        void getOptions(std::vector<std::string>* options,std::vector<std::string>* optionsHints = 0, std::vector<std::string>* optionsNames = 0) const;
 
         /** @brief clear all the options so as to add some new ones in */
         void resetOptions(const std::vector<std::string>& newEntries = std::vector<std::string>(),
@@ -2008,10 +2008,10 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_NATRON
         /** @brief whether the menu should be cascading, and each option contains a slash-separated path to the item, defaults to false. */
-        bool getIsCascading(void);
+        bool getIsCascading(void) const;
 
         /** @brief Indicate whether the host can add a new choice on its own (probably via a GUI specific to this parameter). */
-        bool getHostCanAddOptions();
+        bool getHostCanAddOptions() const;
 #endif
 
         /** @brief get value */
@@ -2052,7 +2052,7 @@ namespace OFX {
         
     public :
         /** @brief how many options do we have */
-        int getNOptions();
+        int getNOptions() const;
 
         /** @brief append an option. order: UI position (kOfxParamPropChoiceOrder, OFX 1.5), INT_MIN to not set it */
         void appendOption(const std::string& p_Enum, const std::string& p_Option, int order = INT_MIN);
@@ -2061,7 +2061,7 @@ namespace OFX {
         void setOption(const std::string& p_Index, const std::string& p_Option);
 
         /** @brief get the option value */
-        void getOption(const std::string& p_Index, std::string& p_Option);
+        void getOption(const std::string& p_Index, std::string& p_Option) const;
 
         /** @brief clear all the options so as to add some new ones in */
         void resetOptions();
@@ -2084,10 +2084,10 @@ namespace OFX {
         void setDefault(bool v);
 
         /** @brief get the default value */
-        void getDefault(bool &v);
+        void getDefault(bool &v) const;
 
         /** @brief get the default value */
-        bool getDefault(void) {bool v; getDefault(v); return v;}
+        bool getDefault(void) const {bool v; getDefault(v); return v;}
 
         /** @brief get value */
         void getValue(bool &v) const;
@@ -2125,7 +2125,7 @@ namespace OFX {
         friend class ParamSet;
     public :
         /** @brief check whether the group is open or closed in a hierarchical layout, defaults to true */
-        bool getIsOpen();
+        bool getIsOpen() const;
         /** @brief whether the group is open or closed in a hierarchical layout */
         void setOpen(const bool v);
     };
@@ -2162,7 +2162,7 @@ namespace OFX {
         void setDefault(const std::string &v);    
 
         /** @brief get the default value of the param */
-        void getDefault(std::string &v);    
+        void getDefault(std::string &v) const;    
 
         /** @brief get value */
         void getValue(std::string &v) const;
@@ -2258,7 +2258,7 @@ namespace OFX {
     public:
 
         /** @brief get the parametric range */
-        void getRange(double &min, double &max);
+        void getRange(double &min, double &max) const;
 
         /** @brief set the hard min/max range, default is -DBL_MAX, DBL_MAX */
         void setDimensionRange(int curveIndex, double min, double max);
@@ -2266,11 +2266,11 @@ namespace OFX {
         /** @brief set the display min and max, default is to be the same as the range param */
         void setDimensionDisplayRange(int curveIndex, double min, double max);
 
-        /** @brief set the hard min/max range, default is -DBL_MAX, DBL_MAX */
-        void getDimensionRange(int curveIndex, double &min, double &max);
+        /** @brief get the hard min/max range, default is -DBL_MAX, DBL_MAX */
+        void getDimensionRange(int curveIndex, double &min, double &max) const;
 
-        /** @brief set the display min and max, default is to be the same as the range param */
-        void getDimensionDisplayRange(int curveIndex, double &min, double &max);
+        /** @brief get the display min and max, default is to be the same as the range param */
+        void getDimensionDisplayRange(int curveIndex, double &min, double &max) const;
 
         double getValue(int curveIndex,
                         OfxTime time,

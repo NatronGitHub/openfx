@@ -1444,7 +1444,7 @@ namespace OFX {
     OfxRangeD getUnmappedFrameRange(void) const;
 
     /** @brief get the RoD for this clip in the cannonical coordinate system */
-    OfxRectD getRegionOfDefinition(double t);
+    OfxRectD getRegionOfDefinition(double t) const;
 
 #ifdef OFX_EXTENSIONS_RESOLVE // kOfxImageClipPropThumbnail is Resolve-specific, not in OFX 1.5
     /** @brief is the clip for thumbnail */
@@ -1454,7 +1454,7 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
     
     /** @brief get the RoD for this clip in the cannonical coordinate system for the given view */
-    OfxRectD getRegionOfDefinition(double t, int view);
+    OfxRectD getRegionOfDefinition(double t, int view) const;
       
     /** @brief fetch an image for the given plane and view
 
@@ -2148,7 +2148,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_VEGAS
     /** @brief the Vegas context this effect exists in */
-    VegasContextEnum getVegasContext(void);
+    VegasContextEnum getVegasContext(void) const;
 #endif
 
     /** @brief size of the project */
@@ -2185,7 +2185,7 @@ namespace OFX {
     bool getSupportsTiles(void) const;
 
     /** @brief get plugin file path */
-    std::string getPluginFilePath(void) { return _effectProps.propGetString(kOfxPluginPropFilePath); }
+    std::string getPluginFilePath(void) const { return _effectProps.propGetString(kOfxPluginPropFilePath); }
     
 #ifdef OFX_EXTENSIONS_NUKE
     /** @brief indicate that a plugin or host can handle transform effects */
