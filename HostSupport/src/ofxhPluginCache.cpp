@@ -419,7 +419,7 @@ PluginBinary::~PluginBinary() {
   destroyPlugins();
 }
 
-void PluginBinary::destroyPlugins() {
+void PluginBinary::deletePlugins() {
   std::vector<Plugin*>::iterator i = _plugins.begin();
   while (i != _plugins.end()) {
     // cleanup must not throw (it runs in the destructor, and while an exception is handled:
@@ -433,6 +433,10 @@ void PluginBinary::destroyPlugins() {
     i++;
   }
   _plugins.clear();
+}
+
+void PluginBinary::destroyPlugins() {
+  deletePlugins();
   // the plug-ins released their handles: release the reference taken by loadPluginInfo(), if the
   // scan didn't, which unloads the binary
   releaseScanReference();
@@ -879,8 +883,11 @@ void PluginCache::scanPluginFiles()
           try {
             pb->loadPluginInfo(this);
           } catch (...) {
-            // unload the binary (the reference loadPluginInfo() took); pb stays in _binaries,
-            // owned by the cache, and is scanned again at the next scan (still changed)
+            // delete the plug-ins made so far (a later loadPluginInfo() would only clear the list:
+            // R.1), then unload the binary (the reference loadPluginInfo() took); pb and its
+            // Binary stay in _binaries, owned by the cache, and are scanned again at the next scan
+            // (still changed)
+            pb->deletePlugins();
             pb->releaseScanReference();
             throw;
           }

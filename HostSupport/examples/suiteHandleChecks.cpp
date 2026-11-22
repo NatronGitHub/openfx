@@ -1076,7 +1076,7 @@ namespace {
     bool thrown = false;
     std::string thrownFor;
     {
-      ThrowingEffectsCache throwingEffects(&host, binary); // (throws for that binary, or all if "") // (destroyed after the plug-ins of other)
+      ThrowingEffectsCache throwingEffects(&host, binary); // throws for that binary (or all if ""); destroyed after the plug-ins of other
       PluginCache other;
       throwingEffects.registerInCache(other);
       try {

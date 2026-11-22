@@ -408,6 +408,9 @@ namespace OFX {
       void loadPluginInfo(PluginCache *);
 
     private :
+      /// unload (dropping exceptions) and delete the plug-ins, and clear the list; keep the Binary
+      void deletePlugins();
+
       /// what the destructor does: unload and delete the plug-ins, then the binary
       void destroyPlugins();
 
