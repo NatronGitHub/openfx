@@ -5162,7 +5162,7 @@ namespace OFX {
       args.plane = inArgs.propGetString(kOfxImageEffectPropIdentityPlane, 0, false);
 #endif
         
-      args.fieldToRender = eFieldNone; // if the host's value is invalid (it was left uninitialized, ES.20)
+      args.fieldToRender = eFieldNone; // the default if the host's value is invalid (ES.20)
       std::string str = inArgs.propGetString(kOfxImageEffectPropFieldToRender);
       try {
         args.fieldToRender = mapStrToFieldEnum(str);
