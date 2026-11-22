@@ -531,7 +531,7 @@ namespace OFX {
         /// get a particular pointer property without fetching via a get hook, useful for notifies
         void *getPointerPropertyRaw(const std::string &property, int index = 0) const;
 
-        /// get a particular string property
+        /// get a particular string property without fetching via a get hook, useful for notifies
         const std::string &getStringPropertyRaw(const std::string &property, int index = 0) const;
                 
         /// get the value of a particular string property

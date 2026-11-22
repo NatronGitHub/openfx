@@ -3020,6 +3020,8 @@ namespace OFX {
 #endif
 
 
+
+
         bool multipleClipsPAR = supportsMultipleClipPARs();
         /// get the PAR of inputs, if it has different PARs and the effect does not support multiple clips PAR, throw an exception
         double inputPar = 1.;
@@ -4130,6 +4132,7 @@ namespace OFX {
       {
         return clipGetImagePlane(clip, time, -1, plane, region, imageHandle);
       }
+
 
 
       /// get the rod on the given clip at the given time for the given view

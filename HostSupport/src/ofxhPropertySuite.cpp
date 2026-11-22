@@ -713,13 +713,13 @@ namespace OFX {
         catch(...) {}
       }
       
-      /// get a particular int property
+      /// get a particular int property without fetching via a get hook, useful for notifies
       int Set::getIntPropertyRaw(const std::string &property, int index) const
       {
         return getPropertyRaw<OFX::Host::Property::IntValue>(property, index);
       }
         
-      /// get a particular double property
+      /// get a particular double property without fetching via a get hook, useful for notifies
       double Set::getDoublePropertyRaw(const std::string &property, int index)  const
       {
         double v = getPropertyRaw<OFX::Host::Property::DoubleValue>(property, index);
@@ -731,13 +731,13 @@ namespace OFX {
 
       }
 
-      /// get a particular double property
+      /// get a particular pointer property without fetching via a get hook, useful for notifies
       void *Set::getPointerPropertyRaw(const std::string &property, int index)  const
       {
         return getPropertyRaw<OFX::Host::Property::PointerValue>(property, index);
       }
         
-      /// get a particular double property
+      /// get a particular string property without fetching via a get hook, useful for notifies
       const std::string &Set::getStringPropertyRaw(const std::string &property, int index)  const
       {
         String *prop;
@@ -747,19 +747,19 @@ namespace OFX {
         return StringValue::kEmpty;
       }
 
-      /// get a particular int property
+      /// get the value of a particular int property
       int Set::getIntProperty(const std::string &property, int index)  const
       {
         return getProperty<OFX::Host::Property::IntValue>(property, index);
       }
         
-      /// get the value of a particular int property
+      /// get the first N values of a particular int property
       void Set::getIntPropertyN(const std::string &property,  int *v, int N) const
       {
         return getPropertyN<OFX::Host::Property::IntValue>(property, N, v);
       }
 
-      /// get a particular double property
+      /// get the value of a particular double property
       double Set::getDoubleProperty(const std::string &property, int index)  const
       {
         double v = getProperty<OFX::Host::Property::DoubleValue>(property, index);
@@ -770,7 +770,7 @@ namespace OFX {
         return v;
       }
 
-      /// get the value of a particular double property
+      /// get the first N values of a particular double property
       void Set::getDoublePropertyN(const std::string &property,  double *v, int N) const
       {
         getPropertyN<OFX::Host::Property::DoubleValue>(property, N, v);
@@ -782,13 +782,13 @@ namespace OFX {
         }
       }
 
-      /// get a particular double property
+      /// get the value of a particular pointer property
       void *Set::getPointerProperty(const std::string &property, int index)  const
       {
         return getProperty<OFX::Host::Property::PointerValue>(property, index);
       }
         
-      /// get a particular double property
+      /// get the value of a particular string property
       const std::string &Set::getStringProperty(const std::string &property, int index)  const
       {
         return getProperty<OFX::Host::Property::StringValue>(property, index);
@@ -800,13 +800,13 @@ namespace OFX {
         setProperty<OFX::Host::Property::StringValue>(property, index, value);
       }
       
-      /// get a particular int property
+      /// set a particular int property
       void Set::setIntProperty(const std::string &property, int v, int index)
       {
         setProperty<OFX::Host::Property::IntValue>(property, index, v);
       }
       
-      /// set a particular double property
+      /// set the first N values of a particular int property
       void Set::setIntPropertyN(const std::string &property, const int *v, int N)
       {
         setPropertyN<OFX::Host::Property::IntValue>(property, N, v);
@@ -822,7 +822,7 @@ namespace OFX {
         setProperty<OFX::Host::Property::DoubleValue>(property, index, v);
       }
       
-      /// set a particular double property
+      /// set the first N values of a particular double property
       void Set::setDoublePropertyN(const std::string &property, const double *v, int N)
       {
         for (int i = 0; i < N; ++i) {
