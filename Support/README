@@ -25,7 +25,7 @@ Structure
     
 ********************************************************************************
 Building
-      Plug-ins and library have OSX makefiles and windows MSDEV project files. They build and link and load happily on compliant hosts.
+      The library and the plug-ins build with CMake (and Support/Plugins/Makefile.master).
 
 ********************************************************************************
 Problems And Debugging
