@@ -302,36 +302,39 @@ namespace OFX {
 
 #endif
 
+  // The map* functions below throw std::invalid_argument on a string or a value they don't know,
+  // except mapMessageTypeEnumToStr (returns NULL) and mapToMessageReplyEnum (eMessageReplyFailed).
+
   /** @brief turns a field string into and enum */
-  FieldEnum mapStrToFieldEnum(const std::string &str)  OFX_THROW(std::invalid_argument);
+  FieldEnum mapStrToFieldEnum(const std::string &str);
 
 #ifdef OFX_EXTENSIONS_VEGAS
   /** @brief map a std::string to a RenderQuality */
-  VegasRenderQualityEnum mapToVegasRenderQualityEnum(const std::string &s) OFX_THROW(std::invalid_argument);
+  VegasRenderQualityEnum mapToVegasRenderQualityEnum(const std::string &s);
 
   /** @brief map a std::string to a context */
-  VegasContextEnum mapToVegasContextEnum(const std::string &s) OFX_THROW(std::invalid_argument);
+  VegasContextEnum mapToVegasContextEnum(const std::string &s);
 #endif
 
   ////////////////////////////////////////////////////////////////////////////////
   /** @brief map a std::string to a context enum */
-  ContextEnum mapToContextEnum(const std::string &s) OFX_THROW(std::invalid_argument);
+  ContextEnum mapToContextEnum(const std::string &s);
 
-  const char* mapContextEnumToStr(ContextEnum context) OFX_THROW(std::invalid_argument);
+  const char* mapContextEnumToStr(ContextEnum context);
 
   const char* mapMessageTypeEnumToStr(OFX::Message::MessageTypeEnum type);
 
   OFX::Message::MessageReplyEnum mapToMessageReplyEnum(OfxStatus stat);
 
-  InstanceChangeReason mapToInstanceChangedReason(const std::string &s) OFX_THROW(std::invalid_argument);
+  InstanceChangeReason mapToInstanceChangedReason(const std::string &s);
 
-  BitDepthEnum mapStrToBitDepthEnum(const std::string &str) OFX_THROW(std::invalid_argument);
+  BitDepthEnum mapStrToBitDepthEnum(const std::string &str);
 
-  const char* mapBitDepthEnumToStr(BitDepthEnum bitDepth) OFX_THROW(std::invalid_argument);
+  const char* mapBitDepthEnumToStr(BitDepthEnum bitDepth);
 
-  PixelComponentEnum mapStrToPixelComponentEnum(const std::string &str) OFX_THROW(std::invalid_argument);
+  PixelComponentEnum mapStrToPixelComponentEnum(const std::string &str);
 
-  const char* mapPixelComponentEnumToStr(PixelComponentEnum pixelComponent) OFX_THROW(std::invalid_argument);
+  const char* mapPixelComponentEnumToStr(PixelComponentEnum pixelComponent);
 
 #if defined(OFX_EXTENSIONS_NATRON)
   /** @brief extract a custom Natron plane defined in the multi-plane extension from the kOfxImageEffectPropComponents property value, @see getPixelComponentsProperty() */

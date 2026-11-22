@@ -117,6 +117,8 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 
 ## Deprecations
 
+- Support: `OFX_THROW`, `OFX_THROW2`, `OFX_THROW3` and `OFX_THROW4` (`ofxsCore.h`) expand to nothing, and the Support library no longer uses them (NatronGitHub/openfx#224). They were the dynamic exception specification `throw(x, ...)` in C++98 (removed from the language in C++17), where a function that throws a type not listed calls `std::unexpected()`, and `noexcept(false)`, i.e. nothing, in C++11 and later. The exceptions are documented on `OFX::PropertySet` and the `map*` functions instead. The macros stay defined for the plug-ins that may use them (none of openfx-misc, -io, -arena and -supportext does).
+
 ## Detailed List of Changes
 
 - CI: the extended builds (`extended.yml`) run weekly, on Saturday at 03:17 UTC, instead of nightly, and on demand (maintainer decision). They are never skipped, even when master didn't change, because every job installs rolling toolchains (MacPorts, apt, the runner images' MSVC), so each week also tests toolchain drift. The 25-hour skip window is gone.
