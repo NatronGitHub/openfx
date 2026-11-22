@@ -120,7 +120,24 @@ case $os in Darwin) want="_OfxGetNumberOfPlugins _OfxGetPlugin " ;; *) want="Ofx
 [ "$exports" = "$want" ] || fail "exported: '$exports', expected '$want'"
 case $os in
   Darwin) [ "$rpath" = "@loader_path/../Frameworks @loader_path/../Libraries " ] || fail "rpath: '$rpath'" ;;
-  Linux|FreeBSD) [ "$rpath" = '$ORIGIN/../../Libraries ' ] || fail "rpath: '$rpath'" ;;
+  Linux|FreeBSD) [ "$rpath" = '$ORIGIN/../../Libraries ' ] || fail "rpath: '$rpath'"
+     # every build-tree plug-in (the group bundles and the ones with absolute RPATH entries too)
+     # has its installed RUNPATH (OFX_PLUGIN_BUILD_WITH_INSTALL_RPATH), with no empty entry (CMake's
+     # padded build rpath: the current directory)
+     n=0
+     for f in "$built"/*.ofx.bundle/Contents/"$arch"/*.ofx; do
+       [ -f "$f" ] || continue
+       i="$installed/${f#"$built/"}"
+       [ -f "$i" ] || fail "build-tree $f: not installed as $i"
+       brp=$(readelf -d "$f" | sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\]/\1/p')
+       irp=$(readelf -d "$i" | sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\]/\1/p')
+       [ -n "$brp" ] || fail "build-tree $f: no RUNPATH"
+       case "$brp" in :*|*:|*::*) fail "build-tree $f: empty RUNPATH/RPATH entry: '$brp'" ;; esac
+       [ "$brp" = "$irp" ] || fail "build-tree $f: RUNPATH '$brp', installed: '$irp'"
+       n=$((n + 1))
+     done
+     [ "$n" -gt 0 ] || fail "no build-tree plug-in in $built"
+     echo "plugin-project: build-tree RUNPATH of $n plug-ins: no empty entry, same as installed" ;;
 esac
 # the installed binaries are executable (Debian's CMake strips the execute bit of modules; the CI
 # runners have Kitware's CMake, so this only guards against regressions)

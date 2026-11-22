@@ -5,6 +5,14 @@
 # Linux 9 / VFX Reference Platform CY2027). Run it on the installed bundles: in the plug-in
 # repositories' CI, and in the installers after the libraries were bundled.
 #
+# Check the tree that is shipped: the `cmake --install` output (or the archive that is uploaded),
+# never CMake's build tree, and ship only that. Without BUILD_WITH_INSTALL_RPATH, CMake pads a
+# build-tree binary's RUNPATH with ':' to the length of the install rpath, so that the install can
+# rewrite it in place: those empty entries mean the current directory to the loader (reported
+# below). A build tree may also lack files that only the install puts in the bundle, such as an
+# Info.plist (openfx-gmic#119). cmake/OpenFX.cmake's add_ofx_plugin avoids the padding
+# (OFX_PLUGIN_BUILD_WITH_INSTALL_RPATH), but the installed tree is still the one to check.
+#
 #   linuxCheckBundle.sh [-v] [--no-needed] <bundle.ofx.bundle | file | directory>...
 #
 # A directory that is not a bundle is searched for *.ofx.bundle directories (finding none is a
