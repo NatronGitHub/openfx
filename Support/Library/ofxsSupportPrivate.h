@@ -53,11 +53,14 @@ England
 namespace OFX {
 
   namespace Private {
-    // The host and suite pointers below are set by setHost() and the first kOfxActionLoad, and
-    // reset by the last kOfxActionUnload. Hosts send no other action to the binary during those
-    // (load comes first, unload last), so the other actions read them without a lock. They have
-    // external linkage because the Support files share them, and SupportExt
-    // (ofxsThreadSuite.cpp) declares gThreadSuite and gLoadCount.
+    // The host pointer below is set by setHost(), and the suite pointers by the first
+    // kOfxActionLoad of a plug-in of the binary (gLoadCount 0), and they are reset by the last
+    // kOfxActionUnload (gLoadCount back to 0). kOfxActionLoad is sent per plug-in, so the load of
+    // a later plug-in may overlap the actions of instances of a plug-in loaded before: it doesn't
+    // fetch the suites again, and the other actions read them without a lock. The exception is
+    // gThreadSuite: SupportExt's ofxsThreadSuiteCheck() (ofxsThreadSuite.cpp), which plug-ins call
+    // in their load(), may replace it, in each plug-in's load. They have external linkage because
+    // the Support files share them, and SupportExt declares gThreadSuite and gLoadCount.
 
     /** @brief Pointer to the host */
     extern OfxHost *gHost;
@@ -170,7 +173,12 @@ namespace OFX {
       props.propSetIntN(name, a, n, throwOnFailure);
     }
 
-    /** @brief gets the N-dimensional property name into s; s is unchanged if this throws */
+    /** @brief gets the N-dimensional property name into s; s is unchanged if this throws.
+        s must be initialized (ES.20): its values are the defaults that remain when the host
+        doesn't write them, i.e. when the host fails and nothing is thrown (throwOnFailure false,
+        or an unknown property with PropertySet::setThrowOnUnsupportedProperties(false), even with
+        throwOnFailure true), or when it replies kOfxStatReplyDefault. That is why s is copied in
+        even with throwOnFailure true; every caller sets it first. */
     template <class T>
     void propGetN(const PropertySet &props, const char *name, T &s, bool throwOnFailure = true)
     {

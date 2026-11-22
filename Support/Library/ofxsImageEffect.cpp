@@ -227,9 +227,9 @@ namespace OFX {
 
   /** @brief the global host description */
   // External linkage: SupportExt (ofxsThreadSuite.cpp) declares gHostDescription, and
-  // Support/tests/DrawContextOpenGLTest.cpp gHostDescriptionHasInit. Written only by the load
-  // action (kOfxActionLoad, before any other action) and reset by the last unload action, so
-  // reading them from other actions needs no lock.
+  // Support/tests/DrawContextOpenGLTest.cpp gHostDescriptionHasInit. Written only by the first
+  // load action of a plug-in of the binary (the loads of the other plug-ins don't write them) and
+  // reset by the last unload action, so reading them from other actions needs no lock.
   ImageEffectHostDescription gHostDescription;
   bool gHostDescriptionHasInit = false;
 

@@ -126,8 +126,13 @@ of the direct OFX objects and any library side only functions.
 #if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
    /** @brief thread_local where available (C++11): per-thread state of the Support library */
 #  define OFXS_THREAD_LOCAL thread_local
+   /** @brief "= delete" where available (C++11), e.g. on the copy operations of a non-copyable
+       class (C.81). In C++98 it is empty: the function is declared and never defined, so a copy
+       fails to link instead of failing to compile. */
+#  define OFXS_DELETE = delete
 #else
 #  define OFXS_THREAD_LOCAL
+#  define OFXS_DELETE
 #endif
 
 /** @brief Deprecated, expand to nothing. They were dynamic exception specifications
@@ -362,7 +367,10 @@ namespace OFX {
   OFX::Exception::PropertyValueIllegalToHost or OFX::Exception::Suite when the property suite
   fails (the exceptions are documented here: the dynamic exception specifications that listed them
   were removed, E.30). With throwOnFailure false, a failure of the host is not thrown, and the
-  getters return 0, NULL or an empty value. */
+  getters return 0, NULL or an empty value; the getters that fill the caller's array
+  (propGetDoubleN(property, values, count) and propGetIntN(property, values, count)) leave it
+  unchanged, or as the host wrote it. setThrowOnUnsupportedProperties(false) also suppresses
+  PropertyUnknownToHost (a property the host doesn't know) when throwOnFailure is true. */
   class PropertySet {
   protected :
     /** @brief The raw property handle */

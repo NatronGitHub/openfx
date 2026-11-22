@@ -99,9 +99,9 @@ namespace OFX {
       OfxMutexHandle _handle; /**< @brief The handle */
 
     private :
-      // not copyable: the destructor destroys the mutex (C.21, R.1). Declared, not defined.
-      Mutex(const Mutex &);
-      Mutex &operator=(const Mutex &);
+      // not copyable: the destructor destroys the mutex (C.21, R.1)
+      Mutex(const Mutex &) OFXS_DELETE;
+      Mutex &operator=(const Mutex &) OFXS_DELETE;
 
     public :
       /** @brief ctor */
@@ -134,9 +134,9 @@ namespace OFX {
       M* _mutex;
       bool val;
 
-      // not copyable: each copy would unlock the mutex (C.21, R.1). Declared, not defined.
-      AutoMutexT(const AutoMutexT &);
-      AutoMutexT &operator=(const AutoMutexT &);
+      // not copyable: each copy would unlock the mutex (C.21, R.1)
+      AutoMutexT(const AutoMutexT &) OFXS_DELETE;
+      AutoMutexT &operator=(const AutoMutexT &) OFXS_DELETE;
     public :
       /// ctor, acquires the lock
       explicit AutoMutexT(M &m)

@@ -11,6 +11,7 @@
     unlock() throws;
   - with OFX_EXTENSIONS_NATRON, OFX::Private::decodeNativeOverlayHandle(), which decodes the host's
     kNatronOfxPropNativeOverlays strings (ofxNatron.h) into ImageEffectHostDescription::nativeInteracts.
+  - Image::pixelOffset() (the getPixelAddress*() computation) with a negative kOfxImagePropRowBytes;
   - kOfxActionCreateInstance (OFX::Private::createInstanceAction()) deletes the new instance, and so
     clears kOfxPropInstanceData, when a step after PluginFactory::createInstance() throws (it
     leaked, and the host kept the pointer), on a minimal fake host.
@@ -21,6 +22,7 @@
   Prints one line per failed check, and exits with 0 if all passed.
 */
 
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -156,6 +158,46 @@ namespace {
     }
   }
 #endif
+
+  // Image::getPixelAddress*() compute the pixel address with Image::pixelOffset(), which is
+  // protected: the probe exposes it (an Image needs a host to be constructed).
+  struct PixelOffsetProbe : public OFX::Image {
+    static std::ptrdiff_t offset(int x, int y, const OfxRectI &bounds, int rowBytes, int pixelBytes)
+    {
+      return pixelOffset(x, y, bounds, rowBytes, pixelBytes);
+    }
+  private:
+    PixelOffsetProbe(); // never constructed
+  };
+
+  // kOfxImagePropRowBytes may be negative (an image stored top to bottom): the address must be
+  // computed with a signed offset (an unsigned one only worked by wrapping around, which UBSan
+  // reports as a pointer overflow)
+  void testPixelAddressNegativeRowBytes()
+  {
+    const OfxRectI bounds = { 10, 20, 13, 24 }; // 3x4 pixels
+    const int pixelBytes = 4;
+    const int rowBytes = 3 * pixelBytes;
+    unsigned char buffer[4 * 3 * 4];
+
+    // bottom to top: the base address is the start of the first row (y1), at the start of the buffer
+    {
+      const unsigned char *base = buffer;
+      const unsigned char *p = base + PixelOffsetProbe::offset(11, 22, bounds, rowBytes, pixelBytes);
+      CHECK(p == buffer + 2 * rowBytes + 1 * pixelBytes);
+    }
+    // top to bottom: row y1 is the last row of the buffer, and rowBytes is negative
+    {
+      const unsigned char *base = buffer + 3 * rowBytes;
+      const unsigned char *p = base + PixelOffsetProbe::offset(11, 22, bounds, -rowBytes, pixelBytes);
+      CHECK(p == buffer + 1 * rowBytes + 1 * pixelBytes);
+      p = base + PixelOffsetProbe::offset(12, 23, bounds, -rowBytes, pixelBytes);
+      CHECK(p == buffer + 2 * pixelBytes); // the last row (y2-1) is the first in memory
+      p = base + PixelOffsetProbe::offset(10, 20, bounds, -rowBytes, pixelBytes);
+      CHECK(p == base);
+      CHECK(PixelOffsetProbe::offset(12, 23, bounds, -rowBytes, pixelBytes) == -3 * rowBytes + 2 * pixelBytes);
+    }
+  }
 
   // A minimal fake host for kOfxActionCreateInstance: the property suite knows the instance's
   // kOfxImageEffectPropContext and kOfxPropInstanceData only (the host description gets the
@@ -323,6 +365,10 @@ namespace {
     bool _failAfterCreation;
   };
 
+  // Must run last: it loads the Support library on the fake host (OFX::Private::setHost() and
+  // loadAction()) and leaves it loaded. The unload action (static in ofxsImageEffect.cpp, run by
+  // the entry point) needs a plug-in registered by OfxGetNumberOfPlugins (plugInfoMap), which
+  // this test has not.
   void testCreateInstanceFailureDeletesInstance()
   {
     FakeHost::load();
@@ -368,12 +414,13 @@ int main()
 {
   testNullInteractAction();
   testAutoMutexDestructorDoesNotThrow();
-  testCreateInstanceFailureDeletesInstance();
+  testPixelAddressNegativeRowBytes();
 #ifdef OFX_EXTENSIONS_NATRON
   testDecodeNativeOverlayHandle();
 #else
   std::printf("support-library-test: OFX_EXTENSIONS_NATRON is off, decodeNativeOverlayHandle() not tested\n");
 #endif
+  testCreateInstanceFailureDeletesInstance(); // last: leaves the Support library loaded
   if (gFailures) {
     std::printf("support-library-test: %d failed check(s)\n", gFailures);
     return 1;

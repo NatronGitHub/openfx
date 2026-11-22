@@ -62,18 +62,18 @@ each represent the actions that can be carried out on those particular OFX objec
 #endif
 #include "ofxOld.h" // required for kOfxParamDoubleTypeNormalised*
 
-/** @brief Declares the copy constructor and the copy assignment of CLASS without defining them
-    (used in a protected section): a copy fails to compile outside of CLASS and its derived
-    classes, and to link inside them (C.81; the C++98 form of "= delete", as the public headers
-    must stay C++98). */
+/** @brief Declares the copy constructor and the copy assignment of CLASS deleted (C++11), or,
+    in C++98, without defining them (C.81; OFXS_DELETE, as the public headers must stay C++98).
+    Used in a protected section: a copy fails to compile outside of CLASS, its derived classes and
+    their friends; inside them and their friends it fails to compile in C++11 and to link in C++98. */
 // (Defining them inline would also make the compiler instantiate member destructors, e.g.
 // std::unique_ptr<ParamInteractDescriptor> with an incomplete type, which C++23 libc++ rejects.)
 #define mDeclareProtectedAssignAndCC(CLASS) \
-  CLASS &operator=(const CLASS &); \
-  CLASS(const CLASS &);
+  CLASS &operator=(const CLASS &) OFXS_DELETE; \
+  CLASS(const CLASS &) OFXS_DELETE;
 #define mDeclareProtectedAssignAndCCBase(CLASS,BASE) \
-  CLASS &operator=(const CLASS &); \
-  CLASS(const CLASS &);
+  CLASS &operator=(const CLASS &) OFXS_DELETE; \
+  CLASS(const CLASS &) OFXS_DELETE;
 
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
  */
@@ -2540,9 +2540,9 @@ namespace OFX {
                 }
             }
         private:
-            // not copyable: each copy would end the edit block (C.21, R.1). Declared, not defined.
-            EditBlock(const EditBlock &);
-            EditBlock &operator=(const EditBlock &);
+            // not copyable: each copy would end the edit block (C.21, R.1)
+            EditBlock(const EditBlock &) OFXS_DELETE;
+            EditBlock &operator=(const EditBlock &) OFXS_DELETE;
 
             ParamSet& _paramSet;
             bool _cond;

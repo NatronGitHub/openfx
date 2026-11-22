@@ -42,6 +42,7 @@ England
 This file only holds code that is visible to a plugin implementation, and so hides much
 of the direct OFX objects and any library side only functions.
 */
+#include <cstddef> // std::ptrdiff_t
 #include <map>
 #include <string>
 #include <sstream> // stringstream
@@ -77,16 +78,16 @@ of the direct OFX objects and any library side only functions.
 #include "ofxNatron.h"
 #endif
 
-/** @brief Declares the copy constructor and the copy assignment of CLASS without defining them
-    (used in a protected section): a copy fails to compile outside of CLASS and its derived
-    classes, and to link inside them (C.81; the C++98 form of "= delete", as the public headers
-    must stay C++98). */
+/** @brief Declares the copy constructor and the copy assignment of CLASS deleted (C++11), or,
+    in C++98, without defining them (C.81; OFXS_DELETE, as the public headers must stay C++98).
+    Used in a protected section: a copy fails to compile outside of CLASS, its derived classes and
+    their friends; inside them and their friends it fails to compile in C++11 and to link in C++98. */
 #define mDeclareProtectedAssignAndCC(CLASS) \
-  CLASS &operator=(const CLASS &); \
-  CLASS(const CLASS &);
+  CLASS &operator=(const CLASS &) OFXS_DELETE; \
+  CLASS(const CLASS &) OFXS_DELETE;
 #define mDeclareProtectedAssignAndCCBase(CLASS,BASE) \
-  CLASS &operator=(const CLASS &); \
-  CLASS(const CLASS &);
+  CLASS &operator=(const CLASS &) OFXS_DELETE; \
+  CLASS(const CLASS &) OFXS_DELETE;
 
 namespace OFX
 {
@@ -1114,10 +1115,9 @@ namespace OFX {
 #endif
 
   private :
-    // not copyable: the destructors of Image and Texture release the handle (C.21, R.1).
-    // Declared, not defined (the C++98 form of "= delete").
-    ImageBase(const ImageBase &);
-    ImageBase &operator=(const ImageBase &);
+    // not copyable: the destructors of Image and Texture release the handle (C.21, R.1)
+    ImageBase(const ImageBase &) OFXS_DELETE;
+    ImageBase &operator=(const ImageBase &) OFXS_DELETE;
 
   public :
     /** @brief ctor */
@@ -1200,6 +1200,16 @@ namespace OFX {
     void     *_pixelData;                    /**< @brief the base address of the image */
     void     *_OpenCLImage;                  /**< @brief the OpenCL Image handle (cl_mem), or NULL (OFX 1.5) */
 
+    /** @brief the offset in bytes of the pixel (x,y) from the base address of an image of the given
+        bounds, row bytes and pixel bytes. Signed: kOfxImagePropRowBytes may be negative (an image
+        stored top to bottom), and an unsigned offset would only work by wrapping around (ES.100,
+        ES.102, ES.106). (x,y) must be in the bounds. */
+    static std::ptrdiff_t pixelOffset(int x, int y, const OfxRectI &bounds, int rowBytes, int pixelBytes)
+    {
+      return static_cast<std::ptrdiff_t>(y - bounds.y1) * rowBytes
+        + static_cast<std::ptrdiff_t>(x - bounds.x1) * pixelBytes;
+    }
+
   public :
     /** @brief ctor */
     Image(OfxPropertySetHandle props);
@@ -1233,9 +1243,7 @@ namespace OFX {
       if (x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0) {
         return 0;
       }
-      char *pix = static_cast<char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
-      pix += (x - _bounds.x1) * _pixelBytes;
-      return static_cast<void *>(pix);
+      return static_cast<char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
     }
 
     /** @brief return a pixel pointer, returns NULL if (x,y) is outside the image bounds
@@ -1250,9 +1258,7 @@ namespace OFX {
       if (x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0) {
         return 0;
       }
-      const char *pix = static_cast<const char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
-      pix += (x - _bounds.x1) * _pixelBytes;
-      return static_cast<const void *>(pix);
+      return static_cast<const char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
     }
 
     /** @brief return a pixel pointer, returns the nearest pixel if (x,y) is outside the image bounds
@@ -1269,9 +1275,7 @@ namespace OFX {
       x = (x > _bounds.x1) ? x : _bounds.x1;
       y = (y < _bounds.y2 - 1) ? y : (_bounds.y2 - 1);
       y = (y > _bounds.y1) ? y : _bounds.y1;
-      char *pix = static_cast<char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
-      pix += (x - _bounds.x1) * _pixelBytes;
-      return static_cast<void *>(pix);
+      return static_cast<char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
     }
 
     /** @brief return a pixel pointer, returns the nearest pixel if (x,y) is outside the image bounds
@@ -1287,9 +1291,7 @@ namespace OFX {
       x = (x > _bounds.x1) ? x : _bounds.x1;
       y = (y < _bounds.y2 - 1) ? y : (_bounds.y2 - 1);
       y = (y > _bounds.y1) ? y : _bounds.y1;
-      const char *pix = static_cast<const char *>(_pixelData) + static_cast<size_t>(y - _bounds.y1) * static_cast<size_t>(_rowBytes);
-      pix += (x - _bounds.x1) * _pixelBytes;
-      return static_cast<const void *>(pix);
+      return static_cast<const char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
     }
   };
 
@@ -1634,9 +1636,9 @@ namespace OFX {
     OfxImageMemoryHandle _handle;
 
   private :
-    // not copyable: the destructor frees the memory (C.21, R.1). Declared, not defined.
-    ImageMemory(const ImageMemory &);
-    ImageMemory &operator=(const ImageMemory &);
+    // not copyable: the destructor frees the memory (C.21, R.1)
+    ImageMemory(const ImageMemory &) OFXS_DELETE;
+    ImageMemory &operator=(const ImageMemory &) OFXS_DELETE;
 
   public :
     /** @brief ctor */
