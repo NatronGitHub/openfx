@@ -45,6 +45,10 @@
 #include "ofxhClip.h"
 #include "ofxhMemory.h"
 #include "ofxGPURender.h"
+#if !defined(_WIN32)
+#include <sys/stat.h> // mkdir (checkCachedDanglingBinary)
+#include <unistd.h> // symlink, unlink, rmdir
+#endif
 
 // the HostSupport review fixes: properties and the plug-in cache
 #include <cfloat>
@@ -634,6 +638,135 @@ namespace {
     ImageEffect::gImageEffectHost = &host;
   }
 
+  /// NatronGitHub/openfx#235: a binary of the plug-in cache that can't be stat()ed (e.g. removed)
+  /// is invalid, and the plug-ins the cache has for it are not used, even if the cache recorded
+  /// the mtime and size that a failed stat() gives (0)
+  void checkCachedInvalidBinary(MyHost::Host &host, const std::string &cache)
+  {
+    {
+      PluginBinary pb("/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx", "/nonexistent/x.ofx.bundle", 0, 0);
+      check("a cached binary that doesn't exist (mtime 0, size 0) is invalid, and not changed", pb.isInvalid() && !pb.hasBinaryChanged());
+      PluginBinary pb2("/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx", "/nonexistent/x.ofx.bundle", 1, 2);
+      check("a cached binary that doesn't exist (another mtime and size) is invalid, and changed", pb2.isInvalid() && pb2.hasBinaryChanged());
+    }
+    std::string missing = cache;
+    const size_t invert = missing.find("example-Invert-support.ofx.bundle");
+    const size_t bundle = invert == std::string::npos ? invert : missing.rfind("<bundle>", invert);
+    const size_t path = bundle == std::string::npos ? bundle : missing.find(" path=\"", bundle);
+    const size_t pathEnd = path == std::string::npos ? path : missing.find('"', path + strlen(" path=\""));
+    const size_t mtime = pathEnd == std::string::npos ? pathEnd : missing.find(" mtime=\"", pathEnd);
+    const size_t end = mtime == std::string::npos ? mtime : missing.find("/>", mtime);
+    const size_t plugin = end == std::string::npos ? end : missing.find("<plugin ", end);
+    const bool hasPlugin = plugin != std::string::npos && plugin < missing.find("</bundle>", end);
+    check("the Invert <bundle> of the cache has a <binary> with a path and an mtime, and a <plugin>", hasPlugin);
+    if (!hasPlugin) {
+      return;
+    }
+    missing.replace(mtime, end - mtime, " mtime=\"0\" size=\"0\"");
+    missing.replace(path, pathEnd + 1 - path, " path=\"/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx\"");
+    ImageEffect::PluginCache otherEffects(&host); // (destroyed after the plug-ins of other)
+    PluginCache other;
+    otherEffects.registerInCache(other);
+    std::istringstream is(missing);
+    bool ok = true;
+    try {
+      other.readCache(is);
+    } catch (const std::exception &e) {
+      std::printf("suiteHandleChecks: readCache: %s\n", e.what());
+      ok = false;
+    }
+    std::ostringstream rewritten;
+    other.writePluginCache(rewritten);
+    const std::string w = rewritten.str();
+    const size_t wBundle = w.find("/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx");
+    const size_t wEnd = wBundle == std::string::npos ? wBundle : w.find("</bundle>", wBundle);
+    check("a cached binary that doesn't exist (mtime 0, size 0): its cached plug-ins are not read",
+          ok && wEnd != std::string::npos && w.substr(wBundle, wEnd - wBundle).find("<plugin ") == std::string::npos);
+    ImageEffect::gImageEffectHost = &host;
+  }
+
+#if !defined(_WIN32)
+  /// a cached binary that is a dangling symlink, recorded in the cache as such (mtime and size 0)
+  /// with a <plugin>: its plug-in is not read, and reading the cache and scanning leave the cache
+  /// clean (dirty() false), so that a host doesn't rewrite it at each launch. The bundle is in a
+  /// directory of its own, the only one in the plug-in path, with the architecture directory of
+  /// the Invert binary of the cache (the one the scan picks if it is the first of the host's).
+  void checkCachedDanglingBinary(MyHost::Host &host, const std::string &cache)
+  {
+    const size_t version = cache.find("<cache version=\"");
+    const size_t versionEnd = version == std::string::npos ? version : cache.find("\">", version);
+    const size_t invert = cache.find("/example-Invert-support.ofx\"");
+    const size_t archEnd = invert == std::string::npos ? invert : cache.rfind('/', invert);
+    const size_t archBegin = archEnd == std::string::npos ? archEnd : cache.rfind('/', archEnd - 1);
+    check("the cache has a version and an Invert binary path", versionEnd != std::string::npos && archBegin != std::string::npos);
+    if (versionEnd == std::string::npos || archBegin == std::string::npos) {
+      return;
+    }
+    const std::string arch = cache.substr(archBegin + 1, archEnd - archBegin - 1);
+    char tmpl[] = "/tmp/suiteHandleChecks.XXXXXX";
+    const char *dirp = mkdtemp(tmpl);
+    check("mkdtemp", dirp != NULL);
+    if (!dirp) {
+      return;
+    }
+    const std::string dir = dirp;
+    const std::string bundle = dir + "/hsqw-dangling.ofx.bundle";
+    const std::string archDir = bundle + "/Contents/" + arch;
+    const std::string binary = archDir + "/hsqw-dangling.ofx";
+    const bool made = mkdir(bundle.c_str(), 0700) == 0 && mkdir((bundle + "/Contents").c_str(), 0700) == 0 &&
+                      mkdir(archDir.c_str(), 0700) == 0 && symlink((dir + "/no-such-file").c_str(), binary.c_str()) == 0;
+    check("a bundle whose binary is a dangling symlink", made);
+    if (made) {
+      const std::string text = cache.substr(version, versionEnd + 2 - version) + "\n<bundle>\n"
+        "  <binary static_bin=\"0\" bundle_path=\"" + bundle + "\" path=\"" + binary + "\" mtime=\"0\" size=\"0\"/>\n"
+        "  <plugin name=\"hsqw.dangling\" index=\"0\" api=\"" kOfxImageEffectPluginApi "\" api_version=\"1\" major_version=\"1\" minor_version=\"0\">\n"
+        "    <apiproperties>\n    </apiproperties>\n  </plugin>\n</bundle>\n</cache>\n";
+      // only this directory in the plug-in path (the constructor reads OFX_PLUGIN_PATH)
+      const char *saved = std::getenv("OFX_PLUGIN_PATH");
+      const std::string savedPath = saved ? saved : "";
+      setenv("OFX_PLUGIN_PATH", dir.c_str(), 1);
+      {
+        ImageEffect::PluginCache otherEffects(&host); // (destroyed after the plug-ins of other)
+        PluginCache other;
+        otherEffects.registerInCache(other);
+        std::istringstream is(text);
+        bool ok = true;
+        try {
+          other.readCache(is);
+        } catch (const std::exception &e) {
+          std::printf("suiteHandleChecks: readCache: %s\n", e.what());
+          ok = false;
+        }
+        const size_t nRead = other.getPlugins().size() + otherEffects.getPlugins().size();
+        other.scanPluginFiles();
+        std::ostringstream rewritten;
+        other.writePluginCache(rewritten);
+        if (rewritten.str().find("path=\"" + binary + "\"") == std::string::npos) {
+          // the host's first architecture directory is not that of the Invert binary
+          std::printf("suiteHandleChecks: the scan doesn't pick %s: the dangling binary checks are skipped\n", binary.c_str());
+        } else {
+          check("a cached dangling binary: its cached plug-in is not read, and the scan finds none",
+                ok && nRead == 0 && other.getPlugins().empty() && otherEffects.getPlugins().empty() &&
+                rewritten.str().find("<plugin ") == std::string::npos);
+          check("a cached dangling binary recorded as such: reading the cache and scanning leave it clean (dirty() false)",
+                ok && !other.dirty());
+        }
+      }
+      if (saved) {
+        setenv("OFX_PLUGIN_PATH", savedPath.c_str(), 1);
+      } else {
+        unsetenv("OFX_PLUGIN_PATH");
+      }
+      ImageEffect::gImageEffectHost = &host;
+    }
+    unlink(binary.c_str());
+    rmdir(archDir.c_str());
+    rmdir((bundle + "/Contents").c_str());
+    rmdir(bundle.c_str());
+    rmdir(dir.c_str());
+  }
+#endif
+
   /// HostSupport review fixes (plug-in cache, clips): a rescan doesn't duplicate the plug-ins; the
   /// cache reads into the PluginCache that reads it (not the singleton), and a malformed cache is
   /// discarded; a plug-in's kFnOfxImageEffectPropComponentsPresent value belongs to its clip;
@@ -889,6 +1022,10 @@ namespace {
     PluginCache::clearPluginCache();
     if (!cache.empty()) {
       checkChangedBinary(host, cache, pluginId, nInvert);
+      checkCachedInvalidBinary(host, cache);
+#if !defined(_WIN32)
+      checkCachedDanglingBinary(host, cache);
+#endif
     }
   }
 }

@@ -1022,7 +1022,9 @@ void PluginCache::elementBeginCallback(void */*userData*/, const XML_Char *name,
     return;
   }
   
-  if (ename == "plugin" && _xmlCurrentBinary && !_xmlCurrentBinary->hasBinaryChanged()) {
+  // (the plug-ins of a changed binary are scanned again, and a binary that can't be stat()ed has none)
+  if (ename == "plugin" && _xmlCurrentBinary && !_xmlCurrentBinary->hasBinaryChanged() &&
+      !_xmlCurrentBinary->isInvalid()) {
     const char *plugAtts[] = {"api", "name", "index", "api_version", "major_version", "minor_version", NULL};
     
     if (!mapHasAll(attmap, plugAtts)) {
