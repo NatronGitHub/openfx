@@ -2432,7 +2432,7 @@ namespace OFX {
   }
 
   /** @brief get the RoD for this clip in the cannonical coordinate system */
-  OfxRectD Clip::getRegionOfDefinition(double t)
+  OfxRectD Clip::getRegionOfDefinition(double t) const
   {
 #  ifndef NDEBUG
     if ( OFX::IsNaN(t) ) {
@@ -2510,7 +2510,7 @@ namespace OFX {
   }
     
 #ifdef OFX_EXTENSIONS_NUKE
-  OfxRectD Clip::getRegionOfDefinition(double t, int view)
+  OfxRectD Clip::getRegionOfDefinition(double t, int view) const
   {
 #  ifndef NDEBUG
     if ( OFX::IsNaN(t) ) {
@@ -2932,7 +2932,7 @@ namespace OFX {
 
 #ifdef OFX_EXTENSIONS_VEGAS
   /** @brief the Vegas context this effect exists in */
-  VegasContextEnum ImageEffect::getVegasContext(void)
+  VegasContextEnum ImageEffect::getVegasContext(void) const
   {
     // fetch the context
     std::string ctxt = _effectProps.propGetString(kOfxImageEffectPropVegasContext, false);
