@@ -5950,12 +5950,18 @@ namespace OFX {
           std::string str = effectProps.propGetString(kOfxImageEffectPropContext);
           ContextEnum context = mapToContextEnum(str);
 
-          // make the image effect instance for this context
+          // make the image effect instance for this context: from now on, the host's handle owns
+          // it (kOfxPropInstanceData), until kOfxActionDestroyInstance
           ImageEffect *instance = factory->createInstance(handle, context);
-          (void)instance;
-
-          // validate the plugin handle's properties
-          OFX::Validation::validatePluginInstanceProperties(fetchEffectProps(handle));
+          try {
+            // validate the plugin handle's properties, set by the instance's constructor
+            OFX::Validation::validatePluginInstanceProperties(fetchEffectProps(handle));
+          } catch (...) {
+            // the action fails: delete the instance, whose destructor clears kOfxPropInstanceData,
+            // so that it neither leaks nor stays in the host's handle (E.6)
+            delete instance;
+            throw;
+          }
 
           // got here, must be good
           stat = kOfxStatOK;
