@@ -127,9 +127,11 @@ static const int charXMLCompatiblity[] =
 // https://github.com/ofxa/openfx/blob/64ba52fff61894759fbf3942b92659b02b2b17cd/HostSupport/include/ofxhXml.h
 //
 // With the old version:
-// - All characters within 0x01..0x1f and 0x7F..0x9F, except \t \b \r (0x09 0x0A 0X0D) are forbidden
+// - All characters within U+0001..U+001F and U+007F..U+009F, except \t \n \r (0x09 0x0A 0x0D) are forbidden
 //   in label and grouping, because these may be used to build the GUI before loading the plugin.
 //   They may appear in the description, although it is not recommended.
+//   The strings are UTF-8: U+0080..U+009F (the C1 controls) are the two bytes C2 80..C2 9F, and
+//   the bytes 0x80..0x9F alone are continuation bytes of other characters (e.g. U+2019 is E2 80 99).
 // - The '<' and '&' characters generate bad XML in all cases
 // - The '>' and '\'' characters are tolerated by the expat parser, although the XML is not valid
 static void validateXMLString(std::string const & s, bool strict)
@@ -137,7 +139,7 @@ static void validateXMLString(std::string const & s, bool strict)
   int lt = 0;
   int amp = 0;
   int ctrl = 0;
-  char ctrllast = 0;
+  int ctrllast = 0; // the code point
   int ctrlexpatbug = 0; // control characters which expat can not decode anyway, because of a bug in xmltok.c:checkCharRefNumber
   char ctrlexpatbuglast = 0;
   for (size_t i=0;i<s.size();i++) {
@@ -158,8 +160,14 @@ static void validateXMLString(std::string const & s, bool strict)
         ++amp;
         break;
       default: {
-        unsigned char c = (unsigned char)(s[i]);
-        if ((0x01 <= c && c <= 0x1f) || (0x7F <= c && c <= 0x9F)) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        unsigned char next = (i + 1 < s.size()) ? static_cast<unsigned char>(s[i + 1]) : 0;
+        if (c == 0xC2 && 0x80 <= next && next <= 0x9F) {
+          // a C1 control, U+0080..U+009F
+          ++ctrl;
+          ctrllast = next;
+          ++i;
+        } else if ((0x01 <= c && c <= 0x1f) || c == 0x7F) {
           ++ctrl;
           ctrllast = c;
           //characters such ase eot (0x04) and stx (0x02) make expat parser bail
@@ -188,7 +196,7 @@ static void validateXMLString(std::string const & s, bool strict)
       if (!strict) {
         std::cout << "(nonfatal) ";
       }
-      std::cout << ctrl << " invalid characters in the range 0x01..0x1f or 0x7F..0x9F, last one was ASCII=" << (int)ctrllast << std::endl;
+      std::cout << ctrl << " invalid characters in the range U+0001..U+001F or U+007F..U+009F, last one was code point " << ctrllast << std::endl;
     }
     if (ctrlexpatbug) {
       if (!strict) {
