@@ -15,6 +15,19 @@ def gradient(h=48, w=64):
     return np.dstack([x / (w - 1), y / (h - 1), np.full_like(x, 0.25)]).astype(np.float32)
 
 
+def test_to_pixels_clamps_infinite_and_nan_bounds():
+    """A plug-in's infinite or NaN RoD gives the clamped pixel rectangle, as hostDemo, instead of raising."""
+    from ofxhost import _specs
+    inf, nan = float("inf"), float("nan")
+    big = (_specs.INT_MIN, 0, _specs.INT_MAX, 0)
+    assert _specs._to_pixels((-inf, nan, inf, nan), (1., 1.), 1.) == big
+    assert _specs._to_pixels((-inf, nan, inf, nan), (0.5, 0.5), 2.) == big
+    # finite bounds: the enclosing rectangle, with hostDemo's epsilon
+    assert _specs._to_pixels((0.5, -0.5, 10.2, 768 / (768 / 720)), (1., 1.), 1.) == (0, -1, 11, 720)
+    # a NaN RoI bound gives the RoD's, as hostDemo's maxD/minD
+    assert _specs._intersect((nan, 0., nan, 5.), (-1., -2., 3., 4.)) == (-1., 0., 3., 4.)
+
+
 def test_pfm_round_trip(tmp_path):
     rgb = np.random.default_rng(0).random((5, 7, 3), dtype=np.float32)
     grey = rgb[..., 0].copy()

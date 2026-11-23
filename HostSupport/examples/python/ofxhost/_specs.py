@@ -9,7 +9,7 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -62,24 +62,37 @@ def _parse_n(s: str, n: int, parse):
     return None if any(x is None for x in r) else r
 
 
-def _clamp_int(v: float) -> int:
+def _clamp_int(v: float, rounding: Callable[[float], int]) -> int:
+    """Rounds v to an int, clamped to the int range (NaN gives 0), as hostDemo's clampToInt.
+
+    Clamps before rounding: math.floor and math.ceil raise on an infinite or NaN value.
+    """
     if math.isnan(v):
         return 0
     if v <= INT_MIN:
         return INT_MIN
     if v >= INT_MAX:
         return INT_MAX
-    return int(v)
+    return rounding(v)
 
 
 def _to_pixels(r, rs, par):
-    """canonicalToPixelEnclosing"""
-    return (_clamp_int(math.floor(r[0] * rs[0] / par + EPS)), _clamp_int(math.floor(r[1] * rs[1] + EPS)),
-            _clamp_int(math.ceil(r[2] * rs[0] / par - EPS)), _clamp_int(math.ceil(r[3] * rs[1] - EPS)))
+    """The smallest pixel rectangle that encloses a canonical one, as hostDemo's canonicalToPixelEnclosing.
+
+    An infinite or NaN bound (from a plug-in's RoD or RoI) is clamped to the int range, or to 0 for NaN.
+    """
+    return (_clamp_int(r[0] * rs[0] / par + EPS, math.floor), _clamp_int(r[1] * rs[1] + EPS, math.floor),
+            _clamp_int(r[2] * rs[0] / par - EPS, math.ceil), _clamp_int(r[3] * rs[1] - EPS, math.ceil))
 
 
 def _intersect(a, b):
-    return (max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3]))
+    """The intersection of two rectangles. A NaN bound of a gives b's, as hostDemo's maxD/minD."""
+    def hi(x, y):
+        return x if x > y else y
+
+    def lo(x, y):
+        return x if x < y else y
+    return (hi(a[0], b[0]), hi(a[1], b[1]), lo(a[2], b[2]), lo(a[3], b[3]))
 
 
 def _empty(r) -> bool:
