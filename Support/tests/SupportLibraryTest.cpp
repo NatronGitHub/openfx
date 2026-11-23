@@ -9,6 +9,9 @@
     std::string, which is undefined behaviour);
   - OFX::MultiThread::AutoMutexT's destructor doesn't throw (std::terminate()) when the mutex's
     unlock() throws;
+  - OFX::ParamSet::EditBlock's destructor doesn't throw (std::terminate()) when the host's
+    paramEditEnd() fails, and its options (eBeginOnChange, eHostErrorsIgnore) begin and end the
+    edit block when they should;
   - define*Param() throws OFX::Exception::TypeRequest when a param of the same name but another
     type was already defined (it returned NULL in release builds);
   - with OFX_EXTENSIONS_NATRON, OFX::Private::decodeNativeOverlayHandle(), which decodes the host's
@@ -89,6 +92,152 @@ namespace {
     }
     CHECK(caught);
     CHECK(m2.unlocks == 1);
+  }
+
+  // a param suite with only the edit block functions, which count their calls and return the
+  // given statuses
+  int gEditBegins = 0;
+  int gEditEnds = 0;
+  OfxStatus gEditBeginStatus = kOfxStatOK;
+  OfxStatus gEditEndStatus = kOfxStatOK;
+  OfxStatus editBegin(OfxParamSetHandle, const char*) { ++gEditBegins; return gEditBeginStatus; }
+  OfxStatus editEnd(OfxParamSetHandle) { ++gEditEnds; return gEditEndStatus; }
+
+  class TestEditParamSet : public OFX::ParamSet {};
+
+  typedef OFX::ParamSet::EditBlock EditBlock;
+
+  void resetEditSuite(OfxStatus beginStatus, OfxStatus endStatus)
+  {
+    gEditBegins = 0;
+    gEditEnds = 0;
+    gEditBeginStatus = beginStatus;
+    gEditEndStatus = endStatus;
+  }
+
+  void testEditBlock()
+  {
+    OfxParameterSuiteV1 suite = OfxParameterSuiteV1();
+    suite.paramEditBegin = editBegin;
+    suite.paramEditEnd = editEnd;
+    OfxParameterSuiteV1* saved = OFX::Private::gParamSuite;
+    OFX::Private::gParamSuite = &suite;
+    TestEditParamSet set;
+
+    // the destructor doesn't throw when paramEditEnd() fails
+    resetEditSuite(kOfxStatOK, kOfxStatFailed);
+    bool caught = false;
+    try {
+      // would call std::terminate() if the exception left ~EditBlock()
+      EditBlock eb(set, "test");
+    } catch (...) {
+      caught = true;
+    }
+    CHECK(!caught);
+    CHECK(gEditBegins == 1 && gEditEnds == 1);
+
+    // ParamSet::endEditBlock() still reports the failure
+    caught = false;
+    try {
+      set.endEditBlock();
+    } catch (const OFX::Exception::Suite& e) {
+      caught = e.status() == kOfxStatFailed;
+    }
+    CHECK(caught);
+
+    // by default, a failed begin throws from the constructor, and there is no end
+    resetEditSuite(kOfxStatFailed, kOfxStatOK);
+    caught = false;
+    try {
+      EditBlock eb(set, "test");
+    } catch (const OFX::Exception::Suite&) {
+      caught = true;
+    }
+    CHECK(caught);
+    CHECK(gEditBegins == 1 && gEditEnds == 0);
+
+    // cond false: no edit block, even after open()
+    resetEditSuite(kOfxStatOK, kOfxStatOK);
+    {
+      EditBlock eb(set, "test", false);
+      eb.open();
+    }
+    CHECK(gEditBegins == 0 && gEditEnds == 0);
+
+    // eHostErrorsIgnore: a failed begin is ignored, and there is no end
+    resetEditSuite(kOfxStatFailed, kOfxStatOK);
+    caught = false;
+    try {
+      EditBlock eb(set, "test", true, EditBlock::eBeginNow, EditBlock::eHostErrorsIgnore);
+    } catch (...) {
+      caught = true;
+    }
+    CHECK(!caught);
+    CHECK(gEditBegins == 1 && gEditEnds == 0);
+
+    // eBeginOnChange: no change, no edit block
+    resetEditSuite(kOfxStatOK, kOfxStatOK);
+    {
+      EditBlock eb(set, "test", true, EditBlock::eBeginOnChange);
+    }
+    CHECK(gEditBegins == 0 && gEditEnds == 0);
+
+    // eBeginOnChange: begun by the first open() only, ended once
+    resetEditSuite(kOfxStatOK, kOfxStatOK);
+    {
+      EditBlock eb(set, "test", true, EditBlock::eBeginOnChange);
+      CHECK(gEditBegins == 0);
+      eb.open();
+      eb.open();
+      CHECK(gEditBegins == 1);
+    }
+    CHECK(gEditBegins == 1 && gEditEnds == 1);
+
+    // eBeginOnChange: a failed begin throws from open() (not retried), and there is no end
+    resetEditSuite(kOfxStatFailed, kOfxStatOK);
+    caught = false;
+    {
+      EditBlock eb(set, "test", true, EditBlock::eBeginOnChange);
+      try {
+        eb.open();
+      } catch (const OFX::Exception::Suite&) {
+        caught = true;
+      }
+      eb.open();
+    }
+    CHECK(caught);
+    CHECK(gEditBegins == 1 && gEditEnds == 0);
+
+    // the 3-argument form with an option (cond true, not the enum converted to bool)
+    resetEditSuite(kOfxStatOK, kOfxStatOK);
+    {
+      EditBlock eb(set, "test", EditBlock::eBeginOnChange);
+      CHECK(gEditBegins == 0);
+      eb.open();
+      CHECK(gEditBegins == 1);
+    }
+    CHECK(gEditBegins == 1 && gEditEnds == 1);
+    resetEditSuite(kOfxStatOK, kOfxStatOK);
+    {
+      EditBlock eb(set, "test", EditBlock::eBeginNow);
+      CHECK(gEditBegins == 1);
+    }
+    CHECK(gEditBegins == 1 && gEditEnds == 1);
+
+    // both options: a failed begin is ignored, not retried, and there is no end
+    resetEditSuite(kOfxStatFailed, kOfxStatOK);
+    caught = false;
+    try {
+      EditBlock eb(set, "test", EditBlock::eBeginOnChange, EditBlock::eHostErrorsIgnore);
+      eb.open();
+      eb.open();
+    } catch (...) {
+      caught = true;
+    }
+    CHECK(!caught);
+    CHECK(gEditBegins == 1 && gEditEnds == 0);
+
+    OFX::Private::gParamSuite = saved;
   }
 
   // a param set with a param "p" already defined, without a host (no param suite is called)
@@ -179,6 +328,7 @@ int main()
 {
   testNullInteractAction();
   testAutoMutexDestructorDoesNotThrow();
+  testEditBlock();
   testDefineParamTypeMismatchThrows();
 #ifdef OFX_EXTENSIONS_NATRON
   testDecodeNativeOverlayHandle();

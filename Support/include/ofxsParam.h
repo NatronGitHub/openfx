@@ -2463,31 +2463,123 @@ namespace OFX {
         /** @brief Fetch a parametric param */
         ParametricParam* fetchParametricParam(const std::string &name) const;
 
-        /** @brief A convenience RAII class to make sure edit blocks are closed. */
+        /** @brief A convenience RAII class to make sure edit blocks are closed.
+
+            By default, the edit block begins in the constructor (if cond is true), and a host error
+            from paramEditBegin throws from the constructor.
+
+            Options (both may be combined):
+            - eBeginOnChange: the edit block begins only if a parameter actually changes. Call open()
+              before each change (e.g. each setValue()): the first call begins the edit block, the
+              next ones do nothing. If open() is never called, there is no edit block at all.
+            - eHostErrorsIgnore: best effort: if the host refuses to begin the edit block (e.g.
+              outside the kOfxActionInstanceChanged or interact actions, where the spec says edit
+              blocks should be used), the changes are made without one. kOfxStatErrMemory still
+              throws std::bad_alloc.
+
+            For example:
+            @code
+            EditBlock eb(*this, "Set Defaults", EditBlock::eBeginOnChange, EditBlock::eHostErrorsIgnore);
+            ...
+            eb.open(); // before each setValue()
+            @endcode
+
+            The destructor ends the edit block only if it was begun, and never throws (a host error
+            from paramEditEnd is ignored: a destructor can't report it). */
         class EditBlock {
         public:
-            EditBlock(ParamSet& paramSet, const std::string &name, bool cond = true)
+            /** @brief when the edit block begins */
+            enum BeginEnum {
+                eBeginNow,      ///< in the constructor
+                eBeginOnChange  ///< at the first open(), i.e. only if a parameter changes
+            };
+
+            /** @brief what a host error from paramEditBegin does */
+            enum HostErrorsEnum {
+                eHostErrorsThrow,  ///< throws an OFX::Exception::Suite
+                eHostErrorsIgnore  ///< best effort: no edit block (std::bad_alloc still throws)
+            };
+
+            EditBlock(ParamSet& paramSet, const std::string &name, bool cond = true,
+                      BeginEnum begin = eBeginNow, HostErrorsEnum hostErrors = eHostErrorsThrow)
             : _paramSet(paramSet)
+            , _name(name)
             , _cond(cond)
+            , _ignoreHostErrors(hostErrors == eHostErrorsIgnore)
+            , _opened(false)
+            , _begun(false)
             {
-                if (_cond) {
-                    _paramSet.beginEditBlock(name);
+                if (begin == eBeginNow) {
+                    open();
                 }
             }
 
-            ~EditBlock()
+            /** @brief with options, cond true. (Without this overload, the enums would convert to
+                bool cond.) */
+            EditBlock(ParamSet& paramSet, const std::string &name,
+                      BeginEnum begin, HostErrorsEnum hostErrors = eHostErrorsThrow)
+            : _paramSet(paramSet)
+            , _name(name)
+            , _cond(true)
+            , _ignoreHostErrors(hostErrors == eHostErrorsIgnore)
+            , _opened(false)
+            , _begun(false)
             {
-                if (_cond) {
-                    _paramSet.endEditBlock();
+                if (begin == eBeginNow) {
+                    open();
                 }
             }
+
+            /** @brief ends the edit block if it was begun. It doesn't throw: an exception that leaves
+                a destructor calls std::terminate() (destructors are noexcept in C++11), and a
+                destructor can't report the failure. */
+            ~EditBlock()
+            {
+                if (_begun) {
+                    try {
+                        _paramSet.endEditBlock();
+                    } catch (...) {
+                        // the host failed to end the edit block: nothing more can be done here
+                    }
+                }
+            }
+
+            /** @brief begins the edit block (if cond is true) on the first call, does nothing on the
+                next ones. With eBeginOnChange, call it before each parameter change. */
+            void open()
+            {
+                if (!_cond || _opened) {
+                    return;
+                }
+                _opened = true; // set first: a failed begin is not retried
+                if (_ignoreHostErrors) {
+                    try {
+                        _paramSet.beginEditBlock(_name);
+                    } catch (const OFX::Exception::Suite&) {
+                        return; // the host refused it: no edit block
+                    }
+                } else {
+                    _paramSet.beginEditBlock(_name);
+                }
+                _begun = true;
+            }
+
         private:
             // not copyable: each copy would end the edit block (C.21, R.1)
             EditBlock(const EditBlock &); // not defined: not copyable
             EditBlock &operator=(const EditBlock &); // not defined: not copyable
+            // not defined: EditBlock(paramSet, name, eHostErrorsIgnore) and the swapped
+            // EditBlock(paramSet, name, eHostErrorsIgnore, eBeginOnChange) would convert the first
+            // enum to bool cond; pass the BeginEnum first
+            EditBlock(ParamSet& paramSet, const std::string &name, HostErrorsEnum hostErrors);
+            EditBlock(ParamSet& paramSet, const std::string &name, HostErrorsEnum hostErrors, BeginEnum begin);
 
             ParamSet& _paramSet;
-            bool _cond;
+            const std::string _name;
+            const bool _cond;
+            const bool _ignoreHostErrors;
+            bool _opened; ///< open() was called
+            bool _begun;  ///< the host began the edit block: the destructor ends it
         };
     };
 };
