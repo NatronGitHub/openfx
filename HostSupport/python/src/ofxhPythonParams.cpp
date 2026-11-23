@@ -21,6 +21,7 @@
 #include <cmath>
 #include <iterator>
 #include <map>
+#include <type_traits>
 #include <vector>
 
 #include "ofxParametricParam.h"  // kOfxParamTypeParametric
@@ -70,7 +71,8 @@ static std::vector<double> numericDefault(const P::Descriptor &d, const PyEffect
   const OH::Property::Set &props = d.getProperties();
   std::vector<double> v(n);
   for (int k = 0; k < n; ++k) {
-    v[k] = isDouble ? props.getDoubleProperty(kOfxParamPropDefault, k) : (double)props.getIntProperty(kOfxParamPropDefault, k);
+    v[k] = isDouble ? props.getDoubleProperty(kOfxParamPropDefault, k)
+                    : static_cast<double>(props.getIntProperty(kOfxParamPropDefault, k));
   }
   if (isDouble && e) {
     double w, h, ox, oy;
@@ -101,12 +103,12 @@ static bool isFinite(double v) { return !OFX::IsNaN(v) && !OFX::IsInfinite(v); }
 class Curve {
 public:
   enum Interpolation { eLinear, eLinearRounded, eConstant };
-  typedef std::map<OfxTime, std::vector<double> > Keys;
+  using Keys = std::map<OfxTime, std::vector<double> >;
 
   Curve(PyEffectInstance *effect, const P::Descriptor &descriptor, Interpolation interpolation,
         const std::vector<double> &defaultValue)
     : _effect(effect)
-    , _dimension((int)defaultValue.size())
+    , _dimension(static_cast<int>(defaultValue.size()))
     , _interpolation(interpolation)
     , _animates(descriptor.getProperties().getIntProperty(kOfxParamPropAnimates) != 0)
     , _value(defaultValue)
@@ -241,13 +243,13 @@ public:
 
   OfxStatus getNumKeys(unsigned int &nKeys) const
   {
-    nKeys = (unsigned int)_keys.size();
+    nKeys = static_cast<unsigned int>(_keys.size());
     return kOfxStatOK;
   }
 
   OfxStatus getKeyTime(int nth, OfxTime &time) const
   {
-    if (nth < 0 || nth >= (int)_keys.size()) {
+    if (nth < 0 || nth >= static_cast<int>(_keys.size())) {
       return kOfxStatErrBadIndex;  // "the nthKey does not exist"
     }
     Keys::const_iterator it = _keys.begin();
@@ -273,7 +275,7 @@ public:
     if (it == _keys.end()) {
       return kOfxStatFailed;  // "the search failed to find a key"
     }
-    index = (int)std::distance(_keys.begin(), it);
+    index = static_cast<int>(std::distance(_keys.begin(), it));
     return kOfxStatOK;
   }
 
@@ -325,71 +327,66 @@ private:
 // ---------------------------------------------------------------------------------------------
 // The stored-value C++ parameters
 
-// the KeyframeParam functions of the animatable parameters
-#define OFXH_CURVE_METHODS                                                                                    \
-  virtual OfxStatus getNumKeys(unsigned int &n) const { return _curve.getNumKeys(n); }                        \
-  virtual OfxStatus getKeyTime(int nth, OfxTime &t) const { return _curve.getKeyTime(nth, t); }               \
-  virtual OfxStatus getKeyIndex(OfxTime t, int dir, int &i) const { return _curve.getKeyIndex(t, dir, i); }   \
-  virtual OfxStatus deleteKey(OfxTime t) { return _curve.deleteKey(t); }                                      \
-  virtual OfxStatus deleteAllKeys() { return _curve.deleteAllKeys(); }
-
-class StoredInteger : public P::IntegerInstance {
-  Curve _curve;
+/// an animatable stored parameter: its value is a Curve, which gives the KeyframeParam functions
+template <class Base> class CurveParam : public Base {
 public:
-  StoredInteger(PyEffectInstance *e, P::Descriptor &d)
-    : P::IntegerInstance(d, e), _curve(e, d, Curve::eLinearRounded, numericDefault(d, e, 1, false)) {}
-  virtual OfxStatus get(int &v) { double d; _curve.getCurrent(&d); v = (int)d; return kOfxStatOK; }
-  virtual OfxStatus get(OfxTime t, int &v) { double d; _curve.get(t, &d); v = (int)d; return kOfxStatOK; }
-  virtual OfxStatus set(int v) { const double d = v; return _curve.set(&d); }
-  virtual OfxStatus set(OfxTime t, int v) { const double d = v; return _curve.set(t, &d); }
-  OFXH_CURVE_METHODS
+  CurveParam(PyEffectInstance *e, P::Descriptor &d, Curve::Interpolation interpolation, int n, bool isDouble)
+    : Base(d, e), _curve(e, d, interpolation, numericDefault(d, e, n, isDouble)) {}
+  OfxStatus getNumKeys(unsigned int &n) const override { return _curve.getNumKeys(n); }
+  OfxStatus getKeyTime(int nth, OfxTime &t) const override { return _curve.getKeyTime(nth, t); }
+  OfxStatus getKeyIndex(OfxTime t, int dir, int &i) const override { return _curve.getKeyIndex(t, dir, i); }
+  OfxStatus deleteKey(OfxTime t) override { return _curve.deleteKey(t); }
+  OfxStatus deleteAllKeys() override { return _curve.deleteAllKeys(); }
+
+protected:
+  Curve _curve;
 };
 
-class StoredDouble : public P::DoubleInstance {
-  Curve _curve;
+class StoredInteger : public CurveParam<P::IntegerInstance> {
 public:
-  StoredDouble(PyEffectInstance *e, P::Descriptor &d)
-    : P::DoubleInstance(d, e), _curve(e, d, Curve::eLinear, numericDefault(d, e, 1, true)) {}
-  virtual OfxStatus get(double &v) { _curve.getCurrent(&v); return kOfxStatOK; }
-  virtual OfxStatus get(OfxTime t, double &v) { _curve.get(t, &v); return kOfxStatOK; }
-  virtual OfxStatus set(double v) { return _curve.set(&v); }
-  virtual OfxStatus set(OfxTime t, double v) { return _curve.set(t, &v); }
-  virtual OfxStatus derive(OfxTime t, double &v) { _curve.derive(t, &v); return kOfxStatOK; }
-  virtual OfxStatus integrate(OfxTime t1, OfxTime t2, double &v) { return _curve.integrate(t1, t2, &v); }
-  OFXH_CURVE_METHODS
+  StoredInteger(PyEffectInstance *e, P::Descriptor &d) : CurveParam(e, d, Curve::eLinearRounded, 1, false) {}
+  OfxStatus get(int &v) override { double d; _curve.getCurrent(&d); v = static_cast<int>(d); return kOfxStatOK; }
+  OfxStatus get(OfxTime t, int &v) override { double d; _curve.get(t, &d); v = static_cast<int>(d); return kOfxStatOK; }
+  OfxStatus set(int v) override { const double d = v; return _curve.set(&d); }
+  OfxStatus set(OfxTime t, int v) override { const double d = v; return _curve.set(t, &d); }
 };
 
-class StoredBoolean : public P::BooleanInstance {
-  Curve _curve;
+class StoredDouble : public CurveParam<P::DoubleInstance> {
 public:
-  StoredBoolean(PyEffectInstance *e, P::Descriptor &d)
-    : P::BooleanInstance(d, e), _curve(e, d, Curve::eConstant, numericDefault(d, e, 1, false)) {}
-  virtual OfxStatus get(bool &v) { double d; _curve.getCurrent(&d); v = d != 0.; return kOfxStatOK; }
-  virtual OfxStatus get(OfxTime t, bool &v) { double d; _curve.get(t, &d); v = d != 0.; return kOfxStatOK; }
-  virtual OfxStatus set(bool v) { const double d = v ? 1. : 0.; return _curve.set(&d); }
-  virtual OfxStatus set(OfxTime t, bool v) { const double d = v ? 1. : 0.; return _curve.set(t, &d); }
-  OFXH_CURVE_METHODS
+  StoredDouble(PyEffectInstance *e, P::Descriptor &d) : CurveParam(e, d, Curve::eLinear, 1, true) {}
+  OfxStatus get(double &v) override { _curve.getCurrent(&v); return kOfxStatOK; }
+  OfxStatus get(OfxTime t, double &v) override { _curve.get(t, &v); return kOfxStatOK; }
+  OfxStatus set(double v) override { return _curve.set(&v); }
+  OfxStatus set(OfxTime t, double v) override { return _curve.set(t, &v); }
+  OfxStatus derive(OfxTime t, double &v) override { _curve.derive(t, &v); return kOfxStatOK; }
+  OfxStatus integrate(OfxTime t1, OfxTime t2, double &v) override { return _curve.integrate(t1, t2, &v); }
 };
 
-class StoredChoice : public P::ChoiceInstance {
-  Curve _curve;
-  bool valid(int v) { return v >= 0 && v < (int)getProperties().getDimension(kOfxParamPropChoiceOption); }
+class StoredBoolean : public CurveParam<P::BooleanInstance> {
 public:
-  StoredChoice(PyEffectInstance *e, P::Descriptor &d)
-    : P::ChoiceInstance(d, e), _curve(e, d, Curve::eConstant, numericDefault(d, e, 1, false)) {}
-  virtual OfxStatus get(int &v) { double d; _curve.getCurrent(&d); v = (int)d; return kOfxStatOK; }
-  virtual OfxStatus get(OfxTime t, int &v) { double d; _curve.get(t, &d); v = (int)d; return kOfxStatOK; }
-  virtual OfxStatus set(int v)
+  StoredBoolean(PyEffectInstance *e, P::Descriptor &d) : CurveParam(e, d, Curve::eConstant, 1, false) {}
+  OfxStatus get(bool &v) override { double d; _curve.getCurrent(&d); v = d != 0.; return kOfxStatOK; }
+  OfxStatus get(OfxTime t, bool &v) override { double d; _curve.get(t, &d); v = d != 0.; return kOfxStatOK; }
+  OfxStatus set(bool v) override { const double d = v ? 1. : 0.; return _curve.set(&d); }
+  OfxStatus set(OfxTime t, bool v) override { const double d = v ? 1. : 0.; return _curve.set(t, &d); }
+};
+
+class StoredChoice : public CurveParam<P::ChoiceInstance> {
+  bool valid(int v) { return v >= 0 && v < getProperties().getDimension(kOfxParamPropChoiceOption); }
+public:
+  StoredChoice(PyEffectInstance *e, P::Descriptor &d) : CurveParam(e, d, Curve::eConstant, 1, false) {}
+  OfxStatus get(int &v) override { double d; _curve.getCurrent(&d); v = static_cast<int>(d); return kOfxStatOK; }
+  OfxStatus get(OfxTime t, int &v) override { double d; _curve.get(t, &d); v = static_cast<int>(d); return kOfxStatOK; }
+  OfxStatus set(int v) override
   {
     const double d = v;
     return valid(v) ? _curve.set(&d) : kOfxStatErrValue;
   }
-  virtual OfxStatus set(OfxTime t, int v)
+  OfxStatus set(OfxTime t, int v) override
   {
     const double d = v;
     return valid(v) ? _curve.set(t, &d) : kOfxStatErrValue;
   }
-  OFXH_CURVE_METHODS
 };
 
 // (strings, custom, string choices and bytes don't animate: the host descriptor says so)
@@ -410,9 +407,9 @@ public:
   }
 public:
   StoredStrChoice(PyEffectInstance *e, P::Descriptor &d) : P::StrChoiceInstance(d, e) { _v = getDefaultEnum(); }
-  virtual OfxStatus get(std::string &v) { v = _v; return kOfxStatOK; }
-  virtual OfxStatus get(OfxTime, std::string &v) { v = _v; return kOfxStatOK; }
-  virtual OfxStatus set(const char *v)
+  OfxStatus get(std::string &v) override { v = _v; return kOfxStatOK; }
+  OfxStatus get(OfxTime, std::string &v) override { v = _v; return kOfxStatOK; }
+  OfxStatus set(const char *v) override
   {
     const std::string s = v ? v : "";
     if (!valid(s)) {
@@ -421,7 +418,7 @@ public:
     _v = s;
     return kOfxStatOK;
   }
-  virtual OfxStatus set(OfxTime, const char *v) { return set(v); }
+  OfxStatus set(OfxTime, const char *v) override { return set(v); }
 };
 
 class StoredString : public P::StringInstance {
@@ -431,10 +428,10 @@ public:
   {
     _v = d.getProperties().getStringProperty(kOfxParamPropDefault);
   }
-  virtual OfxStatus get(std::string &v) { v = _v; return kOfxStatOK; }
-  virtual OfxStatus get(OfxTime, std::string &v) { v = _v; return kOfxStatOK; }
-  virtual OfxStatus set(const char *v) { _v = v ? v : ""; return kOfxStatOK; }
-  virtual OfxStatus set(OfxTime, const char *v) { _v = v ? v : ""; return kOfxStatOK; }
+  OfxStatus get(std::string &v) override { v = _v; return kOfxStatOK; }
+  OfxStatus get(OfxTime, std::string &v) override { v = _v; return kOfxStatOK; }
+  OfxStatus set(const char *v) override { _v = v ? v : ""; return kOfxStatOK; }
+  OfxStatus set(OfxTime, const char *v) override { _v = v ? v : ""; return kOfxStatOK; }
 };
 
 class StoredCustom : public P::CustomInstance {
@@ -444,84 +441,107 @@ public:
   {
     _v = d.getProperties().getStringProperty(kOfxParamPropDefault);
   }
-  virtual OfxStatus get(std::string &v) { v = _v; return kOfxStatOK; }
-  virtual OfxStatus get(OfxTime, std::string &v) { v = _v; return kOfxStatOK; }
-  virtual OfxStatus set(const char *v) { _v = v ? v : ""; return kOfxStatOK; }
-  virtual OfxStatus set(OfxTime, const char *v) { _v = v ? v : ""; return kOfxStatOK; }
+  OfxStatus get(std::string &v) override { v = _v; return kOfxStatOK; }
+  OfxStatus get(OfxTime, std::string &v) override { v = _v; return kOfxStatOK; }
+  OfxStatus set(const char *v) override { _v = v ? v : ""; return kOfxStatOK; }
+  OfxStatus set(OfxTime, const char *v) override { _v = v ? v : ""; return kOfxStatOK; }
 };
 
 class StoredBytes : public P::BytesInstance {
   std::vector<unsigned char> _v;
 public:
   StoredBytes(PyEffectInstance *e, P::Descriptor &d) : P::BytesInstance(d, e), _v(getDefault()) {}
-  virtual OfxStatus get(std::vector<unsigned char> &v) { v = _v; return kOfxStatOK; }
-  virtual OfxStatus get(OfxTime, std::vector<unsigned char> &v) { v = _v; return kOfxStatOK; }
-  virtual OfxStatus set(const unsigned char *data, size_t length)
+  OfxStatus get(std::vector<unsigned char> &v) override { v = _v; return kOfxStatOK; }
+  OfxStatus get(OfxTime, std::vector<unsigned char> &v) override { v = _v; return kOfxStatOK; }
+  OfxStatus set(const unsigned char *data, size_t length) override
   {
     _v.assign(data, data + (data ? length : 0));
     return kOfxStatOK;
   }
-  virtual OfxStatus set(OfxTime, const unsigned char *data, size_t length) { return set(data, length); }
+  OfxStatus set(OfxTime, const unsigned char *data, size_t length) override { return set(data, length); }
 };
 
-// the multi-dimensional ones; the double ones derive and integrate their curve (as hostDemo), the
-// integer ones keep HostSupport's defaults
-#define OFXH_STORED_N(Name, Base, T, N, interp, isDouble, DERIVE)                                     \
-  class Name : public Base {                                                                         \
-    Curve _curve;                                                                                    \
+/// a multi-dimensional stored parameter: getAt() and setAt() for the overrides of its arity
+template <class Base, class T, int N> class StoredN : public CurveParam<Base> {
+public:
+  StoredN(PyEffectInstance *e, P::Descriptor &d, Curve::Interpolation interpolation)
+    : CurveParam<Base>(e, d, interpolation, N, std::is_same<T, double>::value) {}
+
+protected:
+  OfxStatus getAt(const OfxTime *t, T *v)
+  {
+    double d[N];
+    if (t) {
+      this->_curve.get(*t, d);
+    } else {
+      this->_curve.getCurrent(d);
+    }
+    for (int k = 0; k < N; ++k) {
+      v[k] = static_cast<T>(d[k]);
+    }
+    return kOfxStatOK;
+  }
+  OfxStatus setAt(const OfxTime *t, const T *v)
+  {
+    double d[N];
+    for (int k = 0; k < N; ++k) {
+      d[k] = static_cast<double>(v[k]);
+    }
+    return t ? this->_curve.set(*t, d) : this->_curve.set(d);
+  }
+};
+
+// The overrides of each arity, which call getAt() and setAt() (and derive and integrate the
+// curve, for the double ones, as hostDemo; the integer ones keep HostSupport's defaults). Macros,
+// for brevity: partial specializations of a template on N could declare them too, but that takes
+// 3 specializations here and 3 for the Python parameters (OFXH_PY_N), plus a chain of aliases,
+// against these twelve one-line uses. #undef'd after their last use.
+#define OFXH_STORED_N(Name, Base, T, N, interpolation, DERIVE)                                        \
+  class Name : public StoredN<Base, T, N> {                                                          \
   public:                                                                                            \
-    Name(PyEffectInstance *e, P::Descriptor &d) : Base(d, e), _curve(e, d, interp, numericDefault(d, e, N, isDouble)) {} \
-    OfxStatus getAt(const OfxTime *t, T *v)                                                          \
-    {                                                                                                \
-      double d[N];                                                                                   \
-      if (t) _curve.get(*t, d); else _curve.getCurrent(d);                                           \
-      for (int k = 0; k < N; ++k) v[k] = (T)d[k];                                                    \
-      return kOfxStatOK;                                                                             \
-    }                                                                                                \
-    OfxStatus setAt(const OfxTime *t, const T *v)                                                    \
-    {                                                                                                \
-      double d[N];                                                                                   \
-      for (int k = 0; k < N; ++k) d[k] = (double)v[k];                                               \
-      return t ? _curve.set(*t, d) : _curve.set(d);                                                  \
-    }                                                                                                \
+    Name(PyEffectInstance *e, P::Descriptor &d) : StoredN(e, d, interpolation) {}                    \
     OFXH_SIGNATURES_##N(T)                                                                           \
     DERIVE                                                                                           \
-    OFXH_CURVE_METHODS                                                                               \
   };
 
 #define OFXH_SIGNATURES_2(T)                                                                          \
-  virtual OfxStatus get(T &x, T &y) { T v[2]; OfxStatus s = getAt(NULL, v); x = v[0]; y = v[1]; return s; }                  \
-  virtual OfxStatus get(OfxTime t, T &x, T &y) { T v[2]; OfxStatus s = getAt(&t, v); x = v[0]; y = v[1]; return s; }         \
-  virtual OfxStatus set(T x, T y) { const T v[2] = {x, y}; return setAt(NULL, v); }                                          \
-  virtual OfxStatus set(OfxTime t, T x, T y) { const T v[2] = {x, y}; return setAt(&t, v); }
+  OfxStatus get(T &x, T &y) override { T v[2] = {}; OfxStatus s = getAt(nullptr, v); x = v[0]; y = v[1]; return s; }             \
+  OfxStatus get(OfxTime t, T &x, T &y) override { T v[2] = {}; OfxStatus s = getAt(&t, v); x = v[0]; y = v[1]; return s; }       \
+  OfxStatus set(T x, T y) override { const T v[2] = {x, y}; return setAt(nullptr, v); }                                     \
+  OfxStatus set(OfxTime t, T x, T y) override { const T v[2] = {x, y}; return setAt(&t, v); }
 #define OFXH_SIGNATURES_3(T)                                                                          \
-  virtual OfxStatus get(T &x, T &y, T &z) { T v[3]; OfxStatus s = getAt(NULL, v); x = v[0]; y = v[1]; z = v[2]; return s; }  \
-  virtual OfxStatus get(OfxTime t, T &x, T &y, T &z) { T v[3]; OfxStatus s = getAt(&t, v); x = v[0]; y = v[1]; z = v[2]; return s; } \
-  virtual OfxStatus set(T x, T y, T z) { const T v[3] = {x, y, z}; return setAt(NULL, v); }                                  \
-  virtual OfxStatus set(OfxTime t, T x, T y, T z) { const T v[3] = {x, y, z}; return setAt(&t, v); }
+  OfxStatus get(T &x, T &y, T &z) override { T v[3] = {}; OfxStatus s = getAt(nullptr, v); x = v[0]; y = v[1]; z = v[2]; return s; } \
+  OfxStatus get(OfxTime t, T &x, T &y, T &z) override { T v[3] = {}; OfxStatus s = getAt(&t, v); x = v[0]; y = v[1]; z = v[2]; return s; } \
+  OfxStatus set(T x, T y, T z) override { const T v[3] = {x, y, z}; return setAt(nullptr, v); }                             \
+  OfxStatus set(OfxTime t, T x, T y, T z) override { const T v[3] = {x, y, z}; return setAt(&t, v); }
 #define OFXH_SIGNATURES_4(T)                                                                          \
-  virtual OfxStatus get(T &x, T &y, T &z, T &w) { T v[4]; OfxStatus s = getAt(NULL, v); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return s; } \
-  virtual OfxStatus get(OfxTime t, T &x, T &y, T &z, T &w) { T v[4]; OfxStatus s = getAt(&t, v); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return s; } \
-  virtual OfxStatus set(T x, T y, T z, T w) { const T v[4] = {x, y, z, w}; return setAt(NULL, v); }                         \
-  virtual OfxStatus set(OfxTime t, T x, T y, T z, T w) { const T v[4] = {x, y, z, w}; return setAt(&t, v); }
+  OfxStatus get(T &x, T &y, T &z, T &w) override { T v[4] = {}; OfxStatus s = getAt(nullptr, v); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return s; } \
+  OfxStatus get(OfxTime t, T &x, T &y, T &z, T &w) override { T v[4] = {}; OfxStatus s = getAt(&t, v); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return s; } \
+  OfxStatus set(T x, T y, T z, T w) override { const T v[4] = {x, y, z, w}; return setAt(nullptr, v); }                    \
+  OfxStatus set(OfxTime t, T x, T y, T z, T w) override { const T v[4] = {x, y, z, w}; return setAt(&t, v); }
 
 #define OFXH_DERIVE_2                                                                                  \
-  virtual OfxStatus derive(OfxTime t, double &x, double &y) { double v[2]; _curve.derive(t, v); x = v[0]; y = v[1]; return kOfxStatOK; } \
-  virtual OfxStatus integrate(OfxTime t1, OfxTime t2, double &x, double &y) { double v[2]; OfxStatus s = _curve.integrate(t1, t2, v); x = v[0]; y = v[1]; return s; }
+  OfxStatus derive(OfxTime t, double &x, double &y) override { double v[2]; _curve.derive(t, v); x = v[0]; y = v[1]; return kOfxStatOK; } \
+  OfxStatus integrate(OfxTime t1, OfxTime t2, double &x, double &y) override { double v[2]; OfxStatus s = _curve.integrate(t1, t2, v); x = v[0]; y = v[1]; return s; }
 #define OFXH_DERIVE_3                                                                                  \
-  virtual OfxStatus derive(OfxTime t, double &x, double &y, double &z) { double v[3]; _curve.derive(t, v); x = v[0]; y = v[1]; z = v[2]; return kOfxStatOK; } \
-  virtual OfxStatus integrate(OfxTime t1, OfxTime t2, double &x, double &y, double &z) { double v[3]; OfxStatus s = _curve.integrate(t1, t2, v); x = v[0]; y = v[1]; z = v[2]; return s; }
+  OfxStatus derive(OfxTime t, double &x, double &y, double &z) override { double v[3]; _curve.derive(t, v); x = v[0]; y = v[1]; z = v[2]; return kOfxStatOK; } \
+  OfxStatus integrate(OfxTime t1, OfxTime t2, double &x, double &y, double &z) override { double v[3]; OfxStatus s = _curve.integrate(t1, t2, v); x = v[0]; y = v[1]; z = v[2]; return s; }
 #define OFXH_DERIVE_4                                                                                  \
-  virtual OfxStatus derive(OfxTime t, double &x, double &y, double &z, double &w) { double v[4]; _curve.derive(t, v); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return kOfxStatOK; } \
-  virtual OfxStatus integrate(OfxTime t1, OfxTime t2, double &x, double &y, double &z, double &w) { double v[4]; OfxStatus s = _curve.integrate(t1, t2, v); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return s; }
+  OfxStatus derive(OfxTime t, double &x, double &y, double &z, double &w) override { double v[4]; _curve.derive(t, v); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return kOfxStatOK; } \
+  OfxStatus integrate(OfxTime t1, OfxTime t2, double &x, double &y, double &z, double &w) override { double v[4]; OfxStatus s = _curve.integrate(t1, t2, v); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return s; }
 #define OFXH_NO_DERIVE
 
-OFXH_STORED_N(StoredRGBA, P::RGBAInstance, double, 4, Curve::eLinear, true, OFXH_DERIVE_4)
-OFXH_STORED_N(StoredRGB, P::RGBInstance, double, 3, Curve::eLinear, true, OFXH_DERIVE_3)
-OFXH_STORED_N(StoredDouble2D, P::Double2DInstance, double, 2, Curve::eLinear, true, OFXH_DERIVE_2)
-OFXH_STORED_N(StoredDouble3D, P::Double3DInstance, double, 3, Curve::eLinear, true, OFXH_DERIVE_3)
-OFXH_STORED_N(StoredInteger2D, P::Integer2DInstance, int, 2, Curve::eLinearRounded, false, OFXH_NO_DERIVE)
-OFXH_STORED_N(StoredInteger3D, P::Integer3DInstance, int, 3, Curve::eLinearRounded, false, OFXH_NO_DERIVE)
+OFXH_STORED_N(StoredRGBA, P::RGBAInstance, double, 4, Curve::eLinear, OFXH_DERIVE_4)
+OFXH_STORED_N(StoredRGB, P::RGBInstance, double, 3, Curve::eLinear, OFXH_DERIVE_3)
+OFXH_STORED_N(StoredDouble2D, P::Double2DInstance, double, 2, Curve::eLinear, OFXH_DERIVE_2)
+OFXH_STORED_N(StoredDouble3D, P::Double3DInstance, double, 3, Curve::eLinear, OFXH_DERIVE_3)
+OFXH_STORED_N(StoredInteger2D, P::Integer2DInstance, int, 2, Curve::eLinearRounded, OFXH_NO_DERIVE)
+OFXH_STORED_N(StoredInteger3D, P::Integer3DInstance, int, 3, Curve::eLinearRounded, OFXH_NO_DERIVE)
+#undef OFXH_STORED_N
+#undef OFXH_DERIVE_2
+#undef OFXH_DERIVE_3
+#undef OFXH_DERIVE_4
+#undef OFXH_NO_DERIVE
 
 P::Instance *newStoredParam(PyEffectInstance *e, P::Descriptor &d)
 {
@@ -543,7 +563,7 @@ P::Instance *newStoredParam(PyEffectInstance *e, P::Descriptor &d)
   if (t == kOfxParamTypePushButton) return new P::PushbuttonInstance(d, e);
   if (t == kOfxParamTypeGroup) return new P::GroupInstance(d, e);
   if (t == kOfxParamTypePage) return new P::PageInstance(d, e);
-  return NULL;  // e.g. parametric parameters: newParam() saves the error
+  return nullptr;  // e.g. parametric parameters: newParam() saves the error
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -555,7 +575,7 @@ P::Instance *ParamBase::get() const
   if (!ref->p) {
     raiseDeleted("ofxh.Param");
   }
-  return static_cast<P::Instance *>(ref->p);
+  return ref->as<P::Instance>();
 }
 
 PyParamCore *ParamBase::core() const { return dynamic_cast<PyParamCore *>(get()); }
@@ -644,7 +664,7 @@ template <class T> static void fromPython(nb::handle r, T *v, int n, const P::In
                                   nb::cast<std::string>(nb::str(r.type())));
     }
     const nb::tuple t = nb::tuple(r);
-    if ((int)t.size() != n) {
+    if (static_cast<int>(t.size()) != n) {
       raiseValue(where + "must return " + std::to_string(n) + " values");
     }
     for (int k = 0; k < n; ++k) {
@@ -668,63 +688,63 @@ template <class T> static nb::object toPython(const T *v, int n)
   return nb::tuple(l);
 }
 
-// the calls into Python (each one a whole OFXH_CALL)
+// the calls into Python (each one a whole callPython())
 
 template <class T> static OfxStatus pyGet(const PyParamCore &c, const OfxTime *t, T *v, int n)
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
+  return callPython(StatusFallback{kOfxStatFailed}, [&] {
     fromPython(c._py.attr("get")(getTime(c, t)), v, n, *c._self, "get");
     return kOfxStatOK;
-  )
+  });
 }
 
 template <class T> static OfxStatus pySet(const PyParamCore &c, const OfxTime *t, const T *v, int n)
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
+  return callPython(StatusFallback{kOfxStatFailed}, [&] {
     return statusFromResult(c._py.attr("set")(toPython(v, n), timeArg(t)));
-  )
+  });
 }
 
 template <class T> static OfxStatus pyDerive(const PyParamCore &c, OfxTime t, T *v, int n)
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
+  return callPython(StatusFallback{kOfxStatFailed}, [&] {
     fromPython(c._py.attr("derive")(t), v, n, *c._self, "derive");
     return kOfxStatOK;
-  )
+  });
 }
 
 template <class T> static OfxStatus pyIntegrate(const PyParamCore &c, OfxTime t1, OfxTime t2, T *v, int n)
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
+  return callPython(StatusFallback{kOfxStatFailed}, [&] {
     fromPython(c._py.attr("integrate")(t1, t2), v, n, *c._self, "integrate");
     return kOfxStatOK;
-  )
+  });
 }
 
 static OfxStatus pyNumKeys(const PyParamCore &c, unsigned int &n)
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
+  return callPython(StatusFallback{kOfxStatFailed}, [&] {
     const int k = nb::cast<int>(c._py.attr("num_keys")());
     if (k < 0) {
       raiseValue("parameter " + c._self->getName() + ": num_keys() < 0");
     }
-    n = (unsigned int)k;
+    n = static_cast<unsigned int>(k);
     return kOfxStatOK;
-  )
+  });
 }
 
 static OfxStatus pyKeyTime(const PyParamCore &c, int nth, OfxTime &t)
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
+  return callPython(StatusFallback{kOfxStatFailed}, [&] {
     t = nb::cast<double>(c._py.attr("key_time")(nth));
     return kOfxStatOK;
-  )
+  });
 }
 
 static OfxStatus pyKeyIndex(const PyParamCore &c, OfxTime t, int direction, int &index)
 {
   index = -1;
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
+  return callPython(StatusFallback{kOfxStatFailed}, [&] {
     nb::object r = c._py.attr("key_index")(t, direction);
     index = r.is_none() ? -1 : nb::cast<int>(r);
     if (index < 0) {
@@ -732,172 +752,187 @@ static OfxStatus pyKeyIndex(const PyParamCore &c, OfxTime t, int direction, int 
       return kOfxStatFailed;  // "the search failed to find a key"
     }
     return kOfxStatOK;
-  )
+  });
 }
 
 static OfxStatus pyCall(const PyParamCore &c, const char *method, const OfxTime *t)
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
+  return callPython(StatusFallback{kOfxStatFailed}, [&] {
     return statusFromResult(t ? c._py.attr(method)(*t) : c._py.attr(method)());
-  )
+  });
 }
 
 static void pyChanged(const PyParamCore &c, const std::string &name)
 {
-  OFXH_CALL(Void(), c._py.attr("changed")(name);)
+  callPython(Void(), [&] { c._py.attr("changed")(name); });
 }
 
-// the members that every Python parameter adapter has
-#define OFXH_PY_COMMON(Name, Base)                                                                    \
-public:                                                                                              \
-  Name(PyEffectInstance *e, P::Descriptor &d, nb::object py, RefPtr ref)                             \
-    : Base(d, e), PyParamCore(e, this, std::move(py), std::move(ref)) {}                             \
-  /* the setEnabled/setSecret/... notifications: changed(property name), after HostSupport's */      \
-  virtual void notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC             \
-  {                                                                                                  \
-    Base::notify(name, single, num);                                                                 \
-    pyChanged(*this, name);                                                                          \
+/// what every Python parameter adapter has: its HostSupport class, and PyParamCore
+template <class Base> class PyParam : public Base, public PyParamCore {
+public:
+  PyParam(PyEffectInstance *e, P::Descriptor &d, nb::object py, RefPtr ref)
+    : Base(d, e), PyParamCore(e, this, std::move(py), std::move(ref)) {}
+  /// the setEnabled/setSecret/... notifications: changed(property name), after HostSupport's
+  void notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC override
+  {
+    Base::notify(name, single, num);
+    pyChanged(*this, name);
   }
-#define OFXH_PY_KEYS                                                                                  \
-  virtual OfxStatus getNumKeys(unsigned int &n) const { return pyNumKeys(*this, n); }                 \
-  virtual OfxStatus getKeyTime(int nth, OfxTime &t) const { return pyKeyTime(*this, nth, t); }        \
-  virtual OfxStatus getKeyIndex(OfxTime t, int d, int &i) const { return pyKeyIndex(*this, t, d, i); } \
-  virtual OfxStatus deleteKey(OfxTime t) { return pyCall(*this, "delete_key", &t); }                  \
-  virtual OfxStatus deleteAllKeys() { return pyCall(*this, "delete_all_keys", NULL); }
+};
 
-#define OFXH_PY_SCALAR(Name, Base, T)                                                                 \
-  class Name : public Base, public PyParamCore {                                                     \
-    OFXH_PY_COMMON(Name, Base)                                                                       \
-    OFXH_PY_KEYS                                                                                     \
-    virtual OfxStatus get(T &v) { return pyGet<T>(*this, NULL, &v, 1); }                             \
-    virtual OfxStatus get(OfxTime t, T &v) { return pyGet<T>(*this, &t, &v, 1); }                    \
-    virtual OfxStatus set(T v) { return pySet<T>(*this, NULL, &v, 1); }                              \
-    virtual OfxStatus set(OfxTime t, T v) { return pySet<T>(*this, &t, &v, 1); }                     \
-    OFXH_PY_DERIVE_1(T)                                                                              \
-  };
-#define OFXH_PY_DERIVE_1(T)                                                                           \
-    virtual OfxStatus derive(OfxTime t, T &v) { return pyDerive<T>(*this, t, &v, 1); }               \
-    virtual OfxStatus integrate(OfxTime t1, OfxTime t2, T &v) { return pyIntegrate<T>(*this, t1, t2, &v, 1); }
+/// a Python parameter with keys: the KeyframeParam functions call its methods
+template <class Base> class PyKeyedParam : public PyParam<Base> {
+public:
+  using PyParam<Base>::PyParam;
+  OfxStatus getNumKeys(unsigned int &n) const override { return pyNumKeys(*this, n); }
+  OfxStatus getKeyTime(int nth, OfxTime &t) const override { return pyKeyTime(*this, nth, t); }
+  OfxStatus getKeyIndex(OfxTime t, int d, int &i) const override { return pyKeyIndex(*this, t, d, i); }
+  OfxStatus deleteKey(OfxTime t) override { return pyCall(*this, "delete_key", &t); }
+  OfxStatus deleteAllKeys() override { return pyCall(*this, "delete_all_keys", nullptr); }
+};
 
-OFXH_PY_SCALAR(PyInteger, P::IntegerInstance, int)
-OFXH_PY_SCALAR(PyDouble, P::DoubleInstance, double)
-#undef OFXH_PY_DERIVE_1
-#define OFXH_PY_DERIVE_1(T)
-OFXH_PY_SCALAR(PyBoolean, P::BooleanInstance, bool)
-OFXH_PY_SCALAR(PyChoice, P::ChoiceInstance, int)
-#undef OFXH_PY_DERIVE_1
+/// the Python parameters of one value of type T
+template <class Base, class T> class PyScalar : public PyKeyedParam<Base> {
+public:
+  using PyKeyedParam<Base>::PyKeyedParam;
+  OfxStatus get(T &v) override { return pyGet<T>(*this, nullptr, &v, 1); }
+  OfxStatus get(OfxTime t, T &v) override { return pyGet<T>(*this, &t, &v, 1); }
+  OfxStatus set(T v) override { return pySet<T>(*this, nullptr, &v, 1); }
+  OfxStatus set(OfxTime t, T v) override { return pySet<T>(*this, &t, &v, 1); }
+};
 
-#define OFXH_PY_STRING(Name, Base)                                                                    \
-  class Name : public Base, public PyParamCore {                                                     \
-    OFXH_PY_COMMON(Name, Base)                                                                       \
-    OFXH_PY_KEYS                                                                                     \
-    virtual OfxStatus get(std::string &v) { return pyGet<std::string>(*this, NULL, &v, 1); }         \
-    virtual OfxStatus get(OfxTime t, std::string &v) { return pyGet<std::string>(*this, &t, &v, 1); } \
-    virtual OfxStatus set(const char *v) { const std::string s(v ? v : ""); return pySet<std::string>(*this, NULL, &s, 1); } \
-    virtual OfxStatus set(OfxTime t, const char *v) { const std::string s(v ? v : ""); return pySet<std::string>(*this, &t, &s, 1); } \
-  };
-OFXH_PY_STRING(PyStrChoice, P::StrChoiceInstance)
-OFXH_PY_STRING(PyString, P::StringInstance)
-OFXH_PY_STRING(PyCustom, P::CustomInstance)
+/// the integer and double ones, which derive and integrate too
+template <class Base, class T> class PyNumber : public PyScalar<Base, T> {
+public:
+  using PyScalar<Base, T>::PyScalar;
+  OfxStatus derive(OfxTime t, T &v) override { return pyDerive<T>(*this, t, &v, 1); }
+  OfxStatus integrate(OfxTime t1, OfxTime t2, T &v) override { return pyIntegrate<T>(*this, t1, t2, &v, 1); }
+};
+
+using PyInteger = PyNumber<P::IntegerInstance, int>;
+using PyDouble = PyNumber<P::DoubleInstance, double>;
+using PyBoolean = PyScalar<P::BooleanInstance, bool>;
+using PyChoice = PyScalar<P::ChoiceInstance, int>;
+
+/// the string, custom and string choice Python parameters
+template <class Base> class PyStringParam : public PyKeyedParam<Base> {
+public:
+  using PyKeyedParam<Base>::PyKeyedParam;
+  OfxStatus get(std::string &v) override { return pyGet<std::string>(*this, nullptr, &v, 1); }
+  OfxStatus get(OfxTime t, std::string &v) override { return pyGet<std::string>(*this, &t, &v, 1); }
+  OfxStatus set(const char *v) override { const std::string s(v ? v : ""); return pySet<std::string>(*this, nullptr, &s, 1); }
+  OfxStatus set(OfxTime t, const char *v) override { const std::string s(v ? v : ""); return pySet<std::string>(*this, &t, &s, 1); }
+};
+
+using PyStrChoice = PyStringParam<P::StrChoiceInstance>;
+using PyString = PyStringParam<P::StringInstance>;
+using PyCustom = PyStringParam<P::CustomInstance>;
 
 static std::vector<unsigned char> bytesFrom(nb::handle r)
 {
   // bytes, bytearray, memoryview, a list of ints...: what bytes() takes
-  nb::object b = nb::borrow((PyObject *)&PyBytes_Type)(r);
-  char *data = NULL;
+  nb::object b = nb::borrow(reinterpret_cast<PyObject *>(&PyBytes_Type))(r);
+  char *data = nullptr;
   Py_ssize_t n = 0;
   if (PyBytes_AsStringAndSize(b.ptr(), &data, &n) != 0) {
     throw nb::python_error();
   }
-  return std::vector<unsigned char>((unsigned char *)data, (unsigned char *)data + n);
+  const unsigned char *bytes = reinterpret_cast<const unsigned char *>(data);
+  return std::vector<unsigned char>(bytes, bytes + n);
 }
 
-class PyBytes : public P::BytesInstance, public PyParamCore {
-  OFXH_PY_COMMON(PyBytes, P::BytesInstance)
-  OFXH_PY_KEYS
+class PyBytes : public PyKeyedParam<P::BytesInstance> {
+public:
+  using PyKeyedParam::PyKeyedParam;
+  OfxStatus get(std::vector<unsigned char> &v) override { return getAt(nullptr, v); }
+  OfxStatus get(OfxTime t, std::vector<unsigned char> &v) override { return getAt(&t, v); }
+  OfxStatus set(const unsigned char *data, size_t length) override { return setAt(nullptr, data, length); }
+  OfxStatus set(OfxTime t, const unsigned char *data, size_t length) override { return setAt(&t, data, length); }
+
+private:
   OfxStatus getAt(const OfxTime *t, std::vector<unsigned char> &v)
   {
-    OFXH_CALL(StatusFallback{kOfxStatFailed},
+    return callPython(StatusFallback{kOfxStatFailed}, [&] {
       v = bytesFrom(_py.attr("get")(getTime(*this, t)));
       return kOfxStatOK;
-    )
+    });
   }
   OfxStatus setAt(const OfxTime *t, const unsigned char *data, size_t length)
   {
-    OFXH_CALL(StatusFallback{kOfxStatFailed},
-      return statusFromResult(_py.attr("set")(nb::bytes(data ? (const char *)data : "", data ? length : 0), timeArg(t)));
-    )
+    return callPython(StatusFallback{kOfxStatFailed}, [&] {
+      const char *chars = data ? reinterpret_cast<const char *>(data) : "";
+      return statusFromResult(_py.attr("set")(nb::bytes(chars, data ? length : 0), timeArg(t)));
+    });
   }
-  virtual OfxStatus get(std::vector<unsigned char> &v) { return getAt(NULL, v); }
-  virtual OfxStatus get(OfxTime t, std::vector<unsigned char> &v) { return getAt(&t, v); }
-  virtual OfxStatus set(const unsigned char *data, size_t length) { return setAt(NULL, data, length); }
-  virtual OfxStatus set(OfxTime t, const unsigned char *data, size_t length) { return setAt(&t, data, length); }
 };
 
-#define OFXH_PY_N(Name, Base, T, N, DERIVE)                                                           \
-  class Name : public Base, public PyParamCore {                                                     \
-    OFXH_PY_COMMON(Name, Base)                                                                       \
-    OFXH_PY_KEYS                                                                                     \
-    OfxStatus getAt(const OfxTime *t, T *v) { return pyGet<T>(*this, t, v, N); }                     \
-    OfxStatus setAt(const OfxTime *t, const T *v) { return pySet<T>(*this, t, v, N); }               \
+/// a multi-dimensional Python parameter: getAt() and setAt() for the overrides of its arity
+template <class Base, class T, int N> class PyN : public PyKeyedParam<Base> {
+public:
+  using PyKeyedParam<Base>::PyKeyedParam;
+
+protected:
+  OfxStatus getAt(const OfxTime *t, T *v) { return pyGet<T>(*this, t, v, N); }
+  OfxStatus setAt(const OfxTime *t, const T *v) { return pySet<T>(*this, t, v, N); }
+};
+
+// the overrides of each arity (macros, for the reason given at OFXH_STORED_N)
+#define OFXH_PY_N(Name, Base, T, N)                                                                   \
+  class Name : public PyN<Base, T, N> {                                                              \
+  public:                                                                                            \
+    using PyN::PyN;                                                                                  \
     OFXH_SIGNATURES_##N(T)                                                                           \
-    DERIVE(T, N)                                                                                     \
+    OFXH_PY_DERIVE_##N(T)                                                                            \
   };
-#define OFXH_PY_DERIVE(T, N) OFXH_PY_DERIVE_##N(T)
 #define OFXH_PY_DERIVE_2(T)                                                                           \
-  virtual OfxStatus derive(OfxTime t, T &x, T &y) { T v[2]; OfxStatus s = pyDerive<T>(*this, t, v, 2); x = v[0]; y = v[1]; return s; } \
-  virtual OfxStatus integrate(OfxTime t1, OfxTime t2, T &x, T &y) { T v[2]; OfxStatus s = pyIntegrate<T>(*this, t1, t2, v, 2); x = v[0]; y = v[1]; return s; }
+  OfxStatus derive(OfxTime t, T &x, T &y) override { T v[2] = {}; OfxStatus s = pyDerive<T>(*this, t, v, 2); x = v[0]; y = v[1]; return s; } \
+  OfxStatus integrate(OfxTime t1, OfxTime t2, T &x, T &y) override { T v[2] = {}; OfxStatus s = pyIntegrate<T>(*this, t1, t2, v, 2); x = v[0]; y = v[1]; return s; }
 #define OFXH_PY_DERIVE_3(T)                                                                           \
-  virtual OfxStatus derive(OfxTime t, T &x, T &y, T &z) { T v[3]; OfxStatus s = pyDerive<T>(*this, t, v, 3); x = v[0]; y = v[1]; z = v[2]; return s; } \
-  virtual OfxStatus integrate(OfxTime t1, OfxTime t2, T &x, T &y, T &z) { T v[3]; OfxStatus s = pyIntegrate<T>(*this, t1, t2, v, 3); x = v[0]; y = v[1]; z = v[2]; return s; }
+  OfxStatus derive(OfxTime t, T &x, T &y, T &z) override { T v[3] = {}; OfxStatus s = pyDerive<T>(*this, t, v, 3); x = v[0]; y = v[1]; z = v[2]; return s; } \
+  OfxStatus integrate(OfxTime t1, OfxTime t2, T &x, T &y, T &z) override { T v[3] = {}; OfxStatus s = pyIntegrate<T>(*this, t1, t2, v, 3); x = v[0]; y = v[1]; z = v[2]; return s; }
 #define OFXH_PY_DERIVE_4(T)                                                                           \
-  virtual OfxStatus derive(OfxTime t, T &x, T &y, T &z, T &w) { T v[4]; OfxStatus s = pyDerive<T>(*this, t, v, 4); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return s; } \
-  virtual OfxStatus integrate(OfxTime t1, OfxTime t2, T &x, T &y, T &z, T &w) { T v[4]; OfxStatus s = pyIntegrate<T>(*this, t1, t2, v, 4); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return s; }
+  OfxStatus derive(OfxTime t, T &x, T &y, T &z, T &w) override { T v[4] = {}; OfxStatus s = pyDerive<T>(*this, t, v, 4); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return s; } \
+  OfxStatus integrate(OfxTime t1, OfxTime t2, T &x, T &y, T &z, T &w) override { T v[4] = {}; OfxStatus s = pyIntegrate<T>(*this, t1, t2, v, 4); x = v[0]; y = v[1]; z = v[2]; w = v[3]; return s; }
 
-OFXH_PY_N(PyRGBA, P::RGBAInstance, double, 4, OFXH_PY_DERIVE)
-OFXH_PY_N(PyRGB, P::RGBInstance, double, 3, OFXH_PY_DERIVE)
-OFXH_PY_N(PyDouble2D, P::Double2DInstance, double, 2, OFXH_PY_DERIVE)
-OFXH_PY_N(PyInteger2D, P::Integer2DInstance, int, 2, OFXH_PY_DERIVE)
-OFXH_PY_N(PyDouble3D, P::Double3DInstance, double, 3, OFXH_PY_DERIVE)
-OFXH_PY_N(PyInteger3D, P::Integer3DInstance, int, 3, OFXH_PY_DERIVE)
+OFXH_PY_N(PyRGBA, P::RGBAInstance, double, 4)
+OFXH_PY_N(PyRGB, P::RGBInstance, double, 3)
+OFXH_PY_N(PyDouble2D, P::Double2DInstance, double, 2)
+OFXH_PY_N(PyInteger2D, P::Integer2DInstance, int, 2)
+OFXH_PY_N(PyDouble3D, P::Double3DInstance, double, 3)
+OFXH_PY_N(PyInteger3D, P::Integer3DInstance, int, 3)
+#undef OFXH_PY_N
+#undef OFXH_PY_DERIVE_2
+#undef OFXH_PY_DERIVE_3
+#undef OFXH_PY_DERIVE_4
+#undef OFXH_SIGNATURES_2
+#undef OFXH_SIGNATURES_3
+#undef OFXH_SIGNATURES_4
 
-class PyPushButton : public P::PushbuttonInstance, public PyParamCore {
-  OFXH_PY_COMMON(PyPushButton, P::PushbuttonInstance)
-  OFXH_PY_KEYS
-};
-
-class PyGroup : public P::GroupInstance, public PyParamCore {
-  OFXH_PY_COMMON(PyGroup, P::GroupInstance)
-};
-
-class PyPage : public P::PageInstance, public PyParamCore {
-  OFXH_PY_COMMON(PyPage, P::PageInstance)
-};
+using PyPushButton = PyKeyedParam<P::PushbuttonInstance>;
+using PyGroup = PyParam<P::GroupInstance>;
+using PyPage = PyParam<P::PageInstance>;
 
 P::Instance *newPyParam(PyEffectInstance *e, P::Descriptor &d, nb::object py, RefPtr ref)
 {
   const std::string &t = d.getType();
-#define OFXH_NEW(Type, Class) \
-  if (t == Type) return new Class(e, d, std::move(py), std::move(ref));
-  OFXH_NEW(kOfxParamTypeInteger, PyInteger)
-  OFXH_NEW(kOfxParamTypeDouble, PyDouble)
-  OFXH_NEW(kOfxParamTypeBoolean, PyBoolean)
-  OFXH_NEW(kOfxParamTypeChoice, PyChoice)
-  OFXH_NEW(kOfxParamTypeStrChoice, PyStrChoice)
-  OFXH_NEW(kOfxParamTypeString, PyString)
-  OFXH_NEW(kOfxParamTypeCustom, PyCustom)
-  OFXH_NEW(kOfxParamTypeBytes, PyBytes)
-  OFXH_NEW(kOfxParamTypeRGBA, PyRGBA)
-  OFXH_NEW(kOfxParamTypeRGB, PyRGB)
-  OFXH_NEW(kOfxParamTypeDouble2D, PyDouble2D)
-  OFXH_NEW(kOfxParamTypeInteger2D, PyInteger2D)
-  OFXH_NEW(kOfxParamTypeDouble3D, PyDouble3D)
-  OFXH_NEW(kOfxParamTypeInteger3D, PyInteger3D)
-  OFXH_NEW(kOfxParamTypePushButton, PyPushButton)
-  OFXH_NEW(kOfxParamTypeGroup, PyGroup)
-  OFXH_NEW(kOfxParamTypePage, PyPage)
-#undef OFXH_NEW
-  return NULL;  // parametric parameters
+  if (t == kOfxParamTypeInteger) return new PyInteger(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeDouble) return new PyDouble(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeBoolean) return new PyBoolean(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeChoice) return new PyChoice(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeStrChoice) return new PyStrChoice(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeString) return new PyString(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeCustom) return new PyCustom(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeBytes) return new PyBytes(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeRGBA) return new PyRGBA(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeRGB) return new PyRGB(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeDouble2D) return new PyDouble2D(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeInteger2D) return new PyInteger2D(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeDouble3D) return new PyDouble3D(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeInteger3D) return new PyInteger3D(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypePushButton) return new PyPushButton(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypeGroup) return new PyGroup(e, d, std::move(py), std::move(ref));
+  if (t == kOfxParamTypePage) return new PyPage(e, d, std::move(py), std::move(ref));
+  return nullptr;  // parametric parameters
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -919,89 +954,93 @@ template <class Inst> static Inst *as(P::Instance *p)
   return i;
 }
 
+/// HostSupport's get() of a parameter, at a time (nullptr: the current time)
+template <class Inst, class... V> static void getValues(Inst *i, P::Instance *p, const double *time, V &...v)
+{
+  check(time ? i->get(*time, v...) : i->get(v...), p, "get");
+}
+
 nb::object getParamValue(P::Instance *p, const double *time)
 {
   const std::string &t = p->getType();
-#define OFXH_GET(...) check(time ? i->get(*time, __VA_ARGS__) : i->get(__VA_ARGS__), p, "get")
   if (t == kOfxParamTypeInteger) {
     P::IntegerInstance *i = as<P::IntegerInstance>(p);
     int v = 0;
-    OFXH_GET(v);
+    getValues(i, p, time, v);
     return nb::int_(v);
   }
   if (t == kOfxParamTypeChoice) {
     P::ChoiceInstance *i = as<P::ChoiceInstance>(p);
     int v = 0;
-    OFXH_GET(v);
+    getValues(i, p, time, v);
     return nb::int_(v);
   }
   if (t == kOfxParamTypeDouble) {
     P::DoubleInstance *i = as<P::DoubleInstance>(p);
     double v = 0;
-    OFXH_GET(v);
+    getValues(i, p, time, v);
     return nb::float_(v);
   }
   if (t == kOfxParamTypeBoolean) {
     P::BooleanInstance *i = as<P::BooleanInstance>(p);
     bool v = false;
-    OFXH_GET(v);
+    getValues(i, p, time, v);
     return nb::bool_(v);
   }
   if (t == kOfxParamTypeStrChoice) {
     P::StrChoiceInstance *i = as<P::StrChoiceInstance>(p);
     std::string v;
-    OFXH_GET(v);
+    getValues(i, p, time, v);
     return Conv<std::string>::to(v);
   }
   if (t == kOfxParamTypeString || t == kOfxParamTypeCustom) {
     P::StringInstance *i = as<P::StringInstance>(p);
     std::string v;
-    OFXH_GET(v);
+    getValues(i, p, time, v);
     return Conv<std::string>::to(v);
   }
   if (t == kOfxParamTypeBytes) {
     P::BytesInstance *i = as<P::BytesInstance>(p);
     std::vector<unsigned char> v;
-    OFXH_GET(v);
-    return nb::bytes(v.empty() ? "" : (const char *)&v[0], v.size());
+    getValues(i, p, time, v);
+    return nb::bytes(v.empty() ? "" : reinterpret_cast<const char *>(v.data()), v.size());
   }
   if (t == kOfxParamTypeRGBA) {
     P::RGBAInstance *i = as<P::RGBAInstance>(p);
     double r = 0, g = 0, b = 0, a = 0;
-    OFXH_GET(r, g, b, a);
+    getValues(i, p, time, r, g, b, a);
     return nb::make_tuple(r, g, b, a);
   }
   if (t == kOfxParamTypeRGB) {
     P::RGBInstance *i = as<P::RGBInstance>(p);
     double r = 0, g = 0, b = 0;
-    OFXH_GET(r, g, b);
+    getValues(i, p, time, r, g, b);
     return nb::make_tuple(r, g, b);
   }
   if (t == kOfxParamTypeDouble2D) {
     P::Double2DInstance *i = as<P::Double2DInstance>(p);
     double x = 0, y = 0;
-    OFXH_GET(x, y);
+    getValues(i, p, time, x, y);
     return nb::make_tuple(x, y);
   }
   if (t == kOfxParamTypeInteger2D) {
     P::Integer2DInstance *i = as<P::Integer2DInstance>(p);
     int x = 0, y = 0;
-    OFXH_GET(x, y);
+    getValues(i, p, time, x, y);
     return nb::make_tuple(x, y);
   }
   if (t == kOfxParamTypeDouble3D) {
     P::Double3DInstance *i = as<P::Double3DInstance>(p);
     double x = 0, y = 0, z = 0;
-    OFXH_GET(x, y, z);
+    getValues(i, p, time, x, y, z);
     return nb::make_tuple(x, y, z);
   }
   if (t == kOfxParamTypeInteger3D) {
     P::Integer3DInstance *i = as<P::Integer3DInstance>(p);
     int x = 0, y = 0, z = 0;
-    OFXH_GET(x, y, z);
+    getValues(i, p, time, x, y, z);
     return nb::make_tuple(x, y, z);
   }
-#undef OFXH_GET
   return nb::none();  // push buttons, groups, pages: no value
 }
 
@@ -1042,72 +1081,76 @@ static int choiceIndex(P::Instance *p, nb::handle value)
              (n ? options : std::string("none")) + ")");
 }
 
+/// HostSupport's set() of a parameter, at a time (nullptr: no time)
+template <class Inst, class... V> static OfxStatus setValues(Inst *i, const double *time, V... v)
+{
+  return time ? i->set(*time, v...) : i->set(v...);
+}
+
 OfxStatus setParamValue(P::Instance *p, nb::handle value, const double *time)
 {
   const std::string &t = p->getType();
-#define OFXH_SET(...) return time ? i->set(*time, __VA_ARGS__) : i->set(__VA_ARGS__)
   if (t == kOfxParamTypeInteger) {
     P::IntegerInstance *i = as<P::IntegerInstance>(p);
-    OFXH_SET(nb::cast<int>(value));
+    return setValues(i, time, nb::cast<int>(value));
   }
   if (t == kOfxParamTypeChoice) {
     P::ChoiceInstance *i = as<P::ChoiceInstance>(p);
-    OFXH_SET(choiceIndex(p, value));  // (an index, or the label of an option)
+    return setValues(i, time, choiceIndex(p, value));  // (an index, or the label of an option)
   }
   if (t == kOfxParamTypeDouble) {
     P::DoubleInstance *i = as<P::DoubleInstance>(p);
-    OFXH_SET(nb::cast<double>(value));
+    return setValues(i, time, nb::cast<double>(value));
   }
   if (t == kOfxParamTypeBoolean) {
     P::BooleanInstance *i = as<P::BooleanInstance>(p);
-    OFXH_SET(Conv<bool>::from(value));
+    return setValues(i, time, Conv<bool>::from(value));
   }
   if (t == kOfxParamTypeStrChoice) {
     P::StrChoiceInstance *i = as<P::StrChoiceInstance>(p);
     const std::string s = nb::cast<std::string>(value);
-    OFXH_SET(s.c_str());
+    return setValues(i, time, s.c_str());
   }
   if (t == kOfxParamTypeString || t == kOfxParamTypeCustom) {
     P::StringInstance *i = as<P::StringInstance>(p);
     const std::string s = nb::cast<std::string>(value);
-    OFXH_SET(s.c_str());
+    return setValues(i, time, s.c_str());
   }
   if (t == kOfxParamTypeBytes) {
     P::BytesInstance *i = as<P::BytesInstance>(p);
     const std::vector<unsigned char> b = bytesFrom(value);  // (a list of ints too: param_template())
-    OFXH_SET(b.empty() ? (const unsigned char *)"" : &b[0], b.size());
+    return setValues(i, time, b.empty() ? reinterpret_cast<const unsigned char *>("") : b.data(), b.size());
   }
   if (t == kOfxParamTypeRGBA) {
     P::RGBAInstance *i = as<P::RGBAInstance>(p);
     const std::vector<double> v = values<double>(value, 4, p);
-    OFXH_SET(v[0], v[1], v[2], v[3]);
+    return setValues(i, time, v[0], v[1], v[2], v[3]);
   }
   if (t == kOfxParamTypeRGB) {
     P::RGBInstance *i = as<P::RGBInstance>(p);
     const std::vector<double> v = values<double>(value, 3, p);
-    OFXH_SET(v[0], v[1], v[2]);
+    return setValues(i, time, v[0], v[1], v[2]);
   }
   if (t == kOfxParamTypeDouble2D) {
     P::Double2DInstance *i = as<P::Double2DInstance>(p);
     const std::vector<double> v = values<double>(value, 2, p);
-    OFXH_SET(v[0], v[1]);
+    return setValues(i, time, v[0], v[1]);
   }
   if (t == kOfxParamTypeInteger2D) {
     P::Integer2DInstance *i = as<P::Integer2DInstance>(p);
     const std::vector<int> v = values<int>(value, 2, p);
-    OFXH_SET(v[0], v[1]);
+    return setValues(i, time, v[0], v[1]);
   }
   if (t == kOfxParamTypeDouble3D) {
     P::Double3DInstance *i = as<P::Double3DInstance>(p);
     const std::vector<double> v = values<double>(value, 3, p);
-    OFXH_SET(v[0], v[1], v[2]);
+    return setValues(i, time, v[0], v[1], v[2]);
   }
   if (t == kOfxParamTypeInteger3D) {
     P::Integer3DInstance *i = as<P::Integer3DInstance>(p);
     const std::vector<int> v = values<int>(value, 3, p);
-    OFXH_SET(v[0], v[1], v[2]);
+    return setValues(i, time, v[0], v[1], v[2]);
   }
-#undef OFXH_SET
   raiseValue("parameter " + p->getName() + " of type " + shortName("param_type", t) + " has no value");
 }
 
@@ -1122,7 +1165,7 @@ std::vector<double> paramKeyTimes(P::Instance *p)
   check(k->getNumKeys(n), p, "getNumKeys");
   for (unsigned int i = 0; i < n; ++i) {
     OfxTime t = 0.;
-    check(k->getKeyTime((int)i, t), p, "getKeyTime");
+    check(k->getKeyTime(static_cast<int>(i), t), p, "getKeyTime");
     r.push_back(t);
   }
   return r;
@@ -1224,12 +1267,12 @@ void bindParams(nb::module_ &m)
     .def_prop_ro("initial", [](ParamBase &s) {
       PyParamCore *c = s.core();
       P::Instance *p = s.get();
-      return OFXH_SCOPED("Param.initial", initialValue(p, c ? c->_effect : NULL));
+      return scoped("Param.initial", [&] { return initialValue(p, c ? c->_effect : nullptr); });
     }, "The value a parameter starts with: the default, with the normalised spatial defaults\n"
        "(kOfxParamPropDefaultCoordinateSystem) in canonical coordinates for the instance's project, as\n"
        "ofxh's C++ parameters and param_template() have them. Return it from get() until set() (also\n"
        "from a plug-in's worker thread inside the get() callback: a non-action binding).")
-    .def_prop_ro("props", [](ParamBase &s) { s.get(); return PropertySetView{s.ref, 3}; },
+    .def_prop_ro("props", [](ParamBase &s) { s.get(); return PropertySetView{s.ref, PropertySetView::Kind::param}; },
                  "The properties of the parameter instance (kOfxParamProp*), which the plug-in may change.")
     .def_prop_ro("instance", [](ParamBase &s) -> nb::object {
       PyParamCore *c = s.core();
