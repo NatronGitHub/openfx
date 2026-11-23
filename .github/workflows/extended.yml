@@ -166,10 +166,10 @@ jobs:
           # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
           export OFXH_REQUIRE=1 OFX_TEST_PLUGIN_PATH="$PWD/build/Plugins" \
             OFXHOST_HOSTDEMO="$(find "$PWD/build/HostSupport/examples" -name hostDemo -type f -perm -u+x | head -1)"
-          venv/bin/python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
+          venv/bin/python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
       - name: ofxhost tests on both backends (hostDemo, and in-process on the installed module)
         run: |
           export OFXH_REQUIRE=1 OFX_TEST_PLUGIN_PATH="$PWD/build/Plugins" \
             OFXHOST_HOSTDEMO="$(find "$PWD/build/HostSupport/examples" -name hostDemo -type f -perm -u+x | head -1)"
-          venv/bin/python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 \
+          venv/bin/python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 \
             HostSupport/examples/python/tests Support/Plugins/tests

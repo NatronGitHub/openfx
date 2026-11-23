@@ -6,9 +6,9 @@ the rounding at byte depth (the sample rounds to the nearest value and clamps to
 """
 
 import numpy as np
-import pytest
 
-from ofxhost.testing import assert_close
+import ofxhost
+from ofxhost.testing import assert_close, check_backend
 
 PLUGIN = "net.sf.openfx.MultiplyGPU"
 VALUE = np.array([0.5, 2.0, 0.25, 0.5])  # an RGBA parameter: r, g, b, a factors
@@ -34,11 +34,14 @@ def test_multiply_byte(render):
     assert_close(r.output, expected, atol=1e-6)
 
 
-@pytest.mark.backends("inprocess", reason="per-input components: hostDemo's inputs are RGBA")
-def test_multiply_rgb_input(render):
-    """An RGB input (the in-process backend's components): the clips support RGB, so the plug-in gets
-    an RGB image and renders an RGB output."""
-    r = render(PLUGIN, inputs={"Source": SRC}, params={"value": VALUE}, depth="float", components={"Source": "rgb"})
+def test_multiply_rgb_input(bundles):
+    """An RGB input gives an RGB image and an RGB output, as the clips support RGB.
+
+    In-process only: per-input components, and hostDemo's inputs are RGBA.
+    """
+    check_backend("inprocess")
+    r = ofxhost.render(bundles, PLUGIN, inputs={"Source": SRC}, params={"value": VALUE}, depth="float",
+                       components={"Source": "rgb"}, backend="inprocess")
     assert r.report["clipPreferences"]["clips"]["Source"]["components"] == "OfxImageComponentRGB"
     assert r.output.shape == SRC.shape
     assert_close(r.output, SRC * VALUE[:3], atol=1e-6)

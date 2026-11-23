@@ -12,33 +12,19 @@ import pytest
 import ofxhost
 from ofxhost import sequences
 from ofxhost.graph import FilePath, Files, Graph, Keys, Node, Project, load
-from ofxhost.testing import assert_close, backend_available
+from ofxhost.testing import assert_close, check_backend
 
-why = backend_available("inprocess")
-if why is not None:
-    if os.environ.get("OFXH_REQUIRE") == "1":
-        pytest.fail(f"ofxh: {why} (OFXH_REQUIRE=1)", pytrace=False)
-    pytestmark = pytest.mark.skip(reason=f"ofxh: {why}")
-else:
-    import ofxh
-    from ofxhost import graphhost
+check_backend("inprocess")  # (the whole module: skipped, or failed with OFXH_REQUIRE=1)
+import ofxh  # noqa: E402
+from ofxhost import graphhost  # noqa: E402
+
+pytestmark = pytest.mark.usefixtures("tmp_cwd")
 
 INVERT = "net.sf.openfx.invertPlugin"
 BASIC = "net.sf.openfx.basicPlugin"
 TESTER = "net.sf.openfx.GenericTestPlugin"
 RETIMER = "net.sf.openfx.retimer"
 NOISE = "net.sf.openfx.noisePlugin"
-
-
-@pytest.fixture(autouse=True)
-def _cwd(tmp_path, monkeypatch):
-    """In a temporary directory (the plug-in scan makes PropTester write ofxTestLog.txt there), and
-    without an ofxh host."""
-    monkeypatch.chdir(tmp_path)
-    yield
-    if why is None:
-        ofxhost.inprocess.shutdown()
-        ofxh.shutdown()
 
 
 def rgba(h=24, w=32):
@@ -385,8 +371,8 @@ def test_file_params(sample_plugins, monkeypatch):
     # which parameters: output file paths, and a reader's or writer's filename and proxy
 
     class Desc:
-        def __init__(self, name, exists, mode="OfxParamStringIsFilePath", type="string"):
-            self.name, self.type = name, type
+        def __init__(self, name, exists, mode="OfxParamStringIsFilePath", param_type="string"):
+            self.name, self.type = name, param_type
             self.props = {"OfxParamPropStringMode": (mode,), "OfxParamPropStringFilePathExists": (exists,)}
 
     assert graphhost.is_file_param(Desc("out", 0), ["general"])

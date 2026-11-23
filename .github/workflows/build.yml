@@ -134,10 +134,10 @@ jobs:
             || { cat suitehandlechecks-natron.log; exit 1; }
           # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
           PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" OFXH_REQUIRE=1 \
-            python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
+            python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" OFXH_REQUIRE=1 \
-            python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 \
+            python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 \
             HostSupport/examples/python/tests/test_backends.py HostSupport/examples/python/tests/test_hostdemo_cli.py
       - name: Python wrapper and sample plug-in tests (ofxhost, on both backends)
         if: success() || failure()
@@ -146,14 +146,14 @@ jobs:
           # backend that isn't built fails the tests instead of skipping them)
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1 \
             OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
-            python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/examples/python/tests Support/Plugins/tests
+            python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/examples/python/tests Support/Plugins/tests
       - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
         if: success() || failure()
         run: |
           # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
           export PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1
           python -c "import ofxh; print(ofxh.__file__)"
-          python -X faulthandler -m pytest -q -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
+          python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
 
   macos:
     name: macOS 15 arm64 (CMake, Xcode clang, MacPorts)

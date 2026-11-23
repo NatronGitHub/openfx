@@ -305,31 +305,36 @@ def test_batch_killed_leaves_no_worker(tmp_path, env, sig):
     after a SIGKILL of the batch they end by themselves (they watch their parent)."""
     import signal
     import time
-    e = dict(env, PYTHONPATH=os.pathsep.join([str(PYDIR), env["PYTHONPATH"]]))
-    p = subprocess.Popen([sys.executable, "-m", "ofxhost.hostdemo", "--batch", "-", "-j", "2", "--timeout", "200"],
-                         cwd=tmp_path, env=e, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                         stderr=subprocess.PIPE, text=True)
-    try:
-        p.stdin.write(_line(_hook_line("hang")) + "\n" + _line(_hook_line("hang")) + "\n")
-        p.stdin.close()
-        deadline = time.monotonic() + 120
-        while len(_children(p.pid)) < 2 and time.monotonic() < deadline:
-            time.sleep(0.2)
-        workers = _children(p.pid)
-        assert len(workers) == 2, workers
-        time.sleep(3)  # (the commands start, and hang)
-        assert all(_alive(w) for w in workers)
-        p.send_signal(getattr(signal, sig))
-        p.wait(timeout=60)
-        deadline = time.monotonic() + 20
-        while any(_alive(w) for w in workers) and time.monotonic() < deadline:
-            time.sleep(0.2)
-        assert not any(_alive(w) for w in workers), workers
-        assert p.returncode == (128 + signal.SIGTERM if sig == "SIGTERM" else -signal.SIGKILL), p.stderr.read()
-    finally:
-        if p.poll() is None:
-            p.kill()
-            p.wait()
+    (tmp_path / "tmp").mkdir()  # (the batch's temporary directory, where the commands' output is captured)
+    e = dict(env, PYTHONPATH=os.pathsep.join([str(PYDIR), env["PYTHONPATH"]]), TMPDIR=str(tmp_path / "tmp"))
+
+    def hanging():
+        """The commands that reached their hang hook."""
+        return [f for f in (tmp_path / "tmp").glob("ofxhost-batch-*/*.out") if b"hook: hang" in f.read_bytes()]
+
+    with subprocess.Popen([sys.executable, "-m", "ofxhost.hostdemo", "--batch", "-", "-j", "2", "--timeout", "200"],
+                          cwd=tmp_path, env=e, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                          stderr=subprocess.PIPE, text=True) as p:
+        try:
+            p.stdin.write(_line(_hook_line("hang")) + "\n" + _line(_hook_line("hang")) + "\n")
+            p.stdin.close()
+            deadline = time.monotonic() + 120
+            while (len(_children(p.pid)) < 2 or len(hanging()) < 2) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            workers = _children(p.pid)
+            assert len(workers) == 2 and len(hanging()) == 2, (workers, hanging())
+            assert all(_alive(w) for w in workers)
+            p.send_signal(getattr(signal, sig))
+            p.wait(timeout=60)
+            deadline = time.monotonic() + 20
+            while any(_alive(w) for w in workers) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            assert not any(_alive(w) for w in workers), workers
+            assert p.returncode == (128 + signal.SIGTERM if sig == "SIGTERM" else -signal.SIGKILL), p.stderr.read()
+        finally:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
 
 
 def test_shutdown_failure_record(tmp_path, env):
@@ -347,11 +352,13 @@ def test_crash_and_timeout(tmp_path, env):
     timedOut, with the output it wrote before; the worker is replaced and the batch goes on."""
     hooks = ["kill", "exit", "raise", "hang"] + (["segv"] if sys.platform != "darwin" else [])
     # (no SIGSEGV on macOS: it would make a system crash report; SIGKILL kills the worker as well)
+    # (the hang: the batch's timeout, 5 s after a fresh plug-in scan; the others their own --timeout 60)
+    long = ["--timeout", "60"]
     cmds = []
     for h in hooks:
-        cmds += [_hook_line("host"), _hook_line(h)]
-    cmds.append(_hook_line("host"))
-    recs = run_batch(cmds, jobs=1, timeout=10, cwd=tmp_path, env=env)
+        cmds += [[*long, *_hook_line("host")], _hook_line(h) if h == "hang" else [*long, *_hook_line(h)]]
+    cmds.append([*long, *_hook_line("host")])
+    recs = run_batch(cmds, jobs=1, timeout=5, cwd=tmp_path, env=env)
     assert len(recs) == len(cmds)
     gen = 1
     for k, h in enumerate(hooks):
@@ -368,9 +375,9 @@ def test_crash_and_timeout(tmp_path, env):
         assert f"batch test hook: {h} (stderr)\n" in r["stderr"], r
         if h == "hang":
             assert r["timedOut"] and not r["crashed"]
-            assert 10 <= r["seconds"] < 60
+            assert 5 <= r["seconds"] < 60
             # (faulthandler's dump of the worker's Python threads, before it was killed)
-            assert "Timeout (0:00:10)!" in r["stderr"] and "most recent call first" in r["stderr"], r["stderr"]
+            assert "Timeout (0:00:05)!" in r["stderr"] and "most recent call first" in r["stderr"], r["stderr"]
         else:
             assert r["crashed"] and not r["timedOut"]
             assert r["exitStatus"] == {"kill": -9, "exit": 3, "segv": -11}[h] or sys.platform == "win32", r
@@ -383,13 +390,13 @@ def test_crash_and_timeout(tmp_path, env):
 
 def test_cli_timeouts(tmp_path, env):
     """--timeout, and a line's own --timeout, which overrides it; -j 0."""
-    text = _line(["--timeout", "3", *_hook_line("hang")]) + "\n" + _line([*Q, "-p", INVERT, "-o", "z"]) + "\n"
+    text = _line(["--timeout", "1", *_hook_line("hang")]) + "\n" + _line([*Q, "-p", INVERT, "-o", "z"]) + "\n"
     p = _cli(["--batch", "-", "--timeout", "100", "-j", "0"], tmp_path, env, stdin=text)
     assert p.returncode == 1
     recs = [json.loads(x) for x in p.stdout.splitlines()]
     assert [(r["timedOut"], r["ok"]) for r in recs] == [(True, False), (False, True)]
-    assert 3 <= recs[0]["seconds"] < 30
-    assert "Timeout (0:00:03)!" in recs[0]["stderr"]
+    assert 1 <= recs[0]["seconds"] < 30
+    assert "Timeout (0:00:01)!" in recs[0]["stderr"]
     assert "1 failed (0 crashed, 1 timed out)" in p.stderr
     assert (tmp_path / "z.0.ppm").exists()
 

@@ -328,8 +328,3 @@ def test_backends_marker(monkeypatch):
     monkeypatch.setenv("OFXH_REQUIRE", "1")
     with pytest.raises(pytest.fail.Exception, match="needs a reason"):
         check_backend("subprocess", pytest.mark.backends("subprocess").mark)
-
-
-@pytest.mark.backends("subprocess", reason="a check of the marker itself")
-def test_marked_subprocess_only(backend):
-    assert backend == "subprocess"

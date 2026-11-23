@@ -10,31 +10,21 @@ import pytest
 
 import ofxhost
 from ofxhost import graph
-from ofxhost.testing import assert_close, backend_available
+from ofxhost.testing import assert_close, check_backend
 
-why = backend_available("inprocess")
-if why is not None:
-    if os.environ.get("OFXH_REQUIRE") == "1":
-        pytest.fail(f"ofxh: {why} (OFXH_REQUIRE=1)", pytrace=False)
-    pytestmark = pytest.mark.skip(reason=f"ofxh: {why}")
-else:
-    import ofxh
-    from ofxhost import cli
+check_backend("inprocess")  # (the whole module: skipped, or failed with OFXH_REQUIRE=1)
+from ofxhost import cli  # noqa: E402
+
+pytestmark = pytest.mark.usefixtures("tmp_cwd")
 
 INVERT = "net.sf.openfx.invertPlugin"
 BASIC = "net.sf.openfx.basicPlugin"
 
 
 @pytest.fixture(autouse=True)
-def _cwd(tmp_path, monkeypatch):
-    """In a temporary directory (PropTester writes ofxTestLog.txt there in the plug-in scan), without
-    $OFX_PLUGIN_PATH, and without an ofxh host."""
-    monkeypatch.chdir(tmp_path)
+def _no_env_path(monkeypatch):
+    """Without $OFX_PLUGIN_PATH: the plug-ins are those of -b."""
     monkeypatch.delenv("OFX_PLUGIN_PATH", raising=False)
-    yield
-    if why is None:
-        ofxhost.inprocess.shutdown()
-        ofxh.shutdown()
 
 
 @pytest.fixture
