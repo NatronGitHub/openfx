@@ -432,6 +432,14 @@ namespace OFX {
       /// Class that holds a set of properties and manipulates them
       /// The 'fetch' methods return a property object.
       /// The 'get' methods return a property value
+      ///
+      /// A Set is not synchronized: nothing locks its properties or values. propGetString and
+      /// propGetStringN give the plug-in a const char* into the std::string that stores the value
+      /// (or that a GetHook returns), which setting that value again or destroying the Set
+      /// invalidates. The spec makes it valid "until the next OFX API function is called"
+      /// (Reference, ofxCoreAPI.rst). So a host must not modify a Set (set a value, add or remove
+      /// a property) while a plug-in may read it: during an action that was given its handle, or
+      /// while the plug-in's worker threads may still use it.
       class Set {
       private :
         static const int kMagic = 0x12082007; ///< magic number for property sets, and Connie's birthday :-)
