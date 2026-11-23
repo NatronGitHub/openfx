@@ -114,6 +114,7 @@ Changes that existing hosts, plugins or SDK users may need to act on:
 
 ## Documentation Improvements
 
+- **Proposal: hostDemo and the Python host** (`Documentation/proposals/hostdemo-and-python-host.md`): the options for #136's last step (strip hostDemo), for a vote of the plug-in repositories.
 - **Support and HostSupport configuration macros**: the README now states that the `OFX_EXTENSIONS_*`/`OFX_SUPPORTS_*` definitions change class layouts, so every source of a binary, Support and HostSupport included, must be compiled with the same set. A host (HostSupport) and its plug-ins (Support) are separate binaries and may use different sets. With CMake, choose them only through openfx's options (`openfx::Api`, `openfx::Support` and `openfx::HostSupport` pass them on), never on a target that links those libraries or on a single file; a build that compiles the Support or HostSupport sources itself (Makefile, qmake, a CMake target that lists them) uses one set for all the sources of each binary. The Makefiles define none by default (`CXXFLAGS_EXTRA`, `OPTIMISE`). A mismatch is not detected at build time (NatronGitHub/openfx#226).
 - Removed the outdated "Properties by object reference" page; the generated Property Sets reference replaces it (issue #173).
 - Moved the 1.1 to 1.2 API changes chapter from the Reference section to the Release Notes section of the documentation.
