@@ -26,6 +26,7 @@ CHOICES = "org.openeffects.support.choiceParamsPlugin"
 RETIMER = "net.sf.openfx.retimer"
 PROPTESTER = "net.sf.openfx.propertyTester"
 MULTIPLY = "net.sf.openfx.MultiplyGPU"
+OPENGL = "com.genarts:OpenGLSamplePlugin"
 
 
 @pytest.fixture(scope="module")
@@ -166,6 +167,24 @@ def test_describe(tmp_path, hosts, sample_plugins):
     _same(_strict((sd / "d.json").read_text()), _strict((idir / "d.json").read_text()))
 
 
+@pytest.mark.parametrize("profile", [[], ["--ofx14"]], ids=["default", "ofx14"])
+def test_opengl_describe(tmp_path, hosts, sample_plugins, profile):
+    """--opengl-describe: the host's kOfxImageEffectPropOpenGLRenderSupported is "true", which the OpenGL
+    example (Examples/OpenGL) prints in its describe action."""
+    if not any(p.glob("example-OpenGL.ofx.bundle") for p in sample_plugins):
+        why = "the OpenGL example (Examples/OpenGL, CMake builds) is not in the plug-in directories"
+        if os.environ.get("OFXH_REQUIRE") == "1":
+            pytest.fail(f"{why} (OFXH_REQUIRE=1)")
+        pytest.skip(why)
+    (s, sd), (i, idir) = both(tmp_path, hosts, sample_plugins,
+                              [*Q, *profile, "--opengl-describe", "-p", OPENGL, "--describe", "d.json"])
+    assert s.returncode == i.returncode == 0, (s.stderr, i.stderr)
+    _same(_strict((sd / "d.json").read_text()), _strict((idir / "d.json").read_text()))
+    for p in (s, i):
+        assert "Host has OpenGL render support: true" in p.stderr
+        assert "Host has OpenGL render support: false" not in p.stderr
+
+
 @pytest.mark.parametrize("args", [
     [*Q, "-p", "no.such.plugin", "--report", "r.json"],                  # a run error: the report is written
     [*Q, "-p", INVERT, "-c", "general", "--report", "r.json"],           # no general context
@@ -184,7 +203,7 @@ def test_run_errors(tmp_path, hosts, sample_plugins, args):
     ["--window", "1,1,1,1"],
     ["--format", "png"], ["-d", "half"], ["-c", "paint"], ["-m", "-1"], ["-i", "Source=bogus"], ["-i", "=ramp"],
     ["-i", "Source=ramp", "-i", "Source=none"], ["--report", "a.json", "--describe", "b.json"], ["--bogus"],
-    ["-p"],
+    ["-p"], ["--opengl-describe"], ["--opengl-describe", "--report", "r.json"],
 ], ids=lambda a: " ".join(a))
 def test_usage_errors(tmp_path, hosts, sample_plugins, args):
     """Command-line errors: exit status 1, hostDemo's message (its first line), no report."""
@@ -197,7 +216,8 @@ def test_usage_errors(tmp_path, hosts, sample_plugins, args):
 def test_help(tmp_path, hosts, sample_plugins):
     (s, _), (i, _) = both(tmp_path, hosts, sample_plugins, ["-h"])
     assert s.returncode == i.returncode == 0
-    for opt in ("-p id", "--format ppm|pfm", "--report file.json", "--describe file.json", "--ofx14", "--quiet"):
+    for opt in ("-p id", "--format ppm|pfm", "--report file.json", "--describe file.json", "--ofx14",
+                "--opengl-describe", "--quiet"):
         assert opt in s.stdout and opt in i.stdout
 
 

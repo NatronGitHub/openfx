@@ -419,6 +419,10 @@ if grep -q "^Plug-in:io.aswf.openfx.example.ColourspacePluginCore$" cachedemo.lo
     { echo "--ofx14: the ColourSpace example found OFX 1.5 host properties"; cat hostdemo-ofx14-colour.log; exit 1; }
   echo "--ofx14: no OFX 1.5 host properties: OK"
 fi
+
+# --opengl-describe is for --describe only: hostDemo can't render with OpenGL (test_hostdemo_cli.py
+# checks what the OpenGL example sees with it)
+fails hostdemo-opengl-render.log "needs --describe" --opengl-describe -p net.sf.openfx.invertPlugin
 # Every plug-in that cacheDemo loaded is described (by the default host), then rendered at t=0 in
 # the filter context (else the general one) by the default host and by the OFX 1.4 host. Both
 # hosts must give the same results: render status and crc32 of the output, except for the
