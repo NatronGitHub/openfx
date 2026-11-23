@@ -423,6 +423,29 @@ fi
 # --opengl-describe is for --describe only: hostDemo can't render with OpenGL (test_hostdemo_cli.py
 # checks what the OpenGL example sees with it)
 fails hostdemo-opengl-render.log "needs --describe" --opengl-describe -p net.sf.openfx.invertPlugin
+# The plug-in cache stays valid while a binary's mtime and size don't change, but the binary's list
+# of plug-ins may change (e.g. openfx-gmic's depends on a user file): a cached plug-in must be the
+# one with its identifier and version, at another index if it moved, or none. The cache of the
+# ColourSpace example (Basic, Core, Full) is edited as if Basic had been at index 7 (out of range:
+# the bounds check, then the scan), and Core had been another plug-in, Gone. (The describe output
+# can't tell these plug-ins apart: it has the cached label.)
+if grep -q "^Plug-in:io.aswf.openfx.example.ColourspacePluginCore$" cachedemo.log; then
+  cs=io.aswf.openfx.example.ColourspacePlugin
+  stale() { (cd stale-cache && OFX_PLUGIN_PATH="$dirs" "$hostDemo" --no-std-paths --quiet "$@"); }
+  rm -rf stale-cache && mkdir stale-cache
+  stale -p ${cs}Basic --describe scan.json > stale-cache.log 2>&1 || { echo "stale cache: hostDemo failed"; cat stale-cache.log; exit 1; }
+  perl -pi -e "s/name=\"${cs}Basic\" index=\"0\"/name=\"${cs}Basic\" index=\"7\"/;
+               s/name=\"${cs}Core\"/name=\"${cs}Gone\"/" stale-cache/hostDemoPluginCache.xml
+  grep -q "name=\"${cs}Basic\" index=\"7\"" stale-cache/hostDemoPluginCache.xml &&
+    grep -q "name=\"${cs}Gone\"" stale-cache/hostDemoPluginCache.xml || { echo "stale cache: the cache wasn't edited"; exit 1; }
+  stale -p ${cs}Basic --describe moved.json > stale-cache.log 2>&1 || { echo "stale cache: a moved plug-in was not found"; cat stale-cache.log; exit 1; }
+  grep -q "stale plug-in cache: .* has ${cs}Basic 1.0 at another index; clear the OpenFX plug-in cache" stale-cache.log ||
+    { echo "stale cache: no message for a moved plug-in"; cat stale-cache.log; exit 1; }
+  if stale -p ${cs}Gone --describe gone.json > stale-cache.log 2>&1; then echo "stale cache: another plug-in was used for one the binary no longer has"; exit 1; fi
+  grep -q "stale plug-in cache: .* no longer has ${cs}Gone 1.0; clear the OpenFX plug-in cache" stale-cache.log ||
+    { echo "stale cache: no message for a plug-in the binary no longer has"; cat stale-cache.log; exit 1; }
+  echo "stale plug-in cache: a moved plug-in is found by identifier, a removed one is not replaced: OK"
+fi
 # Every plug-in that cacheDemo loaded is described (by the default host), then rendered at t=0 in
 # the filter context (else the general one) by the default host and by the OFX 1.4 host. Both
 # hosts must give the same results: render status and crc32 of the output, except for the
