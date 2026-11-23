@@ -6427,12 +6427,19 @@ OFX::OfxPlugInfo generatePlugInfo(OFX::PluginFactory* factory, std::string& newI
 }
 
 static bool gHasInit = false;
+static bool gInitStarted = false;
 
 static
 void init()
 {
   if(gHasInit)
     return;
+  // a failed registration is not retried: the partly filled lists would make a retry register
+  // the first plug-ins twice (and, with manual registration, overflow ofxPlugs), so the host
+  // keeps getting 0 plug-ins / NULL
+  if(gInitStarted)
+    throw std::runtime_error("the plug-in registration failed earlier");
+  gInitStarted = true;
 
 #ifdef OFXS_MANUAL_REGISTRATION
   // Call OFX::Plugin::getPluginIDs if the plugin uses manual plugin registration.
