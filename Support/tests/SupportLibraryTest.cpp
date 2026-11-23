@@ -12,6 +12,9 @@
   - OFX::ParamSet::EditBlock's destructor doesn't throw (std::terminate()) when the host's
     paramEditEnd() fails, and its options (eBeginOnChange, eHostErrorsIgnore) begin and end the
     edit block when they should;
+  - lazy registration (a static OFX::PluginFactories(f) object): the function set from a static
+    initializer is called once, at the first OfxGetNumberOfPlugins(), and its factories are the
+    plug-ins of the binary;
   - define*Param() throws OFX::Exception::TypeRequest when a param of the same name but another
     type was already defined (it returned NULL in release builds);
   - with OFX_EXTENSIONS_NATRON, OFX::Private::decodeNativeOverlayHandle(), which decodes the host's
@@ -240,6 +243,35 @@ namespace {
     OFX::Private::gParamSuite = saved;
   }
 
+  // lazy registration: one plug-in, registered at the first OfxGetNumberOfPlugins()
+  mDeclarePluginFactory(LazyTestFactory, {}, {});
+  void LazyTestFactory::describe(OFX::ImageEffectDescriptor&) {}
+  void LazyTestFactory::describeInContext(OFX::ImageEffectDescriptor&, OFX::ContextEnum) {}
+  OFX::ImageEffect* LazyTestFactory::createInstance(OfxImageEffectHandle, OFX::ContextEnum) { return NULL; }
+
+  int gLazyRegistrations = 0;
+  void registerLazyTestPlugins(OFX::PluginFactoryArray& factories)
+  {
+    ++gLazyRegistrations;
+    static LazyTestFactory factory("net.sf.openfx.lazyRegistrationTest", 1, 0);
+    factories.push_back(&factory);
+  }
+  OFX::PluginFactories gLazyRegistration(&registerLazyTestPlugins);
+
+  void testLazyRegistration()
+  {
+    CHECK(OFX::PluginFactories::lazyRegistration() == &registerLazyTestPlugins);
+    CHECK(gLazyRegistrations == 0); // not at static initialization
+    CHECK(OfxGetNumberOfPlugins() == 1);
+    CHECK(gLazyRegistrations == 1);
+    OfxPlugin* plugin = OfxGetPlugin(0);
+    CHECK(plugin != NULL && std::string(plugin->pluginIdentifier) == "net.sf.openfx.lazyRegistrationTest");
+    // called once
+    CHECK(OfxGetNumberOfPlugins() == 1);
+    CHECK(OfxGetPlugin(0) == plugin);
+    CHECK(gLazyRegistrations == 1);
+  }
+
   // a param set with a param "p" already defined, without a host (no param suite is called)
   class TestParamSet : public OFX::ParamSetDescriptor {
   public:
@@ -330,6 +362,7 @@ int main()
   testAutoMutexDestructorDoesNotThrow();
   testEditBlock();
   testDefineParamTypeMismatchThrows();
+  testLazyRegistration();
 #ifdef OFX_EXTENSIONS_NATRON
   testDecodeNativeOverlayHandle();
 #else

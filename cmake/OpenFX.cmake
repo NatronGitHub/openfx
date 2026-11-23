@@ -846,7 +846,9 @@ endfunction()
 #   in declaration order, at static initialization, into the Support library's automatic
 #   registration (it needs openfx::Support, and doesn't define OFX::Plugin::getPluginIDs). REGISTER
 #   and self-registering plug-ins may be mixed in a bundle. Combining and REGISTER are for
-#   Support-based plug-ins: raw C-API plug-ins each define OfxGetPlugin.
+#   Support-based plug-ins: raw C-API plug-ins each define OfxGetPlugin. Plug-ins only known at run
+#   time declare a static `OFX::PluginFactories lazy(&registerMyPlugins);` instead
+#   (ofxsImageEffect.h): no REGISTER.
 # - Sources are compiled into each bundle target (never through a static archive, whose unreferenced
 #   objects, and so the static registrations, would be dropped). COMMON_SOURCES (helpers without
 #   self-registering factories) are compiled once into an OBJECT library, `<group>_common`, which

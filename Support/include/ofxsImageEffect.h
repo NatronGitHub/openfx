@@ -463,6 +463,44 @@ namespace OFX {
       return _plugIDs;
     }
     PluginFactories(PluginFactory* pf) { plugIDs().push_back(pf); }
+
+    /** @brief a function that appends a binary's plug-in factories to the list, for lazy registration */
+    typedef void (*RegistrationFunction)(OFX::PluginFactoryArray& factories);
+
+    /** @brief Lazy registration: for plug-ins that are only known at run time (e.g. one per filter of
+        a library that must be loaded first), which can't be static factory objects registered with
+        mRegisterPluginFactoryInstance at dlopen.
+
+        Declare one static object with the function that appends the factories, e.g.
+        @code
+        static void registerMyPlugins(OFX::PluginFactoryArray& factories); // push_back()s the factories
+        static OFX::PluginFactories lazyRegistration(&registerMyPlugins);
+        @endcode
+        The Support library calls the function once, at the first OfxGetNumberOfPlugins or
+        OfxGetPlugin, after any static registrations (and after OFX::Plugin::getPluginIDs with
+        OFXS_MANUAL_REGISTRATION), with the list to append to. The factories must live until the
+        binary is unloaded. If the function throws, the exception is logged and the host gets no
+        plug-ins: the registration is not retried. One function per binary: a second, different
+        one is an error (in debug builds: an assertion and a log warning; release builds replace
+        the first one silently). */
+    explicit PluginFactories(RegistrationFunction f)
+    {
+      RegistrationFunction& slot = lazyRegistrationSlot();
+      OFX::Log::warning(slot != NULL && slot != f, "OFX::PluginFactories: a second, different lazy registration function replaces the first one.");
+      assert(slot == NULL || slot == f);
+      slot = f;
+    }
+
+    /** @brief the lazy registration function, or NULL (for the Support library's init()) */
+    static RegistrationFunction lazyRegistration() { return lazyRegistrationSlot(); }
+
+  private:
+    static RegistrationFunction& lazyRegistrationSlot() {
+      // a static in a member function, like plugIDs(): one per binary, and constant-initialized
+      // (NULL) before any static initializer constructs a lazy registration object
+      static RegistrationFunction _f = NULL;
+      return _f;
+    }
   };
 #define mRegisterPluginFactoryInstance(pf) static OFX::PluginFactories mypluginfactory_##pf(&pf);
 
@@ -2643,6 +2681,8 @@ namespace OFX {
      This was obsoleted by automatic plugin registration, using the macro mRegisterPluginFactoryInstance:
      static BasicExamplePluginFactory p("net.sf.openfx.basicPlugin", 1, 0);
      mRegisterPluginFactoryInstance(p)
+     and, for plug-ins only known at run time, by lazy registration: a static
+     OFX::PluginFactories object constructed with a registration function (see OFX::PluginFactories).
      */
     void getPluginIDs(OFX::PluginFactoryArray &id);
   };
