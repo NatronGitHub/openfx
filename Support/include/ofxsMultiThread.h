@@ -76,6 +76,9 @@ namespace OFX {
       another Processor), it runs multiThreadFunction(0, 1) in the calling thread, because
       the spec forbids recursive multiThread calls. getThreadIndex() then still returns the
       outer thread's index, so don't use it to index per-thread data of the inner Processor.
+
+      Without the host's multithread suite, it also runs multiThreadFunction(0, 1) in the
+      calling thread.
       */
       virtual void multiThread(unsigned int nCPUs = 0);
     };

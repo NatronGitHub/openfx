@@ -7,6 +7,8 @@
 
   - a null action passed to the interact entry point returns kOfxStatFailed (it was turned into a
     std::string, which is undefined behaviour);
+  - without a multithread suite, OFX::MultiThread::Processor::multiThread() runs
+    multiThreadFunction(0, 1) once in the calling thread (it threw);
   - OFX::MultiThread::AutoMutexT's destructor doesn't throw (std::terminate()) when the mutex's
     unlock() throws;
   - with OFX_EXTENSIONS_NATRON, OFX::Private::decodeNativeOverlayHandle(), which decodes the host's
@@ -50,6 +52,31 @@ namespace {
   {
     TestInteractDescriptor desc;
     CHECK(OFX::Private::interactMainEntry(NULL, NULL, NULL, NULL, desc) == kOfxStatFailed);
+  }
+
+  class CountingProcessor : public OFX::MultiThread::Processor {
+  public:
+    int calls;
+    unsigned int threadID;
+    unsigned int nThreads;
+    CountingProcessor() : calls(0), threadID(99), nThreads(99) {}
+    virtual void multiThreadFunction(unsigned int id, unsigned int n) { ++calls; threadID = id; nThreads = n; }
+  };
+
+  void testMultiThreadWithoutSuite()
+  {
+    // no host here: OFX::Private::gThreadSuite is NULL
+    CountingProcessor p;
+    bool thrown = false;
+    try {
+      p.multiThread(4);
+    } catch (...) {
+      thrown = true;
+    }
+    CHECK(!thrown);
+    CHECK(p.calls == 1);
+    CHECK(p.threadID == 0);
+    CHECK(p.nThreads == 1);
   }
 
   struct ThrowingMutex {
@@ -158,6 +185,7 @@ namespace {
 int main()
 {
   testNullInteractAction();
+  testMultiThreadWithoutSuite();
   testAutoMutexDestructorDoesNotThrow();
 #ifdef OFX_EXTENSIONS_NATRON
   testDecodeNativeOverlayHandle();

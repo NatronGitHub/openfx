@@ -117,18 +117,16 @@ namespace OFX {
       // (ofxMultiThread.h) says "This function cannot be called recursively." and returns
       // "::kOfxStatErrExists, failed in an attempt to call multiThread recursively".
       // multiThreadIsSpawnedThread returns "1 if the thread was spawned by multiThread".
-      if(nCPUs == 1 || OFX::MultiThread::isSpawnedThread()) {
+      // Also without a multithread suite: run once, single-threaded, instead of failing.
+      if(nCPUs == 1 || !OFX::Private::gThreadSuite || OFX::MultiThread::isSpawnedThread()) {
         multiThreadFunction(0, 1);
       }
       else {
         // OK do it
-          OfxStatus stat = kOfxStatFailed;
           ThreadArgs args;
           args.processor = this;
           args.status.resize(nCPUs, kOfxStatOK);
-          if(OFX::Private::gThreadSuite){
-              stat = OFX::Private::gThreadSuite->multiThread(staticMultiThreadFunction, nCPUs, (void *)&args);
-          }
+          OfxStatus stat = OFX::Private::gThreadSuite->multiThread(staticMultiThreadFunction, nCPUs, (void *)&args);
 
         // did we do it?
         throwSuiteStatusException(stat);
