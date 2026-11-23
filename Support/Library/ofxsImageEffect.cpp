@@ -6464,8 +6464,16 @@ void init()
 /** @brief, mandated function returning the number of plugins, which is always 1 */
 int OfxGetNumberOfPlugins(void)
 {
-  init();
-  return (int)OFX::PluginFactories::plugIDs().size();
+  // a C entry point: no exception may reach the host (E.12)
+  try {
+    init();
+    return (int)OFX::PluginFactories::plugIDs().size();
+  } catch (const std::exception& e) {
+    OFX::Log::error(true, "OfxGetNumberOfPlugins: %s", e.what());
+  } catch (...) {
+    OFX::Log::error(true, "OfxGetNumberOfPlugins: unknown exception");
+  }
+  return 0;
 }
 
 /** @brief, mandated function returning the nth plugin 
@@ -6473,7 +6481,22 @@ int OfxGetNumberOfPlugins(void)
 We call the plugin side defined OFX::Plugin::getPluginIDs function to find out what to set.
 */
 
+static OfxPlugin* getPlugin(int nth);
+
 OfxPlugin* OfxGetPlugin(int nth)
+{
+  // a C entry point: no exception may reach the host (E.12)
+  try {
+    return getPlugin(nth);
+  } catch (const std::exception& e) {
+    OFX::Log::error(true, "OfxGetPlugin(%d): %s", nth, e.what());
+  } catch (...) {
+    OFX::Log::error(true, "OfxGetPlugin(%d): unknown exception", nth);
+  }
+  return NULL;
+}
+
+static OfxPlugin* getPlugin(int nth)
 {
   init();
   // ofxPlugs has one entry per plugin returned by OfxGetNumberOfPlugins (an unloaded plugin's
