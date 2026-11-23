@@ -1,63 +1,18 @@
-"""The in-process backend of ofxhost.render() and ofxhost.describe(): hostDemo's test host, in
-Python, on the HostSupport bindings (the ofxh module; NatronGitHub/openfx#136, part 3).
+"""The in-process backend of ofxhost.render() and ofxhost.describe().
+
+hostDemo's test host, in Python, on the HostSupport bindings (the ofxh module).
 
     r = ofxhost.render(bundles, "net.sf.openfx.invertPlugin", inputs={"Source": src},
                        backend="inprocess")      # or OFXHOST_BACKEND=inprocess
 
-It has the API and the JSON report of the subprocess backend (hostDemo --report, see README.md):
-the same actions in the same order, the same inputs (the same patterns, PFM files and arrays, at
-each clip's depth), the same render window and image bounds, the same messages, and the same
-errors (returncode 1, with hostDemo's message in stderr). This module is a port of hostDemo's
-run() and renderFrame() (HostSupport/examples/hostDemo.cpp) and of its clips and instance
-(hostDemoClipInstance.cpp, hostDemoEffectInstance.cpp); it is also an example of a full host on
-ofxh: Host, ImageEffectInstance and ClipInstance subclasses, and the actions in a host's order.
-
-Differences from the subprocess backend:
-- the images aren't written to files: each fetch of an input gives the plug-in a new contiguous
-  NumPy array at the clip's depth, made from the input (as hostDemo makes a new image per fetch;
-  ofxh passes the array itself, without another copy), and outputs are the arrays the plug-in
-  rendered into. The report's output "files" is [], and an array input's "spec" is
-  "array:WxHxC[@x1,y1][#premult]";
-- the report's host name is ofxh's ("net.sf.openfx.ofxh"), not hostDemo's;
-- ofxh's string choice parameters refuse a value that is not one of their enums (hostDemo's accept it);
-- timeout is not applied (a hang hangs the caller), and a plug-in crash kills the interpreter. Its
-  last output (e.g. an assert message) is then lost with the captured stdout and stderr, which are
-  unlinked temporary files: set OFXHOST_CAPTURE=0 to leave the file descriptors 1 and 2 alone;
-- one host per process (ofxh): the backend keeps its ofxh host between renders with the same
-  plug-in directories and profile, so the plug-ins stay loaded (hostDemo loads them in each run),
-  and refuses to run if another ofxh host is initialized (RuntimeError). shutdown() releases it;
-- stdout and stderr are captured at the file-descriptor level (the plug-ins' printf and
-  std::cerr), for the duration of each call, which runs in a temporary current directory (as
-  hostDemo's);
-- extra_args: only --ofx14, --allow-unwritten, -m MAJOR, -s ASSIGNMENT, and --format ppm|pfm,
-  -o PREFIX and --report FILE (see below); --quiet, --no-cache and --no-std-paths are no-ops;
-  anything else raises ValueError.
-
-Without --format or -o in extra_args, no file is written (the subprocess backend reads hostDemo's
-PFM files, and gives the same arrays). With one of them, the outputs are written as hostDemo writes
-them, relative to the caller's current directory: --format ppm (the default, as hostDemo's) writes
-<prefix>.<t>[l|r].ppm (plain 8-bit PPM, top row first), --format pfm writes <prefix>.<t>[l|r].pfm
-(PF: the RGB components, or Pf for Alpha) and <prefix>.<t>[l|r].alpha.pfm (the alpha of RGBA
-images), and the report's output "files" lists them; -o defaults to "Output". --report FILE writes
-the report there too (also after a failure).
-
-Beyond hostDemo (which is frozen):
-- per-input components: an input can give the plug-in an RGB or Alpha image instead of RGBA, with
-  a "#rgb", "#alpha" (or "#rgba") suffix on a spec string, last ("ramp#rgb", "checker:8#alpha",
-  "file:x.pfm#premult#rgb"), or render(components={"Source": "rgb"}), which also applies to arrays
-  and Images. That is the clip's unmapped components (what is connected to it); the clip
-  preferences then give its components (HostSupport's default is the closest one the clip
-  supports, and the plug-in may ask for another), and each fetch converts the input to them: an RGB
-  input is opaque (alpha 1 in an RGBA clip, premultiplication opaque), an Alpha input is the alpha
-  of the pattern or file, and gives (a, a, a, a) to an RGBA clip, as hostDemo's Pf files do;
-- a plug-in's worker thread (e.g. an OpenMP loop) may be the first to fetch the output image of a
-  render, or ask for the output's RoD during it: during a render, the output clip's RoD at the
-  render's time and view is the one computed before the render action, so no RoD action runs on
-  the worker (ofxh refuses actions there, part 2). Another time or view still runs the action, and
-  is refused on a worker thread.
-
-ofxhost.hostdemo is hostDemo's whole command line on this backend, for the plug-in repositories'
-test scripts (python -m ofxhost.hostdemo ARGS..., or the hostdemo-inprocess script).
+It is a port of hostDemo's run() and renderFrame() (HostSupport/examples/hostDemo.cpp) and of its
+clips and instance: the same actions in the same order, the same inputs, render windows, image
+bounds, messages and errors, and the same JSON report, with NumPy arrays instead of image files (the
+template of a host on ofxh is ofxhost.graphhost; minimal_host.py is the minimal one). README.md lists
+where it differs from the subprocess backend (one ofxh host per process, the captured file
+descriptors and current directory, extra_args, the output files) and what it does beyond hostDemo
+(per-input components, worker threads that fetch the output image first). ofxhost.hostdemo is
+hostDemo's whole command line on this backend.
 """
 
 from __future__ import annotations
@@ -118,19 +73,22 @@ def _ofx(kind: str, name: str) -> str:
 # --- stdout and stderr ----------------------------------------------------------------------
 
 def capture_enabled() -> bool:
-    """Is stdout and stderr captured ($OFXHOST_CAPTURE, default 1)? 0 leaves the file descriptors 1
-    and 2 alone: what a crashing plug-in writes there before the interpreter dies (e.g. an assert
-    message) is then not lost in an unlinked temporary file, and RenderResult.stdout and .stderr
-    are empty (hostDemo's messages go to the real stderr)."""
+    """Is stdout and stderr captured ($OFXHOST_CAPTURE, default 1)?
+
+    0 leaves the file descriptors 1 and 2 alone: what a crashing plug-in writes there before the interpreter dies
+    (e.g. an assert message) is then not lost in an unlinked temporary file, and RenderResult.stdout and .stderr are
+    empty (hostDemo's messages go to the real stderr).
+    """
     return os.environ.get("OFXHOST_CAPTURE", "1") != "0"
 
 
 @contextlib.contextmanager
 def _capture():
-    """Capture the file descriptors 1 and 2 (what hostDemo's stdout and stderr would get) into
-    out["stdout"] and out["stderr"] (unless $OFXHOST_CAPTURE=0), in a temporary current directory
-    (as the subprocess backend runs hostDemo: the files that plug-ins write there, e.g. logs, are
-    deleted).
+    """Capture stdout and stderr, in a temporary current directory, as the subprocess backend runs hostDemo.
+
+    The file descriptors 1 and 2 (what hostDemo's stdout and stderr would get) go to out["stdout"]
+    and out["stderr"] (unless $OFXHOST_CAPTURE=0). The files that plug-ins write in the current
+    directory (e.g. logs) are deleted.
 
     The descriptors and the current directory are the process's: during the call, other threads'
     output is captured too, and their relative paths are relative to the temporary directory.
@@ -157,8 +115,7 @@ def _capture():
 # --- the host, the instance and the clips ---------------------------------------------------
 
 class _Host(ofxh.Host):
-    """hostDemo's Host (hostDemoHostDescriptor.cpp): its messages go to stdout, questions are
-    answered yes."""
+    """hostDemo's Host (hostDemoHostDescriptor.cpp): its messages go to stdout, questions are answered yes."""
 
     def init_properties(self, props):
         # hostDemo's depths (BYTES, DEPTHS): byte, short and float. ofxh's PyHost also lists half
@@ -166,19 +123,21 @@ class _Host(ofxh.Host):
         # OFX 1.4 restriction: it is an OFX 1.4 host property, kept by profile="ofx14".)
         props[kOfxImageEffectPropSupportedPixelDepths] = tuple(ofxh.ofx_name("depth", d) for d in DEPTHS)
 
-    def message(self, type, id, text):
+    def message(self, message_type, message_id, text):
         prefix = {"log": "Log : ", "fatal": "Error : ", "error": "Error : ",
-                  "question": "Question : "}.get(type, "Message : ")
+                  "question": "Question : "}.get(message_type, "Message : ")
         stdio.write(1, prefix + text + "\n")
-        return ofxh.Stat.ReplyYes if type == "question" else ofxh.Stat.OK
+        return ofxh.Stat.ReplyYes if message_type == "question" else ofxh.Stat.OK
 
-    def persistent_message(self, type, id, text):
-        return self.message(type, id, text)
+    def persistent_message(self, message_type, message_id, text):
+        return self.message(message_type, message_id, text)
 
 
 class _Instance(ofxh.ImageEffectInstance):
-    """hostDemo's MyEffectInstance (hostDemoEffectInstance.cpp): records the messages and the
-    progress, and uses the input depth for the output of a generator."""
+    """hostDemo's MyEffectInstance (hostDemoEffectInstance.cpp).
+
+    Records the messages and the progress, and uses the input depth for the output of a generator.
+    """
 
     def __init__(self, run: _Run):
         super().__init__()
@@ -190,23 +149,24 @@ class _Instance(ofxh.ImageEffectInstance):
     def new_clip_instance(self, desc, index):
         return _Clip(self.run, desc)
 
-    def _record(self, kind, type, id, text):
-        t = _ofx("message", type)
-        stdio.write(1, f"{t} {id} {text}")  # (hostDemo's printf, without a newline)
-        self.messages.append({"kind": kind, "type": t, "id": id, "text": text})
+    def _record(self, kind, message_type, message_id, text):
+        t = _ofx("message", message_type)
+        stdio.write(1, f"{t} {message_id} {text}")  # (hostDemo's printf, without a newline)
+        self.messages.append({"kind": kind, "type": t, "id": message_id, "text": text})
         return ofxh.Stat.OK
 
-    def message(self, type, id, text):
-        return self._record("message", type, id, text)
+    def message(self, message_type, message_id, text):
+        return self._record("message", message_type, message_id, text)
 
-    def persistent_message(self, type, id, text):
-        return self._record("persistentMessage", type, id, text)
+    def persistent_message(self, message_type, message_id, text):
+        return self._record("persistentMessage", message_type, message_id, text)
 
     def clear_persistent_message(self):
         self.messages.append({"kind": "clearPersistentMessage", "type": "", "id": "", "text": ""})
 
-    def progress_start(self, message, id):
-        self.progress.append({"message": message, "id": id, "updates": 0, "lastValue": 0., "ended": False, "ends": 0})
+    def progress_start(self, message, message_id):
+        self.progress.append({"message": message, "id": message_id, "updates": 0, "lastValue": 0., "ended": False,
+                              "ends": 0})
 
     def progress_end(self):
         if self.progress:
@@ -221,8 +181,10 @@ class _Instance(ofxh.ImageEffectInstance):
 
 
 class _Clip(ofxh.ClipInstance):
-    """hostDemo's MyClipInstance (hostDemoClipInstance.cpp): the inputs are its patterns, PFM
-    files or arrays; the output is ofxh's default image over the render window."""
+    """hostDemo's MyClipInstance (hostDemoClipInstance.cpp).
+
+    The inputs are its patterns, PFM files or arrays; the output is ofxh's default image over the render window.
+    """
 
     def __init__(self, run: _Run, desc):
         super().__init__()
@@ -278,8 +240,11 @@ class _Clip(ofxh.ClipInstance):
         return (0., 0., 768., 576.)
 
     def get_image(self, time, view, bounds, plane="Colour"):
-        """fetchImage: the output covers the render window; an input covers bounds (or the RoI of
-        the render, or the RoD) clipped to the RoD, or its whole RoD without tiles."""
+        """hostDemo's fetchImage: the output covers the render window, an input the region it needs.
+
+        An input covers bounds (or the RoI of the render, or the RoD) clipped to the RoD, or its whole
+        RoD without tiles.
+        """
         run = self.run
         if not self.connected:
             return None
@@ -304,8 +269,11 @@ class _Clip(ofxh.ClipInstance):
         return ofxh.ImageData(pixels, b, rod=rod)
 
     def _output_bounds(self, rod, rs) -> tuple:
-        """The output image: the render window during a render, else the RoD (the RoD clipped to
-        the project with tiles, or if it is too large)."""
+        """The output image.
+
+        The render window during a render, else the RoD (the RoD clipped to the project with tiles, or if it is too
+        large).
+        """
         inst = self.run.instance
         if self.run.rendering:
             return inst.render_window
@@ -314,8 +282,11 @@ class _Clip(ofxh.ClipInstance):
         return intersect(rod, inst.project_pixel_rect(rs))
 
     def _input_bounds(self, rod_c, rod, rs, bounds) -> tuple | None:
-        """An input image: bounds (canonical, or None: the render's RoI, else the RoD), or the whole
-        RoD without tiles, clipped to the RoD; None if that is empty."""
+        """An input image.
+
+        Bounds (canonical, or None: the render's RoI, else the RoD), or the whole RoD without tiles, clipped to the
+        RoD; None if that is empty.
+        """
         run = self.run
         inst = run.instance
         whole = not (inst.supports_tiles and self.supports_tiles)
@@ -379,8 +350,10 @@ def session() -> Session | None:
 
 
 def shutdown() -> None:
-    """Shut down the backend's ofxh host (the next render starts a new one). Doesn't touch another
-    ofxh host."""
+    """Shut down the backend's ofxh host (the next render starts a new one).
+
+    Doesn't touch another ofxh host.
+    """
     global _session
     if session() is not None:
         ofxh.shutdown()
@@ -388,10 +361,19 @@ def shutdown() -> None:
 
 
 def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_paths: bool = False) -> None:
-    """The backend's ofxh host, for these plug-in directories, profile and options (ofxh has one
-    host per process: a new one replaces the backend's own, but not another one). keep_loaded: the
-    scanned plug-ins stay loaded (hostDemo's OFX_HOSTDEMO_KEEP_LOADED=1). use_std_paths: also the
-    standard plug-in locations (hostDemo without --no-std-paths)."""
+    """Make sure the backend's ofxh host is initialized with these settings.
+
+    ofxh has one host per process: a new one replaces the backend's own, but not another one.
+
+    Args:
+        dirs: the plug-in directories.
+        profile: "default" or "ofx14" (see ofxh.init()).
+        keep_loaded: the scanned plug-ins stay loaded (hostDemo's OFX_HOSTDEMO_KEEP_LOADED=1).
+        use_std_paths: also the standard plug-in locations (hostDemo without --no-std-paths).
+
+    Raises:
+        RuntimeError: another ofxh host is initialized.
+    """
     global _session
     options = (bool(keep_loaded), bool(use_std_paths))
     if _session is not None and ofxh.host() is not _session.host:
@@ -418,8 +400,10 @@ class _Usage(Exception):
 
 
 class _Failed(Exception):
-    """A step of the run failed, after its error message: hostDemo skips the next steps and exits
-    with status 1, after the report."""
+    """A step of the run failed, after its error message.
+
+    HostDemo skips the next steps and exits with status 1, after the report.
+    """
 
 
 def _frames(frames) -> list[float]:
@@ -454,8 +438,11 @@ class _Extra:
 
 
 def _extra(extra_args: Sequence[str]) -> _Extra:
-    """--ofx14, --allow-unwritten, -m MAJOR, -s ASSIGNMENT (hostDemo's -s, before the params'),
-    --format ppm|pfm, -o PREFIX and --report FILE."""
+    """The hostDemo options that the in-process backend takes in extra_args.
+
+    --ofx14, --allow-unwritten, -m MAJOR, -s ASSIGNMENT (hostDemo's -s, before the params'),
+    --format ppm|pfm, -o PREFIX and --report FILE.
+    """
     x = _Extra()
     args = list(extra_args)
     i = 0
@@ -521,8 +508,7 @@ class Job:
 
 
 class _Run:
-    """A run's state: the instance, the render state (hostDemo's setRenderState), the messages and
-    the outputs."""
+    """A run's state: the instance, the render state (hostDemo's setRenderState), the messages and the outputs."""
 
     def __init__(self, job: Job):
         self.job = job
@@ -616,8 +602,10 @@ _DIMENSIONS = {"double2d": 2, "double3d": 3, "rgb": 3, "rgba": 4, "integer2d": 2
 
 
 def _param_from_string(type_: str, value: str, props) -> Any:
-    """A parameter value from the command line, as hostDemo parses it: the value, None if it is
-    invalid, or _NOT_SETTABLE for a type that the command line can't set."""
+    """A parameter value from the command line, as hostDemo parses it.
+
+    The value, None if it is invalid, or _NOT_SETTABLE for a type that the command line can't set.
+    """
     if type_ in ("string", "custom", "strchoice"):
         return value
     if type_ == "bytes":
@@ -641,9 +629,11 @@ _NUMERIC = {"integer", "double", "boolean", "choice", "rgba", "rgb", "double2d",
 
 
 def json_safe(v):
-    """The report as hostDemo writes it (hostDemoJson.h): NaN and infinities, which JSON can't
-    represent, are null (everywhere: e.g. the statistics of an output with an infinite value), and
-    tuples are lists."""
+    """The report as hostDemo writes it (hostDemoJson.h).
+
+    NaN and infinities, which JSON can't represent, are null (everywhere: e.g. the statistics of an output with an
+    infinite value), and tuples are lists.
+    """
     if isinstance(v, float):
         return v if math.isfinite(v) else None
     if isinstance(v, dict):
@@ -675,8 +665,11 @@ def _keyed_params(inst, t: float) -> dict:
 # --- a frame: renderFrame -------------------------------------------------------------------
 
 def _render_frame(run: _Run, inst, out_clip, t: float, view: int, sequential: bool, base: str, key, r: dict) -> None:
-    """renderFrame: the actions of one time and view, into the report item r. base: the output file
-    name without its extension (hostDemo's), key: the key of RenderResult.outputs. Raises _Failed."""
+    """renderFrame: the actions of one time and view, into the report item r.
+
+    base: the output file name without its extension (hostDemo's), key: the key of RenderResult.outputs. Raises
+    _Failed.
+    """
     fname = base + (".ppm" if run.job.fmt == "ppm" else ".pfm")
     rs = run.job.scale
     r["time"] = t
@@ -725,8 +718,11 @@ def _render_frame(run: _Run, inst, out_clip, t: float, view: int, sequential: bo
 
 
 def _render_window(run: _Run, inst, out_clip, rod, t: float, fname: str) -> tuple | None:
-    """The render window: --window (or the project) clipped to the RoD; the whole RoD without tiles,
-    unless it is too large. None (after a warning) if it is empty."""
+    """The render window.
+
+    --window (or the project) clipped to the RoD; the whole RoD without tiles, unless it is too large. None (after a
+    warning) if it is empty.
+    """
     rs = run.job.scale
     window = run.job.window
     rod_px = to_pixels(rod, rs, inst.project_pixel_aspect_ratio)
@@ -752,8 +748,10 @@ def _render_window(run: _Run, inst, out_clip, rod, t: float, fname: str) -> tupl
 
 
 def _frame_queries(run: _Run, inst, t: float, av: int, render_window, r: dict) -> dict:
-    """isIdentity (hostDemo renders an identity anyway), getFramesNeeded and getRegionsOfInterest,
-    into r: the regions of interest. Raises _Failed."""
+    """isIdentity (hostDemo renders an identity anyway), getFramesNeeded and getRegionsOfInterest, into r.
+
+    The regions of interest. Raises _Failed.
+    """
     rs = run.job.scale
     par = inst.project_pixel_aspect_ratio
     st, idr = run.call2("isIdentity", inst.is_identity_action, t, render_window, rs, "none", av)
@@ -782,8 +780,14 @@ def _frame_queries(run: _Run, inst, t: float, av: int, render_window, r: dict) -
 
 def _frame_render(run: _Run, inst, t: float, view: int, av: int, render_window, rod, rois: dict, sequential: bool,
                   r: dict) -> tuple:
-    """The render action, into r (setRenderState: each render gets a new output image): (the output
-    pixels, their bounds). Raises _Failed."""
+    """The render action, into r (setRenderState: each render gets a new output image).
+
+    Returns:
+        (the output pixels, their bounds).
+
+    Raises:
+        _Failed: the render failed.
+    """
     run.rendering, run.rois = True, dict(rois)
     run.render_rod = (t, av, tuple(rod))  # (the output's RoD during the render: see _Clip)
     errors = run.image_errors
@@ -817,8 +821,11 @@ _COMPONENT_NAMES = {4: kOfxImageComponentRGBA, 3: kOfxImageComponentRGB, 1: kOfx
 
 
 def _ppm(pixels: np.ndarray, bounds) -> bytes:
-    """hostDemo's exportToPPM: a plain (P3) 8-bit PPM, top row first; short and float converted to 8
-    bits (float clamped to [0, 1], NaN written as 0), Alpha as grey levels."""
+    """hostDemo's exportToPPM.
+
+    A plain (P3) 8-bit PPM, top row first; short and float converted to 8 bits (float clamped to [0, 1], NaN written
+    as 0), Alpha as grey levels.
+    """
     h, w, nc = pixels.shape
     if pixels.dtype == np.uint8:
         v = pixels.astype(np.int64)
@@ -836,8 +843,10 @@ def _ppm(pixels: np.ndarray, bounds) -> bytes:
 
 
 def _write_output(run: _Run, base: str, fname: str, pixels: np.ndarray, bounds) -> list[str]:
-    """Write an output image as hostDemo does (exportToPPM, exportToPFM): the file names (as the
-    report gives them). Raises _Failed after an error."""
+    """Write an output image as hostDemo does (exportToPPM, exportToPFM): the file names (as the report gives them).
+
+    Raises _Failed after an error.
+    """
     out: list[tuple[str, bytes]] = []
     if run.job.fmt == "ppm":
         out.append((fname, _ppm(pixels, bounds)))
@@ -932,8 +941,10 @@ def run_job(dirs: tuple, job: Job) -> tuple[int, dict, dict]:
 
 
 def _connect_inputs(run: _Run, inst, report: dict) -> None:
-    """The input clips (hostDemo's -i), into the report. Raises _Failed for an unknown clip, or a
-    disconnected one that isn't optional."""
+    """The input clips (hostDemo's -i), into the report.
+
+    Raises _Failed for an unknown clip, or a disconnected one that isn't optional.
+    """
     clips = inst.clips
     failed = False
     for name, spec in run.job.inputs:
@@ -970,8 +981,10 @@ def _clip_preferences(run: _Run, inst, report: dict) -> None:
 
 
 def _create(run: _Run, inst, report: dict) -> None:
-    """The create instance action, the clip preferences, the parameters of the command line (hostDemo
-    sets them after the create instance action, as a user), and the time domain. Raises _Failed."""
+    """The create instance action, the clip preferences, the command line's parameters, the time domain.
+
+    hostDemo sets the parameters after the create instance action, as a user. Raises _Failed.
+    """
     actions = report["actions"]
     st = run.call("createInstance", inst.create_instance_action)
     actions.append(_named("createInstance", _action(st)))
@@ -1004,8 +1017,10 @@ def _create(run: _Run, inst, report: dict) -> None:
 
 
 def _assign(run: _Run, inst, assignment: str, actions: list) -> None:
-    """A parameter of the command line, followed by instanceChanged (at its time), between begin and
-    end. Raises _Failed."""
+    """A parameter of the command line, followed by instanceChanged (at its time), between begin and end.
+
+    Raises _Failed.
+    """
     inst.timeline_goto_time(0.)
     r = _set_param(run, inst, assignment)
     if r is None:
@@ -1030,8 +1045,10 @@ def _assign(run: _Run, inst, assignment: str, actions: list) -> None:
 
 
 def _render_sequence(run: _Run, inst, report: dict) -> None:
-    """beginSequenceRender, each frame and view, endSequenceRender (also after a failure, if the
-    begin was called). Raises _Failed."""
+    """beginSequenceRender, each frame and view, endSequenceRender (also after a failure, if the begin was called).
+
+    Raises _Failed.
+    """
     job = run.job
     out_clip = inst.clips.get(kOfxImageEffectOutputClipName)
     if out_clip is None:
@@ -1160,8 +1177,10 @@ def _render_window_arg(window) -> tuple | None:
 
 
 def _input_specs(inputs: Mapping, comps: Mapping, sc: tuple, specs: list) -> None:
-    """The inputs of render(), as hostDemo's -i, appended to specs (also after an error: for the
-    command in the error message). Raises _Usage."""
+    """The inputs of render(), as hostDemo's -i, appended to specs.
+
+    They are appended also after an error, for the command in the error message. Raises _Usage.
+    """
     seen = set()
     given = dict(inputs)
     for clip in comps:
@@ -1205,10 +1224,24 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
            scale: float | Sequence[float] | None = None, window: Sequence[int] | None = None, query: bool = False,
            extra_args: Sequence[str] = (), check: bool = True,
            components: Mapping[str, str] | None = None) -> RenderResult:
-    """ofxhost.render(), in-process (see ofxhost.render() for the arguments). components: clip name ->
-    "rgb", "alpha" or "rgba" (or the kOfxImageComponent* names), the components of that input (its
-    unmapped components; default RGBA, or the spec's "#rgb"... suffix); a clip not in inputs gets
-    the default pattern."""
+    """ofxhost.render(), in-process.
+
+    Args:
+        bundle_paths, plugin_id, context, inputs, params, depth, frames, scale, window, query,
+            extra_args, check: as ofxhost.render().
+        components: clip name -> "rgb", "alpha" or "rgba" (or the kOfxImageComponent* names): the
+            components of that input (its unmapped components; default RGBA, or the spec's "#rgb"...
+            suffix); a clip not in inputs gets the default pattern.
+
+    Returns:
+        The RenderResult, as the subprocess backend's.
+
+    Raises:
+        ValueError: a bad argument.
+        HostDemoError: the run failed (with check), or a command-line error (returncode 1, with
+            hostDemo's message in stderr).
+        RuntimeError: another ofxh host is initialized.
+    """
     if depth not in DEPTHS:
         raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
     comps = {}
@@ -1263,8 +1296,20 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
 
 
 def describe(bundle_paths, plugin_id: str, context: str | None = None, extra_args: Sequence[str] = ()) -> dict:
-    """ofxhost.describe(), in-process: ofxh.describe() of the plug-in in all its contexts (as hostDemo
-    --describe, which describes them all whatever -c)."""
+    """ofxhost.describe(), in-process.
+
+    ofxh.describe() of the plug-in in all its contexts (as hostDemo --describe, which describes them all whatever
+    -c).
+
+    Args:
+        bundle_paths, plugin_id, context, extra_args: as ofxhost.describe().
+
+    Returns:
+        The JSON, as a dict.
+
+    Raises:
+        HostDemoError: the plug-in isn't found, or its description failed.
+    """
     dirs = tuple(plugin_dirs(bundle_paths))
     cmd = ["ofxhost.inprocess", "-p", plugin_id] + (["-c", context] if context else []) + ["--describe"] + \
         list(extra_args)

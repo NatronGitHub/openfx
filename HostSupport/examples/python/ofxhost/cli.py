@@ -1,28 +1,15 @@
 """The command line of the sample host (ofxhost.graphhost), after pyofx's:
 
-    python -m ofxhost [-b DIR]... [--loglevel LEVEL] COMMAND ...
+    python -m ofxhost [-b DIR]... [--loglevel LEVEL] list|params|filter|render ...
 
-    list [TEXT]                     the plug-ins (those whose id or label contains TEXT)
-    params PLUGIN [-c CTX] [-j]     a plug-in's parameters; -j: a one-node graph (JSON) with their
-                                    defaults, to edit and render
-    filter PLUGIN IN OUT [-c CTX] [-s NAME=VALUE]... [--frames F] [--save-graph G.json]
-                                    render a plug-in on an image or a sequence (IN "in.####.pfm"),
-                                    into OUT ("out.####.pfm"); the project is IN's image size
-    render GRAPH.json [--frames F] [--scale S] [--report R.json] [--save-graph G.json] [--dump]
-                                    run a graph (ofxhost.graph's JSON) and write its outputs;
-                                    --dump prints the graph as JSON (normalised) instead
-    hostdemo [hostDemo's options]   hostDemo's command line, in-process (ofxhost.hostdemo; the
-                                    plug-ins of $OFX_PLUGIN_PATH, not -b; first on the line)
-
--b: a plug-in directory (or .ofx.bundle), repeatable; $OFX_PLUGIN_PATH is scanned too. Frames F:
-"1-10", "0-20x2" (a step), or "1,3,5". -s NAME=VALUE: VALUE is JSON if it parses (1.5, true,
-[1, 2]), else a string (a choice's option label, a file name); -s NAME presses a push button.
-Images: .pfm and .npy (ofxhost.imageio). The exit status is 0 if it worked, 1 if it failed (a
-plug-in not found, a missing file, a failed render...: "error: ..." on stderr), 2 for a usage error
-(the command line itself).
-
-The ofxh module is imported after the command line is read: without PYTHONPATH, it is the one of
-the openfx build tree that holds the -b (or $OFX_PLUGIN_PATH) directories, if there is one.
+-b: a plug-in directory (or .ofx.bundle), repeatable; $OFX_PLUGIN_PATH is scanned too. list shows
+the plug-ins, params a plug-in's parameters (-j: a one-node graph with their defaults), filter
+renders a plug-in on an image or a sequence, render runs a JSON graph (ofxhost.graph). Frames:
+"1-10", "0-20x2" (a step), or "1,3,5". -s NAME=VALUE: VALUE is JSON if it parses, else a string;
+-s NAME presses a push button. Images: .pfm and .npy (ofxhost.imageio). The exit status is 0 if it
+worked, 1 if it failed ("error: ..." on stderr), 2 for a usage error. The ofxh module is imported
+after the command line is read: without PYTHONPATH, it is the one of the openfx build tree that
+holds the -b (or $OFX_PLUGIN_PATH) directories, if there is one.
 """
 
 from __future__ import annotations
@@ -53,8 +40,10 @@ _MAX_TIME = 1e15  # (hostDemo's limit of a time)
 
 
 def _range(part: str) -> tuple[float, float, float] | None:
-    """(first, last, step) of "first-last[xstep]", else None. The "-" between first and last is one
-    that isn't a sign: not first, and not after an exponent's "e" ("1e-3-2")."""
+    """(first, last, step) of "first-last[xstep]", else None.
+
+    The "-" between first and last is one that isn't a sign: not first, and not after an exponent's "e" ("1e-3-2").
+    """
     rng, _, step = part.partition("x")
     for k, c in enumerate(rng):
         if c == "-" and k > 0 and rng[k - 1] not in "eE":
@@ -146,9 +135,17 @@ def cmd_list(args) -> int:
 
 
 def template(plugin, context: str) -> g.Graph:
-    """A one-node graph of a plug-in, with the defaults of its parameters (ofxh.param_template(); the
-    file parameters as {"file": path}), its mandatory input clips on hostDemo's default test pattern
-    (the optional ones left out: disconnected), and its output written to <name>.####.pfm."""
+    """A one-node graph of a plug-in, to edit and render.
+
+    Args:
+        plugin: the ofxh plug-in.
+        context: one of its contexts.
+
+    Returns:
+        The graph: the defaults of the plug-in's parameters (ofxh.param_template(); the file
+        parameters as {"file": path}), its mandatory input clips on hostDemo's default test pattern
+        (the optional ones left out: disconnected), and its output written to <name>.####.pfm.
+    """
     gh = _graphhost()
     d = plugin.descriptor(context)
     params = dict(gh.ofxh.param_template(plugin, context))
@@ -255,7 +252,7 @@ def cmd_render(args) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="python -m ofxhost", description=__doc__.split("\n\n")[0],
+    ap = argparse.ArgumentParser(prog="python -m ofxhost", description="The sample host (ofxhost.graphhost).",
                                  formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog="python -m ofxhost hostdemo [hostDemo's options]: hostDemo's command line, "
                                         "in-process (ofxhost.hostdemo). See ofxhost/cli.py and the README.")
@@ -295,14 +292,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _import_host(bundles) -> None:
-    """Import ofxh (without PYTHONPATH: the one of the build tree of the -b directories), then
-    ofxhost.graphhost."""
+    """Import ofxh (without PYTHONPATH: the one of the build tree of the -b directories), then ofxhost.graphhost."""
     dirs = [os.path.abspath(b) for b in bundles] + os.environ.get("OFX_PLUGIN_PATH", "").split(os.pathsep)
     import_ofxh(os.pathsep.join(d for d in dirs if d), for_cli=True)
     _graphhost()
 
 
 def main(argv=None) -> int:
+    """python -m ofxhost: run the command line argv (default: sys.argv[1:]); the exit status."""
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["hostdemo"]:
         from .hostdemo import run

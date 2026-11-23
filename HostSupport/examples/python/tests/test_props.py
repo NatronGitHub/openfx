@@ -19,7 +19,7 @@ def test_props():
     assert PROPS[k.kOfxImageEffectPropProjectSize][:4] == (
         "OfxImageEffectPropProjectSize", "kOfxImageEffectPropProjectSize", "double", 2)
     assert PROPS[k.kNatronOfxHostIsNatron].extension == "natron"
-    # ofxNatron.h extension 13: keyboard modifiers (NatronGitHub/openfx#131)
+    # ofxNatron.h extension 13: keyboard modifiers
     p = PROPS[k.kNatronOfxInteractPropKeyModifiers]
     assert (p.type, p.dimension, p.extension) == ("int", 1, "natron")
     p = PROPS[k.kNatronOfxInteractHostPropSupportsKeyModifiers]

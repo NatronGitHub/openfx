@@ -1,5 +1,6 @@
-"""The process's stdout and stderr at the file-descriptor level, where plug-ins write (printf,
-std::cerr): flushing the Python and C buffers, and redirecting the descriptors 1 and 2.
+"""The process's stdout and stderr at the file-descriptor level, where plug-ins write (printf, std::cerr).
+
+Flushing the Python and C buffers, and redirecting the descriptors 1 and 2.
 
 The descriptors and the C buffers are process-wide: a redirection also catches what other threads
 write meanwhile.
@@ -30,8 +31,10 @@ def _c_fflush():
 
 
 def flush() -> None:
-    """Flush sys.stdout and sys.stderr, then the C stdio buffers (fflush(NULL)): the plug-ins'
-    output, and ours, goes out in order before a descriptor moves."""
+    """Flush sys.stdout and sys.stderr, then the C stdio buffers (fflush(NULL)).
+
+    The plug-ins' output, and ours, goes out in order before a descriptor moves.
+    """
     for f in (sys.stdout, sys.stderr):
         try:
             f.flush()

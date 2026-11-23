@@ -1,6 +1,6 @@
-"""The in-process backend and the sample host beyond hostDemo (NatronGitHub/openfx#136, part 5): per-input
-components, the output files and report of extra_args (--format, -o, --report), a plug-in's worker
-thread that fetches the output image first, and the bounded planning of the sample host."""
+"""The in-process backend and the sample host beyond hostDemo: per-input components, the output files
+and report of extra_args (--format, -o, --report), a plug-in's worker thread that fetches the output
+image first, and the bounded planning of the sample host."""
 
 import ctypes
 import json
@@ -226,8 +226,8 @@ def test_worker_threads_fetch_the_output_first(sample_plugins, monkeypatch, host
         main = threading.current_thread() is threading.main_thread()
         if self.is_output and main and not seen["images"]:
             handle = ctypes.c_void_p()
-            st = _suite_function(3, _CLIP_HANDLE)(ctypes.c_void_p(self.instance.handle), b"Output", ctypes.byref(handle),
-                                                 None)
+            st = _suite_function(3, _CLIP_HANDLE)(ctypes.c_void_p(self.instance.handle), b"Output",
+                                                 ctypes.byref(handle), None)
             assert st == 0
 
             def worker():
@@ -280,7 +280,7 @@ def test_plan_bounded(sample_plugins, monkeypatch):
     """A diamond whose paths ask a node for different windows: x0 is reached through A (an Invert, the
     whole window) and through B (a Basic, whose RoD is its small Source, so its Mask region of
     interest is small). The second window is inside the first: x0 is planned once, not once per
-    path (part 4 follow-up)."""
+    path."""
     planned = []
     original = graphhost._plan_window
 

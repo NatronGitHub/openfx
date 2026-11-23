@@ -1,4 +1,4 @@
-# The ofxh module (the HostSupport Python bindings, NatronGitHub/openfx#136) as a Python package:
+# The ofxh module (the HostSupport Python bindings) as a Python package:
 #   pip install ./HostSupport/python
 # scikit-build-core runs CMakeLists.txt of this directory, which adds the openfx tree (../..)
 # and builds only HostSupport and the module, for the interpreter's architecture. It needs a C++17
@@ -43,3 +43,13 @@ cmake.build-type = "Release"
 # build directory is temporary (-C build-dir=<dir> to keep it). An sdist can't hold the openfx
 # tree around this directory: install from a checkout.
 wheel.packages = []
+
+[tool.ruff]
+# The house limit of the Python code (the Google Python Style Guide says 80), here and in
+# HostSupport/examples/python: ruff check --config HostSupport/python/pyproject.toml <dir>
+line-length = 120
+# (generated from the headers)
+extend-exclude = ["**/ofxhost/constants.py", "**/ofxhost/props.py"]
+
+[tool.ruff.lint]
+extend-select = ["E501"]  # (the line length: not in ruff's default rules)

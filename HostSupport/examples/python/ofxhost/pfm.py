@@ -26,8 +26,7 @@ _MAX_TOKEN = 64
 
 
 def _token(data: bytes, pos: int) -> tuple[str, int]:
-    """The next whitespace-separated header token (at most 64 bytes, as hostDemo's), and the
-    position after it."""
+    """The next whitespace-separated header token (at most 64 bytes, as hostDemo's), and the position after it."""
     n = len(data)
     while pos < n and data[pos:pos + 1].isspace():
         pos += 1

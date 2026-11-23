@@ -1,51 +1,16 @@
-"""hostDemo's command line on the in-process backend (ofxhost.inprocess, on the ofxh module): a
-drop-in for the hostDemo binary in the plug-in repositories' test scripts (NatronGitHub/openfx#136,
-part 5).
+"""hostDemo's command line on the in-process backend (ofxhost.inprocess, on the ofxh module).
+
+A drop-in for the hostDemo binary in test scripts.
 
     python -m ofxhost.hostdemo [hostDemo's options] [[-s] name=value]...
-    HostSupport/examples/python/hostdemo-inprocess [hostDemo's options]...   (the same, as a sh script;
-                                                                     $OFXHOST_PYTHON: the Python)
-    python -m ofxhost hostdemo [hostDemo's options]...                       (the same)
+    HostSupport/examples/python/hostdemo-inprocess [hostDemo's options]...   (the same, as a sh script)
     python -m ofxhost.hostdemo --batch FILE|- [-j N] [--timeout S] [--reuse-host]...  (batch mode)
 
-It takes hostDemo's options, with the same meaning and the same errors (see -h): -p, -m, -c, -o,
---format ppm|pfm, -d, -i (the same input specs), --frames, --scale, --window, --query, -s (values,
-keys, push buttons) and bare name=value assignments, --report, --describe, --ofx14,
---allow-unwritten, --no-std-paths, --no-cache and --quiet. It reads the plug-ins of
-$OFX_PLUGIN_PATH (and the standard locations without --no-std-paths), keeps them loaded after the
-scan with $OFX_HOSTDEMO_KEEP_LOADED=1, writes the same output files
-(<prefix>.<t>[l|r].ppm, or .pfm and .alpha.pfm), the same --report and --describe JSON, prints the
-plug-ins' messages on stdout as hostDemo does ("<type> <id> <text>", also with --quiet), and
-exits with the same status (0 on success, 1 on failure). As hostDemo, it runs in the current
-directory, one run per process, so a test harness gets the same crash isolation, and its
-timeouts work the same way; the plug-ins are unloaded at the end (kOfxActionUnload), after the
-report is written.
-
-What differs from hostDemo (README.md has the list):
-- the report's host name is ofxh's ("net.sf.openfx.ofxh"), and its plugin.filePath is absolute;
-- the numbers in the JSON are written by Python (0.0, not 0); NaN and infinities are null, as in
-  hostDemo; the means can differ in their last bits (NumPy's pairwise summation);
-- during a render, an output image fetch runs no nested RoD action (the host's RoD of the render
-  is used), so a plug-in that traces its actions prints fewer RoD actions;
-- --no-cache is a no-op: ofxh has no plug-in cache file; without --quiet, the list of the
-  plug-ins found is shorter than hostDemo's dump (Plug-in:id and its contexts);
-- ofxh's string choice parameters refuse a value outside their enums (hostDemo's accept it);
-- a bug of the Python host (an uncaught exception) exits with status 1, a traceback, and no report;
-- beyond hostDemo, an input spec may end with a components suffix, "#rgb", "#alpha" or "#rgba"
-  ("-i Source=ramp#rgb"): the clip's unmapped components (see ofxhost.inprocess);
-- $OFXHOST_PRELOAD: libraries (os.pathsep-separated) loaded with RTLD_GLOBAL before the plug-in
-  scan, e.g. MacPorts' libtbbmalloc for IO.ofx (oneTBB 2023.2 can crash at exit when OpenImageIO
-  loaded it, see NatronGitHub/openfx#136).
-The batch mode (--batch, or run_batch() from Python; ofxhost._batch has the details) runs many
-command lines in one Python, in a pool of worker processes, instead of paying the start of Python
-and the imports of NumPy and ofxh (about 0.1 to 0.2 s) for each: each line runs as a separate run
-would, in its own directory (--cwd) and environment (--env), with its stdout and stderr captured,
-and a crashed or hung command (--timeout) is recorded and its worker replaced. By default each
-command gets a new OFX host, as with hostDemo; --reuse-host and --fresh-host-per-plugin keep it
-between commands, which is faster but shares the plug-ins' state (see the README).
-As hostDemo, the whole command line is read before ofxh is imported: -h and the usage errors work
-without the bindings. Windows (a native python.exe): python -m ofxhost.hostdemo, with Windows paths
-in PYTHONPATH separated by ";" (the hostdemo-inprocess script does that when cygpath exists).
+It takes hostDemo's options with the same meaning and the same errors (see -h), writes the same
+files, the same --report and --describe JSON, prints the plug-ins' messages as hostDemo does, and
+exits with the same status. As hostDemo, it reads the whole command line before it imports ofxh,
+runs one command line per process, and unloads the plug-ins at the end. README.md lists the few
+differences; the batch mode (ofxhost._batch) runs many command lines in one Python.
 """
 
 from __future__ import annotations
@@ -273,8 +238,10 @@ def _parse_value(o: dict, arg: str, v: str, seen: set) -> None:
 
 
 def _parse(argv: list[str], prog: str) -> dict:
-    """hostDemo's command line (run() in hostDemo.cpp), parsed as hostDemo parses it. Raises _Exit
-    (after the help, or a usage error)."""
+    """hostDemo's command line (run() in hostDemo.cpp), parsed as hostDemo parses it.
+
+    Raises _Exit (after the help, or a usage error).
+    """
     from .specs import CLIP_LENGTH  # (not ofxh: it is imported after the command line, as hostDemo loads plug-ins)
     o = {"plugin": _DEFAULT_PLUGIN, "major": -1, "context": kOfxImageEffectContextFilter, "prefix": "Output",
          "depth": "byte", "assignments": [], "inputs": [], "report": "", "describe": "", "std_paths": True,
@@ -408,15 +375,22 @@ def is_batch(argv: Sequence[str]) -> bool:
 
 
 def run_batch(commands, jobs: int = 1, timeout: float | None = None, host: str = "fresh", **kwargs):
-    """Run many hostDemo command lines in a pool of `jobs` worker processes: the list of their
-    records (one dict per command, in order, then the worker events). host: "fresh" (a new OFX host
-    for each command, the default), "per-plugin" or "reuse". See ofxhost._batch.run_batch for the
-    arguments and the records, and the README for the trade-offs of host."""
+    """Run many hostDemo command lines in a pool of worker processes.
+
+    Args:
+        commands, jobs, timeout, host, **kwargs: see ofxhost._batch.run_batch(); host: "fresh" (a
+            new OFX host for each command, the default), "per-plugin" or "reuse" (README.md has the
+            trade-offs).
+
+    Returns:
+        The records: one dict per command, in order, then those of the worker events.
+    """
     from ._batch import run_batch as rb
     return rb(commands, jobs=jobs, timeout=timeout, host=host, **kwargs)
 
 
 def main(argv: list[str] | None = None) -> int:
+    """python -m ofxhost.hostdemo: run(argv, default sys.argv[1:]); the exit status."""
     prog = os.path.basename(sys.argv[0]) if argv is None and sys.argv and sys.argv[0] else "hostdemo"
     if prog == "hostdemo.py":
         prog = "python -m ofxhost.hostdemo"

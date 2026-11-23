@@ -1,100 +1,17 @@
-"""Batch mode of ofxhost.hostdemo: many hostDemo command lines in one Python, in a pool of worker
-processes (NatronGitHub/openfx#136).
+"""Batch mode of ofxhost.hostdemo.
+
+Many hostDemo command lines in one Python, in a pool of worker processes, instead of paying the start of Python and
+the imports (0.1 to 0.2 s) for each.
 
     python -m ofxhost.hostdemo --batch FILE|- [-j N] [--timeout SECONDS]
                                [--reuse-host | --fresh-host-per-plugin] [--batch-report FILE]
     ofxhost.hostdemo.run_batch(commands, jobs=1, timeout=None, host="fresh")   # the records
 
-Starting Python and importing NumPy and ofxh costs about 0.1 to 0.2 s per run of python -m
-ofxhost.hostdemo; a batch pays it once per worker.
-
-The commands: one hostDemo command line per line, without the program name, split as a POSIX
-shell does (shlex, also on Windows: write paths with "/" or quote them, since "\\" escapes);
-"#" is literal inside a line ("-i Source=ramp#rgb"); blank lines and lines whose first non-blank
-character is "#" are ignored. No shell syntax (cd DIR && ..., pipes, redirections). A line may start
-with batch options, before hostDemo's:
-  --cwd DIR          run the command in DIR (a native path, relative to the batch's directory);
-                     default: the batch's current directory
-  --env NAME=VALUE   set an environment variable for the command (e.g. OFX_PLUGIN_PATH,
-                     OFX_HOSTDEMO_KEEP_LOADED); --env NAME unsets it
-  --timeout SECONDS  this command's timeout (instead of the batch's --timeout)
-Each command runs as a separate python -m ofxhost.hostdemo would: it writes its own output files
-and --report or --describe JSON (relative to its directory), and its stdout and stderr are captured
-at the file-descriptor level (the plug-ins' printf and std::cerr too) into files of the batch's
-temporary directory, which survive a worker's crash and are read after it is killed.
-
-The records, one per command, in the order of the commands, written as JSON lines on stdout (or to
---batch-report FILE) and returned by run_batch():
-
-  {"line": 3, "args": [...], "cwd": "/abs/dir", "env": {}, "exitStatus": 0, "ok": true,
-   "stdout": "...", "stderr": "...", "seconds": 0.05, "crashed": false, "timedOut": false,
-   "worker": [0, 1], "seq": 2}
-
-- exitStatus: the command's (0 or 1, as hostDemo's); if the worker died during the command
-  (crashed: a signal, or a plug-in that called exit()), the worker's exit status: on POSIX minus
-  the signal (-11 for SIGSEGV), as subprocess gives it; on Windows the NTSTATUS of the crash (e.g.
-  3221225477, an access violation). timedOut: the command ran longer than its timeout; the worker
-  printed its Python threads' stacks to the command's stderr (faulthandler), and was killed with
-  its process group (exitStatus -9 on POSIX, 1 on Windows). Match crashed and timedOut, not the
-  exit status. In both cases the worker is replaced and the batch goes on.
-- seconds: the command's time in its worker, without the start of the worker (Python and its
-  imports); a worker's first command still includes the import of ofxh, which depends on its
-  $OFX_PLUGIN_PATH (0.1 to 0.2 s, NumPy is imported before).
-- worker: [slot, generation]: the slot of the pool (0 to N-1), and which of the slot's workers
-  (1, then 2 after the first was replaced...); seq: the command's position in that worker's
-  sequence (1, 2...): the commands that ran before it in the same process.
-- env: the command's --env changes (null: unset).
-- workerStderr (crashed and timed-out commands only): what the worker printed outside of the
-  commands (e.g. the output of a host shutdown, see below).
-- internalError (a bug of the batch itself; the command may not have run): the traceback.
-Records of worker events follow the command records, with "line": null and "event":
-- "died": a worker died, or hung past the command's timeout, after its previous command and before
-  the next one started (e.g. a plug-in that crashes in its unload action, when its host is shut
-  down before the next command): the command is run again in a new worker (once);
-- "exit": a worker failed when it shut down at the end of the batch (its exitStatus);
-- "start": a worker didn't start (stderr says why).
-They have the worker's stderr, and the seq of the last command that the worker ran. The batch exits with status 0 if every command succeeded and no
-worker event happened, 1 otherwise, 2 for a usage error of the batch options (also an unopenable
---batch-report), 3 for an internal error (e.g. the records couldn't be written: a closed pipe). A
-summary goes to stderr.
-
-The host's lifetime (the trade-off between isolation and speed):
-- by default (host="fresh"), the host is shut down after each command, as at the end of a
-  separate run (the plug-ins' unload action, and their binaries are unloaded): each command gets
-  its own scan, load and describe, as with hostDemo. The process stays: what survives the
-  unloading of a binary (libraries it loaded, binaries that dlclose() keeps loaded, the C runtime,
-  the environment) is shared by the commands of a worker;
-- --fresh-host-per-plugin (host="per-plugin"): the host is shut down before a command whose plug-in
-  (-p) differs from the worker's previous one: runs of the same plug-in share it;
-- --reuse-host (host="reuse"): a worker keeps its host while the plug-in directories (the
-  $OFX_PLUGIN_PATH that exist), the profile (--ofx14), OFX_HOSTDEMO_KEEP_LOADED and --no-std-paths
-  are the same. The fastest, but the commands of a worker share the plug-ins' globals, caches and
-  static data, and their load and describe actions run once; the plug-in scan (which sends each
-  plug-in its load, describe and unload actions) runs once per host, so what plug-ins print
-  during it is only in the stderr of the host's first command.
-In the per-plugin and reuse modes, a host is shut down before the next command starts (a new
-plug-in, or other plug-in directories, profile or options), on the worker's own stdout and
-stderr: the unload actions' output, or crash, is not the next command's. With -j N, the commands
-go to the first free worker, so the runs that share a worker are not known in advance (the
-records say which they were: worker and seq).
-
-Also beyond a separate run: the ofxh module is imported once per worker (the first command's
-$OFX_PLUGIN_PATH chooses its build tree, see ofxhost.build), $OFXHOST_PRELOAD loads its libraries
-once per worker, and the workers run in the batch's temporary directory, in their own process group
-(POSIX: a SIGTERM or SIGHUP of the batch kills them; they also end if the batch dies; see
-_watch_parent() for Windows), with ofxhost's own
-directory first on sys.path (so that a file of the batch's directory can't shadow a module;
-PYTHONPATH still applies).
-
-Test hook (for ofxhost's tests only): OFXHOST_BATCH_TEST_HOOK, set by a command's own --env (not
-inherited), makes the worker, after the command ran, write a line to the command's stdout and
-stderr, then: "segv" (a real SIGSEGV), "kill" (os.kill(pid, 9): SIGKILL, TerminateProcess on
-Windows), "exit" (os._exit(3)), "hang" (sleep), or "raise" (an uncaught Python exception in the
-host); "host" only writes "batch test hook: host N" (N: the number of the ofxh host in the worker,
-1, 2..., or "none" if it is shut down); "unload", "unload-crash" and "unload-raise" make the next
-shutdown of the host (in the per-plugin and reuse modes) write "batch test hook: unload" to the
-worker's stdout and stderr, then "unload-crash" exits the worker with status 5, and "unload-raise"
-raises (before the next command: its record is an error, the worker goes on).
+Each command line runs as a separate run would, in its directory (--cwd) and environment (--env),
+with its stdout and stderr captured at the file-descriptor level; a crashed or hung command
+(--timeout) is recorded, and its worker replaced. The workers are child processes that speak JSON
+lines over pipes, in their own process group. README.md describes the command lines, the records,
+the exit status and the host's lifetime (fresh, per-plugin, reuse).
 """
 
 from __future__ import annotations
@@ -148,9 +65,11 @@ error. See ofxhost/_batch.py and the README."""
 
 @dataclasses.dataclass
 class Command:
-    """A command of a batch: hostDemo's arguments, the directory to run them in (None: the batch's),
-    the environment changes (a value None unsets the variable), its timeout in seconds (None: the
-    batch's); line: its number in the batch (1-based)."""
+    """A command of a batch.
+
+    hostDemo's arguments, the directory to run them in (None: the batch's), the environment changes (a value None
+    unsets the variable), its timeout in seconds (None: the batch's); line: its number in the batch (1-based).
+    """
     args: list
     cwd: str | None = None
     env: dict = dataclasses.field(default_factory=dict)
@@ -163,8 +82,10 @@ class BatchSyntaxError(ValueError):
 
 
 class OnRecordError(RuntimeError):
-    """run_batch()'s on_record raised (e.g. BrokenPipeError writing the records): the batch went on
-    without calling it again. .records: all the records; __cause__: the exception."""
+    """run_batch()'s on_record raised (e.g. BrokenPipeError writing the records).
+
+    The batch went on without calling it again. .records: all the records; __cause__: the exception.
+    """
 
     def __init__(self, records: list):
         super().__init__("on_record raised: the batch went on without it")
@@ -182,8 +103,20 @@ def _timeout_value(v, where: str) -> float:
 
 
 def parse_command(text_or_args, line: int | None = None) -> Command:
-    """A batch line (a string, split as a POSIX shell does) or an argument list: its leading --cwd
-    DIR, --env NAME[=VALUE] and --timeout SECONDS options, then hostDemo's arguments."""
+    """Parse a command of a batch.
+
+    Args:
+        text_or_args: a batch line (a string, split as a POSIX shell does) or an argument list: its
+            leading --cwd DIR, --env NAME[=VALUE] and --timeout SECONDS options, then hostDemo's
+            arguments.
+        line: its line number, for the record and the messages.
+
+    Returns:
+        The Command.
+
+    Raises:
+        BatchSyntaxError: unbalanced quotes, an option without its value, a bad --env or --timeout.
+    """
     where = f"line {line}: " if line is not None else ""
     if isinstance(text_or_args, str):
         try:
@@ -213,8 +146,11 @@ def parse_command(text_or_args, line: int | None = None) -> Command:
 
 
 def parse_batch(text: str) -> list[Command]:
-    """The commands of a batch file: one per line; blank lines and lines whose first non-blank
-    character is # are ignored ("#" inside a line is literal, as in "-i Source=ramp#rgb")."""
+    """The commands of a batch file (parse_command() of each line; BatchSyntaxError).
+
+    Blank lines and lines whose first non-blank character is # are ignored ("#" inside a line is literal, as in "-i
+    Source=ramp#rgb").
+    """
     cmds = []
     for n, raw in enumerate(text.splitlines(), 1):
         s = raw.strip()
@@ -251,8 +187,7 @@ def _session():
 
 
 def _shutdown_host(state: dict) -> None:
-    """Shut the in-process backend's host down (if there is one), with the test hooks "unload" and
-    "unload-crash"."""
+    """Shut the in-process backend's host down (if there is one), with the test hooks "unload" and "unload-crash"."""
     if _session() is None:
         return
     hook = state.pop("unload_hook", None)
@@ -268,8 +203,12 @@ def _shutdown_host(state: dict) -> None:
 
 
 def _host_key(flags: set) -> tuple:
-    """The (dirs, profile, options) that ofxhost.hostdemo.run() would give the in-process backend's
-    host for a command line, in the current directory and environment."""
+    """The in-process backend's host settings that a command line needs.
+
+    Returns:
+        The (dirs, profile, options) that ofxhost.hostdemo.run() would give the host, in the current
+        directory and environment.
+    """
     dirs = [d for d in os.environ.get("OFX_PLUGIN_PATH", "").split(os.pathsep) if d]
     dirs_t = tuple(dict.fromkeys(os.path.abspath(d) for d in dirs if os.path.isdir(d)))
     return (dirs_t, "ofx14" if "--ofx14" in flags else "default",
@@ -280,6 +219,17 @@ _hosts: list = []  # (the test hook "host": the hosts seen, kept so that their i
 
 
 def _test_hook(name: str, state: dict) -> None:
+    """The test hook of ofxhost's tests.
+
+    OFXHOST_BATCH_TEST_HOOK, set by a command's own --env (not inherited), makes the worker, after the command ran,
+    write a line to the command's stdout and stderr, then: "segv" (a real SIGSEGV), "kill" (SIGKILL;
+    TerminateProcess on Windows), "exit" (os._exit(3)), "hang" (sleep), or "raise" (an uncaught Python exception in
+    the host). "host" only writes "batch test hook: host N" (N: the number of the ofxh host in the worker, 1, 2...,
+    or "none"). "unload", "unload-crash" and "unload-raise" make the next shutdown of the host (in the per-plugin
+    and reuse modes) write "batch test hook: unload" to the worker's stdout and stderr, then "unload-crash" exits
+    the worker with status 5, and "unload-raise" raises (before the next command: its record is an error, the worker
+    goes on).
+    """
     if name == "host":  # (which ofxh host the command ran on: its number in this worker, or none)
         session = _session()
         if session is None:
@@ -318,8 +268,10 @@ def _set_env(changes: Mapping) -> None:
 
 
 def _prepare_host(req: dict, state: dict) -> None:
-    """The host shutdown that a command needs (another plug-in, or other host options), before the
-    command's capture: the unload actions' output and crashes are the worker's."""
+    """The host shutdown that a command needs (another plug-in, or other host options), before the command's capture.
+
+    The unload actions' output and crashes are the worker's.
+    """
     mode = req.get("host", "fresh")
     plugin, flags = scan_options(req["args"])
     need = mode == "per-plugin" and state.get("plugin") not in (None, plugin)
@@ -333,8 +285,10 @@ def _prepare_host(req: dict, state: dict) -> None:
 
 
 def _run_command(req: dict, state: dict) -> int:
-    """The command itself, with its test hook: its exit status (1 after a bug of the Python host,
-    with a traceback, as a separate run)."""
+    """The command itself, with its test hook.
+
+    Its exit status (1 after a bug of the Python host, with a traceback, as a separate run).
+    """
     import faulthandler
 
     from .hostdemo import run
@@ -359,9 +313,11 @@ def _run_command(req: dict, state: dict) -> int:
 
 
 def _run_one(req: dict, state: dict, send: Callable[[dict], None]) -> dict:
-    """Run a request in the worker: its environment and directory, the host shutdown that it needs
-    (on the worker's own fds), "started", then the command with fds 1 and 2 on its capture files.
-    The reply."""
+    """Run a request in the worker.
+
+    Its environment and directory, the host shutdown that it needs (on the worker's own fds), "started", then the
+    command with fds 1 and 2 on its capture files. The reply.
+    """
     env = req.get("env", {})
     saved_env = {k: os.environ.get(k) for k in env}
     t0 = time.perf_counter()
@@ -397,13 +353,15 @@ def _run_one(req: dict, state: dict, send: Callable[[dict], None]) -> dict:
 
 
 def _watch_parent() -> None:
-    """End the worker if the batch dies without killing it (e.g. SIGKILL): the workers have their own
-    process group (POSIX), so the signals of the batch's group don't reach them. Linux:
-    PR_SET_PDEATHSIG (SIGKILL when the thread of the batch that started the worker ends: the slot's
-    thread, which waits for its worker before it ends); everywhere on POSIX, a thread that exits
-    when the parent changes (the worker is reparented). Windows: closing the console ends every
-    process attached to it, workers included; a batch killed by TerminateProcess leaves its workers
-    to end at their next read of a request (end of file), after the command that runs."""
+    """End the worker if the batch dies without killing it (e.g. SIGKILL).
+
+    The workers have their own process group (POSIX), so the signals of the batch's group don't reach them. Linux:
+    PR_SET_PDEATHSIG (SIGKILL when the thread of the batch that started the worker ends: the slot's thread, which
+    waits for its worker before it ends); everywhere on POSIX, a thread that exits when the parent changes (the
+    worker is reparented). Windows: closing the console ends every process attached to it, workers included; a batch
+    killed by TerminateProcess leaves its workers to end at their next read of a request (end of file), after the
+    command that runs.
+    """
     if os.name != "posix":
         return
     parent = os.getppid()
@@ -426,7 +384,9 @@ def _watch_parent() -> None:
 
 def worker_main() -> int:
     """A worker: requests on stdin; "ready", "started" and the replies on stdout, one JSON line each.
-    Between the commands, fds 1 and 2 go to the worker's stderr, and fd 0 is null."""
+
+    Between the commands, fds 1 and 2 go to the worker's stderr, and fd 0 is null.
+    """
     import faulthandler
     rd = os.fdopen(os.dup(0), "r", encoding="utf-8")
     wr = os.fdopen(os.dup(1), "w", encoding="utf-8")
@@ -508,8 +468,11 @@ class _Worker:
         self.replies.put(None)  # (EOF: the worker is gone)
 
     def wait(self, kind: str, timeout: float | None, also: str | None = None):
-        """The next message of this kind ("ready", "started", "done") or of the kind `also`, None if
-        the worker is gone, _TIMEOUT after timeout seconds."""
+        """The worker's next message of this kind ("ready", "started", "done"), or of the kind also.
+
+        Returns:
+            The message, None if the worker is gone, _TIMEOUT after timeout seconds.
+        """
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             try:
@@ -757,8 +720,11 @@ class _Pool:
         return rec
 
     def send(self, cur: dict, req: dict, t: float | None) -> dict | None:
-        """Send the request to the worker, and wait until the command starts: the worker's message,
-        or None after a "died" event (the worker died, or hung, before the command: not its fault)."""
+        """Send the request to the worker, and wait until the command starts.
+
+        The worker's message, or None after a "died" event (the worker died, or hung, before the command: not its
+        fault).
+        """
         w = cur["w"]
         w.seq += 1
         started = w.wait("started", t, also="done") if w.send(req) else None
@@ -804,7 +770,7 @@ class _Pool:
 def run_batch(commands: Iterable, jobs: int = 1, timeout: float | None = None, host: str = "fresh",
               cwd: str | os.PathLike | None = None, env: Mapping | None = None, python: str | None = None,
               on_record: Callable[[dict], None] | None = None) -> list[dict]:
-    """Run hostDemo command lines in a pool of worker processes.
+    """Run hostDemo command lines in a pool of worker processes (see README.md for the records).
 
     Args:
         commands: batch lines (strings, POSIX shell quoting, with the optional leading --cwd, --env
@@ -822,8 +788,7 @@ def run_batch(commands: Iterable, jobs: int = 1, timeout: float | None = None, h
             raises, it isn't called again, the batch goes on, and run_batch() raises OnRecordError.
 
     Returns:
-        The records (dicts, see the module docstring), in the order of the commands, then those of
-        the worker events.
+        The records (dicts), in the order of the commands, then those of the worker events.
 
     Raises:
         OnRecordError: on_record raised (.records: the records).

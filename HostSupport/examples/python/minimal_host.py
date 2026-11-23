@@ -28,14 +28,18 @@ OK = (ofxh.Stat.OK, ofxh.Stat.ReplyDefault)  # an action that the plug-in doesn'
 class Host(ofxh.Host):
     """The host (one per process, see ofxh.init()): it shows the plug-ins' messages."""
 
-    def message(self, type, id, text):  # type: error, warning, message, log, question...
-        print(f"{type}: {text}", file=sys.stderr)
+    def message(self, message_type, message_id, text):
+        """A message of the message suite: message_type is "error", "warning", "message", "log", "question"..."""
+        print(f"{message_type}: {text}", file=sys.stderr)
         # (return a Stat to answer a question, e.g. ofxh.Stat.ReplyYes; None is Stat.OK)
 
 
 class Clip(ofxh.ClipInstance):
-    """A clip. An input gives its image to the plug-in. The output keeps the default: a new
-    image over the render window, filled with a sentinel (NaN or 0xCD) to show unwritten pixels."""
+    """A clip: an input gives its image to the plug-in, the output keeps the default.
+
+    The default output image is a new image over the render window, filled with a sentinel (NaN or
+    0xCD) to show unwritten pixels.
+    """
 
     def __init__(self, image=None):
         super().__init__()  # required: it makes the C++ part of the object
@@ -56,9 +60,11 @@ class Clip(ofxh.ClipInstance):
         return ofxh.pixel_to_canonical((0, 0, w, h), (1., 1.), self.aspect_ratio)
 
     def get_image(self, time, view, bounds, plane="Colour"):
-        """The image for the plug-in's fetch. bounds (canonical, or None) is what it needs: this
-        host always gives the whole input. plane is "Colour" (keep the keyword: later parts of
-        ofxh pass other planes)."""
+        """The image for the plug-in's fetch.
+
+        bounds (canonical, or None) is what it needs: this host always gives the whole input. plane is "Colour"
+        (keep the keyword: a build of ofxh with more planes passes others).
+        """
         if self.is_output or self.image is None:
             return super().get_image(time, view, bounds, plane)
         h, w = self.image.shape[:2]
@@ -66,9 +72,11 @@ class Clip(ofxh.ClipInstance):
 
 
 class Instance(ofxh.ImageEffectInstance):
-    """The effect instance: the project, and the clips. The parameters keep the default of
-    new_param(): ofxh's C++ parameters, which store their values and keys (return an ofxh.Param
-    subclass instead to hold one in Python)."""
+    """The effect instance: the project, and the clips.
+
+    The parameters keep the default of new_param(): ofxh's C++ parameters, which store their values and keys (return
+    an ofxh.Param subclass instead to hold one in Python).
+    """
 
     def __init__(self, inputs):
         super().__init__()
@@ -89,8 +97,18 @@ def _check(what, stat):
 
 
 def render(plugin_dirs, plugin_id, inputs, time=0., use_env_path=True):
-    """Render one frame of the plug-in on inputs ({clip name: image}); return the output image
-    (an ofxh.ImageData: .pixels, .bounds)."""
+    """Render one frame of a plug-in, in the filter context.
+
+    Args:
+        plugin_dirs: the plug-in directories.
+        plugin_id: the plug-in identifier.
+        inputs: {clip name: image}, bottom-up arrays (see the module docstring).
+        time: the frame.
+        use_env_path: also the plug-ins of $OFX_PLUGIN_PATH.
+
+    Returns:
+        The output image, an ofxh.ImageData (.pixels, .bounds).
+    """
     ofxh.init(Host(), plugin_dirs, use_env_path=use_env_path)  # load the plug-ins
     try:
         plugin = ofxh.get_plugin(plugin_id)

@@ -244,7 +244,8 @@ def test_report(sample_plugins, tmp_path):
     j = json.loads((tmp_path / "r.json").read_text())
     assert j == json.loads(json.dumps(r.report))
     assert j["schema"] == "ofxhost.graphReport" and j["schemaVersion"] == 1 and j["ok"] and j["error"] is None
-    assert j["frames"] == [0., 1.] and j["project"]["size"] == [768., 576.] and j["host"]["name"] == "net.sf.openfx.ofxh"
+    assert j["frames"] == [0., 1.] and j["project"]["size"] == [768., 576.]
+    assert j["host"]["name"] == "net.sf.openfx.ofxh"
     n = j["nodes"]["b"]
     assert n["plugin"]["id"] == BASIC and n["context"] == "general" and n["paramChangedCount"] == 0
     assert [a["action"] for a in n["actions"]] == ["createInstance", "getClipPreferences", "beginSequenceRender",
@@ -337,7 +338,8 @@ def test_output_files(sample_plugins, tmp_path):
     # PFM: an RGBA image is written as RGB and an alpha file, as hostDemo
     g.outputs["inv"] = "o.####.pfm"
     r = run(load_and_save(g, tmp_path), sample_plugins)
-    assert [f.rsplit("/", 1)[1] for f in r.files] == ["o.0003.pfm", "o.0003.alpha.pfm", "o.0004.pfm", "o.0004.alpha.pfm"]
+    assert [f.rsplit("/", 1)[1] for f in r.files] == \
+        ["o.0003.pfm", "o.0003.alpha.pfm", "o.0004.pfm", "o.0004.alpha.pfm"]
     assert_close(ofxhost.imageio.read_image(r.files[2]), a, atol=1e-6)
 
 
@@ -368,7 +370,7 @@ def test_file_params(sample_plugins, monkeypatch):
         def new_param(self, desc):
             return graphhost.FileParam() if desc.name == "messageText" else None
 
-        def message(self, type, id, text):
+        def message(self, message_type, message_id, text):
             self.messages.append(text)
 
     with graphhost.host(ofxhost.plugin_dirs(sample_plugins)):
@@ -533,7 +535,8 @@ def test_sequence_renders(sample_plugins, tmp_path):
 
 def test_time_domain_clamp():
     r = graphhost._Run(Graph({}, {}, project=Project(frame_range=(1., 50.))), None, None)
-    assert r.clamp((-math.inf, math.inf)) == (1., 50.) and r.clamp((-1e12, 7.)) == (1., 7.) and r.clamp((3., 4.)) == (3., 4.)
+    assert r.clamp((-math.inf, math.inf)) == (1., 50.) and r.clamp((-1e12, 7.)) == (1., 7.)
+    assert r.clamp((3., 4.)) == (3., 4.)
 
 
 def test_one_host(sample_plugins):

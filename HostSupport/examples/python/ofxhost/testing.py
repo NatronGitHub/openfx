@@ -1,27 +1,16 @@
-"""pytest helpers for ofxhost.
+"""pytest helpers for ofxhost: assert_close(), and the backend fixture and marker.
 
-    from ofxhost.testing import assert_close, backend, pytest_configure   # backend: a fixture
+    from ofxhost.testing import assert_close, backend, pytest_configure   # in conftest.py
 
     def test_invert(backend):       # runs once per backend: [subprocess] and [inprocess]
         r = ofxhost.render(bundles, "net.sf.openfx.invertPlugin", inputs={"Source": src})
         assert_close(r.outputs[0][..., :3], 1 - src, atol=1e-6)
 
-The backend fixture runs a test on each backend (ofxhost.BACKENDS, or those of
-$OFXHOST_TEST_BACKENDS, e.g. "subprocess"): it sets $OFXHOST_BACKEND for the test, so that
-render(), describe() and ofxhost.graph use it. A backend that isn't available is skipped (hostDemo
-not built, ofxh not importable), or fails with OFXH_REQUIRE=1 (CI). A test that depends on one
-backend's behaviour says so, with the reason:
-
-    @pytest.mark.backends("subprocess", reason="hostDemo's exit status after a crash")
-
-The hostdemo fixture is the hostDemo binary, for the subprocess backend only.
-
-Two ways to get the fixtures and the marker:
-- in the top-level conftest.py (the rootdir's: pytest refuses pytest_plugins elsewhere), once
-  ofxhost is importable: pytest_plugins = ["ofxhost.testing"];
-- in any conftest.py: from ofxhost.testing import backend, pytest_configure. If that conftest has
-  its own pytest_configure, the import clashes with it: call ofxhost.testing.pytest_configure(config)
-  from yours instead.
+The backend fixture sets $OFXHOST_BACKEND for the test (each of ofxhost.BACKENDS, or those of
+$OFXHOST_TEST_BACKENDS); an unavailable backend is skipped, or fails with OFXH_REQUIRE=1 (CI). A test
+that depends on one backend's behaviour says so: @pytest.mark.backends("subprocess", reason="...").
+Get them with pytest_plugins = ["ofxhost.testing"] in the top-level conftest.py, or the import
+above in any conftest.py (one with its own pytest_configure calls ofxhost.testing.pytest_configure()).
 """
 
 from __future__ import annotations
@@ -128,9 +117,11 @@ def pytest_configure(config):
 
 
 def check_backend(name: str, marker=None) -> None:
-    """Skip (or fail) a test on the backend name: the backends marker's (a pytest Mark, or None)
-    other backends are skipped with its reason (a marker without reason= fails), and an unavailable
-    backend is skipped, or fails with OFXH_REQUIRE=1."""
+    """Skip (or fail) a test on the backend name.
+
+    The backends marker's (a pytest Mark, or None) other backends are skipped with its reason (a marker without
+    reason= fails), and an unavailable backend is skipped, or fails with OFXH_REQUIRE=1.
+    """
     if marker is not None:
         reason = marker.kwargs.get("reason")
         if not reason:
