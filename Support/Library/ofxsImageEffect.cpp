@@ -6451,9 +6451,13 @@ void init()
 
 #ifdef OFXS_MANUAL_REGISTRATION
   // Call OFX::Plugin::getPluginIDs if the plugin uses manual plugin registration.
-  // Note that manual registration was obsoleted by automatic registratic using mRegisterPluginFactoryInstance().
+  // Note that manual registration was obsoleted by automatic registration using mRegisterPluginFactoryInstance().
   OFX::Plugin::getPluginIDs(OFX::PluginFactories::plugIDs());
 #endif // OFXS_MANUAL_REGISTRATION
+  // lazy registration: the factories that are only known now (a static OFX::PluginFactories(f) object)
+  if (OFX::PluginFactories::RegistrationFunction lazyRegistration = OFX::PluginFactories::lazyRegistration()) {
+    lazyRegistration(OFX::PluginFactories::plugIDs());
+  }
   const OFX::PluginFactoryArray& plugIDs = OFX::PluginFactories::plugIDs();
   if(OFX::ofxPlugs.empty())
     OFX::ofxPlugs.resize(plugIDs.size());

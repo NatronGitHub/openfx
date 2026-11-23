@@ -62,6 +62,9 @@ This support library skins the raw OFX C API with a set of C++ classes and funct
 - called when a new instance of the plug-in is needed: new your OFX::ImageEffect subclass and return it
 - register the factory, which gives the plug-in identifier and version:
   static MyPluginFactory p("com.example.myPlugin", 1, 0); mRegisterPluginFactoryInstance(p)
+  (plug-ins only known at run time instead declare a static OFX::PluginFactories object with a
+  function that appends their factories, called at the first OfxGetNumberOfPlugins: see
+  OFX::PluginFactories)
 
 The OFX::ImageEffect class has a set of members you can override to do various things, like rendering an effect. Again, look at the examples.
 
