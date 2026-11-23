@@ -906,7 +906,8 @@ namespace OFX {
         }
 
       }
-      // the same statuses as mainEntryStr (ofxsImageEffect.cpp)
+      // the same statuses as mainEntryStr (ofxsImageEffect.cpp), except OFX_CLIENT_EXCEPTION_TYPE
+      // (its handler needs the plug-in name, which is not known here)
       catch (const OFX::Exception::Suite &ex)
       {
         stat = ex.status();
