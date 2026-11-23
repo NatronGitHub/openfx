@@ -1,0 +1,32 @@
+name: Bindings sync
+
+# A pull request that changes a virtual function of HostSupport/include must update the Python
+# bindings (HostSupport/python/src) or say why not in a "Bindings:" line of its description
+# (.github/scripts/check-bindings-sync.sh). A few seconds, no build; it runs again when the
+# description is edited, without the build workflow. It also runs on drafts (unlike build.yml):
+# a few seconds, and the author can fix the description before review.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: HostSupport virtual functions and the Python bindings
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # the merge commit and its first parent, the base branch
+      - name: Check
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: .github/scripts/check-bindings-sync.sh HEAD^1 HEAD
