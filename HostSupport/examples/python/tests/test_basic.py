@@ -17,15 +17,15 @@ def gradient(h=48, w=64):
 
 def test_to_pixels_clamps_infinite_and_nan_bounds():
     """A plug-in's infinite or NaN RoD gives the clamped pixel rectangle, as hostDemo, instead of raising."""
-    from ofxhost import _specs
+    from ofxhost import rects
     inf, nan = float("inf"), float("nan")
-    big = (_specs.INT_MIN, 0, _specs.INT_MAX, 0)
-    assert _specs._to_pixels((-inf, nan, inf, nan), (1., 1.), 1.) == big
-    assert _specs._to_pixels((-inf, nan, inf, nan), (0.5, 0.5), 2.) == big
+    big = (rects.INT_MIN, 0, rects.INT_MAX, 0)
+    assert rects.to_pixels((-inf, nan, inf, nan), (1., 1.), 1.) == big
+    assert rects.to_pixels((-inf, nan, inf, nan), (0.5, 0.5), 2.) == big
     # finite bounds: the enclosing rectangle, with hostDemo's epsilon
-    assert _specs._to_pixels((0.5, -0.5, 10.2, 768 / (768 / 720)), (1., 1.), 1.) == (0, -1, 11, 720)
+    assert rects.to_pixels((0.5, -0.5, 10.2, 768 / (768 / 720)), (1., 1.), 1.) == (0, -1, 11, 720)
     # a NaN RoI bound gives the RoD's, as hostDemo's maxD/minD
-    assert _specs._intersect((nan, 0., nan, 5.), (-1., -2., 3., 4.)) == (-1., 0., 3., 4.)
+    assert rects.intersect((nan, 0., nan, 5.), (-1., -2., 3., 4.)) == (-1., 0., 3., 4.)
 
 
 def test_pfm_round_trip(tmp_path):
@@ -40,9 +40,15 @@ def test_pfm_round_trip(tmp_path):
     # rows are bottom-up in the file: the first pixel is the bottom-left one
     first = np.frombuffer(data, dtype="<f4", count=3, offset=len(b"PF\n7 5\n-1.0\n"))
     assert np.array_equal(first, rgb[-1, 0])
-    # big-endian (positive scale) files are read too
+    # big-endian (positive scale) files are read too, and NaN; not with hostDemo's rules (strict)
     be = b"Pf\n7 5\n1.0\n" + np.ascontiguousarray(grey[::-1], dtype=">f4").tobytes()
     assert np.array_equal(ofxhost.parse_pfm(be), grey)
+    with pytest.raises(ValueError, match="only little-endian"):
+        ofxhost.parse_pfm(be, strict=True)
+    nan = ofxhost.encode_pfm(np.full((2, 3), np.nan, np.float32))
+    assert np.isnan(ofxhost.parse_pfm(nan)).all()
+    with pytest.raises(ValueError, match=r"pixel \(0,0\).*is not finite"):
+        ofxhost.parse_pfm(nan, strict=True)
     with pytest.raises(ValueError):
         ofxhost.parse_pfm(data[:-1])  # truncated
     with pytest.raises(ValueError):

@@ -25,7 +25,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -33,20 +32,24 @@ from typing import Any
 
 import numpy as np
 
-from .pfm import encode_pfm, parse_pfm, read_pfm, write_pfm
+from .build import hostdemo_candidates
+from .constants import kOfxImageComponentAlpha, kOfxImageComponentRGB, kOfxImageComponentRGBA
+from .pfm import encode_pfm, merge_alpha, parse_pfm, read_pfm, write_pfm, write_pfm_files
+from .pixels import check_array
+from .rects import scale_pair
 
 __all__ = [
     "render", "describe", "RenderResult", "Image", "HostDemoError", "HostDemoNotFound",
-    "find_hostdemo", "BACKENDS", "default_backend", "COMPONENTS", "split_components",
-    "read_pfm", "write_pfm", "parse_pfm", "encode_pfm",
+    "find_hostdemo", "BACKENDS", "default_backend", "COMPONENTS", "split_components", "plugin_dirs",
+    "resolve_file_spec", "read_pfm", "write_pfm", "parse_pfm", "encode_pfm",
 ]
 
 OUTPUT_PREFIX = "Output"
 DEPTHS = ("byte", "short", "float")
 BACKENDS = ("subprocess", "inprocess")
 # the components of an input (render(components=...), or a spec's "#rgb" suffix): short and OFX names
-COMPONENTS = {"rgba": "rgba", "rgb": "rgb", "alpha": "alpha", "OfxImageComponentRGBA": "rgba",
-              "OfxImageComponentRGB": "rgb", "OfxImageComponentAlpha": "alpha"}
+COMPONENTS = {"rgba": "rgba", "rgb": "rgb", "alpha": "alpha", kOfxImageComponentRGBA: "rgba",
+              kOfxImageComponentRGB: "rgb", kOfxImageComponentAlpha: "alpha"}
 
 
 def split_components(spec: str) -> tuple[str, str | None]:
@@ -151,24 +154,6 @@ class RenderResult:
 
 # --- locating hostDemo -----------------------------------------------------------------
 
-_EXAMPLES_DIR = Path(__file__).resolve().parents[2]  # HostSupport/examples
-_REPO_ROOT = _EXAMPLES_DIR.parents[1]
-_EXE = "hostDemo.exe" if sys.platform == "win32" else "hostDemo"
-
-
-def _build_tree_candidates() -> list[Path]:
-    found: list[Path] = []
-    # Makefile builds: HostSupport/examples/<OS>-release (then relwithdebinfo, debug)
-    for config in ("release", "relwithdebinfo", "debug"):
-        found += sorted(_EXAMPLES_DIR.glob(f"*-{config}/{_EXE}"))
-    # CMake builds: <root>/build*/HostSupport/examples/hostDemo (possibly with a config dir)
-    for pattern in (f"build*/HostSupport/examples/{_EXE}",
-                    f"build*/HostSupport/examples/*/{_EXE}",
-                    f"build*/bin/{_EXE}"):
-        found += sorted(_REPO_ROOT.glob(pattern))
-    return [p for p in found if p.is_file() and os.access(p, os.X_OK)]
-
-
 def find_hostdemo(host_binary: str | os.PathLike | None = None) -> Path:
     """Locate hostDemo: the explicit argument, $OFXHOST_HOSTDEMO, then the build tree."""
     for source, value in (("host_binary", host_binary),
@@ -181,7 +166,7 @@ def find_hostdemo(host_binary: str | os.PathLike | None = None) -> Path:
                     raise HostDemoNotFound(f"{source}={value}: no such file")
                 p = Path(which)
             return p.resolve()
-    candidates = _build_tree_candidates()
+    candidates = hostdemo_candidates()
     if not candidates:
         raise HostDemoNotFound(
             "hostDemo not found: build it with `make -C HostSupport && make -C "
@@ -191,7 +176,7 @@ def find_hostdemo(host_binary: str | os.PathLike | None = None) -> Path:
 
 # --- running hostDemo ------------------------------------------------------------------
 
-def _plugin_dirs(bundle_paths) -> list[str]:
+def plugin_dirs(bundle_paths) -> list[str]:
     """OFX_PLUGIN_PATH entries: directories as given, *.bundle paths as their parent."""
     if isinstance(bundle_paths, (str, os.PathLike)):
         bundle_paths = [bundle_paths]
@@ -236,10 +221,6 @@ def _format_value(v: Any) -> str:
     raise TypeError(f"unsupported parameter value {v!r}")
 
 
-_PREMULT = {"OfxImageAlphaPremultiplied": "premult", "OfxImageAlphaUnPremultiplied": "unpremult",
-            "OfxImageOpaque": "opaque"}
-
-
 # as hostDemo parses it (hostDemoClipInstance.cpp): "#premult|#unpremult|#opaque" at the end,
 # then "@x1,y1", then the alpha file after the last ".pfm+"
 _FILE_SPEC = re.compile(r"(?P<rest>.*?)(?P<pos>@-?\d+,-?\d+)?(?P<premult>#(?:premult|unpremult|opaque))?$")
@@ -260,39 +241,25 @@ def resolve_file_spec(spec: str, base: str | os.PathLike | None = None) -> str:
     return out + (m["pos"] or "") + (m["premult"] or "")
 
 
-def _input_spec(clip: str, value: Any, workdir: Path, index: int) -> str:
+def _hostdemo_input(clip: str, value: Any, workdir: Path, index: int) -> str:
+    """hostDemo's -i spec of an input of render(): an array or an Image is written to PFM files in
+    workdir, input<index>.pfm (and input<index>.alpha.pfm)."""
     if isinstance(value, os.PathLike):
         return "file:" + str(Path(value).resolve())
     if isinstance(value, str):
         if value.startswith("file:"):
             return resolve_file_spec(value)
         return value
-    bounds, premult = None, None
+    bounds = premult = None
     if isinstance(value, Image):
-        bounds, premult, value = value.bounds, value.premult, value.pixels
-    a = np.asarray(value, dtype=np.float32)
-    if a.ndim == 3 and a.shape[2] == 1:
-        a = a[:, :, 0]
-    if not (a.ndim == 2 or (a.ndim == 3 and a.shape[2] in (3, 4))):
-        raise ValueError(f"input {clip}: shape {a.shape} (expected H x W, H x W x 1, "
-                         "H x W x 3 or H x W x 4)")
-    if not np.all(np.isfinite(a)):
-        raise ValueError(f"input {clip}: non-finite values")
-    path = workdir / f"input{index}.pfm"
-    spec = "file:" + str(path)
-    if a.ndim == 3 and a.shape[2] == 4:
-        # hostDemo reads the alpha of a PF file from a separate Pf file
-        write_pfm(workdir / f"input{index}.alpha.pfm", a[:, :, 3])
-        spec += "+" + str(workdir / f"input{index}.alpha.pfm")
-        a = a[:, :, :3]
-    write_pfm(path, a)
-    if bounds is not None:
-        x1, y1, x2, y2 = (int(v) for v in bounds)
-        if (x2 - x1, y2 - y1) != (a.shape[1], a.shape[0]):
-            raise ValueError(f"input {clip}: bounds {bounds} don't match the size {a.shape[1]}x{a.shape[0]}")
-        spec += f"@{x1},{y1}"
-    if premult is not None:
-        spec += "#" + _PREMULT[premult]
+        value, bounds, premult = value.pixels, value.bounds, value.premult
+    a, origin, p = check_array(clip, value, bounds, premult)
+    # (hostDemo reads the alpha of a PF file from a separate Pf file: "file:x.pfm+x.alpha.pfm")
+    spec = "file:" + "+".join(write_pfm_files(workdir / f"input{index}.pfm", a))
+    if origin is not None:
+        spec += f"@{origin[0]},{origin[1]}"
+    if p is not None:
+        spec += "#" + p
     return spec
 
 
@@ -315,14 +282,11 @@ def _read_outputs(workdir: Path) -> tuple[dict, dict]:
     alphas: dict = {}
     for key in sorted(colour, key=lambda k: k if isinstance(k, tuple) else (k, "")):
         img = colour[key]
-        if img.ndim == 2:  # Pf: an Alpha image
-            outputs[key] = img[:, :, None]
+        outputs[key] = merge_alpha(img, alpha.get(key))
+        if img.ndim == 2:  # (Pf: an Alpha image)
             alphas[key] = img
         elif key in alpha:
-            outputs[key] = np.concatenate([img, alpha[key][:, :, None]], axis=2)
             alphas[key] = alpha[key]
-        else:
-            outputs[key] = img
     return outputs, alphas
 
 
@@ -339,7 +303,7 @@ def _run(cmd: list[str], env: dict, cwd: Path, timeout: float | None):
 
 def _env(bundle_paths) -> dict:
     env = dict(os.environ)
-    env["OFX_PLUGIN_PATH"] = os.pathsep.join(_plugin_dirs(bundle_paths))
+    env["OFX_PLUGIN_PATH"] = os.pathsep.join(plugin_dirs(bundle_paths))
     return env
 
 
@@ -388,8 +352,9 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
         raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
     if _backend_for(backend, host_binary) == "inprocess":
         from . import inprocess
-        return inprocess.render(bundle_paths, plugin_id, context, inputs, params, depth, frames, scale, window,
-                                query, extra_args, check, components)
+        return inprocess.render(bundle_paths, plugin_id, context=context, inputs=inputs, params=params, depth=depth,
+                                frames=frames, scale=scale, window=window, query=query, extra_args=extra_args,
+                                check=check, components=components)
     bad = [c for c, v in (components or {}).items() if COMPONENTS.get(v) != "rgba"]
     bad += [c for c, v in (inputs or {}).items() if isinstance(v, str) and split_components(v)[1] not in (None, "rgba")]
     if bad:
@@ -409,11 +374,11 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
                "--report", str(report_path),
                "-p", plugin_id, "-c", context, "-d", depth, "-o", OUTPUT_PREFIX]
         for i, (clip, value) in enumerate((inputs or {}).items()):
-            cmd += ["-i", f"{clip}={_input_spec(clip, value, workdir, i)}"]
+            cmd += ["-i", f"{clip}={_hostdemo_input(clip, value, workdir, i)}"]
         if frames is not None:
             cmd += ["--frames", ",".join(_format_value(float(f)) for f in frames)]
         if scale is not None:
-            cmd += ["--scale", _format_value(scale)]
+            cmd += ["--scale", ",".join(_format_value(s) for s in scale_pair(scale))]
         if window is not None:
             cmd += ["--window", ",".join(str(int(v)) for v in window)]
         if query:
@@ -468,7 +433,7 @@ def describe(bundle_paths, plugin_id: str, context: str | None = None,
     backend: as render()."""
     if _backend_for(backend, host_binary) == "inprocess":
         from . import inprocess
-        return inprocess.describe(bundle_paths, plugin_id, context, extra_args)
+        return inprocess.describe(bundle_paths, plugin_id, context=context, extra_args=extra_args)
     host = find_hostdemo(host_binary)
     env = _env(bundle_paths)
     with tempfile.TemporaryDirectory(prefix="ofxhost-") as tmp:

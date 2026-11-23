@@ -119,6 +119,9 @@ def test_patterns(both, spec):
 
 def test_scale_and_window(both):
     _compare(both, INVERT, inputs={"Source": "default"}, frames=[1], scale=(0.5, 0.25), window=(10, 5, 200, 100))
+    # a NumPy array, or scalar, as the scale
+    _compare(both, INVERT, inputs={"Source": "ramp"}, frames=[0], scale=np.array([0.5, 0.25]), window=(10, 5, 200, 100))
+    _compare(both, INVERT, inputs={"Source": "ramp"}, frames=[0], scale=np.float32(0.5))
 
 
 def test_image_inputs(both, tmp_path):

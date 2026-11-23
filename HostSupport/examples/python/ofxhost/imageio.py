@@ -14,16 +14,12 @@ import os
 
 import numpy as np
 
-from .pfm import read_pfm, write_pfm
+from .pfm import alpha_path, merge_alpha, read_pfm, write_pfm_files
+from .pixels import to_float
 
 __all__ = ["read_image", "write_image", "check_format", "alpha_path", "EXTENSIONS"]
 
 EXTENSIONS = (".pfm", ".npy")
-
-
-def alpha_path(path: str) -> str:
-    """The separate alpha file of a PFM file: x.pfm -> x.alpha.pfm."""
-    return path[:-4] + ".alpha.pfm"
 
 
 def _ext(path: str) -> str:
@@ -43,14 +39,12 @@ def read_image(path: str | os.PathLike) -> np.ndarray:
     path = os.fspath(path)
     if _ext(path) == ".pfm":
         a = read_pfm(path)
-        if a.ndim == 2:
-            return a[:, :, None]
-        if os.path.isfile(alpha_path(path)):
+        alpha = None
+        if a.ndim == 3 and os.path.isfile(alpha_path(path)):
             alpha = read_pfm(alpha_path(path))
             if alpha.shape != a.shape[:2]:
                 raise ValueError(f"{alpha_path(path)}: its size isn't that of {path}")
-            a = np.dstack([a, alpha])
-        return np.ascontiguousarray(a, np.float32)
+        return np.ascontiguousarray(merge_alpha(a, alpha), np.float32)
     try:
         a = np.load(path, allow_pickle=False)
     except EOFError:
@@ -59,9 +53,7 @@ def read_image(path: str | os.PathLike) -> np.ndarray:
         a = a[:, :, None]
     if a.ndim != 3 or a.shape[2] not in (1, 3, 4):
         raise ValueError(f"{path}: shape {a.shape} (expected H x W, or H x W x C with C = 1, 3 or 4)")
-    scale = {np.dtype(np.uint8): 255., np.dtype(np.uint16): 65535.}.get(a.dtype)
-    a = a.astype(np.float32)
-    return a / np.float32(scale) if scale else a
+    return to_float(a)
 
 
 def write_image(path: str | os.PathLike, pixels: np.ndarray) -> list[str]:
@@ -75,9 +67,4 @@ def write_image(path: str | os.PathLike, pixels: np.ndarray) -> list[str]:
     if ext == ".npy":
         np.save(path, a)
         return [path]
-    if a.ndim == 3 and a.shape[2] == 4:
-        write_pfm(path, a[:, :, :3])
-        write_pfm(alpha_path(path), a[:, :, 3])
-        return [path, alpha_path(path)]
-    write_pfm(path, a)
-    return [path]
+    return write_pfm_files(path, a)

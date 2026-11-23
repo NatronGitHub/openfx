@@ -56,7 +56,9 @@ def test_parse_frames():
     assert cli.parse_frames("1-3") == [1., 2., 3.] and cli.parse_frames("0-6x3") == [0., 3., 6.]
     assert cli.parse_frames("1,3,5") == [1., 3., 5.] and cli.parse_frames("1-2,10") == [1., 2., 10.]
     assert cli.parse_frames("-2--1") == [-2., -1.] and cli.parse_frames("2.5") == [2.5]
-    for bad in ("a", "3-1", "1-3x0"):
+    assert cli.parse_frames("1e-3") == [1e-3] and cli.parse_frames("-1e-3-1e0") == [-1e-3, 1. - 1e-3]
+    # hostDemo's numbers: no underflow to 0, and no infinity
+    for bad in ("a", "3-1", "1-3x0", "1e-400", "0-inf", "inf", "1e400", "1-1e16"):
         with pytest.raises(Exception, match="frame"):
             cli.parse_frames(bad)
 

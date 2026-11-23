@@ -79,7 +79,7 @@ go to the first free worker, so the runs that share a worker are not known in ad
 records say which they were: worker and seq).
 
 Also beyond a separate run: the ofxh module is imported once per worker (the first command's
-$OFX_PLUGIN_PATH chooses its build tree, see ofxhost._ofxh), $OFXHOST_PRELOAD loads its libraries
+$OFX_PLUGIN_PATH chooses its build tree, see ofxhost.build), $OFXHOST_PRELOAD loads its libraries
 once per worker, and the workers run in the batch's temporary directory, in their own process group
 (POSIX: a SIGTERM or SIGHUP of the batch kills them; they also end if the batch dies; see
 _watch_parent() for Windows), with ofxhost's own
@@ -115,9 +115,9 @@ import time
 import traceback
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
 
-from .hostdemo import _VALUE_OPTIONS  # (hostDemo's options that take a value)
+from . import stdio
+from .hostdemo import is_batch, scan_options
 
 __all__ = ["run_batch", "parse_batch", "parse_command", "Command", "BatchSyntaxError", "OnRecordError", "HOSTS",
            "main", "BATCH_USAGE"]
@@ -242,54 +242,12 @@ def _commands(commands) -> list[Command]:
     return out
 
 
-def _scan(args: Sequence[str]) -> tuple[str, set]:
-    """(the -p of a hostDemo command line: the last one, as hostDemo's parsing keeps; the options
-    without a value)."""
-    plugin = "net.sf.openfx.invertPlugin"
-    flags: set = set()
-    i = 0
-    while i < len(args):
-        if args[i] in _VALUE_OPTIONS:
-            if args[i] == "-p" and i + 1 < len(args):
-                plugin = args[i + 1]
-            i += 1  # (a value, which may be "-p")
-        elif args[i].startswith("-"):
-            flags.add(args[i])
-        i += 1
-    return plugin, flags
-
-
-def _plugin_of(args: Sequence[str]) -> str:
-    return _scan(args)[0]
-
-
 # --- the worker -----------------------------------------------------------------------------
 
-_fflush: Any = None
-
-
-def _flush_all() -> None:
-    """Python's and the C stdio buffers, before the file descriptors 1 and 2 move."""
-    global _fflush
-    for f in (sys.stdout, sys.stderr):
-        try:
-            f.flush()
-        except (AttributeError, ValueError, OSError):
-            pass
-    if _fflush is None:
-        try:
-            lib = ctypes.CDLL("ucrtbase") if sys.platform == "win32" else ctypes.CDLL(None)
-            _fflush = lib.fflush
-            _fflush.argtypes = [ctypes.c_void_p]
-        except (OSError, AttributeError):
-            _fflush = False
-    if _fflush:
-        _fflush(None)
-
-
 def _session():
+    """The in-process backend's ofxh host (ofxhost.inprocess.Session), if it is imported and has one."""
     ip = sys.modules.get("ofxhost.inprocess")
-    return getattr(ip, "_session", None) if ip is not None else None
+    return ip.session() if ip is not None else None
 
 
 def _shutdown_host(state: dict) -> None:
@@ -299,7 +257,7 @@ def _shutdown_host(state: dict) -> None:
         return
     hook = state.pop("unload_hook", None)
     if hook:
-        _flush_all()
+        stdio.flush()
         os.write(1, b"batch test hook: unload\n")
         os.write(2, b"batch test hook: unload (stderr)\n")
         if hook == "unload-crash":
@@ -359,20 +317,56 @@ def _set_env(changes: Mapping) -> None:
             os.environ[k] = v
 
 
+def _prepare_host(req: dict, state: dict) -> None:
+    """The host shutdown that a command needs (another plug-in, or other host options), before the
+    command's capture: the unload actions' output and crashes are the worker's."""
+    mode = req.get("host", "fresh")
+    plugin, flags = scan_options(req["args"])
+    need = mode == "per-plugin" and state.get("plugin") not in (None, plugin)
+    session = _session()
+    if mode != "fresh" and session is not None and \
+            _host_key(flags) != (session.dirs, session.profile, session.options):
+        need = True
+    if need:
+        _shutdown_host(state)
+    state["plugin"] = plugin
+
+
+def _run_command(req: dict, state: dict) -> int:
+    """The command itself, with its test hook: its exit status (1 after a bug of the Python host,
+    with a traceback, as a separate run)."""
+    import faulthandler
+
+    from .hostdemo import run
+    if req.get("timeout"):  # (the Python threads' stacks, on the command's stderr, before the kill)
+        faulthandler.dump_traceback_later(req["timeout"], exit=False)
+    try:
+        status = run(req["args"], "python -m ofxhost.hostdemo", shutdown=req.get("host", "fresh") == "fresh")
+        hook = req.get("env", {}).get("OFXHOST_BATCH_TEST_HOOK")  # (the command's own --env only)
+        if hook:
+            _test_hook(hook, state)
+        return status
+    except Exception:  # (a bug of the Python host: as a separate run, a traceback and status 1)
+        sys.stdout.flush()
+        traceback.print_exc()
+        try:
+            _shutdown_host(state)  # (its state is unknown)
+        except Exception:
+            traceback.print_exc()
+        return 1
+    finally:
+        faulthandler.cancel_dump_traceback_later()
+
+
 def _run_one(req: dict, state: dict, send: Callable[[dict], None]) -> dict:
     """Run a request in the worker: its environment and directory, the host shutdown that it needs
     (on the worker's own fds), "started", then the command with fds 1 and 2 on its capture files.
     The reply."""
-    import faulthandler
-
-    from .hostdemo import run
-    mode = req.get("host", "fresh")
     env = req.get("env", {})
     saved_env = {k: os.environ.get(k) for k in env}
     t0 = time.perf_counter()
     reply: dict = {"done": req["id"], "exitStatus": 1, "seconds": 0.0}
     files: dict = {}
-    saved: dict = {}
     try:
         try:
             _set_env(env)
@@ -381,15 +375,7 @@ def _run_one(req: dict, state: dict, send: Callable[[dict], None]) -> dict:
             send({"started": req["id"]})
             reply["error"] = f"Error: cannot run the command in {req['cwd']} with --env {env}: {e}"
             return reply
-        plugin, flags = _scan(req["args"])
-        need = mode == "per-plugin" and state.get("plugin") not in (None, plugin)
-        session = _session()
-        if mode != "fresh" and session is not None and \
-                _host_key(flags) != (session.dirs, session.profile, session.options):
-            need = True
-        if need:  # (before the capture: the unload actions' output and crashes are the worker's)
-            _shutdown_host(state)
-        state["plugin"] = plugin
+        _prepare_host(req, state)
         send({"started": req["id"]})
         t0 = time.perf_counter()
         try:
@@ -398,32 +384,10 @@ def _run_one(req: dict, state: dict, send: Callable[[dict], None]) -> dict:
         except OSError as e:
             reply["error"] = f"Error: cannot open the capture file: {e}"
             return reply
-        _flush_all()
-        for fd, f in files.items():
-            saved[fd] = os.dup(fd)
-            os.dup2(f.fileno(), fd)
-        if req.get("timeout"):  # (the Python threads' stacks, on the command's stderr, before the kill)
-            faulthandler.dump_traceback_later(req["timeout"], exit=False)
-        try:
-            reply["exitStatus"] = run(req["args"], "python -m ofxhost.hostdemo", shutdown=mode == "fresh")
-            hook = env.get("OFXHOST_BATCH_TEST_HOOK")  # (the command's own --env only)
-            if hook:
-                _test_hook(hook, state)
-        except Exception:  # (a bug of the Python host: as a separate run, a traceback and status 1)
-            sys.stdout.flush()
-            traceback.print_exc()
-            reply["exitStatus"] = 1
-            try:
-                _shutdown_host(state)  # (its state is unknown)
-            except Exception:
-                traceback.print_exc()
-        finally:
-            faulthandler.cancel_dump_traceback_later()
+        with stdio.redirect({fd: f.fileno() for fd, f in files.items()}):
+            reply["exitStatus"] = _run_command(req, state)
     finally:
-        _flush_all()
-        for fd, d in saved.items():
-            os.dup2(d, fd)
-            os.close(d)
+        stdio.flush()
         for f in files.values():
             f.close()
         _set_env(saved_env)
@@ -497,9 +461,9 @@ def worker_main() -> int:
             if state["started"] != req.get("id"):
                 send({"started": req.get("id")})
         send(reply)
-    _flush_all()
+    stdio.flush()
     _shutdown_host(state)  # (the plug-ins' unload actions: their output goes to the worker's stderr)
-    _flush_all()
+    stdio.flush()
     return 0
 
 
@@ -627,24 +591,243 @@ def _record(c: Command, cwd: str, **more) -> dict:
     return rec
 
 
+class _Pool:
+    """A batch's worker slots (one thread each), and its records."""
+
+    def __init__(self, cmds: list[Command], jobs: int, timeout: float | None, host: str, base: str, env: dict,
+                 python: str, tmp: str, on_record: Callable[[dict], None] | None):
+        self.cmds, self.jobs, self.timeout, self.host = cmds, jobs, timeout, host
+        self.base, self.env, self.python, self.tmp, self.on_record = base, env, python, tmp, on_record
+        self.records: list = [None] * len(cmds)
+        self.events: list = []
+        self.lock = threading.Lock()  # (the records, the next command, the workers)
+        self.emit_lock = threading.Lock()  # (on_record, in order, outside of lock)
+        self.next = 0  # the next command to run
+        self.emitted = 0  # the records given to on_record
+        self.error: Exception | None = None  # what on_record raised
+        self.stop = False  # interrupted: no new worker
+        self.live: set = set()
+
+    def run(self) -> list:
+        """Run the commands: the records, then those of the worker events."""
+        threads = [threading.Thread(target=self.slot, args=(k,), daemon=True) for k in range(self.jobs)]
+        try:
+            for t in threads:
+                t.start()
+            for t in threads:
+                while t.is_alive():
+                    t.join(0.2)
+        except BaseException:  # (an interrupt: no new command, no more records, and the workers are killed)
+            with self.lock:
+                self.next = len(self.cmds)
+                self.stop = True
+                workers = list(self.live)
+            for w in workers:
+                w.kill()
+            for t in threads:  # (the slots end once their workers are gone: none is left writing at exit)
+                t.join(10.)
+            raise
+        for i, c in enumerate(self.cmds):  # (none should be left: a bug of the batch otherwise)
+            if self.records[i] is None:
+                self.store(i, _record(c, self.base, stderr="Error: internal error in the batch: the command didn't "
+                                      "run\n", internalError="the command has no record"))
+        for r in self.events:
+            self.call(r)
+        return self.records + self.events
+
+    def call(self, rec: dict) -> None:
+        """on_record, until it raises."""
+        if self.on_record is not None and self.error is None and not self.stop:
+            try:
+                self.on_record(rec)
+            except Exception as e:
+                self.error = e
+
+    def store(self, i: int, rec: dict) -> None:
+        """The record of command i; on_record for the records that are done, in order."""
+        with self.lock:
+            self.records[i] = rec
+        with self.emit_lock:
+            while True:
+                with self.lock:
+                    k = self.emitted
+                    if k >= len(self.cmds) or self.records[k] is None:
+                        break
+                    self.emitted = k + 1
+                self.call(self.records[k])
+
+    def event(self, kind: str, w: _Worker | None, status, stderr: str, **more) -> None:
+        rec = {"line": None, "event": kind, "args": [], "cwd": self.base, "env": {}, "exitStatus": status,
+               "ok": False, "stdout": "", "stderr": stderr, "seconds": 0.0, "crashed": kind != "start",
+               "timedOut": False, "worker": [w.slot, w.gen] if w is not None else None,
+               "seq": w.seq if w is not None else None}
+        rec.update(more)
+        with self.lock:
+            self.events.append(rec)
+
+    def retire(self, w: _Worker) -> None:
+        w.kill()
+        with self.lock:
+            self.live.discard(w)
+
+    def start(self, k: int, gen: int, t: float | None) -> _Worker | None:
+        """A new worker in slot k, ready (None after a "start" event)."""
+        try:
+            w = _Worker(self.python, self.env, self.tmp, k, gen)
+        except OSError as e:
+            self.event("start", None, None, f"Error: cannot start a worker ({self.python}): {e}\n")
+            return None
+        with self.lock:
+            self.live.add(w)
+        ready = w.wait("ready", None if t is None else max(60., t))
+        if not isinstance(ready, dict):
+            self.retire(w)
+            self.event("start", w, w.proc.returncode, w.log_text(), timedOut=ready == _TIMEOUT)
+            return None
+        return w
+
+    def slot(self, k: int) -> None:
+        """Slot k's thread: the next command, until there is none, then its worker's exit."""
+        cur: dict = {"w": None, "gen": 0}
+        try:
+            while True:
+                with self.lock:
+                    i = self.next
+                    if i >= len(self.cmds):
+                        break
+                    self.next = i + 1
+                c = self.cmds[i]
+                try:
+                    rec = self.command(k, i, c, cur)
+                except Exception:  # (a bug of the batch: an internal-error record, and a new worker)
+                    rec = _record(c, self.base, stderr="Error: internal error in the batch\n",
+                                  internalError=traceback.format_exc())
+                    if cur["w"] is not None:
+                        self.retire(cur["w"])
+                        cur["w"] = None
+                self.store(i, rec)
+        finally:
+            if cur["w"] is not None:
+                self.close(cur["w"])
+
+    def close(self, w: _Worker) -> None:
+        """The end: the worker shuts its host down and exits (an "exit" event if it fails)."""
+        try:
+            w.stdin.close()
+        except OSError:
+            pass
+        try:
+            status, hung = w.proc.wait(timeout=max(60., self.timeout or 0.)), False
+        except subprocess.TimeoutExpired:
+            w.kill()
+            status, hung = w.proc.returncode, True
+        w.close_files()
+        with self.lock:
+            self.live.discard(w)
+        if status != 0:
+            self.event("exit", w, status, w.log_text(), timedOut=hung, crashed=not hung)
+
+    def command(self, k: int, i: int, c: Command, cur: dict) -> dict:
+        """Run a command in the slot's worker cur["w"] (a new one, cur["gen"] + 1, if None): its record."""
+        rec = _record(c, os.path.join(self.base, c.cwd) if c.cwd else self.base)
+        if is_batch(c.args):
+            rec["stderr"] = "Error: --batch inside a batch\n"
+            return rec
+        if not os.path.isdir(rec["cwd"]):
+            rec["stderr"] = f"Error: no directory {rec['cwd']} (--cwd)\n"
+            return rec
+        t = c.timeout if c.timeout is not None else self.timeout
+        out, err = os.path.join(self.tmp, f"{i}.out"), os.path.join(self.tmp, f"{i}.err")
+        req = {"id": i, "args": rec["args"], "cwd": rec["cwd"], "env": c.env, "stdout": out, "stderr": err,
+               "host": self.host, "timeout": t}
+        for _attempt in range(2):
+            if self.stop:  # (interrupted: no new worker)
+                break
+            if cur["w"] is None:
+                cur["gen"] += 1
+                cur["w"] = self.start(k, cur["gen"], t)
+                if cur["w"] is None:
+                    continue
+            started = self.send(cur, req, t)
+            if started is not None:
+                self.finish(rec, cur, started, t, out, err)
+                return rec
+        rec["crashed"] = True
+        rec["stderr"] = "Error: no worker could run the command (see the worker events)\n"
+        return rec
+
+    def send(self, cur: dict, req: dict, t: float | None) -> dict | None:
+        """Send the request to the worker, and wait until the command starts: the worker's message,
+        or None after a "died" event (the worker died, or hung, before the command: not its fault)."""
+        w = cur["w"]
+        w.seq += 1
+        started = w.wait("started", t, also="done") if w.send(req) else None
+        if isinstance(started, dict):
+            return started
+        cur["w"] = None
+        self.retire(w)
+        w.seq -= 1  # (the event's seq: the last command that the worker ran)
+        self.event("died", w, w.proc.returncode, w.log_text(), timedOut=started == _TIMEOUT,
+                   crashed=started != _TIMEOUT)
+        return None
+
+    def finish(self, rec: dict, cur: dict, started: dict, t: float | None, out: str, err: str) -> None:
+        """Wait for the command's end, or kill its worker (a timeout, a crash), into its record."""
+        w = cur["w"]
+        t0 = time.perf_counter()
+        done = started if "done" in started else w.wait("done", t)
+        if done == _TIMEOUT:
+            rec["timedOut"] = True
+            w.wait("done", 2.)  # (the time for the worker's stack dump to be written)
+        rec.update(worker=[w.slot, w.gen], seq=w.seq)
+        if isinstance(done, dict):
+            rec["exitStatus"], rec["seconds"] = done["exitStatus"], done["seconds"]
+        else:  # (timed out, or the worker died: kill it first, then read what it wrote)
+            cur["w"] = None
+            self.retire(w)
+            rec["exitStatus"], rec["seconds"] = w.proc.returncode, time.perf_counter() - t0
+            rec["crashed"] = not rec["timedOut"]
+            log = w.log_text()
+            if log:
+                rec["workerStderr"] = log
+        rec["ok"] = isinstance(done, dict) and done["exitStatus"] == 0 and "error" not in done
+        rec["stdout"], rec["stderr"] = _read_text(out), _read_text(err)
+        if isinstance(done, dict) and done.get("error"):
+            rec["stderr"] += done["error"].rstrip("\n") + "\n"
+        for p in (out, err):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
 def run_batch(commands: Iterable, jobs: int = 1, timeout: float | None = None, host: str = "fresh",
               cwd: str | os.PathLike | None = None, env: Mapping | None = None, python: str | None = None,
               on_record: Callable[[dict], None] | None = None) -> list[dict]:
-    """Run hostDemo command lines in a pool of `jobs` worker processes (0: one per CPU): the records
-    (dicts, see the module docstring), in the order of the commands, then those of the worker
-    events.
+    """Run hostDemo command lines in a pool of worker processes.
 
-    commands: batch lines (strings, POSIX shell quoting, with the optional leading --cwd, --env and
-    --timeout), argument lists, Command objects, or dicts {"args", "cwd", "env", "timeout"}.
-    timeout: seconds per command (its worker is killed after that), unless the command has its own.
-    host: "fresh" (a new host for each command, the default), "per-plugin" (shut it down when the
-    plug-in changes) or "reuse" (keep it while the plug-in directories, the profile and the options
-    are the same). cwd: the batch's directory (default: the current one), where commands without
-    --cwd run and relative --cwd start. env: the workers' environment (default: os.environ).
-    python: the workers' Python (default: sys.executable). on_record: called with each record, in
-    order, as soon as it and those before are done; if it raises, it isn't called again, the batch
-    goes on, and run_batch() raises OnRecordError (with .records) at the end."""
-    from .hostdemo import _is_batch
+    Args:
+        commands: batch lines (strings, POSIX shell quoting, with the optional leading --cwd, --env
+            and --timeout), argument lists, Command objects, or dicts {"args", "cwd", "env", "timeout"}.
+        jobs: the number of workers (0: one per CPU).
+        timeout: seconds per command (its worker is killed after that), unless the command has its own.
+        host: "fresh" (a new host for each command, the default), "per-plugin" (shut it down when
+            the plug-in changes) or "reuse" (keep it while the plug-in directories, the profile and
+            the options are the same).
+        cwd: the batch's directory (default: the current one), where commands without --cwd run and
+            relative --cwd start.
+        env: the workers' environment (default: os.environ).
+        python: the workers' Python (default: sys.executable).
+        on_record: called with each record, in order, as soon as it and those before are done; if it
+            raises, it isn't called again, the batch goes on, and run_batch() raises OnRecordError.
+
+    Returns:
+        The records (dicts, see the module docstring), in the order of the commands, then those of
+        the worker events.
+
+    Raises:
+        OnRecordError: on_record raised (.records: the records).
+    """
     cmds = _commands(commands)
     if host not in HOSTS:
         raise ValueError(f"host must be one of {', '.join(HOSTS)}, not {host!r}")
@@ -655,189 +838,14 @@ def run_batch(commands: Iterable, jobs: int = 1, timeout: float | None = None, h
         raise ValueError(f"jobs must be >= 0, not {jobs}")
     jobs = max(1, min(jobs or (os.cpu_count() or 1), len(cmds)))
     base = os.path.abspath(os.fspath(cwd) if cwd is not None else os.getcwd())
-    wenv = _worker_env(env)
-    py = python or sys.executable
     tmp = tempfile.mkdtemp(prefix="ofxhost-batch-")
-    records: list = [None] * len(cmds)
-    events: list = []
-    lock = threading.Lock()  # (the records, the next command, the workers)
-    emit_lock = threading.Lock()  # (on_record, in order, outside of lock)
-    state: dict = {"next": 0, "emitted": 0, "error": None, "stop": False}
-    live: set = set()
-
-    def call(rec: dict) -> None:
-        if on_record is not None and state["error"] is None and not state["stop"]:
-            try:
-                on_record(rec)
-            except Exception as e:
-                state["error"] = e
-
-    def store(i: int, rec: dict) -> None:
-        with lock:
-            records[i] = rec
-        with emit_lock:
-            while True:
-                with lock:
-                    k = state["emitted"]
-                    if k >= len(cmds) or records[k] is None:
-                        break
-                    state["emitted"] = k + 1
-                call(records[k])
-
-    def event(kind: str, w: _Worker | None, status, stderr: str, **more) -> None:
-        rec = {"line": None, "event": kind, "args": [], "cwd": base, "env": {}, "exitStatus": status, "ok": False,
-               "stdout": "", "stderr": stderr, "seconds": 0.0, "crashed": kind != "start", "timedOut": False,
-               "worker": [w.slot, w.gen] if w is not None else None, "seq": w.seq if w is not None else None}
-        rec.update(more)
-        with lock:
-            events.append(rec)
-
-    def retire(w: _Worker) -> None:
-        w.kill()
-        with lock:
-            live.discard(w)
-
-    def start(k: int, gen: int, t: float | None) -> _Worker | None:
-        try:
-            w = _Worker(py, wenv, tmp, k, gen)
-        except OSError as e:
-            event("start", None, None, f"Error: cannot start a worker ({py}): {e}\n")
-            return None
-        with lock:
-            live.add(w)
-        ready = w.wait("ready", None if t is None else max(60., t))
-        if not isinstance(ready, dict):
-            retire(w)
-            event("start", w, w.proc.returncode, w.log_text(), timedOut=ready == _TIMEOUT)
-            return None
-        return w
-
-    def one(k: int, i: int, c: Command, cur: dict) -> dict:
-        """Run a command in the slot's worker cur["w"] (a new one, cur["gen"] + 1, if None)."""
-        rec = _record(c, os.path.join(base, c.cwd) if c.cwd else base)
-        if _is_batch(c.args):
-            rec["stderr"] = "Error: --batch inside a batch\n"
-            return rec
-        if not os.path.isdir(rec["cwd"]):
-            rec["stderr"] = f"Error: no directory {rec['cwd']} (--cwd)\n"
-            return rec
-        t = c.timeout if c.timeout is not None else timeout
-        out, err = os.path.join(tmp, f"{i}.out"), os.path.join(tmp, f"{i}.err")
-        for _attempt in range(2):
-            if state["stop"]:  # (interrupted: no new worker)
-                break
-            if cur["w"] is None:
-                cur["gen"] += 1
-                cur["w"] = start(k, cur["gen"], t)
-                if cur["w"] is None:
-                    continue
-            w = cur["w"]
-            w.seq += 1
-            req = {"id": i, "args": rec["args"], "cwd": rec["cwd"], "env": c.env, "stdout": out, "stderr": err,
-                   "host": host, "timeout": t}
-            started = w.wait("started", t, also="done") if w.send(req) else None
-            if not isinstance(started, dict):  # (died or hung before the command: not the command's)
-                cur["w"] = None
-                retire(w)
-                w.seq -= 1  # (the event's seq: the last command that the worker ran)
-                event("died", w, w.proc.returncode, w.log_text(), timedOut=started == _TIMEOUT,
-                      crashed=started != _TIMEOUT)
-                continue
-            t0 = time.perf_counter()
-            done = started if "done" in started else w.wait("done", t)
-            if done == _TIMEOUT:
-                rec["timedOut"] = True
-                w.wait("done", 2.)  # (the time for the worker's stack dump to be written)
-            rec.update(worker=[w.slot, w.gen], seq=w.seq)
-            if isinstance(done, dict):
-                rec["exitStatus"], rec["seconds"] = done["exitStatus"], done["seconds"]
-            else:  # (timed out, or the worker died: kill it first, then read what it wrote)
-                cur["w"] = None
-                retire(w)
-                rec["exitStatus"], rec["seconds"] = w.proc.returncode, time.perf_counter() - t0
-                rec["crashed"] = not rec["timedOut"]
-                log = w.log_text()
-                if log:
-                    rec["workerStderr"] = log
-            rec["ok"] = isinstance(done, dict) and done["exitStatus"] == 0 and "error" not in done
-            rec["stdout"], rec["stderr"] = _read_text(out), _read_text(err)
-            if isinstance(done, dict) and done.get("error"):
-                rec["stderr"] += done["error"].rstrip("\n") + "\n"
-            for p in (out, err):
-                try:
-                    os.unlink(p)
-                except OSError:
-                    pass
-            return rec
-        rec["crashed"] = True
-        rec["stderr"] = "Error: no worker could run the command (see the worker events)\n"
-        return rec
-
-    def slot(k: int):
-        cur: dict = {"w": None, "gen": 0}
-        try:
-            while True:
-                with lock:
-                    i = state["next"]
-                    if i >= len(cmds):
-                        break
-                    state["next"] = i + 1
-                c = cmds[i]
-                try:
-                    rec = one(k, i, c, cur)
-                except Exception:  # (a bug of the batch: an internal-error record, and a new worker)
-                    rec = _record(c, base, stderr="Error: internal error in the batch\n",
-                                  internalError=traceback.format_exc())
-                    if cur["w"] is not None:
-                        retire(cur["w"])
-                        cur["w"] = None
-                store(i, rec)
-        finally:
-            w = cur["w"]
-            if w is not None:  # (the end: the worker shuts its host down and exits)
-                try:
-                    w.stdin.close()
-                except OSError:
-                    pass
-                try:
-                    status, hung = w.proc.wait(timeout=max(60., timeout or 0.)), False
-                except subprocess.TimeoutExpired:
-                    w.kill()
-                    status, hung = w.proc.returncode, True
-                w.close_files()
-                with lock:
-                    live.discard(w)
-                if status != 0:
-                    event("exit", w, status, w.log_text(), timedOut=hung, crashed=not hung)
-
-    threads = [threading.Thread(target=slot, args=(k,), daemon=True) for k in range(jobs)]
     try:
-        for t in threads:
-            t.start()
-        for t in threads:
-            while t.is_alive():
-                t.join(0.2)
-    except BaseException:  # (an interrupt: no new command, no more records, and the workers are killed)
-        with lock:
-            state["next"] = len(cmds)
-            state["stop"] = True
-            workers = list(live)
-        for w in workers:
-            w.kill()
-        for t in threads:  # (the slots end once their workers are gone: none is left writing at exit)
-            t.join(10.)
-        raise
+        pool = _Pool(cmds, jobs, timeout, host, base, _worker_env(env), python or sys.executable, tmp, on_record)
+        out = pool.run()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    for i, c in enumerate(cmds):  # (none should be left: a bug of the batch otherwise)
-        if records[i] is None:
-            store(i, _record(c, base, stderr="Error: internal error in the batch: the command didn't run\n",
-                             internalError="the command has no record"))
-    for r in events:
-        call(r)
-    out = records + events
-    if state["error"] is not None:
-        raise OnRecordError(out) from state["error"]
+    if pool.error is not None:
+        raise OnRecordError(out) from pool.error
     return out
 
 

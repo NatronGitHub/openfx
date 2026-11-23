@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from ofxhost import _batch
-from ofxhost.hostdemo import run_batch
+from ofxhost.hostdemo import is_batch, run_batch, scan_options
 from ofxhost.testing import backend_available
 
 PYDIR = Path(__file__).resolve().parents[1]  # HostSupport/examples/python
@@ -63,9 +63,12 @@ def test_parse_errors(text, where):
 
 
 def test_scan():
-    assert _batch._plugin_of([]) == INVERT
-    assert _batch._plugin_of(["-p", "a", "-o", "-p", "-p", "b"]) == "b"  # (-o's value is "-p")
-    assert _batch._scan(["--ofx14", "-o", "--no-std-paths", "--quiet"]) == (INVERT, {"--ofx14", "--quiet"})
+    assert scan_options([])[0] == INVERT
+    assert scan_options(["-p", "a", "-o", "-p", "-p", "b"])[0] == "b"  # (-o's value is "-p")
+    assert scan_options(["--ofx14", "-o", "--no-std-paths", "--quiet"]) == (INVERT, {"--ofx14", "--quiet"})
+    # --batch as the value of an option isn't the batch mode
+    assert is_batch(["-j", "2", "--batch", "x"]) and is_batch(["--batch=x"])
+    assert not is_batch(["-o", "--batch", "-p", INVERT]) and not is_batch(["--report", "--batch=x"])
 
 
 def _cli(args, cwd, env=None, stdin=None, timeout=300):

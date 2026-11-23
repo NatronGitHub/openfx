@@ -34,41 +34,66 @@ import os
 import sys
 
 from . import graph as g
-from . import sequences
-from ._ofxh import OfxhNotFound
+from . import plugin_dirs, sequences
+from .build import OfxhNotFound, import_ofxh
+from .constants import kOfxImageEffectSimpleSourceClipName
 from .imageio import check_format, read_image
+from .specs import parse_double
 
 __all__ = ["main", "parse_frames"]
 
 log = logging.getLogger("ofxhost")
-graphhost = None  # ofxhost.graphhost, imported by main() (it imports ofxh)
 
 
 class Failure(Exception):
     """The command failed (exit status 1), with this message."""
 
 
+_MAX_TIME = 1e15  # (hostDemo's limit of a time)
+
+
+def _range(part: str) -> tuple[float, float, float] | None:
+    """(first, last, step) of "first-last[xstep]", else None. The "-" between first and last is one
+    that isn't a sign: not first, and not after an exponent's "e" ("1e-3-2")."""
+    rng, _, step = part.partition("x")
+    for k, c in enumerate(rng):
+        if c == "-" and k > 0 and rng[k - 1] not in "eE":
+            first, last = parse_double(rng[:k]), parse_double(rng[k + 1:])
+            s = parse_double(step) if step else 1.
+            return None if first is None or last is None or s is None else (first, last, s)
+    return None
+
+
 def parse_frames(text: str) -> list[float]:
-    """ "1-10" (inclusive), "0-20x2" (with a step), "1,3,5", or a mix: "1-3,10". """
+    """The frames of the command line.
+
+    Args:
+        text: "1-10" (inclusive), "0-20x2" (with a step), "1,3,5", or a mix: "1-3,10"; decimal
+            numbers, as hostDemo's --frames.
+
+    Returns:
+        The frames, in order, without duplicates.
+
+    Raises:
+        argparse.ArgumentTypeError: not frames, a range that is empty or has a step <= 0, or a time
+            beyond +-1e15.
+    """
     out: list[float] = []
     for part in text.split(","):
         part = part.strip()
-        rng, _, step = part.partition("x")
-        a, sep, b = rng[1:].partition("-") if rng.startswith("-") else rng.partition("-")
-        if rng.startswith("-"):
-            a = "-" + a
-        try:
-            if not sep:
-                out.append(float(part))
-                continue
-            first, last, s = float(a), float(b), float(step) if step else 1.
-        except ValueError:
-            raise argparse.ArgumentTypeError(f"invalid frames {text!r} (e.g. 1-10, 0-20x2, 1,3,5)") from None
-        if s <= 0 or last < first:
+        f = parse_double(part)
+        if f is not None:
+            out.append(f)
+            continue
+        r = _range(part)
+        if r is None:
+            raise argparse.ArgumentTypeError(f"invalid frames {text!r} (e.g. 1-10, 0-20x2, 1,3,5)")
+        first, last, s = r
+        if s <= 0 or last < first or not (abs(first) < _MAX_TIME and abs(last) < _MAX_TIME):
             raise argparse.ArgumentTypeError(f"invalid frame range {part!r}")
         n = int((last - first) / s + 1e-9)
         out += [first + k * s for k in range(n + 1)]
-    if not all(abs(f) < 1e15 for f in out):  # (also NaN)
+    if not all(abs(f) < _MAX_TIME for f in out):
         raise argparse.ArgumentTypeError(f"invalid frames {text!r}")
     return list(dict.fromkeys(out))
 
@@ -91,8 +116,14 @@ def _value(text: str):
         return text
 
 
+def _graphhost():
+    """ofxhost.graphhost, which imports ofxh: imported after the command line is read."""
+    from . import graphhost
+    return graphhost
+
+
 def _plugin(pid: str):
-    p = graphhost.ofxh.get_plugin(pid)
+    p = _graphhost().ofxh.get_plugin(pid)
     if p is None:
         raise Failure(f"plug-in {pid} not found (add its directory with -b, or to OFX_PLUGIN_PATH)")
     return p
@@ -107,7 +138,7 @@ def _context(plugin, context: str | None) -> str:
 
 
 def cmd_list(args) -> int:
-    for p in sorted(graphhost.ofxh.plugins(), key=lambda p: p.id):
+    for p in sorted(_graphhost().ofxh.plugins(), key=lambda p: p.id):
         if args.text and args.text.lower() not in (p.id + " " + p.label).lower():
             continue
         print(f"{p.id} {p.version[0]}.{p.version[1]}  {p.label}  [{', '.join(p.contexts)}]")
@@ -118,10 +149,11 @@ def template(plugin, context: str) -> g.Graph:
     """A one-node graph of a plug-in, with the defaults of its parameters (ofxh.param_template(); the
     file parameters as {"file": path}), its mandatory input clips on hostDemo's default test pattern
     (the optional ones left out: disconnected), and its output written to <name>.####.pfm."""
+    gh = _graphhost()
     d = plugin.descriptor(context)
-    params = dict(graphhost.ofxh.param_template(plugin, context))
+    params = dict(gh.ofxh.param_template(plugin, context))
     for p in d.params:
-        if p.name in params and graphhost.is_file_param(p, plugin.contexts):
+        if p.name in params and gh.is_file_param(p, plugin.contexts):
             params[p.name] = g.FilePath(params[p.name])
     name = g.stem(plugin.id)
     node = g.Node(plugin.id, context, params, name=name, version=tuple(plugin.version))
@@ -138,7 +170,7 @@ def cmd_params(args) -> int:
     if args.json:
         sys.stdout.write(template(plugin, context).dumps())
         return 0
-    defaults = graphhost.ofxh.param_template(plugin, context)
+    defaults = _graphhost().ofxh.param_template(plugin, context)
     print(f"{plugin.id} {plugin.version[0]}.{plugin.version[1]} ({plugin.label}), {context} context")
     d = plugin.descriptor(context)
     print("clips: " + ", ".join(c.name + (" (optional)" if c.is_optional else "") for c in d.clips))
@@ -160,7 +192,7 @@ def _run(args, graph) -> int:
             graph.save(args.save_graph)
         except (OSError, ValueError) as e:
             raise Failure(f"--save-graph {args.save_graph}: {e}") from None
-    r = graphhost.run(graph, args.bundles, frames=getattr(args, "frames", None), scale=getattr(args, "scale", None),
+    r = _graphhost().run(graph, args.bundles, frames=getattr(args, "frames", None), scale=getattr(args, "scale", None),
                       use_env_path=True, report_path=getattr(args, "report", None))
     for f in r.files:
         print(f)
@@ -181,12 +213,13 @@ def cmd_filter(args) -> int:
         h, w = read_image(args.input if still else sequences.expand(args.input, fs[0])).shape[:2]
     except (OSError, ValueError) as e:
         raise Failure(str(e)) from None
-    with graphhost.host(graphhost.plugin_dirs_of(args.bundles), use_env_path=True):
+    gh = _graphhost()
+    with gh.host(plugin_dirs(args.bundles), use_env_path=True):
         plugin = _plugin(args.plugin)
         context = _context(plugin, args.context)
         d = plugin.descriptor(context)
         clips = [c.name for c in d.clips if not c.is_output]
-        files = {p.name for p in d.params if graphhost.is_file_param(p, plugin.contexts)}
+        files = {p.name for p in d.params if gh.is_file_param(p, plugin.contexts)}
         pid = plugin.id
     params = {}
     for s in args.set or []:
@@ -194,7 +227,8 @@ def cmd_filter(args) -> int:
         params[name] = _value(value) if eq else None  # (no value: press a push button)
         if name in files and isinstance(params[name], str):
             params[name] = g.FilePath(params[name])  # (a file parameter: saved graphs rewrite it)
-    src = "Source" if "Source" in clips else (clips[0] if clips else None)
+    src = kOfxImageEffectSimpleSourceClipName if kOfxImageEffectSimpleSourceClipName in clips else \
+        (clips[0] if clips else None)
     if src is None:
         raise Failure(f"{pid} has no input clip")
     node = g.Node(pid, context, params, inputs={src: g.Files(os.path.abspath(args.input))}, name=g.stem(pid))
@@ -263,12 +297,9 @@ def _parser() -> argparse.ArgumentParser:
 def _import_host(bundles) -> None:
     """Import ofxh (without PYTHONPATH: the one of the build tree of the -b directories), then
     ofxhost.graphhost."""
-    global graphhost
-    from ._ofxh import import_ofxh
     dirs = [os.path.abspath(b) for b in bundles] + os.environ.get("OFX_PLUGIN_PATH", "").split(os.pathsep)
     import_ofxh(os.pathsep.join(d for d in dirs if d), for_cli=True)
-    from . import graphhost as gh
-    graphhost = gh
+    _graphhost()
 
 
 def main(argv=None) -> int:
@@ -282,10 +313,10 @@ def main(argv=None) -> int:
         _import_host(args.bundles)
         if args.needs_host:
             try:
-                dirs = graphhost.plugin_dirs_of(args.bundles)
+                dirs = plugin_dirs(args.bundles)
             except OSError as e:
                 raise Failure(str(e)) from None
-            with graphhost.host(dirs, use_env_path=True):
+            with _graphhost().host(dirs, use_env_path=True):
                 return args.func(args)
         return args.func(args)
     except OfxhNotFound as e:

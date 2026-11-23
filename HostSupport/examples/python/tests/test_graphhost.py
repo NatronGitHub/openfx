@@ -11,7 +11,7 @@ import pytest
 
 import ofxhost
 from ofxhost import sequences
-from ofxhost.graph import FilePath, Files, Graph, Keys, Node, Project, execute, load
+from ofxhost.graph import FilePath, Files, Graph, Keys, Node, Project, load
 from ofxhost.testing import assert_close, backend_available
 
 why = backend_available("inprocess")
@@ -60,22 +60,181 @@ def run(g, plugins, **kw):
     return r
 
 
-@pytest.mark.parametrize("scale", [1.0, 0.5])
-def test_same_images_as_execute(sample_plugins, scale):
-    """A DAG (one node feeding two inputs), with test patterns and an array: the same images and
-    bounds as ofxhost.graph.execute() (hostDemo's project, the default one)."""
-    inv = Node(INVERT, inputs={"Source": "ramp"})
-    out = Node(BASIC, "general", {"scale": 2.}, inputs={"Source": inv, "Mask": inv})
-    arr = Node(INVERT, inputs={"Source": Node(INVERT, inputs={"Source": rgba()})})
-    for g in (Graph.of(out, frames=[0, 1], scale=scale), Graph.of(arr, frames=[0], window=(4, 2, 20, 16))):
-        a = execute(g, sample_plugins, backend="inprocess")
-        r = run(g, sample_plugins)
-        b = r.images[next(iter(g.outputs))]
-        assert sorted(a) == sorted(b)
+def output(r, g):
+    """The images of the graph's (first) output node: {time: Image}."""
+    return r.images[next(iter(g.outputs))]
+
+
+def test_chain(sample_plugins):
+    """Invert(Invert(src)) is src, at a render scale and in a window, alpha included: each
+    output is passed on with its bounds, alpha and premultiplication."""
+    src = rgba(48, 64)
+    inv2 = Node(INVERT, inputs={"Source": Node(INVERT, inputs={"Source": src})})
+    for scale, window in ((1.0, None), (0.5, (10, 5, 40, 30))):
+        g = Graph.of(inv2, frames=[0, 0.5], scale=scale, window=window)
+        out = output(run(g, sample_plugins), g)
+        assert sorted(out) == [0.0, 0.5]
+        for t, img in out.items():
+            x1, y1, x2, y2 = window or (0, 0, 64, 48)
+            assert img.bounds == (x1, y1, x2, y2), (t, img.bounds)
+            # top-down arrays: the window's rows, from the top of the 48-pixel source
+            assert_close(img.pixels, src[48 - y2:48 - y1, x1:x2], atol=1e-6, msg=f"t={t}")
+
+
+def test_dag(sample_plugins):
+    """A node used by two inputs is rendered once per time. The basic plug-in scales its
+    Source by scale where its Mask is 1: Mask = Source = Invert(solid 0.25) = 0.75."""
+    inv = Node(INVERT, inputs={"Source": "solid:0.25,0.25,0.25,0.25"}, name="inv")
+    out = Node(BASIC, "general", {"scale": 2}, inputs={"Source": inv, "Mask": inv}, name="out")
+    r = run(Graph.of(out, frames=[0]), sample_plugins)
+    renders = {n: [a["time"] for a in r.report["nodes"][n]["actions"] if a["action"] == "render"]
+               for n in ("inv", "out")}
+    assert renders == {"inv": [0.], "out": [0.]}
+    img = r.images["out"][0.]
+    # alpha 0.75 inverted from 0.25; the colour is scaled by 1 + (2 - 1) * mask alpha
+    assert_close(img.pixels[..., 3], np.full(img.pixels.shape[:2], 0.75, np.float32), atol=1e-6)
+    assert_close(img.pixels[..., 0], np.full(img.pixels.shape[:2], 0.75 * 1.75, np.float32), atol=1e-6)
+
+
+def test_inputs_outside_the_project(sample_plugins):
+    """Images whose bounds are outside the project: Invert(Invert(img)) gives img back, with all its
+    bounds."""
+    src = rgba(10, 12)
+    for bounds, window in (((1000, 0, 1012, 10), (1000, 0, 1012, 10)), ((710, 0, 722, 10), (705, 0, 722, 10))):
+        img = ofxhost.Image(src, bounds)
+        g = Graph.of(Node(INVERT, inputs={"Source": Node(INVERT, inputs={"Source": img})}), frames=[0], window=window)
+        out = output(run(g, sample_plugins), g)[0]
+        assert out.bounds == bounds, (bounds, out.bounds)
+        assert_close(out.pixels, src, atol=1e-6)
+
+
+def test_nothing_to_render(sample_plugins):
+    """An output whose RoD doesn't meet the window renders nothing: no image, a null output."""
+    r = run(Graph.of(Node(INVERT, inputs={"Source": "ramp"}, name="inv"), frames=[0], window=(5000, 5000, 5010, 5010)),
+            sample_plugins)
+    assert "inv" not in r.images and r.report["outputs"]["inv"] == [{"time": 0., "output": None, "files": []}]
+
+
+def test_large_input(sample_plugins):
+    """An input larger than the project (3000x1500, more pixels than a 2048x2048 image) keeps all
+    its bounds through a chain, and a window outside the project renders."""
+    h, w = 1500, 3000
+    y, x = np.mgrid[0:h, 0:w].astype(np.float32)
+    src = np.dstack([x / w, y / h, np.full_like(x, 0.25), np.ones_like(x)]).astype(np.float32)
+    inv2 = Node(INVERT, inputs={"Source": Node(INVERT, inputs={"Source": ofxhost.Image(src, (0, 0, w, h))})})
+    for window in ((0, 0, w, h), (1000, 1000, 1100, 1100)):
+        g = Graph.of(inv2, frames=[0], window=window)
+        out = output(run(g, sample_plugins), g)[0]
+        assert out.bounds == window
+        assert_close(out.pixels, src[h - window[3]:h - window[1], window[0]:window[2]], atol=1e-6)
+
+
+def test_no_tiles(sample_plugins):
+    """A node without tiles (Invert with supportsTiles off) renders its whole RoD from whole-RoD
+    inputs, so its input node is rendered on its whole RoD too, whatever the window and the RoI
+    (testSmallRoI: Invert asks for the centre of the region it needs only)."""
+    src = rgba(40, 60)
+    inner = Node(INVERT, inputs={"Source": ofxhost.Image(src, (100, 50, 160, 90))})
+    outer = Node(INVERT, inputs={"Source": inner}, params={"supportsTiles": False, "testSmallRoI": True})
+    g = Graph.of(outer, frames=[0], window=(120, 60, 130, 70))
+    out = output(run(g, sample_plugins), g)[0]
+    assert out.bounds == (100, 50, 160, 90), out.bounds
+    assert_close(out.pixels, src, atol=1e-6)
+    # with tiles: the window
+    outer.params["supportsTiles"] = True
+    assert output(run(g, sample_plugins), g)[0].bounds == (120, 60, 130, 70)
+
+
+def test_no_tiles_huge_rod(sample_plugins):
+    """A node without tiles whose RoD is too large for an image renders the window, as hostDemo, and
+    its input node is asked for the window only."""
+    inner = Node(INVERT, inputs={"Source": "rod:0,0,40000,40000"})
+    outer = Node(INVERT, inputs={"Source": inner}, params={"supportsTiles": False})
+    g = Graph.of(outer, frames=[0], window=(0, 0, 64, 64))
+    assert output(run(g, sample_plugins), g)[0].bounds == (0, 0, 64, 64)
+
+
+def test_input_too_large(sample_plugins, monkeypatch):
+    """An input image too large for the host (a region of interest of 40000x40000 pixels) fails the
+    run instead of being left out."""
+    def rois(self, time, roi, render_scale=(1., 1.), view=0):
+        return ofxh.Stat.OK, {"Source": (0., 0., 40000., 40000.)}
+
+    monkeypatch.setattr(graphhost.Instance, "get_regions_of_interest_action", rois)
+    r = graphhost.run(Graph.of(Node(INVERT, inputs={"Source": "rod:0,0,40000,40000"}), frames=[0],
+                               window=(0, 0, 64, 64)), sample_plugins)
+    assert not r.ok and "is too large" in r.report["error"], r.report["error"]
+
+
+def test_infinite_frames_needed(sample_plugins, monkeypatch):
+    """Frames needed with an infinite or NaN bound fail the run (instead of a loop without end)."""
+    inner = Node(INVERT, inputs={"Source": "ramp"})
+    for bound in (math.inf, math.nan, 1e9, 2.**53):  # (and finite ones that would make huge lists, or no progress)
+        def frames_needed(self, time, bound=bound):
+            return ofxh.Stat.OK, {"Source": [(time, bound)]}
+
+        monkeypatch.setattr(graphhost.Instance, "get_frames_needed_action", frames_needed)
+        r = graphhost.run(Graph.of(Node(INVERT, inputs={"Source": inner}), frames=[0]), sample_plugins)
+        assert not r.ok and "the bounds must be finite, within +-1e+07" in r.report["error"], r.report["error"]
+
+
+def test_infinite_identity_time(sample_plugins, tmp_path, monkeypatch):
+    """An identity at an infinite time (of an image sequence input) fails the run, without an
+    OverflowError."""
+    seq = sequence(tmp_path, [1, 2])
+
+    def is_identity(self, time, window, render_scale=(1., 1.), field="none", view=0, plane="Colour"):
+        return ofxh.Stat.OK, {"clip": "Source", "time": math.inf, "view": 0, "plane": "Colour"}
+
+    monkeypatch.setattr(graphhost.Instance, "is_identity_action", is_identity)
+    r = graphhost.run(Graph.of(Node(INVERT, inputs={"Source": Files(seq)}), frames=[1]), sample_plugins)
+    assert not r.ok and "isIdentity gave the time inf" in r.report["error"], r.report["error"]
+
+
+def test_no_tiles_input_clipped_to_the_window(sample_plugins, monkeypatch):
+    """A node without tiles that asks for the whole of an input whose RoD is too large for an image: the
+    input node renders the render window only, as hostDemo fetches it."""
+    original = graphhost.Instance.get_regions_of_interest_action
+
+    def rois(self, time, roi, render_scale=(1., 1.), view=0):
+        if self.node.name != "outer":
+            return original(self, time, roi, render_scale, view)
+        return ofxh.Stat.OK, {"Source": (0., 0., 40000., 40000.)}
+
+    monkeypatch.setattr(graphhost.Instance, "get_regions_of_interest_action", rois)
+    inner = Node(INVERT, inputs={"Source": "rod:0,0,40000,40000"}, name="inner")
+    outer = Node(INVERT, inputs={"Source": inner}, params={"supportsTiles": False}, name="outer")
+    r = run(Graph.of(outer, frames=[0], window=(0, 0, 64, 64)), sample_plugins)
+    assert [x["renderWindow"] for x in r.report["nodes"]["inner"]["renders"]] == [[0, 0, 64, 64]]
+
+
+def test_round_trip_renders_the_same(sample_plugins, tmp_path):
+    """A graph built in Python renders the same images as the graph saved and loaded, in its
+    directory and in another one (its paths rewritten): with keys, a plug-in version, a file
+    sequence and the render settings."""
+    src = rgba(48, 64)
+    for f in (0, 1):
+        ofxhost.write_pfm(tmp_path / f"in.{f:04d}.pfm", src[..., :3] * (1 + f) / 2)
+    inv = Node(INVERT, inputs={"Source": Files("in.####.pfm")}, version=(1, 0))
+    out = Node(BASIC, "general", {"scale": Keys({0: 1., 1: 3.}), "scaleComponents": False},
+               inputs={"Source": inv, "Mask": "none"})
+    g = Graph.of(out, frames=[0, 1], window=(0, 0, 40, 30), base=str(tmp_path))
+    g.save(tmp_path / "g.json")
+    h = load(tmp_path / "g.json")
+    (tmp_path / "elsewhere").mkdir()
+    g.save(tmp_path / "elsewhere" / "g.json")
+    e = load(tmp_path / "elsewhere" / "g.json")
+    assert e.nodes["invertPlugin"].inputs["Source"] == Files("../in.####.pfm")
+    a = output(run(g, sample_plugins), g)
+    for other in (h, e):
+        b = output(run(other, sample_plugins), other)
+        assert sorted(a) == sorted(b) == [0., 1.]
         for t in a:
-            assert a[t].bounds == b[t].bounds and a[t].premult == b[t].premult, t
-            assert np.array_equal(a[t].pixels, b[t].pixels), t
-    assert_close(b[0].pixels, rgba()[24 - 16:24 - 2, 4:20], atol=1e-6)
+            assert a[t].bounds == b[t].bounds == (0, 0, 40, 30)
+            assert np.array_equal(a[t].pixels, b[t].pixels)
+            # Invert of the frame's file, scaled by the key value (1 at t=0, 3 at t=1)
+            x = (1 - src[48 - 30:, :40, :3] * (1 + t) / 2) * (1 + 2 * t)
+            assert_close(a[t].pixels[..., :3], x, atol=1e-5, msg=f"t={t}")
 
 
 def test_report(sample_plugins, tmp_path):
@@ -212,7 +371,7 @@ def test_file_params(sample_plugins, monkeypatch):
         def message(self, type, id, text):
             self.messages.append(text)
 
-    with graphhost.host(ofxhost._plugin_dirs(sample_plugins)):
+    with graphhost.host(ofxhost.plugin_dirs(sample_plugins)):
         with ofxh.create_instance(ofxh.get_plugin(TESTER), "filter", Instance()) as inst:
             assert inst.set_param("messageText", "shot.####.%V_%v.%03d.100%%.pfm") == ofxh.Stat.OK
             assert inst.create_instance_action() == ofxh.Stat.OK
@@ -252,7 +411,7 @@ def test_file_params_are_relative_to_the_graph(sample_plugins, tmp_path, monkeyp
         def new_param(self, desc):
             return graphhost.FileParam(str(base)) if desc.name == "messageText" else None
 
-    with graphhost.host(ofxhost._plugin_dirs(sample_plugins)):
+    with graphhost.host(ofxhost.plugin_dirs(sample_plugins)):
         with ofxh.create_instance(ofxh.get_plugin(TESTER), "filter", Instance()) as inst:
             inst.set_param("messageText", "renders/out.####.pfm")
             assert inst.get_param("messageText", 3.) == str(base / "renders" / "out.0003.pfm")
@@ -322,10 +481,18 @@ def test_errors(sample_plugins, tmp_path):
               (Graph({"i": Node(INVERT, inputs=ramp)}, {"x": None}, frames=[0]), "'x' is not a node"),
               (Graph({"i": Node(INVERT, inputs=ramp)}, {"i": "o.pfm"}, frames=[0, 1]), "no frame number"),
               (Graph.of(Node(INVERT, inputs=ramp), frames=[0], scale=0.), "render scale"),
-              (Graph.of(Node(INVERT, inputs=ramp), frames=[math.nan]), "finite")]
+              (Graph.of(Node(INVERT, inputs=ramp), frames=[math.nan]), "finite"),
+              (Graph.of(Node(INVERT, inputs=ramp), frames=[0], project=Project(pixel_aspect_ratio=0.)),
+               "pixel aspect ratio"),
+              (Graph.of(Node(INVERT, inputs=ramp), frames=[0], scale=(0.5,)), "render scale"),
+              (Graph.of(Node(INVERT, inputs=ramp), frames=[0], scale=(0.5, 0.5, 0.5)), "render scale"),
+              (Graph.of(Node(INVERT, inputs=ramp), frames=[0], scale="half"), "render scale")]
     for g, message in graphs:
         r = graphhost.run(g, sample_plugins)
         assert not r.ok and message in r.report["error"], (message, r.report["error"])
+    # a 0-d array is a scale too
+    assert run(Graph.of(Node(INVERT, inputs=ramp), frames=[0], scale=np.array(0.5)), sample_plugins).report[
+        "renderScale"] == [0.5, 0.5]
     for path, message in ((tmp_path / "missing.json", "No such file"), (tmp_path / "bad.npy", "not a JSON graph")):
         r = graphhost.run(path, sample_plugins)
         assert not r.ok and message in r.report["error"], (message, r.report["error"])
