@@ -2164,7 +2164,7 @@ namespace OFX {
 
     /** @brief used to disable checks on some hosts.
 
-    in Sony Vegas, kOfxImageEffectPropRenderScale is <1 in the inArgs for downscaled render, but =1. on the images
+    in Sony Vegas and VEGAS Pro, kOfxImageEffectPropRenderScale is <1 in the inArgs for downscaled render, but =1. on the images
     */
     bool _hostIsVegas;
 
