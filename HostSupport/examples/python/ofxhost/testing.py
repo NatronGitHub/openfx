@@ -78,10 +78,14 @@ def find_hostdemo_or_skip(host_binary=None) -> Path:
         pytest.skip(str(e))
 
 
-@pytest.fixture(scope="session")
-def hostdemo() -> Path:
-    """The hostDemo binary (see find_hostdemo); skips the tests that use it if not built."""
-    return find_hostdemo_or_skip()
+@pytest.fixture
+def hostdemo(backend) -> Path | None:
+    """The hostDemo binary on the subprocess backend, None on the in-process one.
+
+    Skips the test if hostDemo isn't built. render(..., host_binary=hostdemo) then runs on both
+    backends (the backend fixture).
+    """
+    return find_hostdemo_or_skip() if backend == "subprocess" else None
 
 
 def selected_backends() -> list[str]:
@@ -117,10 +121,13 @@ def pytest_configure(config):
 
 
 def check_backend(name: str, marker=None) -> None:
-    """Skip (or fail) a test on the backend name.
+    """Skip (or fail) a test, or a whole test module (at its top level), on the backend name.
 
-    The backends marker's (a pytest Mark, or None) other backends are skipped with its reason (a marker without
-    reason= fails), and an unavailable backend is skipped, or fails with OFXH_REQUIRE=1.
+    Args:
+        name: "subprocess" or "inprocess". An unavailable backend is skipped, or fails with
+            OFXH_REQUIRE=1.
+        marker: the test's backends marker (a pytest Mark), or None: the other backends are skipped
+            with its reason (a marker without reason= fails).
     """
     if marker is not None:
         reason = marker.kwargs.get("reason")
@@ -131,8 +138,8 @@ def check_backend(name: str, marker=None) -> None:
     why = backend_available(name)
     if why is not None:
         if os.environ.get("OFXH_REQUIRE") == "1":
-            pytest.fail(f"backend {name}: {why} (OFXH_REQUIRE=1)")
-        pytest.skip(f"backend {name}: {why}")
+            pytest.fail(f"backend {name}: {why} (OFXH_REQUIRE=1)", pytrace=False)
+        pytest.skip(f"backend {name}: {why}", allow_module_level=True)
 
 
 @pytest.fixture(params=selected_backends())

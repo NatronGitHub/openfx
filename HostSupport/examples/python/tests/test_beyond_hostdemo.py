@@ -4,7 +4,6 @@ image first, and the bounded planning of the sample host."""
 
 import ctypes
 import json
-import os
 import threading
 
 import numpy as np
@@ -12,29 +11,17 @@ import pytest
 
 import ofxhost
 from ofxhost.graph import Files, Graph, Node, load
-from ofxhost.testing import assert_close, backend_available
+from ofxhost.testing import assert_close, check_backend
 
-why = backend_available("inprocess")
-if why is not None:
-    if os.environ.get("OFXH_REQUIRE") == "1":
-        pytest.fail(f"ofxh: {why} (OFXH_REQUIRE=1)", pytrace=False)
-    pytestmark = pytest.mark.skip(reason=f"ofxh: {why}")
-else:
-    import ofxh
-    from ofxhost import graphhost, inprocess
+check_backend("inprocess")  # (the whole module: skipped, or failed with OFXH_REQUIRE=1)
+import ofxh  # noqa: E402
+from ofxhost import graphhost, inprocess  # noqa: E402
+
+pytestmark = pytest.mark.usefixtures("tmp_cwd")
 
 INVERT = "net.sf.openfx.invertPlugin"
 BASIC = "net.sf.openfx.basicPlugin"
 MULTIPLY = "net.sf.openfx.MultiplyGPU"  # its clips support RGBA, RGB and Alpha
-
-
-@pytest.fixture(autouse=True)
-def _cwd(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    yield
-    if why is None:
-        inprocess.shutdown()
-        ofxh.shutdown()
 
 
 def render(plugins, *args, **kw):

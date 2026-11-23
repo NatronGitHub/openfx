@@ -118,8 +118,10 @@ each backend (`test_x[subprocess]`, `test_x[inprocess]`: it sets `$OFXHOST_BACKE
 skips a backend that isn't built, or fails with `OFXH_REQUIRE=1`, and `$OFXHOST_TEST_BACKENDS`
 restricts them, e.g. `subprocess`); the `backends` marker, for a test that depends on one
 backend's behaviour (`@pytest.mark.backends("subprocess", reason="...")`: skipped on the others with
-the reason; without `reason=`, the test fails); and a `hostdemo` fixture (the hostDemo binary; it
-skips the tests when hostDemo isn't built). To get them: `pytest_plugins = ["ofxhost.testing"]` in
+the reason; without `reason=`, the test fails); `check_backend("inprocess")`, which skips a test
+or, at its top level, a whole module (or fails with `OFXH_REQUIRE=1`); and a `hostdemo` fixture
+(with `backend`: the hostDemo binary on the subprocess backend, skipped if it isn't built, None
+in-process, for `host_binary=`). To get them: `pytest_plugins = ["ofxhost.testing"]` in
 the top-level conftest.py (pytest refuses `pytest_plugins` in the others), or
 `from ofxhost.testing import backend, pytest_configure` in any conftest.py (a conftest.py with its
 own `pytest_configure` calls `ofxhost.testing.pytest_configure(config)` from it instead). The
