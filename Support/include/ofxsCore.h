@@ -65,6 +65,15 @@ This support library skins the raw OFX C API with a set of C++ classes and funct
 
 The OFX::ImageEffect class has a set of members you can override to do various things, like rendering an effect. Again, look at the examples.
 
+Parameter changes that belong together, e.g. several setValue() calls in changedParam() or in an
+interact, go in one undo step with an edit block, which ends when it goes out of scope:
+@code
+OFX::ParamSet::EditBlock eb(*this, "Reset center");
+@endcode
+To begin it only if a parameter actually changes, pass OFX::ParamSet::EditBlock::eBeginOnChange and call eb.open() before each change;
+eHostErrorsIgnore makes the changes without an edit block if the host refuses one. The destructor
+never throws (see OFX::ParamSet::EditBlock).
+
 <HR>
 
 @section license Copyright and License
