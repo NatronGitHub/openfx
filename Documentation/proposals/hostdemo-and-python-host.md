@@ -1,30 +1,34 @@
 # hostDemo and the Python host: what to do about #136 part 5b
 
-Status: proposal, for a vote of the plug-in repositories (openfx-supportext, -misc, -io, -arena, -gmic).
+Status: decided by a vote of the plug-in repositories (2026-11-23): **B**, unanimously.
 
 ## Problem
 
-#136 planned to turn the C++ `hostDemo` back into a simple example once the plug-in repositories' tests had moved to the Python host (`ofxhost` on the `ofxh` bindings; parts 1 to 5a are merged). Part 5b, "strip hostDemo", is the last step. But the plug-in tests still depend on things only hostDemo or C++ provide:
+#136 planned to turn the C++ `hostDemo` back into a simple example once the plug-in repositories' tests had moved to the Python host (`ofxhost` on the `ofxh` bindings; parts 1 to 5a are merged). Part 5b, "strip hostDemo", is the last step. But the plug-in tests depend on hostDemo as it is:
 
-- C++ test hosts built on hostDemo's `MyHost::*` classes: arena `mt_unload` and `reader_window`, io `reader_window`, `raw_unload` and `exit_without_unload`, and openfx's `propsetDump` and `suiteHandleChecks`.
-- gmic runs hostDemo on MSVC x64, ARM64 and Arm64X. `ofxh` has never been built there (and may not be possible for Arm64EC).
-- Moving to the Python host adds nanobind, NumPy and Python ≥ 3.10 to every consumer's CI.
-- One process per command is slower than hostDemo (misc's rendertest: 77 s vs 56 s on macOS); the batch mode is faster but no consumer uses it yet.
+- **Its command line**, in every repository: misc's rendertest and smoketest (which also run openfx-supportext's per-PR CI, with and without `--ofx14`), io's `io-hostdemo` tests (`tests/hostdemo/run.sh`, the `--report` JSON), arena's ctests, gmic's describe and render checks.
+- **Its `MyHost::*` classes** (the four `HostSupport/examples/hostDemo*.{h,cpp}` files), compiled into C++ test hosts: arena `mt_unload` and `reader_window`; io `tests/hostdemo/reader_window.cpp`, `raw_unload` and `exit_without_unload`; openfx's `propsetDump` and `suiteHandleChecks`. Some can't move to Python: `raw_unload` checks that nothing keeps OpenMP loaded after unload, which a Python process with NumPy can't check.
+- **Its platforms:** gmic runs hostDemo on Linux, macOS and Windows x64 with MSVC, and weekly on Windows on Arm (ARM64 and Arm64EC hosts). `ofxh` has never been built with MSVC (Arm64EC would need an emulated x64 CPython: untested). misc, io and arena test Windows with MSYS2 UCRT64, where `ofxh` already builds.
+
+Moving to the Python host would add nanobind, NumPy (where not already used), the Python ≥ 3.10 floor (Rocky 9 ships 3.9) and an `ofxh` build to the consumers' CI. It is also slower per process: misc's rendertest (236 command lines, macOS) takes 46.9 s on `python -m ofxhost.hostdemo` against 35.4 s on hostDemo serially, and 14.9 s against 13.0 s at four at a time (`HostSupport/examples/python/README.md`). The batch mode is faster, but no consumer uses it, and moving smoketest to it would be a rewrite. gmic also keeps its own C++ describe host (`describe_plugins.cpp`, on HostSupport), whatever the option.
 
 ## Options
 
-**A. Migrate everything, then strip hostDemo.** One test host. But the C++ test hosts and gmic's Windows/ARM coverage can't move, every CI gets heavier, and the bindings lose their reference implementation. About 3–5 weeks, with an uncertain MSVC/ARM part.
+**A. Migrate everything, then strip hostDemo.** One test host, eventually. But the C++ test hosts and gmic's Windows/ARM coverage can't move, the Python host's subprocess backend and its comparison tests run hostDemo, and every consumer's CI gets heavier.
 
-**B. Keep hostDemo as the frozen test host; the Python host stays optional.** No change for anyone, every platform keeps working. #136's "simple example" goal is dropped, and host-side fixes keep landing in both hosts.
+**B. Keep hostDemo as the frozen test host; the Python host is optional.** No change for anyone; every platform keeps working. Host-side fixes keep landing in both hosts.
 
-**C. Split instead of strip.** Keep hostDemo frozen as the test host and reference; move the `MyHost::*` classes into a small test-host library (`OfxTestHost`) that hostDemo and the consumers' C++ test hosts link; add a separate one-page C++ example host. Repositories move to the Python host only where it helps (openfx-misc first; gmic, io and arena stay on hostDemo). Adds a library and a third host program to maintain.
+**C. Split instead of strip:** a small `OfxTestHost` library for the C++ test hosts, a separate one-page C++ example host, and only openfx-misc (and so openfx-supportext's CI) moves to the Python host. For io and arena it only replaces four source files with a library to link.
 
-## Recommendation
+## Decision: B
 
-**B**, under the "no over-engineering" rule: it costs nothing, loses no coverage, and nothing today needs a simpler hostDemo. A small "minimal host" already exists in Python (`HostSupport/examples/python/minimal_host.py`). Revisit A or C only if a repository needs something hostDemo can't give it.
+"Frozen" means no new hostDemo features; bug fixes and spec-compliance fixes still land (as in #209 and #213). What stays stable for the consumers:
 
-(C was the earlier recommendation of the comparison study; it is kept as an option for the vote.)
+- the `hostDemo` CMake target (`BUILD_EXAMPLE_HOSTS`, `OFX_BUILD_HOSTSUPPORT`) and the Makefile build;
+- the command-line options and environment variables the plug-in tests use: `--describe`, `--report` (JSON fields such as `renders[].output.files` and `.nan`), `--ofx14`, `--no-std-paths`, `--no-cache`, `--quiet`, `--allow-unwritten`, `--format pfm`, `-d`, `-p`, `-c`, `-s`, `--scale`, `--frames`, `--window`, `-o`, `-i Clip=solid|ramp|checker|none|rod:…|file:…`, PFM inputs and output, both stereo views, the output file naming, a non-zero exit on render errors, `OFX_HOSTDEMO_KEEP_LOADED`;
+- the `MyHost::*` classes for the C++ test hosts: the four `hostDemo*` files and `MyHost::Host`, `MyEffectInstance`, `MyClipInstance::getOutputImage`, `MyImage`, `canonicalToPixelEnclosing` and `gImageErrors` stay source-compatible (this gives the test hosts what C's library would, without a library);
+- HostSupport's comment anchors that gmic's describe host patches (`ofxhParam.cpp` "kOfxStatErrExists - if a parameter of that name exists already in this plugin", `ofxhImageEffect.cpp` "// clip names are unique").
 
-## Votes
+The Python host stays for the tests hostDemo can't do. Known gap: hostDemo can't give a plug-in padded or negative `kOfxImagePropRowBytes` (openfx-misc#232 was tested with the `ofxh` bindings); a small hostDemo option is the cheap fix if CI ever needs it.
 
-Each plug-in repository reviews this proposal twice (two independent reviewers) and votes A, B or C, with any requested changes. The results are summarized in the PR that adds this file.
+Revisit A or C only if a repository needs something hostDemo can't give it.
