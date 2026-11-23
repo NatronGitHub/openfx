@@ -235,6 +235,11 @@ uninstall:
   endif
 
   CXXFLAGS := $(DEBUGFLAG) $(CPPFLAGS) -I$(PATHTOROOT)/../include -I$(PATHTOROOT)/include -I$(PATHTOROOT)/Plugins/include $(BITSFLAG) -fvisibility=hidden $(CXXFLAGS_ADD) $(CXXFLAGS_EXTRA)
+  # C++17, which the Support library requires (Apple clang defaults to C++14), unless CXX,
+  # CXXFLAGS_ADD or CXXFLAGS_EXTRA already has a -std option. CXXSTD is the whole flag, e.g.
+  # `make CXXSTD=-std=c++20` (openfx-io's Makefile.master uses the same variable).
+  CXXSTD ?= $(if $(findstring -std=,$(CXX) $(CXXFLAGS_ADD) $(CXXFLAGS_EXTRA)),,-std=c++17)
+  CXXFLAGS += $(CXXSTD)
 
 $(OBJECTPATH)/$(PLUGINNAME).ofx: $(addprefix $(OBJECTPATH)/,$(PLUGINOBJECTS) $(SUPPORTOBJECTS))
 	@mkdir -p $(OBJECTPATH)/

@@ -73,19 +73,19 @@ jobs:
           git diff --exit-code -- Documentation/sources/Reference/ofxPropertiesReferenceGenerated.rst \
             Documentation/sources/Reference/ofxPropertySetsGenerated.rst \
             || { echo "::error::run scripts/gen-props-doc.py and commit the generated .rst files"; exit 1; }
-      - name: All headers together compile (C++98, C++17; all extension flag sets)
+      - name: All headers together compile (C++17, C++20; all extension flag sets)
         run: |
           { echo '#include "ofxCore.h"'; echo '#include "ofxImageEffect.h"'
             for h in $(cd include && ls *.h); do echo "#include \"$h\""; done
             echo '#include "nuke/fnOfxExtensions.h"'
             echo '#include "ofxhDrawSuiteOpenGL.h"'; } > all.cpp
-          for std in c++98 c++17; do
+          for std in c++17 c++20; do
             for D in "" "-DOFX_EXTENSIONS_RESOLVE" "-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC_V2"; do
               echo "== $std $D"
               g++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude -IHostSupport/include all.cpp
             done
           done
-      - name: Each HostSupport and Support header compiles on its own (C++98, C++17; no extensions, all of them)
+      - name: Each HostSupport and Support header compiles on its own (C++17, C++20; no extensions, all of them)
         run: |
           # a host or a plug-in may include any of them first: each one includes what it uses (SF.11);
           # ofxsHWNDInteract.h needs <windows.h>
@@ -94,7 +94,7 @@ jobs:
           for dir in HostSupport Support; do
             if [ $dir = HostSupport ]; then on=$hs_on; hdrs=$(cd HostSupport/include && ls ofxh*.h)
             else on=$s_on; hdrs=$(cd Support/include && ls ofxs*.h | grep -v ofxsHWNDInteract.h); fi
-            for std in c++98 c++17; do
+            for std in c++17 c++20; do
               for D in "" "$on"; do
                 echo "== $dir $std $D"
                 for h in $hdrs; do

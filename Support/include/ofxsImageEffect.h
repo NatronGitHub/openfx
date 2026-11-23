@@ -45,7 +45,7 @@ of the direct OFX objects and any library side only functions.
 #endif
 
 /** @brief Declares the copy constructor and the copy assignment of CLASS without defining them
-    (C.81, in the C++98 form: the public headers stay C++98). Used in a protected section: a copy
+    (C.81, in the C++98 form). Used in a protected section: a copy
     fails to compile outside of CLASS, its derived classes and their friends, and to link inside
     them. */
 #define mDeclareProtectedAssignAndCC(CLASS) \

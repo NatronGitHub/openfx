@@ -15,9 +15,9 @@ set_target_properties(OfxSupport PROPERTIES
 	POSITION_INDEPENDENT_CODE ON
 	EXPORT_NAME Support)
 
-# The sources are C++98-compatible; consumers need C++11 or later. The library is built with the
-# plug-ins' standard (OFX_CXX_STANDARD, default 17, cmake/OpenFX.cmake), since it is linked into them.
-target_compile_features(OfxSupport PUBLIC cxx_std_11)
+# C++17 or later, as upstream. The library is built with the plug-ins' standard (OFX_CXX_STANDARD,
+# default 17, cmake/OpenFX.cmake), since it is linked into them.
+target_compile_features(OfxSupport PUBLIC cxx_std_17)
 set_target_properties(OfxSupport PROPERTIES CXX_STANDARD ${OFX_CXX_STANDARD} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 target_compile_definitions(OfxSupport PUBLIC ${OFX_DEFINITIONS} $<$<PLATFORM_ID:Darwin>:GL_SILENCE_DEPRECATION>)
 target_link_libraries(OfxSupport PUBLIC OfxApi)
