@@ -179,7 +179,8 @@ def test_run_errors(tmp_path, hosts, sample_plugins, args):
 
 
 @pytest.mark.parametrize("args", [
-    ["--frames", "0,0"], ["--frames", "0,x"], ["--scale", "0"], ["--scale", "1,2"], ["--window", "1,1,1,1"],
+    ["--frames", "0,0"], ["--frames", "0,x"], ["--frames", "1e-400"], ["--scale", "0"], ["--scale", "1,2"],
+    ["--window", "1,1,1,1"],
     ["--format", "png"], ["-d", "half"], ["-c", "paint"], ["-m", "-1"], ["-i", "Source=bogus"], ["-i", "=ramp"],
     ["-i", "Source=ramp", "-i", "Source=none"], ["--report", "a.json", "--describe", "b.json"], ["--bogus"],
     ["-p"],

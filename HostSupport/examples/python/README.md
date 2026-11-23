@@ -16,8 +16,7 @@ have the same API and the same JSON report (NatronGitHub/openfx#136):
   array at the clip's depth, made from the input (as hostDemo makes a new image per fetch; ofxh
   passes that array itself, without another copy), and outputs are the arrays it rendered into.
 
-Choose with `backend=` (`render()`, `describe()`, and `ofxhost.graph.execute()` through its
-render arguments) or `$OFXHOST_BACKEND`. Needs Python 3.10 or later and NumPy (and pytest for the
+Choose with `backend=` (`render()`, `describe()`) or `$OFXHOST_BACKEND`. Needs Python 3.10 or later and NumPy (and pytest for the
 tests). See Documentation/proposals/hostdemo-testing.md, Part B.
 
 ```python
@@ -124,9 +123,6 @@ the top-level conftest.py (pytest refuses `pytest_plugins` in the others), or
 own `pytest_configure` calls `ofxhost.testing.pytest_configure(config)` from it instead). The
 fixtures that depend on `backend` must be function-scoped (as `render` and `describe` in
 Support/Plugins/tests/conftest.py).
-
-`hostDemo.py` is a small command line wrapper: it saves the outputs as
-`<prefix>.<frame>.npy`, and prints the report as JSON (`python hostDemo.py -h`; `--backend inprocess` for the in-process backend).
 
 `minimal_host.py` is not a hostDemo wrapper: it is a minimal OFX host in Python, in-process, on
 the HostSupport Python bindings (the `ofxh` module, built with `-DOFX_PYTHON_BINDINGS=ON`;
@@ -265,7 +261,7 @@ scalars.
 ## Graphs
 
 `ofxhost.graph` builds plug-in instance graphs (DAGs: an output may feed several inputs), saves
-them to JSON and loads them, and executes them with hostDemo. A `Node` has a plug-in (and
+them to JSON and loads them; the sample host (`ofxhost.graphhost`, below) runs them. A `Node` has a plug-in (and
 optionally its `version`, `(major, minor)`), a context, parameters and inputs; an input is another
 `Node`, a `Files` image sequence, or anything `render()` takes; an input clip that the node
 doesn't give is disconnected. A parameter is a value, `Keys` (or a `{time: value}` dict), a
@@ -274,14 +270,15 @@ which ones are its outputs (and the file each one is written to), and holds the 
 render settings.
 
 ```python
-from ofxhost.graph import Files, Graph, Keys, Node, execute, load
+from ofxhost import graphhost
+from ofxhost.graph import Files, Graph, Keys, Node, load
 src = Node("net.sf.openfx.invertPlugin", inputs={"Source": Files("in.####.pfm")})
 out = Node("net.sf.openfx.basicPlugin", "general", {"scale": Keys({0: 1., 10: 2.})},
            inputs={"Source": src, "Mask": src})
 g = Graph.of(out, frames=[0, 1], scale=0.5)   # names the nodes ("invertPlugin", "basicPlugin")
 g.outputs["basicPlugin"] = "out.####.pfm"     # where the sample host writes it
 g.save("graph.json")                          # load("graph.json") gives an equivalent Graph
-images = execute(g, bundles)                  # with hostDemo (either backend): {0.0: Image, 1.0: Image}
+images = graphhost.run(g, bundles).images["basicPlugin"]   # {0.0: Image, 1.0: Image}
 images[0].pixels, images[0].bounds            # top-down array, pixel bounds at the render scale
 ```
 
@@ -303,11 +300,10 @@ order, `Graph.dumps()` gives the text; everything but `nodes` and `outputs` is o
                   "inputs": {"Source": {"node": "invertPlugin"}, "Mask": {"node": "invertPlugin"}}}}}
 ```
 
-- `project`: the sample host's project (the defaults are hostDemo's, above). `execute()` renders in
-  hostDemo's fixed project, and refuses a graph with one.
-- `render`: `frames` (null: the sample host renders the outputs' time domain; `execute()` renders
-  frame 0), `renderScale`, `window` (pixels at the render scale; null: the RoD clipped to the
-  project), and `depth` (of the patterns and unconnected inputs: byte, short or float).
+- `project`: the project (the defaults are hostDemo's, above; the pixel aspect ratio is positive).
+- `render`: `frames` (null: every frame of the outputs' time domains), `renderScale`, `window`
+  (pixels at the render scale; null: the project), and `depth` (of the patterns and unconnected
+  inputs: byte, short or float).
 - `outputs`: each output node, and the file name pattern it is written to by the sample host
   (null: rendered only; e.g. a writer plug-in, which writes its own files). `"output": "b"`, the
   format before, is read as `{"b": null}`.
@@ -319,8 +315,8 @@ order, `Graph.dumps()` gives the text; everything but `nodes` and `outputs` is o
 - `inputs`: `{"node": name}`, `{"file": pattern}` (an image sequence, or a still image; a
   `#premult`, `#unpremult` or `#opaque` suffix gives its premultiplication), or a `render()` string:
   a test pattern (`"default"`, `"ramp"`, `"checker:16"`, `"solid:r,g,b,a"`, `"rod:..."`), `"none"`,
-  or `"file:x.pfm"`. **An input clip that the graph doesn't give is disconnected**, as in a real host
-  (`execute()` passes it as `"none"` to hostDemo): the test patterns must be asked for.
+  or `"file:x.pfm"`. **An input clip that the graph doesn't give is disconnected**, as in a real host:
+  the test patterns must be asked for.
 - Relative paths (file inputs, outputs and file parameters) are relative to the graph file's
   directory (`Graph.base`). `load()` keeps them as they are, so that saving the loaded graph gives
   the same bytes; `save()` to another directory rewrites them for that directory (absolute when
@@ -334,18 +330,7 @@ order, `Graph.dumps()` gives the text; everything but `nodes` and `outputs` is o
 - **Trust:** a graph is like a script: it chooses the plug-ins that run, with their parameters,
   and the files they read and write, anywhere you can. Run only the graphs you trust.
 
-`execute()` sorts the graph topologically. It runs hostDemo `--query` on each node, outputs
-first, to get the frames and regions it needs from its inputs. The requests for the same node
-and time are merged; an input of a node or clip without tiles is asked for its whole RoD (as
-hostDemo gives whole-RoD images then). Then it renders each node once per time, inputs first,
-and passes each output on with its bounds, alpha and premultiplication. A `Files` input gives
-each render the file of its frame (as a hostDemo `file:` input, whose pixels are at the render
-scale), and a node's `version` gives hostDemo `-m MAJOR`. Limits:
-- the queries use project-sized inputs, since the real ones aren't rendered yet;
-- a node can use only one frame of each input node, since hostDemo's inputs are the same
-  image at all times.
-
-`python hostDemo.py -b DIR -g graph.json --frames 0,1 --scale 0.5 -o out` runs a graph file.
+`python -m ofxhost render graph.json` runs a graph file (see below).
 
 ## The sample host and its command line
 
@@ -392,7 +377,8 @@ What it does (see its docstring):
   interest differ along each path don't plan a node once per path.
 - **Renders:** before each render action, the frames needed and the regions of interest of its
   inputs are rendered (in memory, kept for the current frame), so temporal effects (e.g. Retimer)
-  work. A node without tiles renders its whole RoD. An identity (isIdentity) isn't rendered: its
+  work. A node without tiles renders its whole RoD, from whole-RoD inputs (a RoD too large for an
+  image: the window, or the region of interest, as hostDemo). An identity (isIdentity) isn't rendered: its
   output is the image of the clip and time it gives. Each input gets its image at its clip's
   depth and components.
 - **Image sequences and file name patterns** (`ofxhost.sequences`, as Natron): `####` (the frame,

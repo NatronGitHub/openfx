@@ -1,4 +1,5 @@
-"""Plug-in instance graphs: build a DAG of nodes, save it to JSON or load it, and execute it.
+"""Plug-in instance graphs: build a DAG of nodes, save it to JSON or load it (the sample host,
+ofxhost.graphhost, runs them).
 
 A Node is a plug-in instance: its plug-in (and version), context, parameters, and inputs. An input
 is another Node, a Files image sequence, or anything ofxhost.render() takes (a NumPy array, an
@@ -11,11 +12,7 @@ they are written to), and holds the project and render settings.
                inputs={"Source": src, "Mask": src})
     g = Graph.of(out, frames=[0, 1])           # names the nodes; outputs {"basicPlugin": None}
     g.save("graph.json")                       # the JSON format below; load("graph.json") reads it
-    images = execute(g, bundles)               # {0.0: Image, 1.0: Image}, with hostDemo (ofxhost.render)
-
-Two hosts execute graphs: execute(), here, with hostDemo (either ofxhost backend, one render() per
-node and time), and the sample host ofxhost.graphhost (in-process on ofxh, with in-memory images
-between the nodes, the time domain, image sequences and the project).
+    r = graphhost.run(g, bundles)              # r.images["basicPlugin"]: {0.0: Image, 1.0: Image}
 
 The JSON format (schema "ofxhost.graph", version 1; save() writes the keys in this order, and
 every key but "nodes" and "outputs" is optional):
@@ -32,11 +29,10 @@ every key but "nodes" and "outputs" is optional):
                                 "scaleComponents": true},
                      "inputs": {"Source": {"node": "a"}, "Mask": "none"}}}}
 
-- "project": the project of the sample host (ofxhost.graphhost; its defaults are hostDemo's, shown
-  above). execute() renders in hostDemo's project, and refuses another one.
-- "render": "frames" (null: the time domain of the outputs, in the sample host; execute() needs
-  frames), "renderScale" (sx, sy), "window" (pixels at the render scale, null: the RoD clipped to
-  the project), "depth" of the unconnected and pattern inputs (byte, short, float).
+- "project": the project (its defaults are hostDemo's, shown above).
+- "render": "frames" (null: every frame of the outputs' time domains), "renderScale" (sx, sy),
+  "window" (pixels at the render scale, null: the project), "depth" of the unconnected and pattern
+  inputs (byte, short, float).
 - "outputs": the output nodes, each with the file name pattern it is written to (see
   ofxhost.sequences: "out.####.pfm"), or null (rendered, not written; e.g. a writer plug-in).
   ("output": "b" is read as {"b": null}.)
@@ -75,11 +71,11 @@ from typing import Any
 
 import numpy as np
 
-from . import DEPTHS, HostDemoError, Image, describe, render, resolve_file_spec, split_components
-from .sequences import expand, frame_of
+from . import DEPTHS, resolve_file_spec, split_components
+from .rects import scale_pair
 
-__all__ = ["Node", "Keys", "Files", "FilePath", "Project", "Graph", "topological_order", "load", "loads", "execute",
-           "stem", "SCHEMA", "SCHEMA_VERSION"]
+__all__ = ["Node", "Keys", "Files", "FilePath", "Project", "Graph", "topological_order", "load", "loads", "stem",
+           "json_value", "keys_of", "SCHEMA", "SCHEMA_VERSION"]
 
 SCHEMA = "ofxhost.graph"
 SCHEMA_VERSION = 1
@@ -192,7 +188,7 @@ class Project:
         p = cls()
         return cls(size=_floats(d.get("size", p.size), 2, "project size"),
                    offset=_floats(d.get("offset", p.offset), 2, "project offset"),
-                   pixel_aspect_ratio=_number(d.get("pixelAspectRatio", p.pixel_aspect_ratio), "pixelAspectRatio"),
+                   pixel_aspect_ratio=_positive(d.get("pixelAspectRatio", p.pixel_aspect_ratio), "pixelAspectRatio"),
                    frame_rate=_number(d.get("frameRate", p.frame_rate), "frameRate"),
                    frame_range=_floats(d.get("frameRange", p.frame_range), 2, "frameRange"))
 
@@ -203,13 +199,20 @@ def _number(v, what: str) -> float:
     return float(v)
 
 
+def _positive(v, what: str) -> float:
+    x = _number(v, what)
+    if x <= 0:
+        raise ValueError(f"{what}: a positive number, not {v!r}")
+    return x
+
+
 def _floats(v, n: int, what: str) -> tuple:
     if isinstance(v, (str, bytes)) or not isinstance(v, Sequence) or len(v) != n:
         raise ValueError(f"{what}: {n} numbers, not {v!r}")
     return tuple(_number(x, what) for x in v)
 
 
-def _json_value(v):
+def json_value(v):
     """A parameter value as JSON data: lists, not tuples; bytes as lists of ints (as
     ofxh.param_template())."""
     if isinstance(v, (bytes, bytearray)):
@@ -219,13 +222,13 @@ def _json_value(v):
     if isinstance(v, np.generic):
         return v.item()
     if isinstance(v, (list, tuple)):
-        return [_json_value(x) for x in v]
+        return [json_value(x) for x in v]
     if isinstance(v, float) and not math.isfinite(v):
         raise ValueError(f"parameter value {v!r} is not finite")
     return v
 
 
-def _keys(v) -> Keys | None:
+def keys_of(v) -> Keys | None:
     """The Keys of a parameter value (a Keys or a {time: value} mapping), else None."""
     if isinstance(v, Keys):
         return v
@@ -300,7 +303,7 @@ class Graph:
         if self.project is not None:
             doc["project"] = self.project.to_json()
         doc["render"] = {"frames": None if self.frames is None else [float(t) for t in self.frames],
-                         "renderScale": [float(s) for s in _scale(self.scale)],
+                         "renderScale": [float(s) for s in scale_pair(self.scale)],
                          "window": None if self.window is None else [int(v) for v in self.window],
                          "depth": self.depth}
         doc["outputs"] = {name: None if f is None else path(os.fspath(f)) for name, f in self.outputs.items()}
@@ -312,10 +315,10 @@ class Graph:
             d["context"] = n.context
             params = d["params"] = {}
             for p, v in n.params.items():
-                k = _keys(v)
+                k = keys_of(v)
                 params[p] = v if v is None else {"file": path(v)} if isinstance(v, FilePath) else \
-                    _json_value(v) if k is None else {
-                    "keys": [[float(t), _json_value(x)] for t, x in sorted(k.values.items(), key=lambda kv: float(kv[0]))],
+                    json_value(v) if k is None else {
+                    "keys": [[float(t), json_value(x)] for t, x in sorted(k.values.items(), key=lambda kv: float(kv[0]))],
                     "interpolation": k.interpolation}
             inputs = d["inputs"] = {}
             for clip, v in n.inputs.items():
@@ -455,10 +458,6 @@ def _params(node: str, params: dict) -> dict:
     return out
 
 
-def _scale(scale) -> tuple:
-    return (float(scale), float(scale)) if isinstance(scale, numbers.Real) else tuple(float(s) for s in scale)
-
-
 def topological_order(output: Node) -> list[Node]:
     """The nodes that output depends on, inputs first, output last. Raises ValueError on a
     cycle."""
@@ -480,202 +479,3 @@ def topological_order(output: Node) -> list[Node]:
 
     visit(output, [])
     return order
-
-
-def _image_fits(px) -> bool:
-    """As hostDemo's imageFits (float RGBA): at most 2^28 pixels, rows of less than 2^31 bytes."""
-    w, h = px[2] - px[0], px[3] - px[1]
-    m = 1 << 28
-    return w <= m and h <= m and w * h <= m and w * 16 <= 0x7fffffff
-
-
-def _union(a, b):
-    if a is None:
-        return b
-    return (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
-
-
-def _frames(ranges: Sequence[Sequence[float]]) -> list[float]:
-    """The frames in the frames-needed ranges: each range must be a single time [t, t]
-    (hostDemo's inputs are the same image at all times); a longer range raises."""
-    out: list[float] = []
-    for lo, hi in ranges:
-        if abs(hi - lo) > 1e-9:
-            raise NotImplementedError(f"frames needed [{lo}, {hi}]: hostDemo inputs are the same "
-                                      "image at all times, so a node can't use a range of times")
-        if float(lo) not in out:
-            out.append(float(lo))
-    return out
-
-
-_EPS = 1e-6  # as hostDemo's canonicalToPixelEnclosing
-
-
-def _to_pixels(rect, sx, sy, par):
-    """A canonical rectangle to the enclosing pixel rectangle at the render scale."""
-    return (math.floor(rect[0] * sx / par + _EPS), math.floor(rect[1] * sy + _EPS),
-            math.ceil(rect[2] * sx / par - _EPS), math.ceil(rect[3] * sy - _EPS))
-
-
-def _placeholder(rod):
-    """A transparent input with the given RoD (canonical; None or empty: an empty RoD), for the
-    queries, and for an input node that rendered nothing: hostDemo's "rod:" input, which has no
-    pixels to write."""
-    if rod is None or rod[2] <= rod[0] or rod[3] <= rod[1]:
-        return "rod:0,0,0,0"
-    return "rod:" + ",".join(repr(float(v)) for v in rod)
-
-
-def execute(graph: Graph | Node, bundles, frames: Sequence[float] | None = None, scale=None,
-            window: Sequence[int] | None = None, depth: str | None = None,
-            **render_args: Any) -> dict[float, Image]:
-    """Render a graph's (first) output node, or a node, at each of frames with hostDemo
-    (ofxhost.render(), on either backend); return {time: Image}. frames, scale, window (pixels at
-    the render scale; default: the RoD clipped to the project) and depth default to the graph's
-    settings (frames: [0] if the graph has none). render_args go to ofxhost.render() (backend,
-    host_binary, timeout...). A graph with a project raises ValueError: hostDemo's project is fixed
-    (768x576, PAR 768/720). A Files input gives each render the file of its frame (hostDemo's
-    "file:" input, whose pixels are at the render scale)."""
-    g = graph if isinstance(graph, Graph) else Graph({"": graph}, {"": None})
-    if g.project is not None:
-        raise ValueError("execute() renders in hostDemo's project, which is fixed (768x576, PAR 768/720): "
-                         "remove the graph's project, or run the graph with ofxhost.graphhost")
-    output = g.output
-    frames = [float(t) for t in (frames if frames is not None else g.frames if g.frames is not None else [0.])]
-    scale = g.scale if scale is None else scale
-    window = g.window if window is None else window
-    depth = g.depth if depth is None else depth
-    order = topological_order(output)
-    extra = list(render_args.pop("extra_args", ()))
-    common: dict[str, Any] = dict(depth=depth, scale=scale, **render_args)
-    sx, sy = _scale(scale)
-
-    def leaf(v, t: float):
-        """An input that isn't a node, for render() at time t: a Files input is the file of t's
-        frame; the paths are relative to the graph's directory."""
-        if isinstance(v, Files):
-            pattern, premult = v.split()
-            comps = split_components(v.pattern)[1]
-            return "file:" + os.path.abspath(g.path(expand(pattern, frame_of(t)))) + ("#" + premult if premult else "") \
-                + ("#" + comps if comps else "")
-        if isinstance(v, str) and v.startswith("file:"):
-            body, comps = split_components(v)
-            return resolve_file_spec(body, g.base) + ("#" + comps if comps else "")
-        return v
-
-    described: dict = {}
-
-    def disconnected(node: Node) -> dict:
-        """The input clips that the node doesn't give, disconnected ("none"; hostDemo would give them
-        its default pattern)."""
-        version = ["-m", str(int(node.version[0]))] if node.version is not None else []
-        key = (node.plugin, node.context, tuple(version))
-        if key not in described:
-            kw = {k: render_args[k] for k in ("backend", "host_binary", "timeout") if k in render_args}
-            d = describe(bundles, node.plugin, extra_args=extra + version, **kw)
-            ctx = d["contexts"].get(node.context) or d["contexts"].get(
-                "OfxImageEffectContext" + node.context[:1].upper() + node.context[1:]) or {}
-            described[key] = [c["name"] for c in ctx.get("clips", []) if c["name"] != "Output"]
-        return {c: "none" for c in described[key] if c not in node.inputs}
-
-    def run(node: Node, inputs: dict, t: float, **kw):
-        params = {}
-        for p, v in node.params.items():
-            k = _keys(v)
-            params[p] = os.path.abspath(g.path(v)) if isinstance(v, FilePath) else v if k is None else dict(k.values)
-        version = ["-m", str(int(node.version[0]))] if node.version is not None else []
-        inputs = {**{c: leaf(v, t) for c, v in inputs.items()}, **disconnected(node)}
-        return render(bundles, node.plugin, node.context, inputs, params,
-                      frames=[t], extra_args=extra + version, **common, **kw)
-
-    # 0. inputs first: the RoD of each node at the requested times, from its inputs' RoDs (given
-    # to the queries as transparent images of that RoD), so that the next queries see the real
-    # input RoDs, not project-sized ones
-    rods: dict[tuple[Node, float], Any] = {}
-    pars: dict[Node, float] = {}
-
-    def child_rod(child: Node, t: float):
-        """The child's RoD at t; at another time than the output's frames, the RoD at the first
-        of them (hostDemo's inputs and parameters don't change with time)."""
-        if (child, t) in rods:
-            return rods[(child, t)]
-        return next((r for (n, _), r in rods.items() if n is child), None)
-
-    def child_input(child: Node, t: float):
-        return _placeholder(child_rod(child, t))
-
-    for node in order:
-        for t in sorted({float(f) for f in frames}):
-            inputs = {c: (child_input(v, t) if isinstance(v, Node) else v) for c, v in node.inputs.items()}
-            r = run(node, inputs, t, query=True).report
-            rods[(node, t)] = r["renders"][0]["regionOfDefinition"].get("rod")
-            pars[node] = r["clipPreferences"]["clips"]["Output"]["pixelAspectRatio"]
-    asked: dict[Node, dict[float, Any]] = {output: {float(t): window for t in frames}}
-    needs: dict[tuple[Node, float], dict[str, float]] = {}  # (node, t) -> {clip: frame}
-
-    # 1. outputs first: what does each node need from its input nodes?
-    for node in reversed(order):
-        children = {c: v for c, v in node.inputs.items() if isinstance(v, Node)}
-        if not children:
-            continue
-        for t, win in sorted(asked.get(node, {}).items()):
-            inputs = {c: (child_input(v, t) if isinstance(v, Node) else v) for c, v in node.inputs.items()}
-            r = run(node, inputs, t, window=win, query=True).report
-            x = r["renders"][0]
-            needs[(node, t)] = {}
-            if x["renderWindow"] is None:
-                continue  # nothing to render
-            clips = r["clipPreferences"]["clips"]
-            for clip, child in children.items():
-                fs = _frames(x["framesNeeded"]["clips"].get(clip) or [[t, t]])
-                if len(fs) != 1:
-                    raise NotImplementedError(f"{node!r} needs frames {fs} of {clip}: hostDemo "
-                                              "inputs are the same image at all times")
-                needs[(node, t)][clip] = fs[0]
-                roi = x["regionsOfInterest"]["clips"].get(clip)
-                crod = child_rod(child, fs[0])
-                tiles = x.get("supportsTiles") or {}
-                no_tiles = not (tiles.get("effect", True) and tiles.get("clips", {}).get(clip, True))
-                if (no_tiles and crod is not None
-                        and _image_fits(_to_pixels(crod, *x["renderScale"], pars.get(child, clips[clip]["pixelAspectRatio"])))):
-                    # no tiles: hostDemo fetches the whole RoD of the input (kOfxImageEffectPropSupportsTiles),
-                    # unless it is too large for hostDemo
-                    roi = crod
-                if roi is None:
-                    continue
-                par = clips[clip]["pixelAspectRatio"]
-                px = _to_pixels(roi, *x["renderScale"], par)
-                if crod is not None:  # the child renders its RoD at most
-                    cpx = _to_pixels(crod, *x["renderScale"], pars.get(child, par))
-                    px = (max(px[0], cpx[0]), max(px[1], cpx[1]), min(px[2], cpx[2]), min(px[3], cpx[3]))
-                if no_tiles and not _image_fits(px):
-                    # still too large (HostSupport's default RoI of a clip without tiles is its RoD):
-                    # clipped to the render window, as hostDemo does
-                    rw = x["renderWindow"]
-                    px = (max(px[0], rw[0]), max(px[1], rw[1]), min(px[2], rw[2]), min(px[3], rw[3]))
-                if px[0] < px[2] and px[1] < px[3]:
-                    w = asked.setdefault(child, {})
-                    w[fs[0]] = _union(w.get(fs[0]), px)
-
-    # 2. inputs first: render each node once per time
-    images: dict[tuple[Node, float], Image] = {}
-    for node in order:
-        for t, win in sorted(asked.get(node, {}).items()):
-            inputs = {}
-            for clip, v in node.inputs.items():
-                if isinstance(v, Node):
-                    f = needs.get((node, t), {}).get(clip)
-                    img = images.get((v, f)) if f is not None else None
-                    # not needed, or nothing rendered: transparent, with the input's RoD
-                    v = img if img is not None else child_input(v, t if f is None else f)
-                inputs[clip] = v
-            r = run(node, inputs, t, window=win)
-            images[(node, t)] = next(iter(r.images.values()), None)  # None: nothing rendered
-    out = {}
-    for t in frames:
-        img = images.get((output, float(t)))
-        if img is None:
-            raise HostDemoError(f"{output!r} renders nothing at time {t} (its RoD doesn't intersect "
-                                "the window, or the project if no window is given)")
-        out[float(t)] = img
-    return out
