@@ -39,6 +39,7 @@ England
 
 #include "ofxsSupportPrivate.h"
 #include <algorithm> // for find
+#include <new> // for std::bad_alloc
 
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
 */
@@ -904,6 +905,24 @@ namespace OFX {
           stat = interactMainEntry(action, handle, inArgs, outArgs, registration);
         }
 
+      }
+      // the same statuses as mainEntryStr (ofxsImageEffect.cpp), except OFX_CLIENT_EXCEPTION_TYPE
+      // (its handler needs the plug-in name, which is not known here)
+      catch (const OFX::Exception::Suite &ex)
+      {
+        stat = ex.status();
+      }
+      catch (const OFX::Exception::HostInadequate&)
+      {
+        stat = kOfxStatErrMissingHostFeature;
+      }
+      catch (const OFX::Exception::PropertyUnknownToHost&)
+      {
+        stat = kOfxStatErrMissingHostFeature;
+      }
+      catch (const std::bad_alloc&)
+      {
+        stat = kOfxStatErrMemory;
       }
       catch(...)
       {
