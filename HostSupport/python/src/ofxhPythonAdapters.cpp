@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <sstream>
 #include <thread>
 
@@ -48,7 +49,7 @@ PyHost *HostBase::get() const
   if (!ref->p) {
     raiseDeleted("ofxh.Host");
   }
-  return static_cast<PyHost *>(ref->p);
+  return ref->as<PyHost>();
 }
 
 PyEffectInstance *InstanceBase::get() const
@@ -57,7 +58,7 @@ PyEffectInstance *InstanceBase::get() const
   if (!ref->p) {
     raiseDeleted("ofxh.ImageEffectInstance");
   }
-  return static_cast<PyEffectInstance *>(ref->p);
+  return ref->as<PyEffectInstance>();
 }
 
 PyClipInstance *ClipBase::get() const
@@ -66,7 +67,7 @@ PyClipInstance *ClipBase::get() const
   if (!ref->p) {
     raiseDeleted("ofxh.ClipInstance");
   }
-  return static_cast<PyClipInstance *>(ref->p);
+  return ref->as<PyClipInstance>();
 }
 
 Globals &globals()
@@ -91,24 +92,24 @@ nb::object stat(OfxStatus s) { return globals().statFn(s); }
 // - The owner thread: the thread of the open scopes of the bindings called from Python (the
 //   actions run there, with the GIL released). Its scopes share one pending error (ownerPending).
 // - A worker thread: another thread, inside a callback (a plug-in's thread that called the host
-//   during an action). Its scopes (the non-action bindings, OFXH_SCOPED) have their own pending
+//   during an action). Its scopes (the non-action bindings, scoped()) have their own pending
 //   error and depth (thread_local), so that the scopes of two workers don't interleave. An error
 //   of a worker's callback outside its own scopes goes to the owner's pending error: the action
 //   raises it.
 // All of this is touched with the GIL only. The pending errors are raw references (PyObject *):
 // a thread_local nb::object would be destroyed at the thread's exit, without the GIL.
 
-/// the pending error of the owner thread's innermost scope (a new reference, or NULL)
+/// the pending error of the owner thread's innermost scope (a new reference, or nullptr)
 static PyObject *&ownerPending()
 {
-  static PyObject *e = NULL;
+  static PyObject *e = nullptr;
   return e;
 }
 
 /// the pending error of this worker thread's innermost scope
 static PyObject *&workerPending()
 {
-  static thread_local PyObject *e = NULL;
+  static thread_local PyObject *e = nullptr;
   return e;
 }
 
@@ -165,20 +166,20 @@ void checkThread(const char *what, bool action)
 /// a callback failed outside any action: nobody can raise its error, report it
 static void reportUnraisable(nb::handle exc)
 {
-  PyErr_SetObject((PyObject *)Py_TYPE(exc.ptr()), exc.ptr());
+  PyErr_SetObject(reinterpret_cast<PyObject *>(Py_TYPE(exc.ptr())), exc.ptr());
   PyErr_WriteUnraisable(nb::str("ofxh: a host callback called outside an action").ptr());
 }
 
-/// the pending error of this thread's innermost open scope (NULL: none open)
+/// the pending error of this thread's innermost open scope (nullptr: none open)
 static PyObject **&currentSlot()
 {
-  static thread_local PyObject **s = NULL;
+  static thread_local PyObject **s = nullptr;
   return s;
 }
 
 void saveError(nb::handle exc)
 {
-  PyObject **slot = NULL;
+  PyObject **slot = nullptr;
   if (threadDepth() > 0) {
     // (the slot of this thread's scope: a worker whose scope outlives the owner's keeps its own)
     slot = currentSlot();
@@ -205,9 +206,9 @@ void saveError(const char *message)
 }
 
 ActionScope::ActionScope(bool fromWorker)
-  : _saved(NULL)
-  , _slot(NULL)
-  , _prevSlot(NULL)
+  : _saved(nullptr)
+  , _slot(nullptr)
+  , _prevSlot(nullptr)
   , _owner(true)
   , _done(false)
 {
@@ -224,7 +225,7 @@ ActionScope::ActionScope(bool fromWorker)
     _slot = &ownerPending();
   }
   _saved = *_slot;
-  *_slot = NULL;
+  *_slot = nullptr;
   _prevSlot = currentSlot();
   currentSlot() = _slot;
   ++threadDepth();
@@ -247,12 +248,12 @@ void ActionScope::discard()
   }
 }
 
-bool ActionScope::failed() const { return !_done && *_slot != NULL; }
+bool ActionScope::failed() const { return !_done && *_slot != nullptr; }
 
 void ActionScope::check(const char *where, const OfxStatus *status)
 {
   nb::object e = nb::steal(*_slot);
-  *_slot = NULL;
+  *_slot = nullptr;
   discard();
   if (e.is_valid()) {
     // raises (python_error)
@@ -298,14 +299,14 @@ std::string formatMessage(const char *format, va_list args)
   if (n < 0) {
     return std::string("...");  // (an encoding error)
   }
-  if ((size_t)n < sizeof(buf)) {
-    return std::string(buf, (size_t)n);
+  if (static_cast<size_t>(n) < sizeof(buf)) {
+    return std::string(buf, static_cast<size_t>(n));
   }
-  std::vector<char> big((size_t)n + 1);
+  std::vector<char> big(static_cast<size_t>(n) + 1);
   va_copy(copy, args);
   vsnprintf(&big[0], big.size(), format, copy);
   va_end(copy);
-  return std::string(&big[0], (size_t)n);
+  return std::string(&big[0], static_cast<size_t>(n));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -373,7 +374,7 @@ static const NameEntry kNames[] = {
   {"param_type", "parametric", kOfxParamTypeParametric},
   // (the Nuke extension's colour plane; the other planes keep their names)
   {"plane", "Colour", "uk.co.thefoundry.OfxImagePlaneColour"},
-  {NULL, NULL, NULL}};
+  {nullptr, nullptr, nullptr}};
 
 /// other accepted spellings
 static const NameEntry kAliases[] = {
@@ -385,14 +386,14 @@ static const NameEntry kAliases[] = {
   {"premult", "premultiplied", kOfxImagePreMultiplied},
   {"premult", "unpremultiplied", kOfxImageUnPreMultiplied},
   {"plane", "Color", "uk.co.thefoundry.OfxImagePlaneColour"},
-  {NULL, NULL, NULL}};
+  {nullptr, nullptr, nullptr}};
 
 static std::string lower(const std::string &s)
 {
   std::string r(s);
   for (size_t i = 0; i < r.size(); ++i) {
     if (r[i] >= 'A' && r[i] <= 'Z') {
-      r[i] = (char)(r[i] - 'A' + 'a');
+      r[i] = static_cast<char>(r[i] - 'A' + 'a');
     }
   }
   return r;
@@ -432,9 +433,9 @@ int componentCount(const std::string &components)
 static int clampToInt(double v)
 {
   if (std::isnan(v)) return 0;
-  if (v <= (double)INT_MIN) return INT_MIN;
-  if (v >= (double)INT_MAX) return INT_MAX;
-  return (int)v;
+  if (v <= static_cast<double>(INT_MIN)) return INT_MIN;
+  if (v >= static_cast<double>(INT_MAX)) return INT_MAX;
+  return static_cast<int>(v);
 }
 
 OfxRectI canonicalToPixelEnclosing(const OfxRectD &r, const OfxPointD &renderScale, double par)
@@ -460,7 +461,7 @@ OfxRectI intersect(const OfxRectI &a, const OfxRectI &b)
 }
 
 // ---------------------------------------------------------------------------------------------
-// Calls into Python (each one is a whole OFXH_CALL: they are used from const functions)
+// Calls into Python (each one a whole callPython())
 
 static OfxRectD emptyRectD()
 {
@@ -501,27 +502,27 @@ static std::string typeName(nb::handle o) { return nb::cast<std::string>(nb::str
 
 static std::string attrString(const nb::object &o, const char *name, const char *fallback)
 {
-  OFXH_CALL(std::string(fallback), return nb::cast<std::string>(o.attr(name));)
+  return callPython(std::string(fallback), [&] { return nb::cast<std::string>(o.attr(name)); });
 }
 
 static double attrDouble(const nb::object &o, const char *name, double fallback)
 {
-  OFXH_CALL(fallback, return nb::cast<double>(o.attr(name));)
+  return callPython(fallback, [&] { return nb::cast<double>(o.attr(name)); });
 }
 
 static bool attrBool(const nb::object &o, const char *name, bool fallback)
 {
-  OFXH_CALL(fallback, return nb::cast<bool>(o.attr(name));)
+  return callPython(fallback, [&] { return nb::cast<bool>(o.attr(name)); });
 }
 
 static std::pair<double, double> attrPair(const nb::object &o, const char *name, std::pair<double, double> fallback)
 {
-  OFXH_CALL(fallback, return nb::cast<std::pair<double, double> >(o.attr(name));)
+  return callPython(fallback, [&] { return nb::cast<std::pair<double, double> >(o.attr(name)); });
 }
 
 static std::pair<double, double> callPair(const nb::object &o, const char *name, std::pair<double, double> fallback)
 {
-  OFXH_CALL(fallback, return nb::cast<std::pair<double, double> >(o.attr(name)());)
+  return callPython(fallback, [&] { return nb::cast<std::pair<double, double> >(o.attr(name)()); });
 }
 
 /// the cached string for a const std::string& return: assigned only when the value changes, so
@@ -608,7 +609,7 @@ static const char *const kOFX14HostProps[] = {
   kOfxParamHostPropSupportsCustomAnimation, kOfxParamHostPropSupportsParametricAnimation,
   kOfxParamHostPropMaxParameters, kOfxParamHostPropMaxPages, kOfxParamHostPropPageRowColumnCount,
   kOfxHostSupportHostPointer,  // not an OFX property: HostSupport's fetchSuite needs it
-  NULL};
+  nullptr};
 
 // The suites of OFX 1.4 (the suite structs of the OFX 1.4 headers): not the DrawSuite, the OpenCL
 // program suite (OFX 1.5), or the Natron, Nuke and Vegas extension suites.
@@ -621,7 +622,7 @@ static const struct {
   {kOfxMessageSuite, 1}, {kOfxMessageSuite, 2}, {kOfxProgressSuite, 1}, {kOfxProgressSuite, 2},
   {kOfxTimeLineSuite, 1}, {kOfxMultiThreadSuite, 1}, {kOfxOpenGLRenderSuite, 1},
   {kOfxDialogSuite, 1},
-  {NULL, 0}};
+  {nullptr, 0}};
 
 void PyHost::restrictToOFX14()
 {
@@ -654,7 +655,7 @@ const void *PyHost::fetchSuite(const char *suiteName, int suiteVersion)
       ++i;
     }
     if (!kOFX14Suites[i].name) {
-      return NULL;
+      return nullptr;
     }
   }
   return OHIE::Host::fetchSuite(suiteName, suiteVersion);
@@ -683,14 +684,14 @@ OHIE::Instance *PyHost::newInstance(void *clientData, OHIE::ImageEffectPlugin *p
                                     OHIE::Descriptor &desc, const std::string &context)
 {
   // clientData is the Python instance passed to ofxh.create_instance()
-  OFXH_CALL((OHIE::Instance *)NULL,
+  return callPython(nullptr, [&] {
     if (!clientData) {
       raiseError(PyExc_RuntimeError, "use ofxh.create_instance() to create an instance");
     }
-    nb::object py = nb::borrow((PyObject *)clientData);
+    nb::object py = nb::borrow(static_cast<PyObject *>(clientData));
     InstanceBase &ib = nb::cast<InstanceBase &>(py);
     return new PyEffectInstance(plugin, desc, context, py, ib.ref);
-  )
+  });
 }
 
 OHIE::Descriptor *PyHost::makeDescriptor(OHIE::ImageEffectPlugin *plugin)
@@ -713,9 +714,9 @@ static OfxStatus callMessage(const nb::object &py, const char *method, const cha
                              const char *format, va_list args)
 {
   const std::string text = formatMessage(format, args);
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
+  return callPython(StatusFallback{kOfxStatFailed}, [&] {
     return statusFromResult(py.attr(method)(shortName("message", type ? type : ""), id ? id : "", text));
-  )
+  });
 }
 
 OfxStatus PyHost::vmessage(const char *type, const char *id, const char *format, va_list args)
@@ -730,9 +731,7 @@ OfxStatus PyHost::setPersistentMessage(const char *type, const char *id, const c
 
 OfxStatus PyHost::clearPersistentMessage()
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
-    return statusFromResult(_py.attr("clear_persistent_message")());
-  )
+  return callPython(StatusFallback{kOfxStatFailed}, [&] { return statusFromResult(_py.attr("clear_persistent_message")()); });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -762,7 +761,7 @@ PyClipInstance::PyClipInstance(PyEffectInstance *effect, OHIE::ClipDescriptor &d
   , _py(std::move(py))
   , _ref(std::move(ref))
   , _view(0)
-  , _outputImage(NULL)
+  , _outputImage(nullptr)
 {
   _ref->p = this;
 }
@@ -779,7 +778,7 @@ void PyClipInstance::releaseOutputImage()
 {
   if (_outputImage) {
     PyImage *img = _outputImage;
-    _outputImage = NULL;
+    _outputImage = nullptr;
     img->releaseReference();
   }
 }
@@ -793,7 +792,7 @@ static bool dtypeOf(const std::string &depth, nb::dlpack::dtype &dt, const char 
     dt = nb::dtype<uint16_t>();
     name = "uint16";
   } else if (depth == kOfxBitDepthHalf) {
-    dt = nb::dlpack::dtype{(uint8_t)nb::dlpack::dtype_code::Float, 16, 1};
+    dt = nb::dlpack::dtype{static_cast<uint8_t>(nb::dlpack::dtype_code::Float), 16, 1};
     name = "float16";
   } else if (depth == kOfxBitDepthFloat) {
     dt = nb::dtype<float>();
@@ -807,7 +806,7 @@ static bool dtypeOf(const std::string &depth, nb::dlpack::dtype &dt, const char 
 bool imageFormatSupported(const std::string &depth, const std::string &components)
 {
   nb::dlpack::dtype dt;
-  const char *name = NULL;
+  const char *name = nullptr;
   return dtypeOf(depth, dt, name) && componentCount(components) > 0;
 }
 
@@ -816,7 +815,7 @@ nb::object PyClipInstance::newImage(int x1, int y1, int x2, int y2) const
   const std::string &depth = getPixelDepth();
   const std::string &comps = getComponents();
   nb::dlpack::dtype dt;
-  const char *dtname = NULL;
+  const char *dtname = nullptr;
   const int c = componentCount(comps);
   if (!dtypeOf(depth, dt, dtname) || c == 0) {
     raiseError(PyExc_ValueError, "clip " + getName() + ": can't make images of depth \"" + shortName("depth", depth) +
@@ -833,8 +832,8 @@ static void fillSentinel(unsigned char *data, long long rowBytes, int width, int
                          const std::string &depth)
 {
   for (int y = 0; y < height; ++y) {
-    unsigned char *row = data + (long long)y * rowBytes;
-    const size_t n = (size_t)width * (size_t)nComps;
+    unsigned char *row = data + static_cast<long long>(y) * rowBytes;
+    const size_t n = static_cast<size_t>(width) * static_cast<size_t>(nComps);
     if (depth == kOfxBitDepthFloat) {
       const unsigned int nanBits = 0x7fc00000U;
       for (size_t i = 0; i < n; ++i) {
@@ -875,7 +874,7 @@ static PyImage *makeImage(PyClipInstance &clip, nb::object r, OfxTime time, int 
   const std::string &comps = clip.getComponents();
   const int nComps = componentCount(comps);
   nb::dlpack::dtype dt;
-  const char *dtname = NULL;
+  const char *dtname = nullptr;
   if (!dtypeOf(depth, dt, dtname) || nComps == 0) {
     raiseError(PyExc_ValueError, where + "the clip's depth \"" + shortName("depth", depth) + "\" and components \"" +
                                  shortName("components", comps) + "\" are not supported");
@@ -888,8 +887,8 @@ static PyImage *makeImage(PyClipInstance &clip, nb::object r, OfxTime time, int 
     raiseError(PyExc_TypeError, where + "pixels: unsupported NumPy array");
   }
   const int width = bounds.x2 - bounds.x1, height = bounds.y2 - bounds.y1;
-  if (a.ndim() != 3 || width < 0 || height < 0 || (long long)a.shape(0) != height ||
-      (long long)a.shape(1) != width || (int)a.shape(2) != nComps) {
+  if (a.ndim() != 3 || width < 0 || height < 0 || static_cast<long long>(a.shape(0)) != height ||
+      static_cast<long long>(a.shape(1)) != width || static_cast<int>(a.shape(2)) != nComps) {
     std::ostringstream ss;
     ss << where << "pixels must have the shape (y2-y1, x2-x1, " << nComps << ") = (" << height << ", "
        << width << ", " << nComps << ") of the bounds and the clip's components ("
@@ -924,7 +923,7 @@ static PyImage *makeImage(PyClipInstance &clip, nb::object r, OfxTime time, int 
       raiseError(PyExc_ValueError, ss.str());
     }
   }
-  const long long rowBytes = (long long)a.stride(0) * (long long)a.itemsize();
+  const long long rowBytes = static_cast<long long>(a.stride(0)) * static_cast<long long>(a.itemsize());
   if (rowBytes > INT_MAX || rowBytes < -INT_MAX) {
     raiseError(PyExc_ValueError, where + "the rows are too large");
   }
@@ -942,7 +941,7 @@ static PyImage *makeImage(PyClipInstance &clip, nb::object r, OfxTime time, int 
     fillSentinel(static_cast<unsigned char *>(data), rowBytes, width, height, nComps, depth);
   }
   PyImage *img = new PyImage(clip, nb::borrow(d.pixels), data, effect->_renderScale, bounds, rodPixels,
-                             (int)rowBytes, fieldName(d.field), uid);
+                             static_cast<int>(rowBytes), fieldName(d.field), uid);
   if (clip.isOutput()) {
     // the clip keeps a reference until the end of the render (releaseOutputImage)
     clip._outputImage = img;
@@ -958,9 +957,9 @@ OHIE::Image *PyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *
   if (img || !isOutput() || !_effect->_rendering) {
     return img;  // (an input may have no image: the plug-in checks)
   }
-  // During a render, the output image is never NULL (plug-ins don't check it): the host makes one
+  // During a render, the output image is never nullptr (plug-ins don't check it): the host makes one
   // over the render window, the plug-in is asked to abort, and the render action fails.
-  OFXH_CALL((OHIE::Image *)NULL,
+  return callPython(nullptr, [&] {
     saveError(("clip " + getName() + ": get_image() gave no valid output image during the render: ofxh made one "
                "over the render window, and the render fails").c_str());
     _effect->_outputFailed = true;
@@ -970,43 +969,44 @@ OHIE::Image *PyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *
     d.bounds = nb::make_tuple(w.x1, w.y1, w.x2, w.y2);
     d.rod = nb::none();
     d.field = "none";
-    return (OHIE::Image *)makeImage(*this, nb::cast(std::move(d)), time, view);
-  )
+    return makeImage(*this, nb::cast(std::move(d)), time, view);
+  });
 }
 
 OHIE::Image *PyClipInstance::fetchFromPython(OfxTime time, int view, const OfxRectD *optionalBounds)
 {
-  OFXH_CALL((OHIE::Image *)NULL,
+  return callPython(nullptr, [&]() -> PyImage * {
     if (isOutput() && _outputImage) {
       // one output image per render, shared by all its fetches (whatever their view: see the
       // ClipInstance docstring)
       _outputImage->addReference();
-      return (OHIE::Image *)_outputImage;
+      return _outputImage;
     }
     nb::object b = optionalBounds ? nb::object(nb::make_tuple(optionalBounds->x1, optionalBounds->y1,
                                                               optionalBounds->x2, optionalBounds->y2))
                                   : nb::none();
-    // (part 1: the colour plane only; the keyword is there for the planes of a later part)
+    // (ofxh renders the colour plane only, one plane per render action; get_image() takes the
+    // plane as a keyword, so that its signature doesn't depend on that)
     nb::object r = _py.attr("get_image")(time, view, b, nb::arg("plane") = "Colour");
     if (isOutput() && _outputImage) {
       // (another thread's fetch made the render's output image meanwhile, still under the GIL
       // here: that one, see makeImage())
       _outputImage->addReference();
-      return (OHIE::Image *)_outputImage;
+      return _outputImage;
     }
     if (r.is_none()) {
-      return (OHIE::Image *)NULL;
+      return nullptr;
     }
-    return (OHIE::Image *)makeImage(*this, r, time, view);
-  )
+    return makeImage(*this, r, time, view);
+  });
 }
 
 OfxRectD PyClipInstance::rod(OfxTime time, int view) const
 {
-  OFXH_CALL(emptyRectD(), return toRectD(_py.attr("region_of_definition")(time, view));)
+  return callPython(emptyRectD(), [&] { return toRectD(_py.attr("region_of_definition")(time, view)); });
 }
 
-OfxRectD PyClipInstance::defaultRoD(OfxTime time, int view) const
+OfxRectD PyClipInstance::defaultRoD(OfxTime time, [[maybe_unused]] int view) const
 {
   OfxRectD v = emptyRectD();
   if (isOutput()) {
@@ -1042,7 +1042,6 @@ OfxRectD PyClipInstance::defaultRoD(OfxTime time, int view) const
     }
     return v;
   }
-  (void)view;
   if (!getConnected()) {
     return v;  // a disconnected clip has an empty RoD
   }
@@ -1100,7 +1099,7 @@ OfxRectI PyClipInstance::getFormat() const
   OfxPointD one;
   one.x = one.y = 1.;
   const OfxRectI fallback = _effect->projectPixelRect(one);
-  OFXH_CALL(fallback, return toRectI(_py.attr("format"), "format");)
+  return callPython(fallback, [&] { return toRectI(_py.attr("format"), "format"); });
 }
 #endif
 
@@ -1146,9 +1145,9 @@ OHIE::Image *PyClipInstance::getImage(OfxTime time, const OfxRectD *optionalBoun
 OHIE::Image *PyClipInstance::getImagePlane(OfxTime time, int view, const std::string &plane,
                                            const OfxRectD *optionalBounds)
 {
-  // part 1: the colour plane only
+  // ofxh renders the colour plane only (one plane per render action)
   if (plane != kFnOfxImagePlaneColour) {
-    return NULL;
+    return nullptr;
   }
   return fetchImage(time, view < 0 ? _view : view, optionalBounds);
 }
@@ -1237,7 +1236,7 @@ PyEffectInstance::~PyEffectInstance()
   if (_ownsData) {
     for (std::map<std::string, OHIE::ClipInstance *>::iterator it = _clips.begin(); it != _clips.end(); ++it) {
       delete it->second;
-      it->second = NULL;
+      it->second = nullptr;
     }
   }
   if (_ownsParams) {
@@ -1282,20 +1281,19 @@ void PyEffectInstance::setDefaultClipPreferences()
   if (!output || !isChromaticComponent(output->getComponents())) {
     return;
   }
-  std::string depth;
-  {
-    OFXH_CALL(Void(),
-      nb::object d = _py.attr("default_output_depth");
-      if (!d.is_none()) {
-        depth = depthName(nb::cast<std::string>(d));
-        if (depth != kOfxBitDepthByte && depth != kOfxBitDepthShort && depth != kOfxBitDepthHalf &&
-            depth != kOfxBitDepthFloat) {
-          raiseError(PyExc_ValueError, "default_output_depth " + nb::cast<std::string>(nb::repr(d)) +
-                                       ": expected byte, short, half or float (or the kOfxBitDepth* value), or None");
-        }
-      }
-    )
-  }
+  // (an error: "", HostSupport's depth stays)
+  const std::string depth = callPython(std::string(), [&] {
+    nb::object d = _py.attr("default_output_depth");
+    if (d.is_none()) {
+      return std::string();
+    }
+    const std::string r = depthName(nb::cast<std::string>(d));
+    if (r != kOfxBitDepthByte && r != kOfxBitDepthShort && r != kOfxBitDepthHalf && r != kOfxBitDepthFloat) {
+      raiseError(PyExc_ValueError, "default_output_depth " + nb::cast<std::string>(nb::repr(d)) +
+                                   ": expected byte, short, half or float (or the kOfxBitDepth* value), or None");
+    }
+    return r;
+  });
   if (!depth.empty()) {
     output->setPixelDepth(bestSupportedDepth(depth));
   }
@@ -1304,7 +1302,7 @@ void PyEffectInstance::setDefaultClipPreferences()
 OHIE::ClipInstance *PyEffectInstance::newClipInstance(OHIE::Instance * /*plugin*/, OHIE::ClipDescriptor *descriptor,
                                                       int index)
 {
-  OFXH_CALL((OHIE::ClipInstance *)NULL,
+  return callPython(nullptr, [&] {
     nb::object py = _py.attr("new_clip_instance")(makeClipDescriptor(*descriptor), index);
     if (!nb::isinstance<ClipBase>(py)) {
       raiseError(PyExc_TypeError, "new_clip_instance() must return an ofxh.ClipInstance, not " + typeName(py));
@@ -1313,8 +1311,8 @@ OHIE::ClipInstance *PyEffectInstance::newClipInstance(OHIE::Instance * /*plugin*
     if (cb.ref->p) {
       raiseError(PyExc_ValueError, "new_clip_instance() returned a clip that already belongs to an instance");
     }
-    return (OHIE::ClipInstance *)new PyClipInstance(this, *descriptor, py, cb.ref);
-  )
+    return new PyClipInstance(this, *descriptor, py, cb.ref);
+  });
 }
 
 OfxStatus PyEffectInstance::vmessage(const char *type, const char *id, const char *format, va_list args)
@@ -1329,7 +1327,7 @@ OfxStatus PyEffectInstance::setPersistentMessage(const char *type, const char *i
 
 OfxStatus PyEffectInstance::clearPersistentMessage()
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed}, return statusFromResult(_py.attr("clear_persistent_message")());)
+  return callPython(StatusFallback{kOfxStatFailed}, [&] { return statusFromResult(_py.attr("clear_persistent_message")()); });
 }
 
 int PyEffectInstance::abort() { return (_abort.load() || _outputFailed) ? 1 : 0; }
@@ -1377,28 +1375,29 @@ void PyEffectInstance::getRenderScaleRecursive(double &x, double &y) const
 #ifdef OFX_EXTENSIONS_NUKE
 OfxStatus PyEffectInstance::getViewCount(int *nViews) const
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
+  return callPython(StatusFallback{kOfxStatFailed}, [&] {
     *nViews = nb::cast<int>(_py.attr("view_count"));
     return kOfxStatOK;
-  )
+  });
 }
 
 OfxStatus PyEffectInstance::getViewName(int viewIndex, const char **name) const
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed},
-    const std::string &n = cached(_viewNames[viewIndex], nb::cast<std::string>(_py.attr("view_name")(viewIndex)));
-    *name = n.c_str();  // "valid throughout the calling action"
-    return kOfxStatOK;
-  )
+  return callPython(StatusFallback{kOfxStatFailed}, [&] {
+    // (the cached string, not a reference to it: GCC's -Wdangling-reference would see one bound
+    // to the result of a call with a temporary argument)
+    *name = cached(_viewNames[viewIndex], nb::cast<std::string>(_py.attr("view_name")(viewIndex))).c_str();
+    return kOfxStatOK;  // (*name is "valid throughout the calling action")
+  });
 }
 #endif
 
 OH::Param::Instance *PyEffectInstance::newParam(const std::string &name, OH::Param::Descriptor &descriptor)
 {
-  OFXH_CALL((OH::Param::Instance *)NULL,
+  return callPython(nullptr, [&] {
     // new_param(descriptor): an ofxh.Param, or None for a C++ parameter that stores its value
     nb::object py = _py.attr("new_param")(makeParamDescriptor(descriptor, &getDescriptor()));
-    OH::Param::Instance *p = NULL;
+    OH::Param::Instance *p = nullptr;
     if (py.is_none()) {
       p = newStoredParam(this, descriptor);
     } else {
@@ -1418,7 +1417,7 @@ OH::Param::Instance *PyEffectInstance::newParam(const std::string &name, OH::Par
                                             "and a host implementation)");
     }
     return p;
-  )
+  });
 }
 
 OfxStatus PyEffectInstance::paramInstanceChangedAction(const std::string &paramName, const std::string &why,
@@ -1430,40 +1429,41 @@ OfxStatus PyEffectInstance::paramInstanceChangedAction(const std::string &paramN
 
 OfxStatus PyEffectInstance::editBegin(const std::string &name)
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed}, return statusFromResult(_py.attr("edit_begin")(name));)
+  return callPython(StatusFallback{kOfxStatFailed}, [&] { return statusFromResult(_py.attr("edit_begin")(name)); });
 }
 
 OfxStatus PyEffectInstance::editEnd()
 {
-  OFXH_CALL(StatusFallback{kOfxStatFailed}, return statusFromResult(_py.attr("edit_end")());)
+  return callPython(StatusFallback{kOfxStatFailed}, [&] { return statusFromResult(_py.attr("edit_end")()); });
 }
 
 void PyEffectInstance::progressStart(const std::string &message, const std::string &messageid)
 {
-  OFXH_CALL(Void(), _py.attr("progress_start")(message, messageid);)
+  callPython(Void(), [&] { _py.attr("progress_start")(message, messageid); });
 }
 
 void PyEffectInstance::progressEnd()
 {
-  OFXH_CALL(Void(), _py.attr("progress_end")();)
+  callPython(Void(), [&] { _py.attr("progress_end")(); });
 }
 
 bool PyEffectInstance::progressUpdate(double t)
 {
-  OFXH_CALL(true,
+  return callPython(true, [&] {
     nb::object r = _py.attr("progress_update")(t);
     return r.is_none() ? true : nb::cast<bool>(r);
-  )
+  });
 }
 
 double PyEffectInstance::timeLineGetTime()
 {
-  OFXH_CALL(_timeLineTime, return nb::cast<double>(_py.attr("timeline_get_time")());)
+  // (std::cref: on an error, the time as the callback left it, e.g. moved by timeline_goto_time())
+  return callPython(std::cref(_timeLineTime), [&] { return nb::cast<double>(_py.attr("timeline_get_time")()); });
 }
 
 void PyEffectInstance::timeLineGotoTime(double t)
 {
-  OFXH_CALL(Void(), _py.attr("timeline_goto_time")(t);)
+  callPython(Void(), [&] { _py.attr("timeline_goto_time")(t); });
 }
 
 void PyEffectInstance::timeLineGetBounds(double &t1, double &t2)

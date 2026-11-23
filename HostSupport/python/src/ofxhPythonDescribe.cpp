@@ -37,7 +37,7 @@ static nb::object propValue(const Prop::Set &s, Prop::Property *p, const std::st
       const std::string &v = s.getStringProperty(name, i);
       return nb::str(v.c_str(), v.size());
     }
-    case Prop::ePointer: return nb::int_((uintptr_t)s.getPointerProperty(name, i));
+    case Prop::ePointer: return nb::int_(reinterpret_cast<uintptr_t>(s.getPointerProperty(name, i)));
     default: return nb::none();
   }
 }
@@ -73,7 +73,7 @@ static nb::object propJson(const Prop::Set &props, const char *name, bool forceA
   if (n == 1 && !forceArray) {
     return a[0];
   }
-  return std::move(a);
+  return nb::object(std::move(a));  // (not return std::move(a): GCC's -Wredundant-move)
 }
 
 /// hostDemo's propBoolJson(): an int property as a boolean (None if it doesn't exist)
@@ -94,11 +94,11 @@ nb::object defaultValue(const Prop::Set &props, const std::string &type)
     return nb::none();
   }
   if (type == kOfxParamTypeBytes) {
-    // a pointer to an OfxBytes, or NULL
+    // a pointer to an OfxBytes, or nullptr
     const OfxBytes *b = p->getType() == Prop::ePointer
                           ? static_cast<const OfxBytes *>(props.getPointerProperty(kOfxParamPropDefault))
-                          : NULL;
-    return nb::bytes(b && b->data ? (const char *)b->data : "", b && b->data ? b->length : 0);
+                          : nullptr;
+    return nb::bytes(b && b->data ? reinterpret_cast<const char *>(b->data) : "", b && b->data ? b->length : 0);
   }
   if (type == kOfxParamTypeStrChoice) {
     // as StrChoiceInstance::getDefaultEnum(): an empty default is the first option
@@ -191,7 +191,7 @@ struct EffectDescriptorInfo {
 
 nb::object makeEffectDescriptor(OHIE::ImageEffectPlugin *plugin, const std::string &context)
 {
-  OHIE::Descriptor *d = NULL;
+  OHIE::Descriptor *d = nullptr;
   if (context.empty()) {
     d = &plugin->getDescriptor();
   } else {
@@ -333,7 +333,7 @@ nb::dict describePlugin(OHIE::ImageEffectPlugin *plugin, const std::string &cont
       continue;
     }
     nb::dict c;
-    OHIE::Descriptor *d = NULL;
+    OHIE::Descriptor *d = nullptr;
     {
       ActionScope scope;
       const std::string ctx = *it;
@@ -385,14 +385,14 @@ nb::object jsonValue(nb::handle v)
     for (nb::handle b : v) {
       l.append(b);
     }
-    return std::move(l);
+    return nb::object(std::move(l));  // (not return std::move(l): GCC's -Wredundant-move)
   }
   if (nb::isinstance<nb::tuple>(v) || nb::isinstance<nb::list>(v)) {
     nb::list l;
     for (nb::handle x : v) {
       l.append(jsonValue(x));
     }
-    return std::move(l);
+    return nb::object(std::move(l));  // (not return std::move(l): GCC's -Wredundant-move)
   }
   return nb::borrow(v);
 }
@@ -407,7 +407,7 @@ nb::dict paramTemplate(OHIE::ImageEffectPlugin *plugin, const std::string &conte
     raiseError(PyExc_ValueError, "plug-in " + plugin->getIdentifier() + " has no " + shortName("context", context) +
                                  " context (see Plugin.contexts)");
   }
-  OHIE::Descriptor *d = NULL;
+  OHIE::Descriptor *d = nullptr;
   {
     ActionScope scope;
     d = withoutGil([&] { return plugin->getContext(context); });

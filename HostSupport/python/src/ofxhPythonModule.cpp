@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <list>
 #include <map>
+#include <memory>
 #include <optional>
 #include <utility>
 
@@ -52,8 +53,8 @@ static const char *kModuleDoc =
   "(another host, other plug-in directories, another profile); the plug-ins are unloaded in between,\n"
   "but a binary the system doesn't unload keeps its static state. init(profile=\"ofx14\") is an OFX\n"
   "1.4 host (hostDemo's --ofx14).\n\n"
-  "Parts 1 to 3 of NatronGitHub/openfx#136. HostSupport/examples/python/ofxhost has hostDemo's test\n"
-  "host on ofxh (ofxhost.render(..., backend=\"inprocess\"), with hostDemo's JSON report).";
+  "HostSupport/examples/python/ofxhost has hostDemo's test host on ofxh (ofxhost.render(...,\n"
+  "backend=\"inprocess\"), with hostDemo's JSON report).";
 
 // What Python defines (exec'd in the module namespace)
 static const char *kPrelude = R"PY(
@@ -126,15 +127,17 @@ struct State {
   bool initialized = false;
   std::string profile;  ///< "default" or "ofx14" (ofxh.init()), "" when not initialized
   bool keepLoaded = false;  ///< ofxh.init(keep_loaded=...)
-  PyHost *host = nullptr;
-  OHIE::PluginCache *pluginCache = nullptr;
+  std::unique_ptr<PyHost> host;  ///< (HostSupport keeps a raw pointer to it: gImageEffectHost)
+  std::unique_ptr<OHIE::PluginCache> pluginCache;  ///< (registered in HostSupport's plug-in cache)
   unsigned generation = 0;  ///< incremented by shutdown(): Plugin views become invalid
 };
 
 static State &state()
 {
-  static State s;
-  return s;
+  // never deleted, as globals(): a host that shutdown() didn't delete (an exit from inside an
+  // action) must not be deleted after the interpreter is finalized
+  static State *s = new State;
+  return *s;
 }
 
 static void requireInit()
@@ -174,11 +177,12 @@ OH::Property::Set &PropertySetView::get() const
     raiseDeleted("ofxh.PropertySet");
   }
   switch (kind) {
-    case 0: return static_cast<PyHost *>(ref->p)->getProperties();
-    case 1: return static_cast<PyEffectInstance *>(ref->p)->getProps();
-    case 2: return static_cast<PyClipInstance *>(ref->p)->getProps();
-    default: return static_cast<OH::Param::Instance *>(ref->p)->getProperties();
+    case Kind::host: return ref->as<PyHost>()->getProperties();
+    case Kind::instance: return ref->as<PyEffectInstance>()->getProps();
+    case Kind::clip: return ref->as<PyClipInstance>()->getProps();
+    case Kind::param: break;
   }
+  return ref->as<OH::Param::Instance>()->getProperties();
 }
 
 static OH::Property::Property *fetchProp(const OH::Property::Set &s, const std::string &name)
@@ -198,7 +202,7 @@ static nb::object propValue(const OH::Property::Set &s, const std::string &name,
       case OH::Property::eInt: return nb::int_(s.getIntProperty(name, index));
       case OH::Property::eDouble: return nb::float_(s.getDoubleProperty(name, index));
       case OH::Property::eString: return nb::str(s.getStringProperty(name, index).c_str());
-      case OH::Property::ePointer: return nb::int_((uintptr_t)s.getPointerProperty(name, index));
+      case OH::Property::ePointer: return nb::int_(reinterpret_cast<uintptr_t>(s.getPointerProperty(name, index)));
       default: break;
     }
   } catch (const OH::Property::Exception &e) {
@@ -237,15 +241,15 @@ static bool setProp(OH::Property::Set &s, const std::string &name, nb::handle va
   try {
     // a variable-size property gets exactly the values given (fewer values than it has drop the
     // others: props[kOfxImageEffectPropSupportedPixelDepths] = (byte, short, float))
-    if (!p->isFixedSize() && (int)v.size() < p->getDimension()) {
+    if (!p->isFixedSize() && static_cast<int>(v.size()) < p->getDimension()) {
       p->reset();
     }
-    for (int i = 0; i < (int)v.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(v.size()); ++i) {
       switch (p->getType()) {
         case OH::Property::eInt: s.setIntProperty(name, nb::cast<int>(v[i]), i); break;
         case OH::Property::eDouble: s.setDoubleProperty(name, nb::cast<double>(v[i]), i); break;
         case OH::Property::eString: s.setStringProperty(name, nb::cast<std::string>(v[i]), i); break;
-        case OH::Property::ePointer: s.setPointerProperty(name, (void *)nb::cast<uintptr_t>(v[i]), i); break;
+        case OH::Property::ePointer: s.setPointerProperty(name, reinterpret_cast<void *>(nb::cast<uintptr_t>(v[i])), i); break;
         default: break;
       }
     }
@@ -303,9 +307,9 @@ struct PluginView {
 // ---------------------------------------------------------------------------------------------
 // Conversions
 
-typedef std::pair<double, double> Point;
-typedef std::array<double, 4> RectD;
-typedef std::array<int, 4> RectI;
+using Point = std::pair<double, double>;
+using RectD = std::array<double, 4>;
+using RectI = std::array<int, 4>;
 
 static OfxPointD toPoint(const Point &p)
 {
@@ -340,7 +344,7 @@ static nb::tuple tuple(const OfxRectI &r) { return nb::make_tuple(r.x1, r.y1, r.
 
 /// the views this build can pass: with the Nuke extension, to all the actions that take one;
 /// with the Vegas extension, to the render (and several views)
-static void checkView(int view, bool render, int nViews = 1)
+static void checkView(int view, [[maybe_unused]] bool render, int nViews = 1)
 {
   bool views = false, severalViews = false;
 #ifdef OFX_EXTENSIONS_NUKE
@@ -350,7 +354,6 @@ static void checkView(int view, bool render, int nViews = 1)
   views = views || render;
   severalViews = true;
 #endif
-  (void)render;
   if (view < 0) {
     raiseError(PyExc_ValueError, "view must be >= 0");
   }
@@ -374,6 +377,8 @@ struct RenderScaleScope {
     p->_renderScale = scale;
   }
   ~RenderScaleScope() { p->_renderScale = saved; }
+  RenderScaleScope(const RenderScaleScope &) = delete;
+  RenderScaleScope &operator=(const RenderScaleScope &) = delete;
 };
 
 /// the render state, for the duration of a render action
@@ -457,16 +462,14 @@ static void shutdown()
   // the plug-ins get kOfxActionUnload and the binaries are unloaded: this needs the image effect
   // plug-in cache (the API handler) and the host, which are deleted after (as in hostDemo)
   withoutGil([] { OH::PluginCache::clearPluginCache(); });
-  delete st.pluginCache;
-  st.pluginCache = nullptr;
+  st.pluginCache.reset();
   OHIE::gImageEffectHost = nullptr;
-  PyHost *host = st.host;
-  st.host = nullptr;
+  std::unique_ptr<PyHost> host = std::move(st.host);
   st.initialized = false;
   st.profile.clear();
   st.keepLoaded = false;
   ++st.generation;
-  delete host;
+  host.reset();
   scope.check("shutdown");
 }
 
@@ -478,7 +481,7 @@ static OH::PluginCache *makePluginCache(bool useEnvPath)
     return OH::PluginCache::getPluginCache();
   }
   const char *e = std::getenv("OFX_PLUGIN_PATH");
-  const bool restore = e != NULL;
+  const bool restore = e != nullptr;
   const std::string saved = e ? e : "";
 #ifdef _WIN32
   _putenv_s("OFX_PLUGIN_PATH", "");
@@ -532,7 +535,7 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
   for (size_t i = 0; i < pluginDirs.size(); ++i) {
     pc->addFileToPath(pluginDirs[i]);
   }
-  st.host = new PyHost(host, hb.ref);
+  st.host = std::make_unique<PyHost>(host, hb.ref);
   st.host->_keepLoaded = keepLoaded;
   st.initialized = true;
   st.profile = profile;
@@ -540,7 +543,7 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
   try {
     {
       ActionScope scope;
-      host.attr("init_properties")(PropertySetView{hb.ref, 0});
+      host.attr("init_properties")(PropertySetView{hb.ref, PropertySetView::Kind::host});
       scope.check("init_properties");
     }
     if (!st.initialized || st.host == nullptr) {
@@ -550,7 +553,7 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
       // (after init_properties(): as hostDemo, only the OFX 1.4 properties remain)
       st.host->restrictToOFX14();
     }
-    st.pluginCache = new OHIE::PluginCache(st.host);
+    st.pluginCache = std::make_unique<OHIE::PluginCache>(st.host.get());
     st.pluginCache->registerInCache(*pc);
     ActionScope scope;
     withoutGil([&] { pc->scanPluginFiles(); });
@@ -579,7 +582,7 @@ static nb::object createInstance(const PluginView &pv, const std::string &contex
   ActionScope scope;
   // PyHost::newInstance() gets the Python object as the client data, and binds it. If
   // newInstance(), newClipInstance() or newParam() fail, populate() fails and HostSupport deletes
-  // the instance: raw is NULL.
+  // the instance: raw is nullptr.
   // (the describe in context action, the clips and the parameters: without the GIL)
   const std::string ctx = ofxName("context", context);
   void *clientData = instance.ptr();
@@ -601,80 +604,72 @@ static nb::object createInstance(const PluginView &pv, const std::string &contex
 }
 
 // ---------------------------------------------------------------------------------------------
+// The bindings, by area (bindModule() calls them in this order)
 
-void bindModule(nb::module_ &m)
+/// build configuration: the OFX_* definitions the module (and HostSupport) were compiled with
+static void bindBuildConfig(nb::module_ &m)
 {
-  m.doc() = kModuleDoc;
-
-  m.attr("__builtins__") = nb::handle(PyEval_GetBuiltins());
-  nb::exec(nb::str(kPrelude), m.attr("__dict__"));
-  Globals &g = globals();
-  g.statFn = m.attr("_stat");
-  g.ofxError = m.attr("OfxError");
-  g.raiseCallbackError = m.attr("_raise_callback_error");
-
-  // build configuration: the OFX_* definitions the module (and HostSupport) were compiled with
-  {
-    nb::dict d;
+  nb::dict d;
 #define OFXH_DEF(name, on) d[#name] = nb::bool_(on);
 #ifdef OFX_EXTENSIONS_NATRON
-    OFXH_DEF(OFX_EXTENSIONS_NATRON, true)
+  OFXH_DEF(OFX_EXTENSIONS_NATRON, true)
 #else
-    OFXH_DEF(OFX_EXTENSIONS_NATRON, false)
+  OFXH_DEF(OFX_EXTENSIONS_NATRON, false)
 #endif
 #ifdef OFX_EXTENSIONS_NUKE
-    OFXH_DEF(OFX_EXTENSIONS_NUKE, true)
+  OFXH_DEF(OFX_EXTENSIONS_NUKE, true)
 #else
-    OFXH_DEF(OFX_EXTENSIONS_NUKE, false)
+  OFXH_DEF(OFX_EXTENSIONS_NUKE, false)
 #endif
 #ifdef OFX_EXTENSIONS_VEGAS
-    OFXH_DEF(OFX_EXTENSIONS_VEGAS, true)
+  OFXH_DEF(OFX_EXTENSIONS_VEGAS, true)
 #else
-    OFXH_DEF(OFX_EXTENSIONS_VEGAS, false)
+  OFXH_DEF(OFX_EXTENSIONS_VEGAS, false)
 #endif
 #ifdef OFX_EXTENSIONS_TUTTLE
-    OFXH_DEF(OFX_EXTENSIONS_TUTTLE, true)
+  OFXH_DEF(OFX_EXTENSIONS_TUTTLE, true)
 #else
-    OFXH_DEF(OFX_EXTENSIONS_TUTTLE, false)
+  OFXH_DEF(OFX_EXTENSIONS_TUTTLE, false)
 #endif
 #ifdef OFX_EXTENSIONS_RESOLVE
-    OFXH_DEF(OFX_EXTENSIONS_RESOLVE, true)
+  OFXH_DEF(OFX_EXTENSIONS_RESOLVE, true)
 #else
-    OFXH_DEF(OFX_EXTENSIONS_RESOLVE, false)
+  OFXH_DEF(OFX_EXTENSIONS_RESOLVE, false)
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-    OFXH_DEF(OFX_SUPPORTS_OPENGLRENDER, true)
+  OFXH_DEF(OFX_SUPPORTS_OPENGLRENDER, true)
 #else
-    OFXH_DEF(OFX_SUPPORTS_OPENGLRENDER, false)
+  OFXH_DEF(OFX_SUPPORTS_OPENGLRENDER, false)
 #endif
 #ifdef OFX_SUPPORTS_PARAMETRIC
-    OFXH_DEF(OFX_SUPPORTS_PARAMETRIC, true)
+  OFXH_DEF(OFX_SUPPORTS_PARAMETRIC, true)
 #else
-    OFXH_DEF(OFX_SUPPORTS_PARAMETRIC, false)
+  OFXH_DEF(OFX_SUPPORTS_PARAMETRIC, false)
 #endif
 #undef OFXH_DEF
-    m.attr("build_config") = d;
-  }
+  m.attr("build_config") = d;
+}
 
-  // ------------------------------------------------------------------------- PropertySet
+static void bindPropertySet(nb::module_ &m)
+{
   nb::class_<PropertySetView>(m, "PropertySet",
                               "The properties of the host, an instance or a clip (HostSupport's Property::Set, with\n"
                               "the OFX names and values). props[name] is the tuple of values; props.get(name, index)\n"
                               "one value. props[name] = values sets them (all the values of a variable-size property).")
     .def("__getitem__", [](const PropertySetView &v, const std::string &name) {
-      return OFXH_SCOPED("PropertySet[]", propValues(v.get(), name));
+      return scoped("PropertySet[]", [&] { return propValues(v.get(), name); });
     })
     .def("get", [](const PropertySetView &v, const std::string &name, int index) {
-      return OFXH_SCOPED("PropertySet.get()", propValue(v.get(), name, index));
+      return scoped("PropertySet.get()", [&] { return propValue(v.get(), name, index); });
     }, "name"_a, "index"_a = 0)
     .def("__setitem__", [](const PropertySetView &v, const std::string &name, nb::handle value) {
       checkThread("PropertySet[]=", true);
-      OFXH_SCOPED("PropertySet[]=", setProp(v.get(), name, value));
+      scoped("PropertySet[]=", [&] { return setProp(v.get(), name, value); });
     })
     .def("__delitem__", [](const PropertySetView &v, const std::string &name) {
       checkThread("del PropertySet[]", true);
       OH::Property::Set &s = v.get();
-      if (v.kind != 0) {
+      if (v.kind != PropertySetView::Kind::host) {
         // (HostSupport reads the properties of instances, clips and parameters itself, and a
         // missing one throws where it doesn't expect it)
         raiseError(PyExc_TypeError, "del PropertySet[" + name + "]: only the host's properties can be deleted");
@@ -690,7 +685,7 @@ void bindModule(nb::module_ &m)
        "Delete a host property (e.g. in Host.init_properties(), before the plug-in scan): a plug-in that\n"
        "reads it then gets kOfxStatErrUnknown. Only the host's properties (TypeError for the others, which\n"
        "HostSupport reads itself), not kOfxHostSupportHostPointer (ValueError). KeyError if it doesn't exist.")
-    .def("__contains__", [](const PropertySetView &v, const std::string &name) { return v.get().fetchProperty(name, true) != NULL; })
+    .def("__contains__", [](const PropertySetView &v, const std::string &name) { return v.get().fetchProperty(name, true) != nullptr; })
     .def("names", [](const PropertySetView &v) {
       std::vector<std::string> r;
       const OH::Property::PropertyMap &pm = v.get().getProperties();
@@ -699,12 +694,10 @@ void bindModule(nb::module_ &m)
       }
       return r;
     }, "The names of the properties (not those of a chained set).");
+}
 
-  // ------------------------------------------------------------------------- Param, ParamDescriptor, EffectDescriptor
-  bindDescriptors(m);
-  bindParams(m);
-
-  // ------------------------------------------------------------------------- ClipDescriptor
+static void bindClipDescriptor(nb::module_ &m)
+{
   nb::class_<ClipDescriptorInfo>(m, "ClipDescriptor", "What the plug-in described for a clip (a copy).")
     .def_ro("name", &ClipDescriptorInfo::name)
     .def_ro("label", &ClipDescriptorInfo::label)
@@ -716,8 +709,10 @@ void bindModule(nb::module_ &m)
     .def_ro("temporal_access", &ClipDescriptorInfo::temporalAccess)
     .def_ro("supported_components", &ClipDescriptorInfo::supportedComponents)
     .def("__repr__", [](const ClipDescriptorInfo &i) { return "<ofxh.ClipDescriptor " + i.name + ">"; });
+}
 
-  // ------------------------------------------------------------------------- Plugin
+static void bindPlugin(nb::module_ &m)
+{
   nb::class_<PluginView>(m, "Plugin", "An image effect plug-in found by ofxh.init() (valid until ofxh.shutdown()).")
     .def_prop_ro("id", [](const PluginView &v) { return v.get()->getIdentifier(); })
     .def_prop_ro("version", [](const PluginView &v) {
@@ -742,8 +737,10 @@ void bindModule(nb::module_ &m)
       return "<ofxh.Plugin " + v.get()->getIdentifier() + " " + std::to_string(v.get()->getVersionMajor()) + "." +
              std::to_string(v.get()->getVersionMinor()) + ">";
     });
+}
 
-  // ------------------------------------------------------------------------- ImageData
+static void bindImageData(nb::module_ &m)
+{
   nb::class_<ImageData>(m, "ImageData",
                         "An image returned by ClipInstance.get_image().\n\n"
                         "pixels: a writable NumPy array of shape (y2-y1, x2-x1, C), C = 4 (RGBA), 3 (RGB) or 1\n"
@@ -775,8 +772,10 @@ void bindModule(nb::module_ &m)
     .def("__repr__", [](const ImageData &d) {
       return "ofxh.ImageData(bounds=" + nb::cast<std::string>(nb::repr(d.bounds)) + ")";
     });
+}
 
-  // ------------------------------------------------------------------------- Host
+static void bindHost(nb::module_ &m)
+{
   nb::class_<HostBase>(m, "Host",
                        "The host. Subclass it and override the callbacks; pass one to ofxh.init().\n\n"
                        "Callbacks: message(type, id, text) (type: fatal, error, warning, message, log or\n"
@@ -794,11 +793,15 @@ void bindModule(nb::module_ &m)
     .def("clear_persistent_message", [](HostBase &) { return nb::none(); })
     .def("init_properties", [](HostBase &, nb::object) {}, "props"_a,
          "Called by ofxh.init() before the plug-in scan: set the host properties here (props: ofxh.PropertySet).")
-    .def_prop_ro("props", [](HostBase &h) { h.get(); return PropertySetView{h.ref, 0}; },
+    .def_prop_ro("props", [](HostBase &h) { h.get(); return PropertySetView{h.ref, PropertySetView::Kind::host}; },
                  "The host properties (after ofxh.init()).")
     .def_prop_ro("alive", [](HostBase &h) { checkThread("ofxh", false); return h.ref->p != nullptr; });
+}
 
-  // ------------------------------------------------------------------------- ImageEffectInstance
+static void bindInstanceActions(nb::class_<InstanceBase> &inst);
+
+static void bindImageEffectInstance(nb::module_ &m)
+{
   nb::class_<InstanceBase> inst(m, "ImageEffectInstance",
     "An image effect instance. Subclass it, override the callbacks, and create it with\n"
     "ofxh.create_instance(plugin, context, MyInstance()). close() it (or use `with`).\n\n"
@@ -848,7 +851,7 @@ void bindModule(nb::module_ &m)
          "move it there (see the class docstring).")
     .def("timeline_get_bounds", [](InstanceBase &s) {
       PyEffectInstance *p = s.get();
-      return OFXH_SCOPED("timeline_get_bounds()", Point(0., p->getEffectDuration()));
+      return scoped("timeline_get_bounds()", [&] { return Point(0., p->getEffectDuration()); });
     })
     .def("edit_begin", [](InstanceBase &, const std::string &) { return nb::none(); }, "name"_a)
     .def("edit_end", [](InstanceBase &) { return nb::none(); });
@@ -874,8 +877,8 @@ void bindModule(nb::module_ &m)
   inst.def_prop_ro("alive", [](InstanceBase &s) { checkThread("ofxh", false); return s.ref->p != nullptr; })
     .def_prop_ro("plugin", [](InstanceBase &s) { return PluginView{s.get()->getPlugin(), state().generation}; })
     .def_prop_ro("context", [](InstanceBase &s) { return shortName("context", s.get()->getContext()); })
-    .def_prop_ro("props", [](InstanceBase &s) { s.get(); return PropertySetView{s.ref, 1}; })
-    .def_prop_ro("handle", [](InstanceBase &s) { return (uintptr_t)s.get()->getHandle(); },
+    .def_prop_ro("props", [](InstanceBase &s) { s.get(); return PropertySetView{s.ref, PropertySetView::Kind::instance}; })
+    .def_prop_ro("handle", [](InstanceBase &s) { return reinterpret_cast<uintptr_t>(s.get()->getHandle()); },
                  "The OfxImageEffectHandle, as an int (e.g. for ctypes, with ofxh.fetch_suite()).")
     .def_prop_ro("clips", [](InstanceBase &s) {
       nb::dict d;
@@ -914,7 +917,7 @@ void bindModule(nb::module_ &m)
       if (!p) {
         raiseKey(name);
       }
-      return OFXH_SCOPED("get_param()", getParamValue(p, time ? &*time : NULL));
+      return scoped("get_param()", [&] { return getParamValue(p, time ? &*time : nullptr); });
     }, "name"_a, "time"_a.none() = nb::none(),
        "The value of a parameter at a time (None: the current time, timeline_get_time()), as the plug-in\n"
        "gets it: int, float, bool, str, bytes, or a tuple for several dimensions (None for push buttons,\n"
@@ -925,7 +928,7 @@ void bindModule(nb::module_ &m)
       if (!p) {
         raiseKey(name);
       }
-      return stat(OFXH_SCOPED("set_param()", setParamValue(p, value, time ? &*time : NULL)));
+      return stat(scoped("set_param()", [&] { return setParamValue(p, value, time ? &*time : nullptr); }));
     }, "name"_a, "value"_a.none(), "time"_a.none() = nb::none(),
        "Set the value of a parameter; at a time, the key at that time if it animates (else the value).\n"
        "Without a time, a parameter with keys gets the key at the current time (as paramSetValue).\n"
@@ -961,7 +964,7 @@ void bindModule(nb::module_ &m)
       if (!param) {
         raiseKey(name);
       }
-      return OFXH_SCOPED("param_initial()", initialValue(param, p));
+      return scoped("param_initial()", [&] { return initialValue(param, p); });
     }, "name"_a,
        "The value a parameter starts with: its default, with the normalised spatial defaults in\n"
        "canonical coordinates for the project (as the C++ parameters and param_template()).")
@@ -982,18 +985,18 @@ void bindModule(nb::module_ &m)
       if (!p) {
         raiseKey(name);
       }
-      return OFXH_SCOPED("param_keys()", paramKeyTimes(p));
+      return scoped("param_keys()", [&] { return paramKeyTimes(p); });
     }, "name"_a, "The times of the keys of a parameter, in order ([] if it has none).")
     .def("param_curve", [](InstanceBase &s, const std::string &name) {
       OH::Param::Instance *p = s.get()->getParam(name);
       if (!p) {
         raiseKey(name);
       }
-      const std::vector<double> times = OFXH_SCOPED("param_curve()", paramKeyTimes(p));
+      const std::vector<double> times = scoped("param_curve()", [&] { return paramKeyTimes(p); });
       nb::list r;
       for (size_t k = 0; k < times.size(); ++k) {
         const double t = times[k];
-        r.append(nb::make_tuple(t, OFXH_SCOPED("param_curve()", getParamValue(p, &t))));
+        r.append(nb::make_tuple(t, scoped("param_curve()", [&] { return getParamValue(p, &t); })));
       }
       return r;
     }, "name"_a,
@@ -1010,7 +1013,8 @@ void bindModule(nb::module_ &m)
             t == kOfxParamTypeParametric) {
           continue;
         }
-        d[(*it)->getName().c_str()] = jsonValue(OFXH_SCOPED("param_values()", getParamValue(*it, time ? &*time : NULL)));
+        d[(*it)->getName().c_str()] =
+          jsonValue(scoped("param_values()", [&] { return getParamValue(*it, time ? &*time : nullptr); }));
       }
       return d;
     }, "time"_a.none() = nb::none(),
@@ -1026,7 +1030,7 @@ void bindModule(nb::module_ &m)
         raiseError(PyExc_ValueError, "press(): parameter " + name + " is a " + shortName("param_type", param->getType()) +
                                      ", not a push button");
       }
-      const double t = time ? *time : OFXH_SCOPED("press()", p->timeLineGetTime());
+      const double t = time ? *time : scoped("press()", [&] { return p->timeLineGetTime(); });
       const std::string why(kOfxChangeUserEdited);
       ActionScope scope;
       OfxStatus st;
@@ -1065,10 +1069,15 @@ void bindModule(nb::module_ &m)
     .def_prop_ro("clip_preferences_dirty", [](InstanceBase &s) { return s.get()->areClipPrefsDirty(); })
     .def("project_pixel_rect", [](InstanceBase &s, const Point &rs) {
       PyEffectInstance *p = s.get();
-      return OFXH_SCOPED("project_pixel_rect()", tuple(p->projectPixelRect(toPoint(rs))));
+      return scoped("project_pixel_rect()", [&] { return tuple(p->projectPixelRect(toPoint(rs))); });
     }, "render_scale"_a = Point(1., 1.), "The project, in pixels at the render scale.");
 
-  // --- actions: each returns a Stat, or (Stat, result)
+  bindInstanceActions(inst);
+}
+
+/// the actions: each returns a Stat, or (Stat, result)
+static void bindInstanceActions(nb::class_<InstanceBase> &inst)
+{
   inst.def("create_instance_action", [](InstanceBase &s) {
       PyEffectInstance *p = s.get();
       ActionScope scope;
@@ -1195,7 +1204,7 @@ void bindModule(nb::module_ &m)
 #ifdef OFX_SUPPORTS_OPENGLRENDER
                                   false,
 #ifdef OFX_EXTENSIONS_NATRON
-                                  NULL,
+                                  nullptr,
 #endif
 #endif
                                   draft
@@ -1215,10 +1224,10 @@ void bindModule(nb::module_ &m)
       checkView(view, true, nViews);
       requireNotRendering(p, "render_action()");
       if (planes.size() != 1) {
-        raiseError(PyExc_ValueError, "planes: part 1 renders one plane per render action");
+        raiseError(PyExc_ValueError, "planes: ofxh renders one plane per render action");
       }
       if (shortName("plane", ofxName("plane", planes[0])) != "Colour") {
-        raiseError(PyExc_ValueError, "plane " + planes[0] + ": part 1 renders the colour plane only");
+        raiseError(PyExc_ValueError, "plane " + planes[0] + ": ofxh renders the colour plane only");
       }
       // each render gets new output images
       const std::map<std::string, OHIE::ClipInstance *> &clips = p->clips();
@@ -1235,8 +1244,8 @@ void bindModule(nb::module_ &m)
         if (!out) {
           raiseError(PyExc_ValueError, "render_action(): the plug-in has no output clip");
         }
-        const std::string depth = OFXH_SCOPED("render_action()", out->getPixelDepth());
-        const std::string comps = OFXH_SCOPED("render_action()", out->getComponents());
+        const std::string depth = scoped("render_action()", [&] { return out->getPixelDepth(); });
+        const std::string comps = scoped("render_action()", [&] { return out->getComponents(); });
         if (!imageFormatSupported(depth, comps)) {
           raiseError(PyExc_ValueError, "render_action(): the output clip's depth \"" + shortName("depth", depth) +
                                        "\" and components \"" + shortName("components", comps) +
@@ -1257,7 +1266,7 @@ void bindModule(nb::module_ &m)
 #ifdef OFX_SUPPORTS_OPENGLRENDER
                              false,
 #ifdef OFX_EXTENSIONS_NATRON
-                             NULL,
+                             nullptr,
 #endif
 #endif
                              draft
@@ -1291,8 +1300,8 @@ void bindModule(nb::module_ &m)
        "interactive_render"_a = false, "draft"_a = false, "view"_a = 0, "n_views"_a = 1,
        "planes"_a = std::vector<std::string>(1, "Colour"),
        "kOfxImageEffectActionRender. render_window: pixels at the render scale. Returns (Stat, {plane:\n"
-       "the output ImageData the plug-in fetched}) (empty if it fetched none). Part 1 renders one plane,\n"
-       "the colour plane; view and n_views need the Nuke or Vegas extensions (see build_config). If\n"
+       "the output ImageData the plug-in fetched}) (empty if it fetched none). ofxh renders one plane,\n"
+       "the colour plane; view and n_views need the Nuke or Vegas extensions (see build_config).\n"
        "The output clip must have a depth and components that ofxh can make (ValueError otherwise):\n"
        "call create_instance_action() (which sets the default clip preferences) and\n"
        "get_clip_preferences_action() before: ofxh doesn't run them for you. If\n"
@@ -1313,7 +1322,7 @@ void bindModule(nb::module_ &m)
 #ifdef OFX_SUPPORTS_OPENGLRENDER
                                 false,
 #ifdef OFX_EXTENSIONS_NATRON
-                                NULL,
+                                nullptr,
 #endif
 #endif
                                 draft
@@ -1346,7 +1355,7 @@ void bindModule(nb::module_ &m)
                                     const Point &renderScale) {
       PyEffectInstance *p = s.get();
       // (None: the current time, as press())
-      const double time = at ? *at : OFXH_SCOPED("param_changed_action()", p->timeLineGetTime());
+      const double time = at ? *at : scoped("param_changed_action()", [&] { return p->timeLineGetTime(); });
       ActionScope scope;
       OfxStatus st;
       TimeLineScope tl(p, time);
@@ -1363,7 +1372,7 @@ void bindModule(nb::module_ &m)
                                    const Point &renderScale) {
       PyEffectInstance *p = s.get();
       // (None: the current time, as press())
-      const double time = at ? *at : OFXH_SCOPED("clip_changed_action()", p->timeLineGetTime());
+      const double time = at ? *at : scoped("clip_changed_action()", [&] { return p->timeLineGetTime(); });
       ActionScope scope;
       OfxStatus st;
       TimeLineScope tl(p, time);
@@ -1383,7 +1392,7 @@ void bindModule(nb::module_ &m)
       return stat(st);
     }, "why"_a = "user")
     .def("close", [](InstanceBase &s) {
-      PyEffectInstance *p = static_cast<PyEffectInstance *>(s.ref->p);
+      PyEffectInstance *p = s.ref->as<PyEffectInstance>();
       if (!p) {
         return;  // (already closed: a no-op)
       }
@@ -1400,12 +1409,14 @@ void bindModule(nb::module_ &m)
       self.attr("close")();
       return false;
     });
+}
 
-  // ------------------------------------------------------------------------- ClipInstance
+static void bindClipInstance(nb::module_ &m)
+{
   nb::class_<ClipBase> clip(m, "ClipInstance",
     "A clip of an instance. Subclass it, and return one from ImageEffectInstance.new_clip_instance().\n\n"
     "Callbacks (the defaults are hostDemo's): the methods get_image(time, view, bounds, plane=\"Colour\")\n"
-    "(accept the plane keyword: part 1 passes \"Colour\", later parts other planes) and\n"
+    "(ofxh passes \"Colour\": it renders the colour plane only, one plane per render action) and\n"
     "region_of_definition(time, view); and the values connected, unmapped_bit_depth,\n"
     "unmapped_components, premult, format, aspect_ratio, frame_rate, frame_range, field_order,\n"
     "unmapped_frame_rate, unmapped_frame_range, continuous_samples, which may be overridden with a\n"
@@ -1425,24 +1436,25 @@ void bindModule(nb::module_ &m)
       PyEffectInstance *e = c->_effect;
       OfxRectI b = e->_renderWindow;
       if (!e->_rendering) {
-        b = OFXH_SCOPED("get_image()", intersect(canonicalToPixelEnclosing(c->rod(time, view), e->_renderScale,
-                                                                           c->getAspectRatio()),
-                                                 e->projectPixelRect(e->_renderScale)));
+        b = scoped("get_image()", [&] {
+          return intersect(canonicalToPixelEnclosing(c->rod(time, view), e->_renderScale, c->getAspectRatio()),
+                           e->projectPixelRect(e->_renderScale));
+        });
       }
       ImageData d;
-      d.pixels = OFXH_SCOPED("get_image()", c->newImage(b.x1, b.y1, b.x2, b.y2));
+      d.pixels = scoped("get_image()", [&] { return c->newImage(b.x1, b.y1, b.x2, b.y2); });
       d.bounds = tuple(b);
       d.rod = nb::none();
       d.field = "none";
       return nb::cast(std::move(d));
     }, "time"_a, "view"_a, "bounds"_a.none(), "plane"_a = "Colour",
        "Return the image (an ofxh.ImageData, or None) at this time and view. bounds: the region the\n"
-       "plug-in asked for, in canonical coordinates, or None. plane: \"Colour\" (part 1). The default\n"
-       "makes the output image\n"
-       "(filled with a sentinel) over the render window, and returns None for the inputs.")
+       "plug-in asked for, in canonical coordinates, or None. plane: \"Colour\" (the only one ofxh\n"
+       "renders). The default makes the output image (filled with a sentinel) over the render window,\n"
+       "and returns None for the inputs.")
     .def("region_of_definition", [](ClipBase &s, double time, int view) {
       PyClipInstance *c = s.get();
-      return OFXH_SCOPED("region_of_definition()", tuple(c->defaultRoD(time, view)));
+      return scoped("region_of_definition()", [&] { return tuple(c->defaultRoD(time, view)); });
     }, "time"_a, "view"_a,
        "The RoD in canonical coordinates. The default: the effect's RoD for the output, the project for\n"
        "a connected input, (0, 0, 0, 0) for a disconnected one. The output's default runs the plug-in's\n"
@@ -1458,8 +1470,8 @@ void bindModule(nb::module_ &m)
     std::string r;
     if (c->isOutput()) {
       r = shortName("premult", c->_effect->getOutputPreMultiplication());
-    } else if (!OFXH_SCOPED("premult", c->getConnected()) ||
-               OFXH_SCOPED("premult", c->getComponents()) == kOfxImageComponentRGB) {
+    } else if (!scoped("premult", [&] { return c->getConnected(); }) ||
+               scoped("premult", [&] { return c->getComponents(); }) == kOfxImageComponentRGB) {
       r = "opaque";
     } else {
       r = "unpremult";
@@ -1470,28 +1482,28 @@ void bindModule(nb::module_ &m)
     OfxPointD one;
     one.x = one.y = 1.;
     PyEffectInstance *e = s.get()->_effect;
-    return nb::object(OFXH_SCOPED("format", tuple(e->projectPixelRect(one))));
+    return nb::object(scoped("format", [&] { return tuple(e->projectPixelRect(one)); }));
   }, "The format in pixels (Natron extension); default: the project.");
   overridable(clip, "aspect_ratio", [](ClipBase &s) {
     PyEffectInstance *e = s.get()->_effect;
-    return nb::cast(OFXH_SCOPED("aspect_ratio", e->getProjectPixelAspectRatio()));
+    return nb::cast(scoped("aspect_ratio", [&] { return e->getProjectPixelAspectRatio(); }));
   });
   overridable(clip, "frame_rate", [](ClipBase &s) {
     PyEffectInstance *e = s.get()->_effect;
-    return nb::cast(OFXH_SCOPED("frame_rate", e->getFrameRate()));
+    return nb::cast(scoped("frame_rate", [&] { return e->getFrameRate(); }));
   });
   overridable(clip, "frame_range", [](ClipBase &s) {
     PyEffectInstance *e = s.get()->_effect;
-    return nb::cast(OFXH_SCOPED("frame_range", Point(0., e->getEffectDuration())));
+    return nb::cast(scoped("frame_range", [&] { return Point(0., e->getEffectDuration()); }));
   });
   overridable(clip, "field_order", [](ClipBase &) { return nb::cast(std::string("none")); });
   overridable(clip, "unmapped_frame_rate", [](ClipBase &s) {
     PyEffectInstance *e = s.get()->_effect;
-    return nb::cast(OFXH_SCOPED("unmapped_frame_rate", e->getFrameRate()));
+    return nb::cast(scoped("unmapped_frame_rate", [&] { return e->getFrameRate(); }));
   });
   overridable(clip, "unmapped_frame_range", [](ClipBase &s) {
     PyEffectInstance *e = s.get()->_effect;
-    return nb::cast(OFXH_SCOPED("unmapped_frame_range", Point(0., e->getEffectDuration())));
+    return nb::cast(scoped("unmapped_frame_range", [&] { return Point(0., e->getEffectDuration()); }));
   });
   overridable(clip, "continuous_samples", [](ClipBase &) { return nb::cast(false); });
   // --- information
@@ -1506,15 +1518,15 @@ void bindModule(nb::module_ &m)
     })
     .def_prop_ro("pixel_depth", [](ClipBase &s) {
       PyClipInstance *c = s.get();
-      return shortName("depth", OFXH_SCOPED("pixel_depth", c->getPixelDepth()));
+      return shortName("depth", scoped("pixel_depth", [&] { return c->getPixelDepth(); }));
     }, "The depth of the images (set by the clip preferences): byte, short, half, float or none.")
     .def_prop_ro("components", [](ClipBase &s) {
       PyClipInstance *c = s.get();
-      return shortName("components", OFXH_SCOPED("components", c->getComponents()));
+      return shortName("components", scoped("components", [&] { return c->getComponents(); }));
     }, "The components of the images (set by the clip preferences): rgba, rgb, alpha or none.")
     .def_prop_ro("dtype", [](ClipBase &s) -> nb::object {
       PyClipInstance *c = s.get();
-      const std::string d = OFXH_SCOPED("dtype", c->getPixelDepth());
+      const std::string d = scoped("dtype", [&] { return c->getPixelDepth(); });
       if (d == kOfxBitDepthByte) return nb::str("uint8");
       if (d == kOfxBitDepthShort) return nb::str("uint16");
       if (d == kOfxBitDepthHalf) return nb::str("float16");
@@ -1523,13 +1535,15 @@ void bindModule(nb::module_ &m)
     }, "The NumPy dtype name of the images (from pixel_depth), or None.")
     .def_prop_ro("view", [](ClipBase &s) { return s.get()->_view; })
     .def_prop_ro("instance", [](ClipBase &s) { return s.get()->_effect->_py; })
-    .def_prop_ro("props", [](ClipBase &s) { s.get(); return PropertySetView{s.ref, 2}; })
+    .def_prop_ro("props", [](ClipBase &s) { s.get(); return PropertySetView{s.ref, PropertySetView::Kind::clip}; })
     .def("new_image", [](ClipBase &s, const RectI &b) {
       PyClipInstance *c = s.get();
-      return OFXH_SCOPED("new_image()", c->newImage(b[0], b[1], b[2], b[3]));
+      return scoped("new_image()", [&] { return c->newImage(b[0], b[1], b[2], b[3]); });
     }, "bounds"_a, "An empty NumPy array for an image of these bounds (pixels), of the clip's depth and components.");
+}
 
-  // ------------------------------------------------------------------------- functions
+static void bindFunctions(nb::module_ &m)
+{
   m.def("init", &init, "host"_a, "plugin_dirs"_a.none() = nb::none(), "use_std_paths"_a = false,
         "use_env_path"_a = true, "profile"_a = "default", "keep_loaded"_a = false,
         "Initialize HostSupport with this host (an ofxh.Host), and scan the plug-ins of plugin_dirs, of\n"
@@ -1601,7 +1615,7 @@ void bindModule(nb::module_ &m)
      "set_param(). The default project is ofxh's (and hostDemo's).");
   m.def("fetch_suite", [](const std::string &name, int version) {
     requireInit();
-    return (uintptr_t)state().host->fetchSuite(name.c_str(), version);
+    return reinterpret_cast<uintptr_t>(state().host->fetchSuite(name.c_str(), version));
   }, "name"_a, "version"_a,
      "The address of a suite of the host (0 if it has none), e.g. for ctypes calls in tests.");
   m.def("canonical_to_pixel", [](const RectD &r, const Point &renderScale, double par) {
@@ -1618,6 +1632,30 @@ void bindModule(nb::module_ &m)
         "change, param_type or plane (e.g. ofx_name(\"depth\", \"byte\") is \"OfxBitDepthByte\").");
   m.def("short_name", [](const std::string &kind, const std::string &value) { return shortName(kind.c_str(), value); },
         "kind"_a, "value"_a, "The short name of an OFX string (unknown strings are unchanged).");
+}
+
+void bindModule(nb::module_ &m)
+{
+  m.doc() = kModuleDoc;
+
+  m.attr("__builtins__") = nb::handle(PyEval_GetBuiltins());
+  nb::exec(nb::str(kPrelude), m.attr("__dict__"));
+  Globals &g = globals();
+  g.statFn = m.attr("_stat");
+  g.ofxError = m.attr("OfxError");
+  g.raiseCallbackError = m.attr("_raise_callback_error");
+
+  bindBuildConfig(m);
+  bindPropertySet(m);
+  bindDescriptors(m);  // ParamDescriptor, EffectDescriptor
+  bindParams(m);
+  bindClipDescriptor(m);
+  bindPlugin(m);
+  bindImageData(m);
+  bindHost(m);
+  bindImageEffectInstance(m);
+  bindClipInstance(m);
+  bindFunctions(m);
 
   // the plug-ins are unloaded at exit, while the interpreter is alive
   nb::module_::import_("atexit").attr("register")(m.attr("shutdown"));
