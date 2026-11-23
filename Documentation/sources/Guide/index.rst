@@ -17,6 +17,7 @@ first with the C API and then with the C++ Support library. The
     ofxExample4_Saturation
     ofxExample5_Circle
     ofxSupportLibrary
+    ofxHostSupport
 
 .. literalinclude:: README.txt
 .. literalinclude:: TODO.txt
