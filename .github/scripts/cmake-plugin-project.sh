@@ -10,7 +10,10 @@ deploy=OFF; osxtarget=""
 # macOS: deploy, with a deployment target older than MacPorts' libomp (built for the runner's
 # macOS): libomp must get the minos warning, the plug-in itself must not. (14.0, the plug-ins'
 # target: VFX Reference Platform CY2027. The runner must be newer than macOS 14, so that MacPorts'
-# libomp, built for the runner's macOS, is newer than the target)
+# libomp, built for the runner's macOS, is newer than the target). The explicit
+# -DCMAKE_OSX_DEPLOYMENT_TARGET wins over the MACOSX_DEPLOYMENT_TARGET environment variable,
+# which the CI jobs set to the runner's macOS for the other builds: the package mode then links
+# an openfx::Support built for the runner's macOS, and ld warns about its objects)
 [ "$os" = Darwin ] && deploy=ON osxtarget=-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
 # OpenMP must be found: MacPorts libomp on macOS, gcc's libgomp on Linux and MSYS2 (the
 # mingw-w64-ucrt-x86_64-libgomp package)

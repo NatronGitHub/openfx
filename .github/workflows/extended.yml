@@ -50,6 +50,11 @@ jobs:
           - {os: windows-latest, config: Release, extensions: 'ON', cxx: '20'}
     steps:
       - uses: actions/checkout@v4
+      - name: Deployment target (the runner's macOS)
+        if: runner.os == 'macOS'
+        # CI builds aren't shipped: they target the runner's macOS. The release bundles target
+        # macOS 14.0 (VFX Reference Platform CY2027) and are built on a macOS 14 machine.
+        run: echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion | cut -d. -f1).0" >> "$GITHUB_ENV"
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev
@@ -112,6 +117,11 @@ jobs:
       - name: Remove Homebrew from PATH
         run: |
           echo "PATH=/opt/local/bin:/opt/local/sbin:$(echo "$PATH" | tr ':' '\n' | grep -v -e homebrew -e '^/usr/local/' | paste -sd: -)" >> "$GITHUB_ENV"
+      - name: Deployment target (the runner's macOS)
+        # CI builds aren't shipped: they target the runner's macOS. The release bundles target
+        # macOS 14.0 (VFX Reference Platform CY2027) and are built on a macOS 14 machine.
+        # After the MacPorts install: the ports are MacPorts' binary archives for the runner's macOS.
+        run: echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion | cut -d. -f1).0" >> "$GITHUB_ENV"
       - name: Toolchain
         run: |
           echo "PATH=$PATH"
@@ -139,6 +149,11 @@ jobs:
       - name: Remove Homebrew from PATH
         run: |
           echo "PATH=/opt/local/bin:/opt/local/sbin:$(echo "$PATH" | tr ':' '\n' | grep -v -e homebrew -e '^/usr/local/' | paste -sd: -)" >> "$GITHUB_ENV"
+      - name: Deployment target (the runner's macOS)
+        # CI builds aren't shipped: they target the runner's macOS. The release bundles target
+        # macOS 14.0 (VFX Reference Platform CY2027) and are built on a macOS 14 machine.
+        # After the MacPorts install: the ports are MacPorts' binary archives for the runner's macOS.
+        run: echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion | cut -d. -f1).0" >> "$GITHUB_ENV"
       - name: Toolchain
         run: |
           ! command -v brew
@@ -152,8 +167,6 @@ jobs:
             -DOFX_EXTENSIONS_TUTTLE=OFF -DOFX_EXTENSIONS_RESOLVE=OFF
           cmake --build build --parallel
       - name: pip install ./HostSupport/python (the same options)
-        env:
-          MACOSX_DEPLOYMENT_TARGET: '14.0'  # (as the CMake build: VFX Reference Platform CY2027)
         run: |
           python3.11 -m venv --system-site-packages venv
           venv/bin/python -m pip install -v --no-build-isolation \
