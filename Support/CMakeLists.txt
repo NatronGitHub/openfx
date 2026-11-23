@@ -13,7 +13,7 @@ if(BUILD_EXAMPLE_PLUGINS)
   target_include_directories(drawsuite-opengl-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include"
                              "${CMAKE_CURRENT_SOURCE_DIR}/../HostSupport/include")
   # self-test of Support code that needs no host (Support/tests/SupportLibraryTest.cpp): the null
-  # action of the interact entry point, ~AutoMutexT(), and (with OFX_EXTENSIONS_NATRON) the decoding
+  # action of the interact entry point, ~AutoMutexT(), define*Param() on a type mismatch, and (with OFX_EXTENSIONS_NATRON) the decoding
   # of kNatronOfxPropNativeOverlays. Exits with 0 if all passed (.github/scripts/cmake-build-test.sh
   # runs it).
   add_executable(support-library-test tests/SupportLibraryTest.cpp)

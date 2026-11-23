@@ -9,6 +9,8 @@
     std::string, which is undefined behaviour);
   - OFX::MultiThread::AutoMutexT's destructor doesn't throw (std::terminate()) when the mutex's
     unlock() throws;
+  - define*Param() throws OFX::Exception::TypeRequest when a param of the same name but another
+    type was already defined (it returned NULL in release builds);
   - with OFX_EXTENSIONS_NATRON, OFX::Private::decodeNativeOverlayHandle(), which decodes the host's
     kNatronOfxPropNativeOverlays strings (ofxNatron.h) into ImageEffectHostDescription::nativeInteracts.
 
@@ -89,6 +91,24 @@ namespace {
     CHECK(m2.unlocks == 1);
   }
 
+  // a param set with a param "p" already defined, without a host (no param suite is called)
+  class TestParamSet : public OFX::ParamSetDescriptor {
+  public:
+    TestParamSet() { _definedParams["p"] = new OFX::DummyParamDescriptor("p"); }
+  };
+
+  void testDefineParamTypeMismatchThrows()
+  {
+    TestParamSet set;
+    bool thrown = false;
+    try {
+      set.defineIntParam("p");
+    } catch (const OFX::Exception::TypeRequest&) {
+      thrown = true;
+    }
+    CHECK(thrown);
+  }
+
 #ifdef OFX_EXTENSIONS_NATRON
   typedef OFX::ImageEffectHostDescription::NativeOverlayHandle Handle;
 
@@ -159,6 +179,7 @@ int main()
 {
   testNullInteractAction();
   testAutoMutexDestructorDoesNotThrow();
+  testDefineParamTypeMismatchThrows();
 #ifdef OFX_EXTENSIONS_NATRON
   testDecodeNativeOverlayHandle();
 #else
