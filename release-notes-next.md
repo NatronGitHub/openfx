@@ -123,6 +123,7 @@ Changes that existing hosts, plugins or SDK users may need to act on:
   - `Examples/Rectangle`: the four RGBA defaults (0, 0, 0, 1) are set on the `colour` param. They used to be set on the Double2D `corner2`, which overwrote its (0.6, 0.6) default with (0, 0) (upstream #240).
   - Examples: the per-example `EXPORT` macros are gone (`Examples/` and `openfx-cpp/examples/test-props`), and the Cuda, Metal and OpenCL examples no longer put `OfxExport` on their definitions. The entry-point definitions inherit `OfxExport` from their declarations in `ofxCore.h`, as upstream #274 does. `OfxExport` is `extern __attribute__((visibility("default")))` for GCC and Clang only, and plain `extern` for other compilers, as upstream.
   - `test_package/CMakeLists.txt` no longer forces C++17 (upstream #234). `cmake/OpenFX.cmake` sets the plug-ins' standard (`OFX_CXX_STANDARD`).
+- HostSupport (NatronGitHub/openfx#237): `ofxhPropertySuite.h` documents that `Property::Set` is not synchronized, and that the plug-in holds a `const char*` into the `std::string` storage of a string value (`propGetString`, `propGetStringN`), so a host must not modify a set while a plug-in may read it.
 
 ## Deprecations
 
