@@ -78,9 +78,11 @@ def expand(pattern: str, frame: int, view_name: str = "main") -> str:
 
 
 def frames(pattern: str, view_name: str = "main") -> list[int]:
-    """The frames of the existing files of a sequence, in order ([] if there are none; [0] for a
-    name without a frame number, if the file exists). Only the file name may have frame numbers,
-    not the directory (ValueError)."""
+    """The frames of the existing files of a sequence, in order.
+
+    [] if there are none; [0] for a name without a frame number, if the file exists. Only the file
+    name may have frame numbers, not the directory (ValueError).
+    """
     directory, name = os.path.split(pattern)
     if any(kind == "frame" for kind, _, _ in _tokens(directory)):
         raise ValueError(f"{pattern}: frame numbers are only supported in the file name, not the directory")

@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 import ofxhost
+from ofxhost import constants as k
 from ofxhost.testing import backend_available
 
 PYDIR = Path(__file__).resolve().parents[1]  # HostSupport/examples/python
@@ -89,8 +90,8 @@ def _same(a, b):
     """Equal JSON values (ints and floats compared as numbers)."""
     if isinstance(a, dict) and isinstance(b, dict):
         assert a.keys() == b.keys(), (sorted(a), sorted(b))
-        for k in a:
-            _same(a[k], b[k])
+        for key in a:
+            _same(a[key], b[key])
     elif isinstance(a, list) and isinstance(b, list):
         assert len(a) == len(b), (a, b)
         for x, y in zip(a, b):
@@ -222,7 +223,8 @@ def test_components_suffix(tmp_path, hosts, sample_plugins):
               "--format", "pfm", "-o", "out", "--report", "r.json"], tmp_path, _env(sample_plugins, ofxh_dir))
     assert p.returncode == 0, p.stderr
     r = json.loads((tmp_path / "r.json").read_text())
-    assert r["inputs"]["Source"] == dict(r["inputs"]["Source"], spec="ramp#rgb", unmappedComponents="OfxImageComponentRGB")
+    assert r["inputs"]["Source"] == dict(r["inputs"]["Source"], spec="ramp#rgb",
+                                         unmappedComponents=k.kOfxImageComponentRGB)
     alphas = sorted(tmp_path.glob("out.0*.alpha.pfm"))  # (out.0l and out.0r with two views)
     assert alphas and all(np.all(ofxhost.read_pfm(a) == 0.) for a in alphas)  # (opaque, inverted)
 

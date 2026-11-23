@@ -121,8 +121,7 @@ def to_depth(rgba: np.ndarray, depth: str, comps: str) -> np.ndarray:
 
 
 def convert(pixels: np.ndarray, depth: str, comps: str) -> np.ndarray:
-    """An image at a clip's depth (byte, short, half or float) and components; the same array if it
-    already is."""
+    """An image at a clip's depth (byte, short, half or float) and components; the same array if it already is."""
     if pixels.dtype == _DTYPES.get(depth) and pixels.ndim == 3 and pixels.shape[2] == NCOMPS.get(comps):
         return pixels
     if depth == "half":

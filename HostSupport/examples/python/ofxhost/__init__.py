@@ -1,15 +1,13 @@
 """ofxhost: render OFX plug-ins from Python, with the HostSupport demo host (hostDemo).
 
-Two backends, with the same API and the same JSON report:
-- "subprocess" (the default): each render runs hostDemo in its own process and temporary
-  directory (HostSupport has process-wide singletons, plug-ins can't be unloaded, and a crashing
-  plug-in must not take down the interpreter). Images are exchanged as PFM files.
-- "inprocess": hostDemo's test host in Python, on the HostSupport bindings (the ofxh module), in
-  this process (ofxhost.inprocess). Images are NumPy arrays, without files.
+Two backends, with the same API and the same JSON report: "subprocess" (the default) runs hostDemo
+in its own process and temporary directory, so that a crashing plug-in can't take down the
+interpreter (images are PFM files); "inprocess" (ofxhost.inprocess) is hostDemo's test host in
+Python, on the HostSupport bindings (the ofxh module), in this process (images are NumPy arrays).
 Choose with render(..., backend=...) or describe(..., backend=...), or $OFXHOST_BACKEND.
 
-Image contract: NumPy arrays are float32, H x W x C, top-down (row 0 is the top row).
-OFX images and PFM files are bottom-up; the wrapper flips them.
+NumPy images are float32, H x W x C, top-down (row 0 is the top row); OFX images and PFM files
+are bottom-up, and the wrapper flips them.
 
     import ofxhost, numpy as np
     r = ofxhost.render("Support/Plugins/Invert/Linux-64-release", "net.sf.openfx.invertPlugin",
@@ -53,15 +51,21 @@ COMPONENTS = {"rgba": "rgba", "rgb": "rgb", "alpha": "alpha", kOfxImageComponent
 
 
 def split_components(spec: str) -> tuple[str, str | None]:
-    """(the spec without its components suffix, the components or None): an input spec may end with
-    "#rgb", "#alpha" or "#rgba" (in-process backend and sample host only; e.g. "ramp#rgb",
-    "file:x.pfm#premult#alpha")."""
+    """Split the components suffix off an input spec.
+
+    Args:
+        spec: an input spec, which may end with "#rgb", "#alpha" or "#rgba" (in-process backend and
+            sample host only; e.g. "ramp#rgb", "file:x.pfm#premult#alpha").
+
+    Returns:
+        (the spec without the suffix, the components or None).
+    """
     head, sep, tail = spec.rpartition("#")
     return (head, tail) if sep and head and tail in ("rgb", "rgba", "alpha") else (spec, None)
 
 
 def default_backend(backend: str | None = None) -> str:
-    """The backend: the argument, else $OFXHOST_BACKEND, else "subprocess"."""
+    """The backend: the argument, else $OFXHOST_BACKEND, else "subprocess" (ValueError if unknown)."""
     b = backend or os.environ.get("OFXHOST_BACKEND") or "subprocess"
     if b not in BACKENDS:
         raise ValueError(f"backend {b!r}: expected one of {BACKENDS}"
@@ -70,8 +74,10 @@ def default_backend(backend: str | None = None) -> str:
 
 
 def _backend_for(backend: str | None, host_binary) -> str:
-    """The backend of a call: a host_binary means hostDemo (subprocess), whatever $OFXHOST_BACKEND,
-    and can't go with backend="inprocess"."""
+    """The backend of a call.
+
+    A host_binary means hostDemo (subprocess), whatever $OFXHOST_BACKEND, and can't go with backend="inprocess".
+    """
     if host_binary is not None:
         if backend == "inprocess":
             raise ValueError("host_binary is hostDemo's: it can't be given with backend=\"inprocess\"")
@@ -81,8 +87,10 @@ def _backend_for(backend: str | None, host_binary) -> str:
 
 
 class HostDemoError(RuntimeError):
-    """hostDemo failed (non-zero exit, timeout, or unreadable output); in-process: the run failed
-    (returncode 1, with hostDemo's error message in stderr)."""
+    """hostDemo failed: a non-zero exit status, a timeout, or an unreadable output.
+
+    In-process: the run failed (returncode 1, with hostDemo's error message in stderr).
+    """
 
     def __init__(self, message: str, *, returncode: int | None = None,
                  stdout: str = "", stderr: str = "", cmd: Sequence[str] = ()):
@@ -101,7 +109,10 @@ class HostDemoError(RuntimeError):
 
 
 class HostDemoNotFound(FileNotFoundError):
-    """The hostDemo binary wasn't found (build it with make -C HostSupport/examples)."""
+    """The hostDemo binary wasn't found.
+
+    Build it (CMake with -DBUILD_EXAMPLE_HOSTS=ON, or make -C HostSupport/examples), or set $OFXHOST_HOSTDEMO.
+    """
 
 
 @dataclasses.dataclass
@@ -155,7 +166,18 @@ class RenderResult:
 # --- locating hostDemo -----------------------------------------------------------------
 
 def find_hostdemo(host_binary: str | os.PathLike | None = None) -> Path:
-    """Locate hostDemo: the explicit argument, $OFXHOST_HOSTDEMO, then the build tree."""
+    """Locate hostDemo.
+
+    Args:
+        host_binary: a path, or a command found in $PATH; None: $OFXHOST_HOSTDEMO, else the build
+            trees (ofxhost.build.hostdemo_candidates()).
+
+    Returns:
+        The absolute path of the binary.
+
+    Raises:
+        HostDemoNotFound: not found.
+    """
     for source, value in (("host_binary", host_binary),
                           ("OFXHOST_HOSTDEMO", os.environ.get("OFXHOST_HOSTDEMO"))):
         if value:
@@ -169,15 +191,26 @@ def find_hostdemo(host_binary: str | os.PathLike | None = None) -> Path:
     candidates = hostdemo_candidates()
     if not candidates:
         raise HostDemoNotFound(
-            "hostDemo not found: build it with `make -C HostSupport && make -C "
-            "HostSupport/examples`, or set OFXHOST_HOSTDEMO")
+            "hostDemo not found: build it (cmake -DBUILD_EXAMPLE_HOSTS=ON, or make -C HostSupport && make -C "
+            "HostSupport/examples), or set OFXHOST_HOSTDEMO")
     return candidates[0].resolve()
 
 
 # --- running hostDemo ------------------------------------------------------------------
 
 def plugin_dirs(bundle_paths) -> list[str]:
-    """OFX_PLUGIN_PATH entries: directories as given, *.bundle paths as their parent."""
+    """The plug-in directories of render()'s bundle_paths (OFX_PLUGIN_PATH entries).
+
+    Args:
+        bundle_paths: a directory, a *.bundle path (which stands for its parent directory), or a
+            list of these.
+
+    Returns:
+        The absolute directories, in order, without duplicates.
+
+    Raises:
+        FileNotFoundError: one isn't a directory.
+    """
     if isinstance(bundle_paths, (str, os.PathLike)):
         bundle_paths = [bundle_paths]
     dirs: list[str] = []
@@ -227,8 +260,15 @@ _FILE_SPEC = re.compile(r"(?P<rest>.*?)(?P<pos>@-?\d+,-?\d+)?(?P<premult>#(?:pre
 
 
 def resolve_file_spec(spec: str, base: str | os.PathLike | None = None) -> str:
-    """Make the paths of a hostDemo "file:rgb.pfm[+alpha.pfm][@x1,y1][#premult]" input spec
-    absolute (relative to base, default the current directory), keeping the suffixes."""
+    """Make the paths of a hostDemo input spec absolute.
+
+    Args:
+        spec: "file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]".
+        base: the directory the paths are relative to (None: the current directory).
+
+    Returns:
+        The spec with absolute paths and the same suffixes.
+    """
     body = spec[5:] if spec.startswith("file:") else spec
     base = Path(base) if base is not None else Path.cwd()
     m = _FILE_SPEC.match(body)
@@ -242,8 +282,10 @@ def resolve_file_spec(spec: str, base: str | os.PathLike | None = None) -> str:
 
 
 def _hostdemo_input(clip: str, value: Any, workdir: Path, index: int) -> str:
-    """hostDemo's -i spec of an input of render(): an array or an Image is written to PFM files in
-    workdir, input<index>.pfm (and input<index>.alpha.pfm)."""
+    """hostDemo's -i spec of an input of render().
+
+    An array or an Image is written to PFM files in workdir, input<index>.pfm (and input<index>.alpha.pfm).
+    """
     if isinstance(value, os.PathLike):
         return "file:" + str(Path(value).resolve())
     if isinstance(value, str):
@@ -316,37 +358,51 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
            host_binary: str | os.PathLike | None = None, timeout: float | None = 60,
            extra_args: Sequence[str] = (), check: bool = True,
            backend: str | None = None, components: Mapping[str, str] | None = None) -> RenderResult:
-    """Render a plug-in with hostDemo (by default at frames 0 and 1); return its output
-    images and report.
+    """Render a plug-in with hostDemo (by default at frames 0 and 1).
 
-    bundle_paths: a directory containing .ofx.bundle directories, a bundle path (its parent
-        directory is used), or a list of these. They become OFX_PLUGIN_PATH; the standard
-        plug-in locations and the plug-in cache are not used.
-    inputs: clip name -> a NumPy array (H x W, H x W x 1, H x W x 3 or H x W x 4; top-down;
-        written to PFM files, at pixel 0,0), an Image (positioned at its bounds, with its
-        premultiplication), a pathlib.Path or "file:path.pfm", or a hostDemo spec string:
-        "none" (disconnected), "default", "solid:r,g,b,a", "ramp", "checker:N".
-    params: parameter name -> value (number, bool, string, or a sequence for
-        multi-dimensional parameters), passed as -s name=value; or keys, a mapping
-        {time: value} (numeric parameters that animate; hostDemo interpolates linearly), passed
-        as -s name@time=value (in time order); or None to press a push button (-s name). In
-        order: each one is followed by the instance changed action (at the key's time for a key).
-    depth: the input clips' depth before clip preferences: "byte", "short" or "float".
-    frames: the times to render (hostDemo --frames; default 0 and 1).
-    scale: the render scale, s or (sx, sy), in (0,1] (--scale). Image inputs are at that scale.
-    window: the render window (x1, y1, x2, y2), in pixels at the render scale (--window).
-    query: only run the query actions (--query): no output, see .report["renders"].
-    check: raise HostDemoError on a non-zero exit status (default).
-    backend: "subprocess" (hostDemo) or "inprocess" (ofxhost.inprocess, on the ofxh module; it
-        ignores timeout, and supports only some extra_args); default: "subprocess" if host_binary
-        is given (ValueError with "inprocess"), else $OFXHOST_BACKEND, else "subprocess".
-    components: clip name -> "rgb", "alpha" or "rgba": the components of that input (default RGBA;
-        a spec string may also end with "#rgb", "#alpha" or "#rgba"). In-process backend only
-        (hostDemo's inputs are RGBA): ValueError on the subprocess backend for anything but RGBA.
-    extra_args: hostDemo options. The in-process backend also takes --format ppm|pfm, -o PREFIX
-        and --report FILE (it then writes the outputs and the report as hostDemo does, relative to
-        the current directory); the subprocess backend refuses them (ValueError): it runs hostDemo
-        with its own.
+    Args:
+        bundle_paths: a directory containing .ofx.bundle directories, a bundle path (its parent
+            directory is used), or a list of these. They become OFX_PLUGIN_PATH; the standard
+            plug-in locations and the plug-in cache are not used.
+        plugin_id: the plug-in identifier.
+        context: "filter" or "general" (or their kOfxImageEffectContext* names).
+        inputs: clip name -> a NumPy array (H x W, H x W x 1, H x W x 3 or H x W x 4; top-down; at
+            pixel 0,0), an Image (positioned at its bounds, with its premultiplication), a
+            pathlib.Path or "file:path.pfm", or a hostDemo spec string: "none" (disconnected),
+            "default", "solid:r,g,b,a", "ramp", "checker:N", "rod:x1,y1,x2,y2".
+        params: parameter name -> value (number, bool, string, or a sequence for multi-dimensional
+            parameters), passed as -s name=value; or keys, a mapping {time: value} (numeric
+            parameters that animate; hostDemo interpolates linearly), passed as -s name@time=value
+            in time order; or None to press a push button (-s name). In order: each one is followed
+            by the instance changed action (at the key's time for a key).
+        depth: the input clips' depth before the clip preferences: "byte", "short" or "float".
+        frames: the times to render (hostDemo's --frames; default 0 and 1).
+        scale: the render scale, s or (sx, sy) (a sequence or a NumPy array), in (0,1] (--scale).
+            Image inputs are at that scale.
+        window: the render window (x1, y1, x2, y2), in pixels at the render scale (--window).
+        query: only run the query actions (--query): no output, see .report["renders"].
+        host_binary: the hostDemo binary (see find_hostdemo()); subprocess backend only.
+        timeout: hostDemo's timeout in seconds (HostDemoError after it); subprocess backend only.
+        extra_args: hostDemo options. The in-process backend also takes --format ppm|pfm, -o
+            PREFIX and --report FILE (it then writes the outputs and the report as hostDemo does,
+            relative to the current directory); the subprocess backend refuses them (ValueError):
+            it runs hostDemo with its own.
+        check: raise HostDemoError on a non-zero exit status.
+        backend: "subprocess" (hostDemo) or "inprocess" (ofxhost.inprocess, on the ofxh module; it
+            supports only some extra_args); default: "subprocess" if host_binary is given
+            (ValueError with "inprocess"), else $OFXHOST_BACKEND, else "subprocess".
+        components: clip name -> "rgb", "alpha" or "rgba": the components of that input (default
+            RGBA; a spec string may also end with "#rgb", "#alpha" or "#rgba"). In-process backend
+            only (hostDemo's inputs are RGBA): ValueError on the subprocess backend for anything
+            but RGBA.
+
+    Returns:
+        The RenderResult: the output images and the report.
+
+    Raises:
+        ValueError: a bad argument.
+        HostDemoError: hostDemo failed (with check), timed out, or wrote no readable output.
+        HostDemoNotFound: no hostDemo binary (subprocess backend).
     """
     if depth not in DEPTHS:
         raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
@@ -429,8 +485,18 @@ def _time_name(t: float) -> str:
 def describe(bundle_paths, plugin_id: str, context: str | None = None,
              host_binary: str | os.PathLike | None = None, timeout: float | None = 60,
              extra_args: Sequence[str] = (), backend: str | None = None) -> dict:
-    """Return hostDemo's --describe JSON for a plug-in (params, clips, contexts, flags).
-    backend: as render()."""
+    """hostDemo's --describe JSON of a plug-in: its contexts, clips, parameters and flags.
+
+    Args:
+        bundle_paths, plugin_id, host_binary, timeout, extra_args, backend: as render().
+        context: hostDemo's -c (hostDemo describes every context anyway), or None.
+
+    Returns:
+        The JSON, as a dict.
+
+    Raises:
+        HostDemoError: hostDemo failed (e.g. the plug-in isn't found).
+    """
     if _backend_for(backend, host_binary) == "inprocess":
         from . import inprocess
         return inprocess.describe(bundle_paths, plugin_id, context=context, extra_args=extra_args)

@@ -1,95 +1,20 @@
-"""The sample host: run a graph of plug-in instances (ofxhost.graph) over a frame sequence, in this
-process, on the HostSupport bindings (the ofxh module), with the images in memory between the nodes.
+"""The sample host.
+
+Run a graph of plug-in instances (ofxhost.graph) over a frame sequence, in this process, on the HostSupport bindings
+(the ofxh module), with the images in memory between the nodes.
 
     from ofxhost import graph, graphhost
     g = graph.load("graph.json")                       # or a Graph built in Python
     r = graphhost.run(g, ["/path/to/plugins"])         # writes the outputs' files
     r.ok, r.report, r.images["out"][0.0]               # the JSON report; {node: {time: Image}}
 
-The command line front end is ofxhost.cli (python -m ofxhost render graph.json).
-
-This is the template for a real host on ofxh (minimal_host.py is the minimal one): it subclasses
-ofxh.Host, ofxh.ImageEffectInstance, ofxh.ClipInstance and ofxh.Param, and calls the actions in a
-host's order. What it does, as a real host:
-- Project load. Each node's parameter values and keys are set before kOfxActionCreateInstance,
-  with no instanceChanged (ofxCore.h, the create instance action: "if the values are being loaded
-  from an old setup, that load should have taken place before the create instance action is
-  called"); the report's paramChangedCount shows it. Then the clip preferences, then the push
-  buttons (a null value in the graph) are pressed as a user would (instanceChanged, "user edited"),
-  in order, at the project's first frame.
-- The project: its size, offset, PAR, frame rate and frame range (Graph.project; the defaults are
-  hostDemo's), given to every instance.
-- The time domain: the frames to render are the graph's frames, else every frame of the outputs'
-  time domains (their union). The spec says of kOfxImageEffectActionGetTimeDomain: "Only effects
-  instantiated in the General Context can have this called on them. In all other the host is in
-  strict control over the temporal duration of the effect." This host's choice, following Natron
-  (OfxEffectInstance::getFrameRange), is to call it in the general, reader, writer and generator
-  contexts. When the plug-in replies default (and in the other contexts), the spec's default: "the
-  union of all the frame ranges of the non optional input clips, infinite if there are no non
-  optional input clips" (infinite: the project's frame range). A time domain that is infinite or
-  beyond +-1e7 is clamped to the project's frame range; NaN fails the run. The frame range of an
-  input clip is the time domain of its input node, or the frames of its image sequence (a still
-  image, and the test patterns: the project's frame range).
-- The sequence renders: each node gets kOfxImageEffectActionBeginSequenceRender with the frames it
-  will render (planned from the outputs' frames, the frames needed and the identities), sequential
-  if they increase by a constant step, and EndSequenceRender if its begin succeeded (the frames of an
-  input are planned over the regions of interest of the nodes that use it). A render action is
-  sequential if its node's sequence is and its time comes after the node's last render. A render
-  outside a begun sequence that covers its time (for a push button pressed during the setup, or a
-  fetch that wasn't planned) gets its own begin and end over [t, t], not sequential, as Natron's
-  analysis renders: the render action's precondition is "kOfxImageEffectActionBeginSequenceRender
-  has been called on the instance". These sequences may nest: an unplanned fetch at a time outside
-  the node's open [first, last] sequence gets its [t, t] begin and end inside the open one. The
-  spec says nothing about nested sequence renders, and Natron's analysis renders nest the same way.
-  A time inside [first, last] but off the sequence's step counts as covered (no nested sequence).
-- Images in memory: each node renders the window it is asked for (its output, or what the nodes
-  that use it need), at the render scale. Before the render action, it asks the plug-in which
-  frames (kOfxImageEffectActionGetFramesNeeded) and regions (GetRegionsOfInterest) of its inputs
-  it needs, and renders them; a fetch of something else renders it then. A node without tiles
-  renders its whole RoD, and gets whole inputs (a RoD too large for an image: the window or the
-  region of interest, as hostDemo). An identity (isIdentity) isn't rendered: its
-  output is the image of the clip and time it gives. The images are kept for the current frame,
-  then dropped. Each input gets its image at its clip's depth and components (converted if the
-  clip preferences changed them).
-- Image sequences, with the file name patterns of ofxhost.sequences ("####", "%04d", "%d", "%v",
-  "%V", "%%"), as Natron:
-  - the inputs' files ({"file": pattern} in the graph, ofxhost.graph.Files), read at the frame of
-    each time (the first or last frame of the sequence outside it); and the outputs' files;
-  - the file parameters of the plug-ins: the output file paths (string parameters in file path
-    mode with kOfxParamPropStringFilePathExists = 0), and the file and proxy parameters of a reader
-    or a writer (kOfxImageEffectFileParamName "filename", kOfxImageEffectProxyParamName "proxy", in
-    file path mode, of a plug-in that has the reader or writer context). Their value is the
-    pattern; paramGetValue gives the file name at the current time, and paramGetValueAtTime at
-    that time (Natron's OfxStringInstance::get, KnobFile::getFileName), for the current view;
-  - a reader's frame range: if the plug-in has an "originalFrameRange" (Integer2D) parameter and
-    the graph doesn't set it, it is set from the files of the sequence, as Natron's
-    Node::computeFrameRangeForReader (the first and last frames, or (1, 1) for one file or none).
-- Inputs: an input clip the graph doesn't give is disconnected. Image files are given as float
-  RGBA (an RGB file is opaque, a grey one r = g = b = a, as hostDemo's file inputs), at the
-  project's PAR (HostSupport doesn't let the clip preferences change an input's PAR). Formats: PFM
-  and .npy (ofxhost.imageio; no PNG or JPEG yet).
-- Paths: the file inputs, the outputs and the file parameters are relative to the graph's
-  directory (Graph.base), as Natron resolves file parameters against the project's path: the
-  plug-ins get absolute file names.
-- The report (Result.report, ofxhost.cli render --report): see the README.
-- Errors: run() doesn't raise for a bad graph, a missing or unreadable file, an unknown plug-in,
-  parameter or clip, or a failed action: the run ends with ok False and the report's "error" (the
-  report is written too). It raises RuntimeError only if another ofxh host is initialized.
-
-- Components: an image sequence or a test pattern input is RGBA, unless it has a "#rgb", "#alpha" (or
-  "#rgba") suffix ({"file": "in.####.pfm#rgb"}, "ramp#alpha"): that is the clip's unmapped
-  components, and the clip preferences choose the clip's (see ofxhost.inprocess).
-- Worker threads: during a render action, the output's RoD at the render's time and view is the one
-  computed before it, so a plug-in's worker thread may ask for it, or be the first to fetch the
-  output image, without an action (ofxh refuses actions on worker threads).
-
-Limits: one view (view 0, which ofxh names "main": "%V" gives "main", where Natron's first view is
-"Main"); the colour plane only; no host frame threading (single-threaded renders), so a plug-in that
-fetches its inputs on its own worker threads (e.g. OpenMP) can't get the images that weren't rendered
-before its render action (ofxh refuses actions there); no interacts.
-
-A graph is like a script: it chooses the plug-ins that run and the files they read and write. Run
-only the graphs you trust.
+It is the template for a real host on ofxh (minimal_host.py is the minimal one): Host,
+ImageEffectInstance, ClipInstance and Param subclasses, and the actions in a host's order, as Natron
+calls them: the project load, time domains, sequence renders, frames needed and regions of
+interest, identities, image sequences and file parameters. README.md says what it does, why, and
+its report; the command line is ofxhost.cli (python -m ofxhost render graph.json). A graph is like
+a script: it chooses the plug-ins that run and the files they read and write. Run only the graphs
+you trust.
 """
 
 from __future__ import annotations
@@ -131,8 +56,14 @@ class GraphError(RuntimeError):
 
 @dataclasses.dataclass
 class Result:
-    """ok: the run succeeded. report: the JSON report. images: {output node: {time: Image}} (top-down
-    float32 pixels of the rendered window). files: the files written."""
+    """The result of a run.
+
+    Attributes:
+        ok: the run succeeded.
+        report: the JSON report (README.md).
+        images: {output node: {time: Image}}, top-down float32 pixels of the rendered window.
+        files: the files written.
+    """
     ok: bool
     report: dict
     images: dict
@@ -140,9 +71,11 @@ class Result:
 
 
 def _frames_in(ranges, t: float, where: str) -> list[float]:
-    """The frames of frames-needed ranges ([[t1, t2]...]): t1, t1 + 1, ... up to t2, and t2. None
-    (the plug-in said nothing for the clip): [t]. Raises GraphError for a bound that isn't finite or
-    is beyond +-1e7 (_MAX_FRAME)."""
+    """The frames of frames-needed ranges [[t1, t2]...]: t1, t1 + 1... up to t2, and t2.
+
+    None (the plug-in said nothing for the clip): [t]. Raises GraphError for a bound that isn't finite
+    or is beyond +-1e7 (_MAX_FRAME).
+    """
     out: list[float] = []
     for lo, hi in [[t, t]] if ranges is None else ranges:  # ([]: no frames)
         if not (abs(lo) <= _MAX_FRAME and abs(hi) <= _MAX_FRAME):  # (also NaN)
@@ -163,19 +96,29 @@ _LEVELS = {"fatal": logging.CRITICAL, "error": logging.ERROR, "warning": logging
 
 
 class Host(ofxh.Host):
-    """The host: the messages go to the "ofxhost" logger; questions are answered yes (a batch host
-    has nobody to ask)."""
+    """The host.
 
-    def message(self, type, id, text):
-        log.log(_LEVELS.get(type, logging.INFO), "%s", text)
-        return ofxh.Stat.ReplyYes if type == "question" else ofxh.Stat.OK
+    The messages go to the "ofxhost" logger; questions are answered yes (a batch host has nobody to ask).
+    """
+
+    def message(self, message_type, message_id, text):
+        log.log(_LEVELS.get(message_type, logging.INFO), "%s", text)
+        return ofxh.Stat.ReplyYes if message_type == "question" else ofxh.Stat.OK
 
 
 @contextlib.contextmanager
 def host(plugin_dirs: Sequence = (), use_env_path: bool = False):
-    """ofxh initialized with a Host and these plug-in directories (and $OFX_PLUGIN_PATH if
-    use_env_path), shut down at the end. ofxh has one host per process: the in-process backend's
-    (ofxhost.inprocess) is shut down first; another one raises RuntimeError."""
+    """ofxh initialized with a Host, shut down at the end (a context manager).
+
+    ofxh has one host per process: the in-process backend's (ofxhost.inprocess) is shut down first.
+
+    Args:
+        plugin_dirs: the plug-in directories.
+        use_env_path: also $OFX_PLUGIN_PATH.
+
+    Raises:
+        RuntimeError: another ofxh host is initialized.
+    """
     if ofxh.initialized():
         backend = sys.modules.get("ofxhost.inprocess")
         if backend is not None and backend.session() is not None:
@@ -196,10 +139,18 @@ _READER_WRITER = {"reader", "writer", constants.kOfxImageEffectContextReader, co
 
 
 def is_file_param(desc, contexts) -> bool:
-    """Is this parameter descriptor a file parameter whose value may be a pattern (#136, as Natron):
-    an output file path (a string in file path mode, kOfxParamPropStringFilePathExists = 0), or the
-    file or proxy parameter (kOfxImageEffectFileParamName, kOfxImageEffectProxyParamName) of a
-    plug-in that has the reader or writer context (contexts: its contexts)?"""
+    """Is this a file parameter whose value may be a file name pattern, as in Natron?
+
+    Args:
+        desc: the parameter descriptor.
+        contexts: the plug-in's contexts.
+
+    Returns:
+        True for an output file path (a string in file path mode, with
+        kOfxParamPropStringFilePathExists = 0), and for the file and proxy parameters
+        (kOfxImageEffectFileParamName, kOfxImageEffectProxyParamName) of a plug-in that has the
+        reader or writer context.
+    """
     mode = desc.props.get(constants.kOfxParamPropStringMode, ("",))[0]
     if desc.type != "string" or mode != constants.kOfxParamStringIsFilePath:
         return False
@@ -210,10 +161,12 @@ def is_file_param(desc, contexts) -> bool:
 
 
 class FileParam(ofxh.Param):
-    """A file parameter: it holds the pattern, and gives the plug-in the file name at the time it
-    asks for (the current time for paramGetValue), for view 0 (the only one), made absolute against
-    base (the graph's directory; None: the current directory), as Natron resolves file parameters
-    against the project's path. An empty value stays empty."""
+    """A file parameter.
+
+    It holds the pattern, and gives the plug-in the file name at the time it asks for (the current time for
+    paramGetValue), for view 0 (the only one), made absolute against base (the graph's directory; None: the current
+    directory), as Natron resolves file parameters against the project's path. An empty value stays empty.
+    """
 
     def __init__(self, base: str | None = None):
         super().__init__()
@@ -266,16 +219,16 @@ class Instance(ofxh.ImageEffectInstance):
     def new_param(self, desc):
         return FileParam(self.run.graph.base) if is_file_param(desc, self.node.plugin.contexts) else None
 
-    def _record(self, kind, type, id, text):
-        self.node.report["messages"].append({"kind": kind, "type": type, "id": id, "text": text})
-        log.log(_LEVELS.get(type, logging.INFO), "%s: %s", self.node.name, text)
-        return ofxh.Stat.ReplyYes if type == "question" else ofxh.Stat.OK
+    def _record(self, kind, message_type, message_id, text):
+        self.node.report["messages"].append({"kind": kind, "type": message_type, "id": message_id, "text": text})
+        log.log(_LEVELS.get(message_type, logging.INFO), "%s: %s", self.node.name, text)
+        return ofxh.Stat.ReplyYes if message_type == "question" else ofxh.Stat.OK
 
-    def message(self, type, id, text):
-        return self._record("message", type, id, text)
+    def message(self, message_type, message_id, text):
+        return self._record("message", message_type, message_id, text)
 
-    def persistent_message(self, type, id, text):
-        return self._record("persistentMessage", type, id, text)
+    def persistent_message(self, message_type, message_id, text):
+        return self._record("persistentMessage", message_type, message_id, text)
 
 
 @dataclasses.dataclass
@@ -286,9 +239,11 @@ class _Rendered:
 
 
 class Clip(ofxh.ClipInstance):
-    """A clip. An input is connected to another node, an image sequence (Files), or what
-    ofxhost.render() takes: a hostDemo input spec ("ramp", "checker:16", "file:x.pfm", "none"...),
-    an array or an Image. An input that the graph doesn't give is disconnected."""
+    """A clip: an input is another node, an image sequence (Files), or what ofxhost.render() takes.
+
+    That is a hostDemo input spec ("ramp", "checker:16", "file:x.pfm", "none"...), an array or an
+    Image. An input that the graph doesn't give is disconnected.
+    """
 
     def __init__(self, run: _Run, node: _NodeState, name: str):
         super().__init__()
@@ -402,12 +357,22 @@ class Clip(ofxh.ClipInstance):
         return self._rod(time, view, tuple(self.instance.render_scale))
 
     def image(self, time, view, region=None, rs=None):
-        """The input's image at a time over a canonical region (None: the current render's RoI, else
-        the RoD), clipped to the RoD; the whole RoD if the plug-in or the clip has no tiles (unless
-        it is too large for an image: then the region, clipped to the render window if it is still
-        too large, as hostDemo). rs: the render scale (None: the current action's). Returns an
-        ofxh.ImageData at the clip's depth and components, or None if the region is empty. Raises
-        GraphError if the image is too large."""
+        """The input's image at a time, as the plug-in fetches it.
+
+        Args:
+            time, view: the image's.
+            region: canonical (None: the current render's region of interest, else the RoD),
+                clipped to the RoD. Without tiles (the plug-in's or the clip's), the whole RoD,
+                unless it is too large for an image: then the region, clipped to the render window
+                if it is still too large, as hostDemo.
+            rs: the render scale (None: the current action's).
+
+        Returns:
+            An ofxh.ImageData at the clip's depth and components, or None if the region is empty.
+
+        Raises:
+            GraphError: the image is too large, or the clip's depth and components can't be made.
+        """
         if not self.connected or self.is_output:
             return None
         inst = self.instance
@@ -447,8 +412,11 @@ class Clip(ofxh.ClipInstance):
 
 
 class _Files:
-    """An image sequence input: its frames, and the files read (as hostDemo's file inputs, pixels
-    at scale 1: the render scale samples them). Raises GraphError for a missing or unreadable file."""
+    """An image sequence input.
+
+    Its frames, and the files read (as hostDemo's file inputs, pixels at scale 1: the render scale samples them).
+    Raises GraphError for a missing or unreadable file.
+    """
 
     def __init__(self, path: str, premult: str | None, components: str = "rgba"):
         self.path = path
@@ -522,8 +490,11 @@ class _Run:
         return (p.offset[0], p.offset[1], p.offset[0] + p.size[0], p.offset[1] + p.size[1])
 
     def source(self, ns: _NodeState, clip: str, v):
-        """What an input clip is connected to: a node, an image sequence, or a hostDemo input (a spec
-        string, an array or an Image; a "file:" spec or an array has pixels at the render scale)."""
+        """What an input clip is connected to.
+
+        A node, an image sequence, or a hostDemo input (a spec string, an array or an Image; a "file:" spec or an
+        array has pixels at the render scale).
+        """
         if isinstance(v, g.Node):
             if id(v) not in self.nodes:
                 raise GraphError(f"{ns.name}.{clip}: its input {v!r} is not a node of the graph")
@@ -561,8 +532,13 @@ class _Run:
 
     # --- the instances, inputs first
     def setup(self, ns: _NodeState) -> None:
-        """Make the node's instance, as a host loads a project: the values and keys, then the create
-        instance action, the clip preferences, the push buttons, and the time domain."""
+        """Make the node's instance, as a host loads a project.
+
+        The values and keys, then the create instance action ("if the values are being loaded from an old setup,
+        that load should have taken place before the create instance action is called", ofxCore.h), the clip
+        preferences, the push buttons (instanceChanged, "user edited", at the project's first frame), and the time
+        domain.
+        """
         inst = self._create(ns)
         self._load_params(ns, inst)
         self.reader_frame_range(ns)
@@ -615,8 +591,7 @@ class _Run:
 
     @staticmethod
     def _load_params(ns: _NodeState, inst) -> None:
-        """The project load: the values and keys, before the create instance action, without
-        instanceChanged."""
+        """The project load: the values and keys, before the create instance action, without instanceChanged."""
         names = set(inst.param_names)
         for name, v in ns.node.params.items():
             if name not in names:
@@ -659,9 +634,12 @@ class _Run:
             "outputPremultiplication": inst.output_premultiplication, "frameRate": inst.output_frame_rate}
 
     def time_domain(self, ns: _NodeState) -> None:
-        """The node's time domain: getTimeDomain in the general, reader, writer and generator contexts
-        (Natron's choice; the spec calls it in the general context only), else, or if the plug-in
-        replies default, the spec's default. None: infinite (the project's frame range)."""
+        """The node's time domain.
+
+        GetTimeDomain in the general, reader, writer and generator contexts (Natron's choice; the spec calls it in
+        the general context only), else, or if the plug-in replies default, the spec's default. None: infinite (the
+        project's frame range).
+        """
         inst = ns.instance
         j = ns.report["timeDomain"] = {"action": None, "range": None}
         if ofxh.short_name("context", ofxh.ofx_name("context", ns.node.context)) in _TIME_DOMAIN_CONTEXTS:
@@ -691,8 +669,12 @@ class _Run:
 
     # --- the renders
     def render_window(self, ns: _NodeState, t: float, window, rs, view: int) -> tuple:
-        """(the node's RoD at t, and its render window: window clipped to the RoD, or the whole RoD
-        without tiles, unless it is too large: then window, as hostDemo)."""
+        """The node's RoD at t, and its render window.
+
+        Returns:
+            (the RoD, the render window: window clipped to the RoD, or the whole RoD without tiles,
+            unless it is too large: then window, as hostDemo).
+        """
         inst = ns.instance
         st, rod = self.call(ns, "getRegionOfDefinition", inst.get_region_of_definition_action, t, rs, view)
         if not status.succeeded(st):
@@ -703,8 +685,11 @@ class _Run:
         return tuple(rod), rod_px if whole else rects.intersect(window, rod_px)
 
     def render(self, ns: _NodeState, t: float, window, rs, view: int = 0) -> _Rendered | None:
-        """The node's image at time t, at least over window (pixels at the render scale rs), clipped to
-        its RoD (its whole RoD without tiles); None if that is empty."""
+        """The node's image at time t, at least over window (pixels at the render scale rs).
+
+        Returns:
+            The image, clipped to the node's RoD (its whole RoD without tiles); None if that is empty.
+        """
         key = (ns.name, float(t), tuple(rs), view)
         if key in self.cache:
             cached = self.cache[key]
@@ -745,8 +730,10 @@ class _Run:
         return True, _Rendered(pixels.convert(img.pixels, out.pixel_depth, out.components), tuple(img.bounds))
 
     def _render_inputs(self, ns: _NodeState, t: float, win, rs, view: int) -> None:
-        """What the node needs from its input nodes (the frames needed over the regions of interest),
-        rendered before its render action; the regions of interest in inst.rois."""
+        """Render what the node needs from its input nodes, before its render action.
+
+        That is the frames needed over the regions of interest, which are kept in inst.rois.
+        """
         inst = ns.instance
         par = inst.clip(_OUTPUT).aspect_ratio
         st, ranges = self.call(ns, "getFramesNeeded", inst.get_frames_needed_action, t)
@@ -821,8 +808,10 @@ def _identity_time(ns: _NodeState, idr: dict) -> float:
 
 
 def _param_report(inst) -> dict:
-    """The parameter values after the run, in the graph's form ({"keys": ...} for the parameters with
-    keys, the pattern of a file parameter): the params of a graph node."""
+    """The parameter values after the run, in the form of a graph node's params.
+
+    {"keys": ...} for the parameters with keys, {"file": pattern} for a file parameter.
+    """
     values = inst.param_values()
     out = {}
     for name in inst.param_names:
@@ -850,10 +839,12 @@ def _frames(run: _Run, outputs: list[_NodeState]) -> list[float]:
 
 
 def _plan(r: _Run, ns: _NodeState, t: float, window, seen: dict) -> None:
-    """Add t to the frames the node will render if its RoD meets window (pixels at the render scale:
-    the output's window, or the region of interest of the node that uses it; its whole RoD without
-    tiles), and plan the frames its inputs will render for it: the frames needed over its regions of
-    interest, or the identity's clip and time. Only actions that don't render.
+    """Plan a render of the node at t over window, and the renders of its inputs for it.
+
+    t is added to the frames the node will render if its RoD meets window (pixels at the render
+    scale: the output's window, or the region of interest of the node that uses it; its whole RoD
+    without tiles), and its inputs are planned: the frames needed over its regions of interest, or
+    the identity's clip and time. Only actions that don't render.
 
     seen: the union of the windows already planned for each (node, time). A window inside it isn't
     planned again, and a larger one plans the new union: in a deep DAG whose regions of interest
@@ -899,8 +890,10 @@ def _plan_window(r: _Run, ns: _NodeState, t: float, window, seen: dict) -> None:
 
 
 def _sequence(frames) -> tuple[float, float, float, bool]:
-    """(first, last, step, sequential) of the frames a node renders: sequential if they increase by
-    a constant step (step 1 otherwise)."""
+    """(first, last, step, sequential) of the frames a node renders.
+
+    Sequential if they increase by a constant step (step 1 otherwise).
+    """
     fs = sorted(frames)
     step = fs[1] - fs[0] if len(fs) > 1 else 1.
     sequential = all(abs(b - a - step) < 1e-9 for a, b in zip(fs, fs[1:]))
@@ -908,9 +901,11 @@ def _sequence(frames) -> tuple[float, float, float, bool]:
 
 
 def _validate(graph: g.Graph, r: _Run) -> None:
-    """The checks before anything runs: the outputs are nodes, the graph has no cycle, the output
-    formats are supported, the render scale is in (0, 1], the frames are finite, the project's pixel
-    aspect ratio is positive."""
+    """The checks before anything runs.
+
+    The outputs are nodes, the graph has no cycle, the output formats are supported, the render scale is in (0, 1],
+    the frames are finite, the project's pixel aspect ratio is positive.
+    """
     if not graph.outputs:
         raise GraphError("the graph has no outputs")
     for name, file_pattern in graph.outputs.items():
@@ -931,13 +926,26 @@ def _validate(graph: g.Graph, r: _Run) -> None:
 def run(graph: g.Graph | str | os.PathLike, plugin_dirs: Sequence = (), *, frames: Sequence[float] | None = None,
         scale=None, use_env_path: bool = False, write: bool = True,
         report_path: str | os.PathLike | None = None) -> Result:
-    """Run a graph (a Graph, or the path of a graph file): make its instances (inputs first), then
-    render its outputs at each frame, and write their files (if write). frames and scale override the
-    graph's. plugin_dirs: the plug-in directories (or .ofx.bundle paths), and $OFX_PLUGIN_PATH if
-    use_env_path. A failure doesn't raise (a bad graph, file or plug-in directory, an unknown plug-in,
-    a failed action...): the run ends with ok False and the report's "error", which is also logged.
-    report_path: write the report there too (JSON), even after a failure. RuntimeError only if
-    another ofxh host is initialized."""
+    """Run a graph: make its instances (inputs first), then render its outputs at each frame.
+
+    A failure doesn't raise (a bad graph, file or plug-in directory, an unknown plug-in, a failed
+    action...): the run ends with ok False and the report's "error", which is also logged.
+
+    Args:
+        graph: a Graph, or the path of a graph file.
+        plugin_dirs: the plug-in directories (or .ofx.bundle paths).
+        frames: the frames to render, instead of the graph's.
+        scale: the render scale, s or (sx, sy), instead of the graph's.
+        use_env_path: also the plug-ins of $OFX_PLUGIN_PATH.
+        write: write the outputs' files.
+        report_path: write the report there too (JSON), even after a failure.
+
+    Returns:
+        The Result.
+
+    Raises:
+        RuntimeError: another ofxh host is initialized.
+    """
     report: dict[str, Any] = {"schema": REPORT_SCHEMA, "schemaVersion": REPORT_SCHEMA_VERSION, "ok": False,
                               "error": None, "host": None, "project": None, "frames": None, "renderScale": None,
                               "nodes": {}, "outputs": {}}
@@ -1021,8 +1029,11 @@ def _execute(graph: g.Graph, r: _Run, report: dict, images: dict, written: list,
 
 def _render_frames(r: _Run, order: list[_NodeState], outs: list[_NodeState], fs: list[float], window,
                    patterns: dict, report: dict, images: dict, written: list) -> None:
-    """Each node's sequence render (the frames it plans to render), the outputs' renders at each
-    frame, then the ends of the sequences that began."""
+    """Render the frames: each node's sequence render, the outputs at each frame, the sequences' ends.
+
+    A node's sequence covers the frames it plans to render; the ends are those of the sequences that
+    began.
+    """
     begun: list[_NodeState] = []  # the nodes whose beginSequenceRender succeeded
     try:
         for ns in order:
@@ -1048,9 +1059,12 @@ def _render_frames(r: _Run, order: list[_NodeState], outs: list[_NodeState], fs:
 
 def _output(r: _Run, ns: _NodeState, t: float, img: _Rendered | None, window, pattern: str | None,
             report: dict, images: dict) -> list[str]:
-    """An output node's image at t: in the result (top-down float32, as ofxhost.render() gives them),
-    in the report (its statistics, as hostDemo's report), and written to its file (over the whole
-    window, the project by default, with the image at its place and transparent black around it)."""
+    """An output node's image at t.
+
+    In the result (top-down float32, as ofxhost.render() gives them), in the report (its statistics, as hostDemo's
+    report), and written to its file (over the whole window, the project by default, with the image at its place and
+    transparent black around it).
+    """
     j: dict[str, Any] = {"time": t, "output": None, "files": []}
     report["outputs"].setdefault(ns.name, []).append(j)
     top_down = None

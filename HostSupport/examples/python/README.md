@@ -1,23 +1,23 @@
 # ofxhost: render OFX plug-ins from Python
 
 A test wrapper around the demo host `hostDemo` (HostSupport/examples), with two backends that
-have the same API and the same JSON report (NatronGitHub/openfx#136):
+have the same API and the same JSON report:
 
 - `"subprocess"` (the default): hostDemo, run as a subprocess. Each render runs in its own
   process and temporary directory: HostSupport has process-wide singletons, plug-ins can't be
   unloaded, and a crashing plug-in must not take down the interpreter. Images are exchanged as
   PFM files.
 - `"inprocess"`: `ofxhost.inprocess`, hostDemo's test host ported to Python on the HostSupport
-  bindings (the `ofxh` module, built with `-DOFX_PYTHON_BINDINGS=ON`; `PYTHONPATH=<build>/HostSupport/python`,
-  else ofxhost looks for it in `build*/HostSupport/python`: the build tree of the plug-ins of
-  `$OFX_TEST_PLUGIN_PATH`, or the only one; with several and none of them the plug-ins', set
-  `PYTHONPATH`). Same inputs, actions, render windows,
-  errors and report, without files: each fetch of an input gives the plug-in a new contiguous NumPy
-  array at the clip's depth, made from the input (as hostDemo makes a new image per fetch; ofxh
-  passes that array itself, without another copy), and outputs are the arrays it rendered into.
+  bindings (the `ofxh` module, built with `-DOFX_PYTHON_BINDINGS=ON`;
+  `PYTHONPATH=<build>/HostSupport/python`, else ofxhost looks for it in `build*/HostSupport/python`:
+  the build tree of the plug-ins of `$OFX_TEST_PLUGIN_PATH`, or the only one; with several and none
+  of them the plug-ins', set `PYTHONPATH`). Same inputs, actions, render windows, errors and
+  report, without files: each fetch of an input gives the plug-in a new contiguous NumPy array at
+  the clip's depth, made from the input (as hostDemo makes a new image per fetch; ofxh passes that
+  array itself, without another copy), and outputs are the arrays it rendered into.
 
-Choose with `backend=` (`render()`, `describe()`) or `$OFXHOST_BACKEND`. Needs Python 3.10 or later and NumPy (and pytest for the
-tests). See Documentation/proposals/hostdemo-testing.md, Part B.
+Choose with `backend=` (`render()`, `describe()`) or `$OFXHOST_BACKEND`. Needs Python 3.10 or later
+and NumPy (and pytest for the tests).
 
 ```python
 import numpy as np, ofxhost
@@ -29,7 +29,7 @@ assert np.allclose(r.outputs[0][..., :3], 1 - src, atol=1e-6)
 
 - `render(bundle_paths, plugin_id, context="filter", inputs=None, params=None, depth="float",
   frames=None, scale=None, window=None, query=False, host_binary=None, timeout=60,
-  extra_args=(), check=True)` runs hostDemo (by default at frames 0 and 1) with
+  extra_args=(), check=True, backend=None, components=None)` runs hostDemo (by default at frames 0 and 1) with
   `--no-std-paths --no-cache --quiet --format pfm --report`, and `OFX_PLUGIN_PATH` set from
   `bundle_paths` (directories, or `.ofx.bundle` paths, which stand for their parent
   directory). `frames`, `scale`, `window` and `query` are hostDemo's `--frames`, `--scale`,
@@ -74,14 +74,16 @@ assert np.allclose(r.outputs[0][..., :3], 1 - src, atol=1e-6)
     failure. The subprocess backend refuses these three (it passes its own to hostDemo);
   - stdout and stderr are captured from the file descriptors 1 and 2 during the call (the
     plug-ins' `printf` and `std::cerr` too), and the call runs in a temporary current directory, as
-    hostDemo does (relative paths in the inputs are resolved before);
+    hostDemo does (relative paths in the inputs are resolved before). Both are the process's: during
+    the call, what other threads write to them is captured too, and their relative paths are
+    relative to the temporary directory;
   - ofxh has one host per process. The backend keeps its host between the renders with the same
     plug-in directories and profile (`--ofx14`), so the plug-ins stay loaded (hostDemo loads them in
     each run); another set of directories or another profile makes a new host. It refuses to run
     while another ofxh host is initialized (RuntimeError). `ofxhost.inprocess.shutdown()` releases
     its host.
-  - `ofxhost.inprocess` is also an example of a full host on ofxh (Host, ImageEffectInstance and
-    ClipInstance subclasses, the actions in a host's order), as `minimal_host.py` is a minimal one.
+  - the template of a host on ofxh is the sample host, `ofxhost/graphhost.py` (below), and
+    `minimal_host.py` the minimal one; `ofxhost.inprocess` is a port of hostDemo.
 - Beyond hostDemo, in-process only (hostDemo is frozen):
   - **per-input components**: `render(..., components={"Source": "rgb"})` (`"rgb"`, `"alpha"`,
     `"rgba"`, or the `kOfxImageComponent*` names; a clip that isn't in `inputs` gets the default
@@ -94,12 +96,12 @@ assert np.allclose(r.outputs[0][..., :3], 1 - src, atol=1e-6)
     or file, and gives (a, a, a, a) to an RGBA clip, as hostDemo's Pf files. The report's input
     `unmappedComponents` and `spec` (with the suffix) say what was given. The subprocess backend
     raises `ValueError` for anything but RGBA. `ofxhost.split_components(spec)` splits the suffix.
-    This lets a test cover the RGB-source code paths of a plug-in (e.g. openfx-misc#216).
+    This lets a test cover the RGB-source code paths of a plug-in.
   - **worker threads**: a plug-in's worker thread (e.g. an OpenMP render loop) may be the first to
     fetch the output image of a render, or ask for the output's RoD during it. During a render, the
     output clip's `region_of_definition()` at the render's time and view returns the RoD computed
-    before the render action, so no RoD action runs on the worker (ofxh refuses actions there, part
-    2). Another time or view still runs the action, and is refused on a worker thread. Several
+    before the render action, so no RoD action runs on the worker (ofxh refuses actions on a worker
+    thread). Another time or view still runs the action, and is refused on a worker thread. Several
     worker threads may first-fetch the output at once: the bindings keep one output image per
     render (a `get_image()` that returns after another thread made the image is dropped), so no
     image is leaked and every thread writes into the same pixels. The sample
@@ -125,8 +127,7 @@ fixtures that depend on `backend` must be function-scoped (as `render` and `desc
 Support/Plugins/tests/conftest.py).
 
 `minimal_host.py` is not a hostDemo wrapper: it is a minimal OFX host in Python, in-process, on
-the HostSupport Python bindings (the `ofxh` module, built with `-DOFX_PYTHON_BINDINGS=ON`;
-NatronGitHub/openfx#136). It renders one frame of a plug-in on one input, and is a template:
+the HostSupport Python bindings (the `ofxh` module, built with `-DOFX_PYTHON_BINDINGS=ON`). It renders one frame of a plug-in on one input, and is a template:
 which classes to subclass, and what each override does
 (`PYTHONPATH=<build>/HostSupport/python python minimal_host.py <plugin dir> <plugin id> in.npy out.npy`).
 The module can also be installed alone, with `pip install ./HostSupport/python`
@@ -322,6 +323,7 @@ order, `Graph.dumps()` gives the text; everything but `nodes` and `outputs` is o
   the same bytes; `save()` to another directory rewrites them for that directory (absolute when
   there is no relative path, and `"file:"` specs absolute), so that the saved graph still finds its
   files.
+- `version` is `[major, minor]`: the latest version of that major is used; without it, the latest.
 - Unknown keys are refused (in the nodes and at the top level), and so are `"output"` and
   `"outputs"` together.
 - A graph built in Python, saved, then loaded, is equivalent (the same nodes, versions,
@@ -487,7 +489,7 @@ What differs from hostDemo (the complete list; `tests/test_hostdemo_cli.py` chec
 - beyond hostDemo: an input spec may end with `#rgb`, `#alpha` or `#rgba` (the components, as
   above), and `$OFXHOST_PRELOAD` lists libraries (`os.pathsep`-separated) to load with
   `RTLD_GLOBAL` before the plug-in scan: e.g. MacPorts' `libtbbmalloc` for IO.ofx, since oneTBB
-  2023.2 can crash at exit when OpenImageIO loaded it (#136).
+  2023.2 can crash at exit when OpenImageIO loaded it.
 
 As hostDemo, it reads the whole command line before it imports `ofxh`: `-h` and the usage errors
 behave the same where `ofxh` isn't built.
@@ -599,75 +601,6 @@ records = run_batch(["--quiet -p net.sf.openfx.invertPlugin -o a --report a.json
   (the command's own `--env`, not an inherited variable) makes the worker crash, hang... after the
   command (`ofxhost/_batch.py`).
 
-## MIGRATION: from hostDemo to the Python host
-
-Part 5 of #136 moves the plug-in repositories' tests to the Python host, then hostDemo goes back to
-a simple example (part 5b). hostDemo is frozen meanwhile. For each way the repositories run hostDemo
-today, the equivalent:
-
-| Consumer | Today (hostDemo) | Python host |
-|---|---|---|
-| any script | `"$HOSTDEMO" ARGS...` | `HOSTDEMO=<openfx>/HostSupport/examples/python/hostdemo-inprocess` (a single path, for scripts that quote `"$HOSTDEMO"`; a `sh` script that runs `$OFXHOST_PYTHON`, default `python3`: the Python of the `ofxh` module, with NumPy), or `python -m ofxhost.hostdemo ARGS...` with `PYTHONPATH=<openfx>/HostSupport/examples/python[:<build>/HostSupport/python]`; the same ARGS |
-| openfx-misc `rendertest.sh` | `hostDemo --no-std-paths --no-cache --quiet -p ID -c CTX -d DEPTH --format pfm -o out --report report.json [-i Clip=spec]... [--frames ...] [--scale s] [--window ...] [-m N] [-s button[@t]] [name=value]...` | the same line with `python -m ofxhost.hostdemo`; in pytest: `ofxhost.render(dirs, ID, CTX, inputs={...}, params={...}, depth=DEPTH, frames=[...], scale=s, window=(...), extra_args=["-m", "N", "-s", "button@t", "--format", "pfm", "-o", "out", "--report", "report.json"], backend="inprocess")` (the same report and files) |
-| openfx-misc `smoketest.sh` (also run by openfx-supportext) | `--describe describe.json -p ID -m N`, then `-p ID -m N -c CTX -d DEPTH --format pfm -o out --report report.json -i ...` per plug-in, `[--ofx14]`, under a `perl alarm` timeout, `xargs -P` jobs | the same lines with `python -m ofxhost.hostdemo` (one process per run, so the timeout and the jobs work as before); RGB inputs for the RGB-source paths: `-i Source=ramp#rgb` |
-| openfx-misc `render-shadertoy-osmesa.sh` | `-p net.sf.openfx.Shadertoy --describe d.json`, then `-c general --format pfm -o out --frames 0` | the same lines |
-| openfx-io `tests/hostdemo/run.sh` (ctest `io-hostdemo`, `io-hostdemo-ofx14`) | `env OFX_PLUGIN_PATH=... "$HD" --quiet --no-std-paths --no-cache $HOSTDEMO_ARGS -p ID -c CTX -o OUT/name --report OUT/name.json -s filename=...` (PPM outputs, the default input; `-d float -i Source=solid:...`, `-s choice@t=N`, `-s button@t`, `--window`, `--frames 1,2`) | `run.sh`'s first argument (`$HD`) is the `hostdemo-inprocess` script instead of `$<TARGET_FILE:hostDemo>`, the same arguments; the log grep for `OfxMessageError\|OfxMessageFatal` on stdout works the same; `OFXHOST_PRELOAD=<libtbbmalloc>` if oneTBB crashes at exit |
-| openfx-arena `tests/hostdemo/run.cmake` (`render_Arena`, `_ofx14`, `_keep_loaded`), `readsvg/dpi.cmake` (ctests that run `cmake -DHOSTDEMO=$<TARGET_FILE:hostDemo> ... -P run.cmake`), `readpsd/test_layers.py` (`--hostdemo $<TARGET_FILE:hostDemo>`) | the scripts make `HOSTDEMO` absolute (`get_filename_component(... ABSOLUTE)`) and run `COMMAND "${HOSTDEMO}" --quiet --no-std-paths --no-cache -p ID -m N -c CTX --frames 0 -o PREFIX [--ofx14] [-s filename=...] [name=value]`, `OFX_HOSTDEMO_KEEP_LOADED=1`; `--report` with `renders[].output.{w,h,crc32}`; test_layers.py runs `[hostdemo, ...]` after `os.path.abspath(--hostdemo)`, with `--format pfm -d float -i Source=none`, and reads `clipPreferences.outputPremultiplication` and `messages[].text` | Unix: no script change: pass `-DHOSTDEMO=<openfx>/HostSupport/examples/python/hostdemo-inprocess` (one absolute path, which the quoted `COMMAND` runs) and `--hostdemo <same>`, with `OFXHOST_PYTHON` and `PYTHONPATH=<build>/HostSupport/python` in the tests' `ENVIRONMENT`; `OFX_HOSTDEMO_KEEP_LOADED=1` works. Windows (or to run the module without the sh script): the scripts must take a command instead of a path, e.g. a `HOSTDEMO_PYTHON` variable used unquoted, `COMMAND ${HOSTDEMO_PYTHON} -m ofxhost.hostdemo ...` (a CMake list), skipping the `ABSOLUTE` conversion for it, and test_layers.py a `--hostdemo-python` option giving `[python, "-m", "ofxhost.hostdemo", ...]` instead of the `abspath`ed `--hostdemo` |
-| openfx-gmic `render_plugins.py` | `--host <build dir>` reads `hostDemo-path.txt` (written by CMake from `$<TARGET_FILE:hostDemo>`); `[host] + host_args + ['--no-std-paths', '--no-cache', '--quiet', '--allow-unwritten', '--format', 'pfm', '-d', 'float', '-p', ID, '-c', CTX, '--frames', '0', '-o', 'out', '--report', 'report.json', '-i', 'Clip=file:../input.pfm', ...]` | `host = [sys.executable, "-m", "ofxhost.hostdemo"]` (a new option, or that file holding a command), the same arguments (`--host-arg=--ofx14` too) |
-| C++ test hosts (io and arena `reader_window.cpp`, arena `mt_unload.cpp`), which compile hostDemo's `MyHost::*` classes | `MyHost::Host`, `MyEffectInstance`, `MyClipInstance`, `MyImage`, `gImageErrors`... | not covered by the Python host: they stay on the C++ classes until part 5b decides what hostDemo keeps (their own small HostSupport host, or Python on `ofxh` with `ofxh.init(keep_loaded=...)` and a multithread suite) |
-| openfx-gmic `describe_plugins.sh` | patches two comment lines of HostSupport and builds its own describer | `python -m ofxhost.hostdemo -p ID --describe d.json` or `ofxh.describe(plugin)` give the descriptors without a patch |
-
-**What the move costs.** The consumers' CI then needs the bindings: nanobind and NumPy, and an
-openfx build with `-DOFX_PYTHON_BINDINGS=ON` (Python 3.10 or later), instead of, or besides,
-hostDemo. Each run of the CLI starts Python and imports NumPy and `ofxh` before the plug-in scan:
-0.1 to 0.2 s more than hostDemo per run. The batch mode (above) pays that once per worker; with its
-default, a new host for each command, it is as fast as hostDemo or faster, and faster still with a
-kept host.
-Measured on macOS 27 only (Apple M5 Pro, 18 cores, a shared machine: 1-minute load 7.7 to 17.6
-during the runs): the median of 3 rounds (each round runs the cases in the order of the table), wall
-and CPU (user + system of all the processes) time in seconds:
-
-| | (a) openfx samples: 272 command lines | (b) openfx-misc `rendertest.sh`: 236 command lines |
-|---|---|---|
-| hostDemo, one process per command, serial | 15.5 wall, 12.9 CPU | 35.4 wall, 32.6 CPU |
-| hostDemo, one process per command, 4 at a time | 4.9 wall, 16.4 CPU | 13.0 wall, 44.8 CPU |
-| `python -m ofxhost.hostdemo`, one process per command, serial | 46.4 wall, 38.1 CPU | 46.9 wall, 42.3 CPU |
-| `python -m ofxhost.hostdemo`, one process per command, 4 at a time | 13.6 wall, 45.4 CPU | 14.9 wall, 51.7 CPU |
-| `--batch -j 1` (a new host per command, the default) | 12.9 wall, 12.6 CPU | 21.2 wall, 20.7 CPU |
-| `--batch -j 4` (the default) | 3.9 wall, 14.5 CPU | 6.7 wall, 22.2 CPU |
-| `--batch --fresh-host-per-plugin -j 4` | 3.2 wall, 11.9 CPU | 6.3 wall, 21.1 CPU |
-| `--batch --reuse-host -j 1` | 9.1 wall, 8.9 CPU | 18.1 wall, 17.6 CPU |
-| `--batch --reuse-host -j 4` | 2.9 wall, 10.5 CPU | 6.1 wall, 19.9 CPU |
-
-(a) is a `--describe` (also `--ofx14`) of each of the 27 sample plug-ins of `Support/Plugins` and
-`Examples` (CMake build), renders in the filter and general contexts at the three depths (frames 0,
-or 0 and 1), a render at scale 0.5 in a window, and 40 Invert renders (24 lines fail the same way
-in every case: GPU-only and overlay-only samples). (b) is the hostDemo command lines that
-openfx-misc's `rendertest.sh` runs (logged by a `HOSTDEMO` wrapper; CImg off, so its CImg lines
-are left out), with openfx-misc's plug-ins, hostDemo and `ofxh` built with the same extensions
-(two views per frame). The whole `rendertest.sh` took 43.1 s with hostDemo: its own checks (Python)
-add about 8 s to the renders. In every batch case, every command had the same exit status and stdout
-as its separate run, and wrote the same files, byte for byte (780 in (a), 2076 in (b): the images
-and the reports); stderr was the same, except that with a kept host (per-plugin or reuse) what the
-plug-ins print during the plug-in scan is only in the stderr of the host's first command (143 and
-215 commands of (a); none in (b)).
-
-To run a big suite (openfx-misc's smoketest and rendertest over all its plug-ins, openfx-gmic's
-`render_plugins.py`): write the command lines to a file and run them in one `--batch -j N
---timeout SECONDS` per phase (e.g. smoketest: the describes, then the renders made from them), or
-`run_batch()` from Python, then check the records and the reports, rather
-than one CLI process per command line (`xargs -P`) or one pytest process for everything (which
-loses the crash isolation). The batch keeps that isolation: a crashed or hung command is recorded,
-and its worker replaced. Keep the default (a new host per command) unless the speed of a kept host
-matters more than the plug-ins' state shared between the runs. A handful of command lines, or one
-per test (ctest), can stay one process per run.
-
-In pytest, `ofxhost.render(..., backend="inprocess")` runs in the test process (no crash isolation:
-run large suites under the CLI, or in worker processes), and `ofxhost.testing`'s `backend` fixture
-runs a test on both backends. Check the threaded plug-ins (OpenMP, the multithread suite) when they
-move: their worker threads may now fetch the output image first, but they still can't run actions
-(e.g. fetch an input image that wasn't rendered before the render action, in the sample host).
-
 ## OFX constants and property metadata
 
 `ofxhost.constants` has every `#define` of `include/` (strings, status codes, key symbols...),
@@ -690,18 +623,34 @@ changing a header. CI fails if they are out of date, and `scripts/check-props.py
 ## Tests
 
 ```sh
-make -C HostSupport && make -C HostSupport/examples && make -C Support/Plugins CONFIG=release
-python3 -m venv /tmp/ofxhost-venv && /tmp/ofxhost-venv/bin/pip install numpy pytest
-/tmp/ofxhost-venv/bin/python -m pytest -q -p no:cacheprovider HostSupport/examples/python/tests
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON \
+    -DOFX_PYTHON_BINDINGS=ON && cmake --build build -j4      # (or the Makefiles: no ofxh module)
+OFX_TEST_PLUGIN_PATH=build/Plugins PYTHONPATH=build/HostSupport/python OFXHOST_HOSTDEMO=build/HostSupport/examples/hostDemo \
+    python3 -m pytest -q -rs -p no:cacheprovider HostSupport/examples/python/tests Support/Plugins/tests
 ```
 
-Support/Plugins/tests has tests of the sample plug-ins, meant as templates for plug-in repos
-(see its README.md). Both directories run on the two backends (`PYTHONPATH=<build>/HostSupport/python`
-for the in-process one, which a Make build doesn't make: without it, those tests are skipped), and
-`tests/test_backends.py` checks that the backends give the same pixels and reports.
-`tests/test_hostdemo_cli.py` runs hostDemo and `ofxhost.hostdemo` on the same command lines (those
-of the plug-in repositories) and compares their files, reports and errors; `tests/test_inprocess5.py`
-covers per-input components, the files of `extra_args`, a worker thread that fetches the output
-image first, and the sample host's planning; `tests/test_hostdemo_batch.py` the batch mode (its
-parser, the same files, reports and output as separate runs, the host's lifetime, and workers that
-crash or hang). CI runs both in the Linux job, on both backends.
+Support/Plugins/tests has tests of the sample plug-ins, meant as templates for plug-in repos (see
+its README.md). Both directories run on the two backends (without the ofxh module, the in-process
+tests are skipped; `OFXH_REQUIRE=1` makes them fail instead, as in CI), and `tests/test_backends.py`
+checks that the backends give the same pixels and reports. `tests/test_hostdemo_cli.py` runs
+hostDemo and `ofxhost.hostdemo` on the same command lines (those of the plug-in repositories) and
+compares their files, reports and errors; `tests/test_beyond_hostdemo.py` covers per-input
+components, the files of `extra_args`, a worker thread that fetches the output image first, and the
+sample host's planning; `tests/test_graph.py` and `tests/test_graphhost.py` the graphs and the
+sample host; `tests/test_hostdemo_batch.py` the batch mode (its parser, the same files, reports and
+output as separate runs, the host's lifetime, and workers that crash or hang). CI runs them in the
+Linux job, on both backends.
+
+## Developer notes
+
+- Python code follows the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html),
+  with lines of up to 120 columns ([line length](https://google.github.io/styleguide/pyguide.html#s3.2-line-length)
+  is 80 there). `HostSupport/python/pyproject.toml` says so to ruff (`line-length`, and E501, which
+  ruff doesn't check by default; the generated `constants.py` and `props.py` are excluded). No
+  linter runs in CI: `ruff check --config HostSupport/python/pyproject.toml HostSupport/examples/python`
+  checks it.
+- The helpers shared by the backends and the sample host are public modules of the package:
+  `ofxhost.rects` (rectangles), `ofxhost.pixels` (arrays, depths, statistics), `ofxhost.specs`
+  (hostDemo's input specs and patterns), `ofxhost.pfm`, `ofxhost.status` (status names),
+  `ofxhost.stdio` (the file descriptors 1 and 2) and `ofxhost.build` (the build trees). OFX names
+  come from `ofxhost.constants`.

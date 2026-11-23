@@ -35,7 +35,18 @@ def check_format(path: str | os.PathLike) -> None:
 
 
 def read_image(path: str | os.PathLike) -> np.ndarray:
-    """A float32 array H x W x C (C = 1, 3 or 4), top-down."""
+    """Read an image file.
+
+    Args:
+        path: a .pfm file (with its .alpha.pfm file, if there is one) or a .npy file.
+
+    Returns:
+        A float32 array H x W x C (C = 1, 3 or 4), top-down.
+
+    Raises:
+        OSError: the file can't be read.
+        ValueError: an unsupported format, or not a valid file.
+    """
     path = os.fspath(path)
     if _ext(path) == ".pfm":
         a = read_pfm(path)
@@ -57,7 +68,15 @@ def read_image(path: str | os.PathLike) -> np.ndarray:
 
 
 def write_image(path: str | os.PathLike, pixels: np.ndarray) -> list[str]:
-    """Write a top-down image (H x W x C); returns the files written (an RGBA PFM image has two)."""
+    """Write an image file (and its directory).
+
+    Args:
+        path: a .pfm file (and <name>.alpha.pfm for RGBA) or a .npy file.
+        pixels: a top-down image, H x W x C.
+
+    Returns:
+        The files written.
+    """
     path = os.fspath(path)
     ext = _ext(path)
     directory = os.path.dirname(path)

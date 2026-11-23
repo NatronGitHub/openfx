@@ -1,59 +1,15 @@
-"""Plug-in instance graphs: build a DAG of nodes, save it to JSON or load it (the sample host,
-ofxhost.graphhost, runs them).
+"""Plug-in instance graphs: build a DAG of nodes, save it to JSON or load it; ofxhost.graphhost runs them.
 
 A Node is a plug-in instance: its plug-in (and version), context, parameters, and inputs. An input
-is another Node, a Files image sequence, or anything ofxhost.render() takes (a NumPy array, an
-Image, a hostDemo spec such as "ramp", "none" or "file:x.pfm"). A Node's output may feed several
-inputs: the graph is a DAG. A Graph names the nodes, says which ones are its outputs (and the files
-they are written to), and holds the project and render settings.
+is another Node, a Files image sequence, or anything ofxhost.render() takes. A Graph names the
+nodes, says which ones are its outputs (and the files they are written to), and holds the project
+and render settings. README.md describes the JSON format ("ofxhost.graph", version 1).
 
     src = Node("net.sf.openfx.invertPlugin", inputs={"Source": "ramp"})
     out = Node("net.sf.openfx.basicPlugin", "general", {"scale": Keys({0: 1., 10: 2.})},
                inputs={"Source": src, "Mask": src})
     g = Graph.of(out, frames=[0, 1])           # names the nodes; outputs {"basicPlugin": None}
-    g.save("graph.json")                       # the JSON format below; load("graph.json") reads it
-    r = graphhost.run(g, bundles)              # r.images["basicPlugin"]: {0.0: Image, 1.0: Image}
-
-The JSON format (schema "ofxhost.graph", version 1; save() writes the keys in this order, and
-every key but "nodes" and "outputs" is optional):
-
-    {"schema": "ofxhost.graph", "schemaVersion": 1,
-     "project": {"size": [768.0, 576.0], "offset": [0.0, 0.0], "pixelAspectRatio": 1.0666666666666667,
-                 "frameRate": 25.0, "frameRange": [0.0, 24.0]},
-     "render": {"frames": [0.0, 1.0], "renderScale": [1.0, 1.0], "window": null, "depth": "float"},
-     "outputs": {"b": "out.####.pfm"},
-     "nodes": {"a": {"plugin": "net.sf.openfx.invertPlugin", "version": [1, 0], "context": "filter",
-                     "params": {}, "inputs": {"Source": {"file": "in.####.pfm#premult"}}},
-               "b": {"plugin": "net.sf.openfx.basicPlugin", "context": "general",
-                     "params": {"scale": {"keys": [[0.0, 1.0], [10.0, 2.0]], "interpolation": "linear"},
-                                "scaleComponents": true},
-                     "inputs": {"Source": {"node": "a"}, "Mask": "none"}}}}
-
-- "project": the project (its defaults are hostDemo's, shown above).
-- "render": "frames" (null: every frame of the outputs' time domains), "renderScale" (sx, sy),
-  "window" (pixels at the render scale, null: the project), "depth" of the unconnected and pattern
-  inputs (byte, short, float).
-- "outputs": the output nodes, each with the file name pattern it is written to (see
-  ofxhost.sequences: "out.####.pfm"), or null (rendered, not written; e.g. a writer plug-in).
-  ("output": "b" is read as {"b": null}.)
-- "params": a value (as ofxh.param_template() gives them: numbers, booleans, strings, lists; a
-  choice's index or option label), keys {"keys": [[time, value]...], "interpolation": "linear"},
-  a file path {"file": path} (FilePath: the value of a file parameter, which may be a pattern),
-  or null to press a push button (after the instance is created, as a user would).
-  "interpolation" is that of hostDemo and ofxh, the only one: linear, rounded for integers, held for
-  booleans and choices.
-- "inputs": {"node": name}, {"file": pattern} (an image sequence, see ofxhost.sequences, or a still
-  image; "#premult", "#unpremult" or "#opaque" at the end gives the files' premultiplication), or a
-  string for ofxhost.render(): a test pattern ("default", "ramp", "checker:16", "solid:r,g,b,a",
-  "rod:x1,y1,x2,y2"), "none", or "file:x.pfm". An input clip that the graph doesn't give is
-  disconnected, as in a real host: the test patterns must be asked for.
-- Relative paths (file inputs, outputs and file parameters) are relative to the graph file's
-  directory (Graph.base). save() rewrites them for the directory it saves to (as absolute paths if
-  there is no relative one), so that a graph saved elsewhere still finds its files.
-"version" is [major, minor] (the latest version of that major is used); without it, the latest.
-Unknown keys are refused, in the nodes and at the top level.
-
-save() then load() gives an equivalent graph, and saving that one gives the same bytes again.
+    g.save("graph.json")                       # load("graph.json") gives an equivalent graph
 
 A graph is like a script: it chooses the plug-ins that run, with their parameters, and the files
 it reads and writes, anywhere the user can. Run only the graphs you trust.
@@ -84,6 +40,11 @@ INTERPOLATIONS = ("linear",)  # (hostDemo's and ofxh's: linear, rounded for inte
 
 @dataclasses.dataclass(eq=False)  # nodes are compared by identity
 class Node:
+    """A plug-in instance.
+
+    The plug-in, its context, its parameter values, its input clips' sources, its name in the graph and the
+    plug-in's (major, minor) version (None: the latest).
+    """
     plugin: str
     context: str = "filter"
     params: dict = dataclasses.field(default_factory=dict)  # name -> value | Keys | {time: value} | None (press)
@@ -97,9 +58,11 @@ class Node:
 
 @dataclasses.dataclass
 class Keys:
-    """The keys of an animated parameter, {time: value}. A plain {time: value} dict in Node.params
-    means the same. interpolation: "linear", hostDemo's and ofxh's (linear, rounded for integers,
-    held for booleans and choices; the only one they have)."""
+    """The keys of an animated parameter, {time: value}.
+
+    A plain {time: value} dict in Node.params means the same. interpolation: "linear", hostDemo's and ofxh's
+    (linear, rounded for integers, held for booleans and choices; the only one they have).
+    """
     values: dict
     interpolation: str = "linear"
 
@@ -116,12 +79,14 @@ _PREMULTS = ("premult", "unpremult", "opaque")
 
 @dataclasses.dataclass(frozen=True)
 class Files:
-    """An input read from image files: a file name pattern (ofxhost.sequences: "in.####.pfm"), one
-    file per frame, or a still image (the same at all times). Relative to the graph's directory.
-    A "#premult", "#unpremult" or "#opaque" suffix gives the premultiplication of the files
-    (default: unpremultiplied, as hostDemo's file inputs); then a "#rgb", "#alpha" or "#rgba" suffix
-    the components they give the clip (its unmapped components, default RGBA: an RGB file is opaque
-    RGBA, a grey one r = g = b = a), e.g. "in.####.pfm#rgb", "matte.pfm#premult#alpha"."""
+    """An input read from image files.
+
+    A file name pattern (ofxhost.sequences: "in.####.pfm"), one file per frame, or a still image (the same at all
+    times). Relative to the graph's directory. A "#premult", "#unpremult" or "#opaque" suffix gives the
+    premultiplication of the files (default: unpremultiplied, as hostDemo's file inputs); then a "#rgb", "#alpha" or
+    "#rgba" suffix the components they give the clip (its unmapped components, default RGBA: an RGB file is opaque
+    RGBA, a grey one r = g = b = a), e.g. "in.####.pfm#rgb", "matte.pfm#premult#alpha".
+    """
     pattern: str
 
     def split(self) -> tuple[str, str | None]:
@@ -137,8 +102,11 @@ class Files:
 
 
 class FilePath(str):
-    """The value of a file parameter ({"file": path} in the JSON): a path, or a file name pattern,
-    relative to the graph's directory; save() rewrites it as it does the file inputs."""
+    """The value of a file parameter ({"file": path} in the JSON).
+
+    A path, or a file name pattern, relative to the graph's directory; save() rewrites it as it does
+    the file inputs.
+    """
 
     def __repr__(self) -> str:
         return f"FilePath({str.__repr__(self)})"
@@ -150,9 +118,11 @@ def stem(plugin_id: str) -> str:
 
 
 def _rebase(p: str, src: str | None, dst: str | None) -> str:
-    """A path of a graph whose base is src (None: the current directory), for a graph whose base is
-    dst: the same if it is empty or absolute or the bases are the same, else relative to dst, or
-    absolute if there is no relative path (another drive)."""
+    """A path of a graph whose base is src (None: the current directory), for one whose base is dst.
+
+    The same if it is empty or absolute or the bases are the same, else relative to dst, or absolute
+    if there is no relative path (another drive).
+    """
     if not p or dst is None or os.path.isabs(p):  # (an empty path stays empty: "no file")
         return p
     src = os.path.abspath(src or os.getcwd())
@@ -167,8 +137,10 @@ def _rebase(p: str, src: str | None, dst: str | None) -> str:
 
 @dataclasses.dataclass
 class Project:
-    """The project of the sample host (ofxhost.graphhost); the defaults are hostDemo's. frame_range
-    is the first and last frames (the timeline bounds)."""
+    """The project of the sample host (ofxhost.graphhost); the defaults are hostDemo's.
+
+    frame_range is the first and last frames (the timeline bounds).
+    """
     size: tuple = (768., 576.)
     offset: tuple = (0., 0.)
     pixel_aspect_ratio: float = 768. / 720.
@@ -213,8 +185,7 @@ def _floats(v, n: int, what: str) -> tuple:
 
 
 def json_value(v):
-    """A parameter value as JSON data: lists, not tuples; bytes as lists of ints (as
-    ofxh.param_template())."""
+    """A parameter value as JSON data: lists, not tuples; bytes as lists of ints (as ofxh.param_template())."""
     if isinstance(v, (bytes, bytearray)):
         return list(v)
     if isinstance(v, np.ndarray):
@@ -239,9 +210,15 @@ def keys_of(v) -> Keys | None:
 
 @dataclasses.dataclass(eq=False)
 class Graph:
-    """Named nodes, the output nodes (name -> output file pattern, or None), and the project and render
-    settings (see the module docstring). base: the directory that relative paths are relative to
-    (load(): the graph file's; None: the current directory)."""
+    """A graph: named nodes, the output nodes, and the project and render settings (see README.md).
+
+    Attributes:
+        nodes: name -> Node.
+        outputs: output node name -> output file pattern, or None.
+        frames, scale, window, depth, project: the settings (None: the defaults).
+        base: the directory that relative paths are relative to (load(): the graph file's; None: the
+            current directory).
+    """
     nodes: dict
     outputs: dict
     frames: list | None = None
@@ -253,8 +230,19 @@ class Graph:
 
     @classmethod
     def of(cls, *outputs: Node, **settings) -> Graph:
-        """The graph of these output nodes and of the nodes they depend on, in topological order.
-        Nodes without a name get one from their plug-in id ("invertPlugin", "invertPlugin2"...)."""
+        """The graph of output nodes and of the nodes they depend on.
+
+        Args:
+            *outputs: the output nodes (not written to files: Graph.outputs[name] is None).
+            **settings: the other fields of Graph (frames, scale, window, depth, project, base).
+
+        Returns:
+            The Graph, its nodes in topological order. Nodes without a name get one from their
+            plug-in id ("invertPlugin", "invertPlugin2"...).
+
+        Raises:
+            ValueError: two nodes have the same name, or the graph has a cycle.
+        """
         order: list[Node] = []
         for out in outputs:
             order += [n for n in topological_order(out) if all(n is not m for m in order)]
@@ -284,10 +272,19 @@ class Graph:
         return p if os.path.isabs(p) or self.base is None else os.path.join(self.base, p)
 
     def to_json(self, base: str | os.PathLike | None = None) -> dict:
-        """The graph as JSON data (the format of the module docstring). base: the directory the JSON
-        will be in (save(): the file's), for which the relative paths are rewritten (None: as they
-        are). Raises ValueError for what JSON can't hold: an array or Image input, a node that isn't in
-        nodes, a non-finite value."""
+        """The graph as JSON data (the format of README.md).
+
+        Args:
+            base: the directory the JSON will be in (save(): the file's), for which the relative
+                paths are rewritten (None: as they are).
+
+        Returns:
+            The JSON data, with the keys in the order of README.md.
+
+        Raises:
+            ValueError: what JSON can't hold: an array or Image input, a node that isn't in nodes,
+                a non-finite value.
+        """
         dst = None if base is None else os.path.abspath(base)
 
         def path(p: str) -> str:
@@ -318,7 +315,8 @@ class Graph:
                 k = keys_of(v)
                 params[p] = v if v is None else {"file": path(v)} if isinstance(v, FilePath) else \
                     json_value(v) if k is None else {
-                    "keys": [[float(t), json_value(x)] for t, x in sorted(k.values.items(), key=lambda kv: float(kv[0]))],
+                    "keys": [[float(t), json_value(x)]
+                             for t, x in sorted(k.values.items(), key=lambda kv: float(kv[0]))],
                     "interpolation": k.interpolation}
             inputs = d["inputs"] = {}
             for clip, v in n.inputs.items():
@@ -357,13 +355,24 @@ class Graph:
 
 
 def loads(text: str, base: str | None = None) -> Graph:
-    """A graph from JSON text (see load())."""
+    """A graph from JSON text (as load()); base: the directory its relative paths are relative to."""
     return _from_json(json.loads(text), base)
 
 
 def load(path: str | os.PathLike) -> Graph:
-    """A graph from a JSON file (the format of the module docstring). Relative paths stay as they are
-    in the graph, relative to the file's directory (Graph.base)."""
+    """Load a graph file.
+
+    Args:
+        path: a JSON file (the format of README.md).
+
+    Returns:
+        The Graph. Relative paths stay as they are in the graph, relative to the file's directory
+        (Graph.base).
+
+    Raises:
+        OSError: the file can't be read.
+        ValueError: not a JSON graph (an unknown key, a bad value...).
+    """
     with open(path, encoding="utf-8") as f:
         return loads(f.read(), os.path.dirname(os.path.abspath(path)))
 
@@ -459,8 +468,10 @@ def _params(node: str, params: dict) -> dict:
 
 
 def topological_order(output: Node) -> list[Node]:
-    """The nodes that output depends on, inputs first, output last. Raises ValueError on a
-    cycle."""
+    """The nodes that output depends on, inputs first, output last.
+
+    Raises ValueError on a cycle.
+    """
     order: list[Node] = []
     state: dict[int, str] = {}  # id(node) -> "visiting" | "done"
 

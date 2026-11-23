@@ -1,5 +1,6 @@
-"""hostDemo's input specs ("ramp", "file:x.pfm@10,20#premult"...), its number parsing, and the pixels
-of its test patterns, without the ofxh module.
+"""hostDemo's input specs, its number parsing, and the pixels of its test patterns, without ofxh.
+
+The specs are those of its -i option: "ramp", "file:x.pfm@10,20#premult"...
 
 ofxhost.hostdemo parses its command line with them before it imports ofxh, as hostDemo parses its
 own before it loads plug-ins; ofxhost.inprocess and ofxhost.graphhost make their input images with
@@ -120,8 +121,11 @@ class Spec:
 
 
 def read_file(path: str) -> np.ndarray:
-    """hostDemo's readPFM: a little-endian PFM with finite values, as a bottom-up float32 array
-    (H x W x 3, or H x W for Pf). Raises SpecError with hostDemo's message."""
+    """hostDemo's readPFM.
+
+    A little-endian PFM with finite values, as a bottom-up float32 array (H x W x 3, or H x W for Pf). Raises
+    SpecError with hostDemo's message.
+    """
     try:
         return read_pfm(path, strict=True)[::-1]
     except OSError:
@@ -192,8 +196,10 @@ def parse_spec(s: str) -> Spec:
 
 
 def array_spec(clip: str, value: Any) -> Spec:
-    """An array or an ofxhost.Image input: what the subprocess backend writes to PFM files, with
-    the same checks and errors (ValueError)."""
+    """An array or an ofxhost.Image input.
+
+    What the subprocess backend writes to PFM files, with the same checks and errors (ValueError).
+    """
     bounds = premult = None
     if isinstance(value, Image):
         value, bounds, premult = value.pixels, value.bounds, value.premult
@@ -239,8 +245,10 @@ def input_spec(clip: str, value: Any, components: str | None = None, resolve: bo
 
 
 def resolve_spec(spec: str, base: str | os.PathLike | None = None) -> str:
-    """resolve_file_spec() of a "file:" spec (relative to base, default the current directory),
-    keeping a components suffix."""
+    """resolve_file_spec() of a "file:" spec, keeping a components suffix.
+
+    base: the directory the paths are relative to (default: the current directory).
+    """
     body, comps = split_components(spec)
     return resolve_file_spec(body, base) + ("#" + comps if comps else "")
 
@@ -339,8 +347,10 @@ def pattern(spec: Spec, time: float, view: int, b: Sequence[int], rod_px: Sequen
 
 
 def from_components(rgba: np.ndarray, components: str) -> np.ndarray:
-    """An RGBA pattern as an input of these components gives it, as RGBA: RGB is opaque (alpha 1),
-    Alpha is (a, a, a, a), as hostDemo's Pf files; RGBA unchanged."""
+    """An RGBA pattern as an input of these components gives it, as RGBA.
+
+    RGB is opaque (alpha 1), Alpha is (a, a, a, a), as hostDemo's Pf files; RGBA unchanged.
+    """
     if components == "rgb":
         out = np.array(rgba, np.float64)
         out[..., 3] = 1.

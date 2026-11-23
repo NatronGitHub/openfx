@@ -1,5 +1,7 @@
-"""Where the openfx builds are: hostDemo, the ofxh module (the HostSupport Python bindings) and the
-sample plug-ins, in this openfx checkout's Makefile or CMake build trees.
+"""Where the openfx builds are.
+
+hostDemo, the ofxh module (the HostSupport Python bindings) and the sample plug-ins, in this openfx checkout's
+Makefile or CMake build trees.
 """
 
 from __future__ import annotations
@@ -37,9 +39,11 @@ def hostdemo_candidates() -> list[Path]:
 
 
 def sample_plugin_dirs() -> list[Path]:
-    """The directories of the Support/Plugins samples: $OFX_TEST_PLUGIN_PATH (os.pathsep-separated),
-    else the Makefile build (make -C Support/Plugins CONFIG=release), else the CMake build trees'
-    (build*/Plugins). They may hold no bundle yet."""
+    """The directories of the Support/Plugins samples.
+
+    $OFX_TEST_PLUGIN_PATH (os.pathsep-separated), else the Makefile build (make -C Support/Plugins CONFIG=release),
+    else the CMake build trees' (build*/Plugins). They may hold no bundle yet.
+    """
     env = os.environ.get("OFX_TEST_PLUGIN_PATH")
     if env:
         return [Path(d) for d in env.split(os.pathsep) if d]

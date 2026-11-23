@@ -87,7 +87,8 @@ def test_save_load_round_trip(tmp_path):
     text = (tmp_path / "g.json").read_text()
     doc = json.loads(text)
     assert doc["schema"] == "ofxhost.graph" and doc["schemaVersion"] == 1
-    assert doc["render"] == {"frames": [0.0, 1.0], "renderScale": [0.5, 0.5], "window": [4, 2, 30, 20], "depth": "short"}
+    assert doc["render"] == {"frames": [0.0, 1.0], "renderScale": [0.5, 0.5], "window": [4, 2, 30, 20],
+                             "depth": "short"}
     assert doc["nodes"]["out"]["params"]["scale"] == {"keys": [[0.0, 1.5], [1.0, 2]], "interpolation": "linear"}
     assert doc["nodes"]["out"]["params"]["scaleR"] == {"keys": [[0.5, 0.25]], "interpolation": "linear"}
     assert doc["nodes"]["out"]["inputs"] == {"Source": {"node": "invertPlugin"}, "Mask": "none"}
@@ -131,7 +132,8 @@ def test_save_elsewhere(tmp_path):
     assert doc["nodes"]["out"]["params"]["proxy"] == {"file": ""}
     assert doc["nodes"]["out"]["inputs"]["Mask"] == "file:" + str((tmp_path / "a" / "m.pfm").resolve()) + "#premult"
     h = load(tmp_path / "b" / "c" / "g.json")
-    assert h.path(h.nodes["seq"].inputs["Source"].pattern) == os.path.join(str(tmp_path / "b" / "c"), "../../a/in.####.pfm")
+    assert h.path(h.nodes["seq"].inputs["Source"].pattern) == \
+        os.path.join(str(tmp_path / "b" / "c"), "../../a/in.####.pfm")
     h.save(tmp_path / "b" / "c" / "h.json")
     assert (tmp_path / "b" / "c" / "h.json").read_text() == (tmp_path / "b" / "c" / "g.json").read_text()
     h.save(tmp_path / "a" / "h.json")

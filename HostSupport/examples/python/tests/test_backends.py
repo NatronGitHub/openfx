@@ -127,8 +127,8 @@ def test_scale_and_window(both):
 def test_image_inputs(both, tmp_path):
     """Arrays at a position with a premultiplication, grey and RGB arrays, and PFM files (with an
     alpha file)."""
-    _compare(both, INVERT, inputs={"Source": ofxhost.Image(rgba(10, 12), (100, 50, 112, 60), "OfxImageAlphaPremultiplied")},
-             frames=[0], window=(90, 40, 120, 70))
+    image = ofxhost.Image(rgba(10, 12), (100, 50, 112, 60), k.kOfxImagePreMultiplied)
+    _compare(both, INVERT, inputs={"Source": image}, frames=[0], window=(90, 40, 120, 70))
     _compare(both, INVERT, inputs={"Source": rgba()[..., 0]}, frames=[0])
     _compare(both, INVERT, inputs={"Source": rgba()[..., :3]}, frames=[0], scale=0.5)
     a = rgba(8, 9, seed=3)
@@ -198,9 +198,8 @@ def test_refused_images(both):
 
 
 def test_refused_images_are_all_counted(both):
-    """The same refused fetch twice (the same bounds at the same time) is two errors: the analyse
-    button pressed twice (-s in extra_args, then the params) makes 50, not 25 (the in-process backend
-    de-duplicated them by (bounds, time) before #207)."""
+    """The same refused fetch twice (the same bounds at the same time) is two errors, as in hostDemo:
+    the analyse button pressed twice (-s in extra_args, then the params) makes 50, not 25."""
     s, i = _compare(both, TESTER, inputs={"Source": "rod:0,0,40000,40000"}, params={"analyseButton": None},
                     extra_args=["-s", "analyseButton"], frames=[0], query=True)
     for r in (s, i):
@@ -243,7 +242,8 @@ def test_strchoice_value_outside_the_enums(both):
 
 
 @pytest.mark.parametrize("kw", [dict(context="paint"), dict(inputs={"Source": "solid:1"}), dict(frames=[0, 0]),
-                                dict(scale=2), dict(window=(5, 5, 5, 6)), dict(inputs={"Source": "file:/nonexistent.pfm"})])
+                                dict(scale=2), dict(window=(5, 5, 5, 6)),
+                                dict(inputs={"Source": "file:/nonexistent.pfm"})])
 def test_usage_errors(both, kw):
     """hostDemo exits before the run (no report): both raise HostDemoError, even with check=False."""
     for b in ofxhost.BACKENDS:

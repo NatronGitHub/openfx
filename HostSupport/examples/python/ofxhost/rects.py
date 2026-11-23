@@ -102,8 +102,10 @@ def is_empty(r: Sequence[float]) -> bool:
 
 
 def fits(b: Sequence[int], bytes_per_pixel: int = 16) -> bool:
-    """Can hostDemo make an image of these pixel bounds (imageFits)? At most 2^28 pixels, and rows
-    of less than 2^31 bytes (default: float RGBA)."""
+    """Can hostDemo make an image of these pixel bounds (imageFits)?
+
+    At most 2^28 pixels, and rows of less than 2^31 bytes (default: float RGBA).
+    """
     w, h = b[2] - b[0], b[3] - b[1]
     return (w <= MAX_IMAGE_PIXELS and h <= MAX_IMAGE_PIXELS and w * h <= MAX_IMAGE_PIXELS
             and w * bytes_per_pixel <= 0x7fffffff)
