@@ -1,4 +1,5 @@
-# MacPorts for the weekly ofxh job (extended.yml, macos-ofxh): the build tools of macports.yaml,
+# MacPorts for the jobs that build the ofxh module (build.yml's macOS job, extended.yml's
+# macos-ofxh): the build tools of macports.yaml,
 # expat, and Python 3.11 with nanobind, scikit-build-core, NumPy and pytest
 version: '2.11.5'
 prefix: '/opt/local'

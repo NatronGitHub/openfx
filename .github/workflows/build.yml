@@ -10,7 +10,8 @@ name: Build
 #     property metadata checks and the Python tests (HostSupport/examples/python and
 #     Support/Plugins/tests on both ofxhost backends, hostDemo and in-process, and the HostSupport
 #     Python bindings, HostSupport/python/tests, with the extensions off and on)
-#   - macOS 15 arm64: CMake, system (Xcode) clang, MacPorts tools and libomp, no Homebrew
+#   - macOS 15 arm64: CMake, system (Xcode) clang, MacPorts tools and libomp, no Homebrew, and the
+#     Python tests on the ofxh module (MacPorts' Python 3.11 and nanobind), as on Linux
 #   - Windows: MSYS2 UCRT64, CMake, the plug-in and host projects, and the ofxh module (built and
 #     imported, plus a smoke comparison of ofxhost.hostdemo with hostDemo: one describe and one render,
 #     also in its batch mode, with a killed worker)
@@ -169,7 +170,8 @@ jobs:
         # Support/include/osxDeploy.sh (release bundles) needs GNU sed: gsed from MacPorts
         uses: melusina-org/setup-macports@v1
         with:
-          parameters: .github/macports.yaml
+          # with Python 3.11, nanobind, NumPy and pytest, for the ofxh module
+          parameters: .github/macports-python.yaml
       - name: Remove Homebrew from PATH
         run: |
           echo "PATH=/opt/local/bin:/opt/local/sbin:$(echo "$PATH" | tr ':' '\n' | grep -v -e homebrew -e '^/usr/local/' | paste -sd: -)" >> "$GITHUB_ENV"
@@ -183,8 +185,26 @@ jobs:
           test "$(command -v cmake)" = /opt/local/bin/cmake
           cmake --version | head -1
           ls /opt/local/lib/libomp/libomp.dylib
+          python3.11 -c "import nanobind, numpy, pytest; print(nanobind.__version__, numpy.__version__)"
       - name: Build and test
+        # (with the HostSupport Python bindings, the ofxh module: MacPorts' Python 3.11 and nanobind)
+        env:
+          OFX_CMAKE_EXTRA_ARGS: -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE=/opt/local/bin/python3.11
         run: .github/scripts/cmake-build-test.sh
+      - name: Python wrapper and sample plug-in tests (ofxhost, on both backends)
+        if: success() || failure()
+        run: |
+          # OFXH_REQUIRE=1: a backend that isn't built fails the tests instead of skipping them
+          OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1 \
+            OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
+            python3.11 -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 \
+            HostSupport/examples/python/tests Support/Plugins/tests
+      - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
+        if: success() || failure()
+        run: |
+          export PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1
+          python3.11 -c "import ofxh; print(ofxh.__file__)"
+          python3.11 -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
 
   windows:
     name: Windows (MSYS2 UCRT64, CMake)

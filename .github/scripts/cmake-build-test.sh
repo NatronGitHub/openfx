@@ -5,7 +5,7 @@
 # The extensions are off, as in the Makefile build: the hostDemo checks expect one view per frame
 # (with OFX_EXTENSIONS_NUKE or _VEGAS hostDemo renders two). The Windows job builds them on.
 # OFX_CMAKE_EXTRA_ARGS: more (space-separated) arguments for the configure step, e.g.
-# -DOFX_PYTHON_BINDINGS=ON (the Linux job).
+# -DOFX_PYTHON_BINDINGS=ON (the Linux and macOS jobs).
 set -eo pipefail
 cd "$(dirname "$0")/../.."
 root=$PWD
