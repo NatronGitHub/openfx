@@ -175,6 +175,11 @@ jobs:
       - name: Remove Homebrew from PATH
         run: |
           echo "PATH=/opt/local/bin:/opt/local/sbin:$(echo "$PATH" | tr ':' '\n' | grep -v -e homebrew -e '^/usr/local/' | paste -sd: -)" >> "$GITHUB_ENV"
+      - name: Deployment target (the runner's macOS)
+        # CI builds aren't shipped: they target the runner's macOS. The release bundles target
+        # macOS 14.0 (VFX Reference Platform CY2027) and are built on a macOS 14 machine.
+        # After the MacPorts install: the ports are MacPorts' binary archives for the runner's macOS.
+        run: echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion | cut -d. -f1).0" >> "$GITHUB_ENV"
       - name: Toolchain
         run: |
           echo "PATH=$PATH"
