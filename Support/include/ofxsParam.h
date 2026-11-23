@@ -1050,7 +1050,10 @@ namespace OFX {
         /** @brief calls the raw OFX routine to define a param */
         void defineRawParam(const std::string &name, ParamTypeEnum paramType, OfxPropertySetHandle &props);
 
-        /** @brief Define a param descriptor of the given type */
+        /** @brief Define a param descriptor of the given type
+
+            Throws OFX::Exception::TypeRequest if a param of the same name but another type was
+            already defined. */
         template <class T> bool
         defineParamDescriptor(const std::string &name, ParamTypeEnum paramType, T * &paramPtr)
         {
@@ -1066,11 +1069,8 @@ namespace OFX {
                     return true;
 #                 endif
                 } else {
-#                 ifdef DEBUG
-                    throw std::logic_error("Trying to redefine existing param '" + name + "' with a different type");
-#                 else
-                    return false; // SHOULD THROW SOMETHING HERE!!!!!!!
-#                 endif
+                    // in all builds: returning NULL would make the plug-in dereference it
+                    throw OFX::Exception::TypeRequest(("Trying to redefine existing param '" + name + "' with a different type").c_str());
                 }
             }
             else {
