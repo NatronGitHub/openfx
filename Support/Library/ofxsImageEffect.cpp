@@ -5844,7 +5844,7 @@ namespace OFX {
         return kOfxStatFailed;
       }
       OFX::Log::print("********************************************************************************");
-      OFX::Log::print("START mainEntry (%s)", actionRaw);
+      OFX::Log::print("START mainEntry (%s for %s)", actionRaw, plugname ? plugname : "");
       OFX::Log::indent();
       OfxStatus stat = kOfxStatReplyDefault;
       try {
@@ -6215,6 +6215,7 @@ namespace OFX {
       // catch suite exceptions
       catch (const OFX::Exception::Suite &ex)
       {
+        OFX::Log::error(true, "Caught OFX::Exception::Suite: %s", ex.what());
 #      ifdef DEBUG
         std::cout << "Caught OFX::Exception::Suite: " << ex.what() << std::endl;
 #      endif
@@ -6224,20 +6225,20 @@ namespace OFX {
       // catch host inadequate exceptions
       catch (const OFX::Exception::HostInadequate &e)
       {
+        OFX::Log::error(true, "Caught OFX::Exception::HostInadequate: %s", e.what());
 #      ifdef DEBUG
         std::cout << "Caught OFX::Exception::HostInadequate: " << e.what() << std::endl;
 #      endif
-        unused(e);
         stat = kOfxStatErrMissingHostFeature;
       }
 
       // catch exception due to a property being unknown to the host, implies something wrong with host if not caught further down
       catch (const OFX::Exception::PropertyUnknownToHost &e)
       {
+        OFX::Log::error(true, "Caught OFX::Exception::PropertyUnknownToHost: %s", e.what());
 #      ifdef DEBUG
         std::cout << "Caught OFX::Exception::PropertyUnknownToHost: " << e.what() << std::endl;
 #      endif
-        unused(e);
         stat = kOfxStatErrMissingHostFeature;
       }
 
@@ -6257,14 +6258,15 @@ namespace OFX {
       // Catch anything else, unknown
       catch (const std::exception &e)
       {
+        OFX::Log::error(true, "Caught std::exception: %s", e.what());
 #      ifdef DEBUG
-        std::cout << "Caught exception: " << e.what() << std::endl;
+        std::cout << "Caught std::exception: " << e.what() << std::endl;
 #      endif
-        unused(e);
         stat = kOfxStatFailed;
       }
       catch (...)
       {
+        OFX::Log::error(true, "Caught unknown exception");
 #      ifdef DEBUG
         std::cout << "Caught Unknown exception" << std::endl;
 #      endif
@@ -6272,7 +6274,8 @@ namespace OFX {
       }
 
       OFX::Log::outdent();
-      OFX::Log::print("STOP mainEntry (%s)\n", actionRaw);
+      OFX::Log::print("STOP mainEntry (%s for %s, returning %d=%s)\n", actionRaw, plugname ? plugname : "",
+                      stat, mapStatusToString(stat));
       return stat;
     }      
 

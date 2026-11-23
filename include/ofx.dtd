@@ -1,30 +1,6 @@
 <!--
-Software License :
-
-Copyright (c) 2004, The Open Effects Assocation Ltd. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-    * Redistributions of source code must retain the above copyright notice,
-      this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright notice,
-      this list of conditions and the following disclaimer in the documentation
-      and/or other materials provided with the distribution.
-    * Neither the name The Open Effects Association Ltd, nor the names of its 
-      contributors may be used to endorse or promote products derived from this
-      software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+Copyright OpenFX and contributors to the OpenFX project.
+SPDX-License-Identifier: BSD-3-Clause
  -->
 
 <!--
@@ -34,7 +10,7 @@ Author Bruno Nicoletti
 
 Each ofx binary may have a single xml file associated with it that is contains resource overrides for various properties of the plugin. This file is the DTD for those resource files. Typically, the properties being changed are to do with user interface labels and layouts, as well as a few other things such as default values for parameters and so on.
 
-If an element in the DTD has an equivilant property in OFX, the element will be the named with the same string that labels the property in the binary. For example the default property is labelled with "OfxParamPropDefault" in both cases.
+If an element in the DTD has an equivalent property in OFX, the element will be the named with the same string that labels the property in the binary. For example the default property is labelled with "OfxParamPropDefault" in both cases.
 
 The only attributes used on any element are there to identify the element, typically to associate it with a named object in the binary. This is the 'name' attribute. The only other attributes are to associate a host and a locale with the resource set.
 
@@ -50,9 +26,9 @@ A message redefinition is associated with the 'messageId' passed into the OfxMes
 
 A resource set is made up of parameter redefinitions, clip redefinitions, parameter hierarchy redefinitions and parameter page set redefinitions.
 
-Any parameter (except page and hierachy params) in the binaray may have certain properties overridden. Each parameter type has a corresponding element, for example the 2D integer parameter is specified via the 'OfxParamTypeInteger2D', the choice parameter by the 'OfxParamTypeChoice' element. There are 13 different elements, each of which corresponds to an OFX parameter type. The 'name' attribute of a parameter element is used to associate it with a specific parameter in the binary.
+Any parameter (except page and hierarchy params) in the binary may have certain properties overridden. Each parameter type has a corresponding element, for example the 2D integer parameter is specified via the 'OfxParamTypeInteger2D', the choice parameter by the 'OfxParamTypeChoice' element. There are many different elements, each of which corresponds to an OFX parameter type. The 'name' attribute of a parameter element is used to associate it with a specific parameter in the binary.
 
-Each parameter element has it's own specific set of sub elements, as not all parameters support all properties.
+Each parameter element has its own specific set of sub elements, as not all parameters support all properties.
 
 An image effect clip may simply have its labels and hints overridden. This is the 'OfxImageClip' element. It is associated with a clip in the binary via its 'name' element.
 
@@ -72,7 +48,7 @@ Because of the ability to 'default' hosts, locales and contexts, there is potent
 
 Otherwise its value is that found in the binary.
 
-Parameters and clips can have their properties set in the 'default' context, even if they do not appear in all contexts. 
+Parameters and clips can have their properties set in the 'default' context, even if they do not appear in all contexts.
 
 You cannot set the page layout or the parameter hierarchy in the default context.
 
@@ -123,15 +99,15 @@ Errors should be handled robustly. If a respecified parameter doesn't exist in t
  <!ATTLIST OfxPlugin name CDATA "">
 
  <!ELEMENT OfxResourceSet (OfxImageEffectContext+, OfxPropLabel?, OfxPropShortLabel?, OfxPropLongLabel?, OfxImageEffectPluginPropGrouping?, OfxMessage* ) >
- 
+
  <!ATTLIST OfxResourceSet ofxHost CDATA "default">
  <!ATTLIST OfxResourceSet ofxLocale CDATA "default">
 
- 
+
  <!ELEMENT OfxMessage ( CDATA )>
  <!ATTLIST OfxMessage name CDATA "">
 
- <!ELEMENT OfxImageEffectContext (OfxImageClip*, OfxParamPageSet?, OfxParamHierarchy?, OfxParamTypeInteger*, OfxParamTypeDouble*, OfxParamTypeBoolean*, OfxParamTypeChoice*, OfxParamTypeRGBA*, OfxParamTypeRGB*, OfxParamTypeDouble2D*, OfxParamTypeDouble3D*, OfxParamTypeInteger2D*, OfxParamTypeInteger3D*, OfxParamTypeString*, OfxParamTypeCustom*, OfxParamTypePushButton*) >
+ <!ELEMENT OfxImageEffectContext (OfxImageClip*, OfxParamPageSet?, OfxParamHierarchy?, OfxParamTypeInteger*, OfxParamTypeDouble*, OfxParamTypeBoolean*, OfxParamTypeChoice*, OfxParamTypeStrChoice*, OfxParamTypeRGBA*, OfxParamTypeRGB*, OfxParamTypeDouble2D*, OfxParamTypeDouble3D*, OfxParamTypeInteger2D*, OfxParamTypeInteger3D*, OfxParamTypeString*, OfxParamTypeCustom*, OfxParamTypePushButton*) >
 
  <!ATTLIST OfxImageEffectContext name CDATA "default">
 
@@ -211,7 +187,7 @@ Errors should be handled robustly. If a respecified parameter doesn't exist in t
  <!ELEMENT OfxParamPropScriptName (CDATA)>
  <!ELEMENT OfxParamPropHint (CDATA)>
  <!ELEMENT OfxParamPropDoubleType (CDATA)>
- 
+
  <!ELEMENT OfxParamPropEnabled (bool)>
  <!ELEMENT OfxParamPropChoiceOption (string*)>
  <!ELEMENT OfxParamPropShowTimeMarker (bool)>

@@ -1,34 +1,8 @@
 #ifndef _ofxKeySyms_h_
 #define _ofxKeySyms_h_
 
-/*
-Software License :
-
-Copyright (c) 2004-2009, The Open Effects Association Ltd. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-    * Redistributions of source code must retain the above copyright notice,
-      this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright notice,
-      this list of conditions and the following disclaimer in the documentation
-      and/or other materials provided with the distribution.
-    * Neither the name The Open Effects Association Ltd, nor the names of its 
-      contributors may be used to endorse or promote products derived from this
-      software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+// Copyright OpenFX and contributors to the OpenFX project.
+// SPDX-License-Identifier: BSD-3-Clause
 
 
 /**
@@ -45,7 +19,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 This property represents a raw key press, it does not represent the 'character value' of the key. 
 
 This property is associated with a ::kOfxPropKeyString property, which encodes the UTF8
-value for the keypress/button press. Some keys (for example arrow keys) have no UTF8 equivalant.
+value for the keypress/button press. Some keys (for example arrow keys) have no UTF8 equivalent.
 
 Some keys, especially on non-english language systems, may have a UTF8 value, but \em not a keysym values, in these
 cases, the keysym will have a value of kOfxKey_Unknown, but the ::kOfxPropKeyString property will still be set with
@@ -66,8 +40,8 @@ the UTF8 value.
 
 This property represents the UTF8 encode value of a single key press by a user in an OFX interact.
 
-This property is associated with a ::kOfxPropKeySym which represents an integer value for the key press. Some keys (for example arrow keys) have no UTF8 equivalant, 
-in which case this is set to the empty string "", and the associate ::kOfxPropKeySym is set to the equivilant raw key press.
+This property is associated with a ::kOfxPropKeySym which represents an integer value for the key press. Some keys (for example arrow keys) have no UTF8 equivalent, 
+in which case this is set to the empty string "", and the associate ::kOfxPropKeySym is set to the equivalent raw key press.
 
 Some keys, especially on non-english language systems, may have a UTF8 value, but \em not a keysym values, in these
 cases, the keysym will have a value of kOfxKey_Unknown, but the ::kOfxPropKeyString property will still be set with
@@ -275,7 +249,7 @@ where the key has a UTF8 value which is not supported by the symbols below.
 
 
 /*
- * Auxilliary Functions; note the duplicate definitions for left and right
+ * Auxiliary Functions; note the duplicate definitions for left and right
  * function keys;  Sun keyboards and a few other manufactures have such
  * function key groups on the left and/or right sides of the keyboard.
  * We've not found a keyboard with more than 35 function keys total.

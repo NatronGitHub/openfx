@@ -10,7 +10,14 @@ Examples/*/*/*.bundle
 *~
 ofx-docgen
 
-build
+ofxTestLog.txt
+ofxPluginLog.txt
+CMakeUserPresets.json
+cmake-build.log
+
+build*/
+build.log
+.cache/
 
 xcuserdata
 

@@ -79,7 +79,7 @@ namespace OFX {
     /// and after static destruction)
     static std::string &logFileName()
     {
-      static std::string *name = new std::string(getenv(kLogFileEnvVar) ? getenv(kLogFileEnvVar) : "ofxTestLog.txt");
+      static std::string *name = new std::string(getenv(kLogFileEnvVar) ? getenv(kLogFileEnvVar) : "ofxPluginLog.txt");
       return *name;
     }
 
@@ -123,7 +123,9 @@ namespace OFX {
         char buffer[2048];
         char *answer = getcwd(buffer, sizeof(buffer));
         std::cout << "INFO: OFX Log is \"" << logFileName() << "\", working directory is \"" << answer << '\"' << std::endl;
-        gLogFP = fopen(logFileName().c_str(), "w");
+        // append (upstream 1.5.1): each plug-in binary has its own copy of this code, so "w" made
+        // the first log of one plug-in erase what the others had written
+        gLogFP = fopen(logFileName().c_str(), "a");
         if (!gLogFP) {
           std::cout << "INFO: Failed to open OFX Log for writing" << std::endl;
         }

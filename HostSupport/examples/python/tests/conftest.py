@@ -23,7 +23,7 @@ def sample_plugins():
 def tmp_cwd(tmp_path, monkeypatch):
     """Runs the test in a temporary directory, and shuts the ofxh host down after it.
 
-    The plug-in scan makes PropTester write ofxTestLog.txt in the current directory, and the
+    The plug-in scan makes PropTester write ofxPluginLog.txt in the current directory, and the
     in-process tests' modules use the ofxh host.
     """
     monkeypatch.chdir(tmp_path)

@@ -1,34 +1,8 @@
 #ifndef _ofxParametricParam_h_
 #define _ofxParametricParam_h_
 
-/*
-Software License :
-
-Copyright (c) 2009-15, The Open Effects Association Ltd. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-    * Redistributions of source code must retain the above copyright notice,
-      this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright notice,
-      this list of conditions and the following disclaimer in the documentation
-      and/or other materials provided with the distribution.
-    * Neither the name The Open Effects Association Ltd, nor the names of its 
-      contributors may be used to endorse or promote products derived from this
-      software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+// Copyright OpenFX and contributors to the OpenFX project.
+// SPDX-License-Identifier: BSD-3-Clause
 
 /** @file ofxParametricParam.h
  
@@ -91,7 +65,7 @@ This indicates the dimension of the parametric param.
     - Property Set - parametric param descriptor (read/write) and instance (read only)
     - default - unset, 
     - Value Values - three values for each dimension (see ::kOfxParamPropParametricDimension)
-      being interpretted as R, G and B of the colour for each curve drawn in the UI.
+      being interpreted as R, G and B of the colour for each curve drawn in the UI.
 
 This sets the colour of a parametric param curve drawn a host user interface. A colour triple
 is needed for each dimension of the oparametric param. 
@@ -188,15 +162,15 @@ typedef struct OfxParametricParameterSuiteV1 {
   
   /** @brief Evaluates a parametric parameter
  
-      \arg param                 handle to the parametric parameter
-      \arg curveIndex            which dimension to evaluate
-      \arg time                  the time to evaluate to the parametric param at
-      \arg parametricPosition    the position to evaluate the parametric param at
-      \arg returnValue           pointer to a double where a value is returned
+      \arg \c param                 handle to the parametric parameter
+      \arg \c curveIndex            which dimension to evaluate
+      \arg \c time                  the time to evaluate to the parametric param at
+      \arg \c parametricPosition    the position to evaluate the parametric param at
+      \arg \c returnValue           pointer to a double where a value is returned
  
       @returns
         - ::kOfxStatOK            - all was fine 
-        - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+        - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
         - ::kOfxStatErrBadIndex   - the curve index was invalid
   */
   OfxStatus (*parametricParamGetValue)(OfxParamHandle param,
@@ -208,14 +182,14 @@ typedef struct OfxParametricParameterSuiteV1 {
 
   /** @brief Returns the number of control points in the parametric param.
 
-      \arg param                 handle to the parametric parameter
-      \arg curveIndex            which dimension to check
-      \arg time                  the time to check
-      \arg returnValue           pointer to an integer where the value is returned.
+      \arg \c param                 handle to the parametric parameter
+      \arg \c curveIndex            which dimension to check
+      \arg \c time                  the time to check
+      \arg \c returnValue           pointer to an integer where the value is returned.
       
       @returns
         - ::kOfxStatOK            - all was fine 
-        - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+        - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
         - ::kOfxStatErrBadIndex   - the curve index was invalid
    */
   OfxStatus (*parametricParamGetNControlPoints)(OfxParamHandle param,
@@ -225,16 +199,16 @@ typedef struct OfxParametricParameterSuiteV1 {
  
   /** @brief Returns the key/value pair of the nth control point.
 
-      \arg param                 handle to the parametric parameter
-      \arg curveIndex            which dimension to check
-      \arg time                  the time to check
-      \arg nthCtl                the nth control point to get the value of
-      \arg key                   pointer to a double where the key will be returned
-      \arg value                 pointer to a double where the value will be returned 
+      \arg \c param                 handle to the parametric parameter
+      \arg \c curveIndex            which dimension to check
+      \arg \c time                  the time to check
+      \arg \c nthCtl                the nth control point to get the value of
+      \arg \c key                   pointer to a double where the key will be returned
+      \arg \c value                 pointer to a double where the value will be returned 
             
       @returns
         - ::kOfxStatOK            - all was fine 
-        - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+        - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
         - ::kOfxStatErrUnknown    - if the type is unknown
    */
   OfxStatus (*parametricParamGetNthControlPoint)(OfxParamHandle param,
@@ -246,20 +220,20 @@ typedef struct OfxParametricParameterSuiteV1 {
  
   /** @brief Modifies an existing control point on a curve
 
-      \arg param                 handle to the parametric parameter
-      \arg curveIndex            which dimension to set
-      \arg time                  the time to set the value at 
-      \arg nthCtl                the control point to modify
-      \arg key                   key of the control point
-      \arg value                 value of the control point
-      \arg addAnimationKey       if the param is an animatable, setting this to true will 
+      \arg \c param                 handle to the parametric parameter
+      \arg \c curveIndex            which dimension to set
+      \arg \c time                  the time to set the value at 
+      \arg \c nthCtl                the control point to modify
+      \arg \c key                   key of the control point
+      \arg \c value                 value of the control point
+      \arg \c addAnimationKey       if the param is an animatable, setting this to true will 
                                  force an animation keyframe to be set as well as a curve key,
                                  otherwise if false, a key will only be added if the curve is already
                                  animating.
 
       @returns
         - ::kOfxStatOK            - all was fine 
-        - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+        - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
         - ::kOfxStatErrUnknown    - if the type is unknown
 
       This modifies an existing control point. Note that by changing key, the order of the
@@ -276,19 +250,19 @@ typedef struct OfxParametricParameterSuiteV1 {
 
   /** @brief Adds a control point to the curve.
 
-      \arg param                 handle to the parametric parameter
-      \arg curveIndex            which dimension to set
-      \arg time                  the time to set the value at
-      \arg key                   key of the control point
-      \arg value                 value of the control point
-      \arg addAnimationKey       if the param is an animatable, setting this to true will 
+      \arg \c param                 handle to the parametric parameter
+      \arg \c curveIndex            which dimension to set
+      \arg \c time                  the time to set the value at
+      \arg \c key                   key of the control point
+      \arg \c value                 value of the control point
+      \arg \c addAnimationKey       if the param is an animatable, setting this to true will 
                                  force an animation keyframe to be set as well as a curve key,
                                  otherwise if false, a key will only be added if the curve is already
                                  animating.
 
       @returns
         - ::kOfxStatOK            - all was fine 
-        - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+        - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
         - ::kOfxStatErrUnknown    - if the type is unknown
 
       This will add a new control point to the given dimension of a parametric parameter. If a key exists
@@ -303,9 +277,9 @@ typedef struct OfxParametricParameterSuiteV1 {
   
   /** @brief Deletes the nth control point from a parametric param.
 
-      \arg param                 handle to the parametric parameter
-      \arg curveIndex            which dimension to delete
-      \arg nthCtl                the control point to delete
+      \arg \c param                 handle to the parametric parameter
+      \arg \c curveIndex            which dimension to delete
+      \arg \c nthCtl                the control point to delete
    */
   OfxStatus (*parametricParamDeleteControlPoint)(OfxParamHandle param,
                                                  int   curveIndex,
@@ -313,8 +287,8 @@ typedef struct OfxParametricParameterSuiteV1 {
 
   /** @brief Delete all curve control points on the given param.
 
-      \arg param                 handle to the parametric parameter
-      \arg curveIndex            which dimension to clear
+      \arg \c param                 handle to the parametric parameter
+      \arg \c curveIndex            which dimension to clear
    */
   OfxStatus (*parametricParamDeleteAllControlPoints)(OfxParamHandle param,
                                                      int   curveIndex);

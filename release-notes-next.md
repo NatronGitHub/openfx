@@ -10,6 +10,7 @@ This is version NEXT of the OpenFX API.
 
 ## Key Features of OpenFX Version NEXT:
 
+- **Upstream OpenFX 1.5.1 merged** (NatronGitHub/openfx#263): the fork's `master` now has upstream's `OFX_Release_1.5.1` as a merge base (it was the 2020 commit `f6c60f92`), so later upstream releases can be merged incrementally. The fork already had the 1.5.1 API, documentation and examples (ported by hand from upstream `main`), so no `#define`, property, suite or Support/HostSupport API changes. New from upstream: the SPDX copyright header (`Copyright OpenFX and contributors to the OpenFX project.` / `BSD-3-Clause`) in the files that came from upstream, `LICENSE.md` as upstream's, the project files `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `GOVERNANCE.md`, `STANDARD_PROCESS.md`, `install.md`, the `logos/`, and the scripts `scripts/build-cmake.sh` (Conan build), `scripts/genColour` and `scripts/genOCIOConfig` (regenerate the native colourspace header), `scripts/copyright.py`. The old `website/` is removed, as upstream.
 - **Unlicensed-render behaviour**: Added `kOfxImageEffectPropBehaviourWhenUnlicensed` so a host can tell plugins whether to fail a render or render anyway (e.g. watermarked) when unlicensed (issue #202).
 - **Parameter interpolation types**: Added `kOfxParamInterpType` and related definitions documenting standard keyframe interpolation modes (issue #116).
 - **Obsolete plugins**: Added `kOfxImageEffectPluginPropObsolete` so a plugin bundle can mark a plugin as obsolete: available for use in old projects but not offered to users for new use (issue #221).
@@ -33,6 +34,7 @@ This is version NEXT of the OpenFX API.
 
 ## Behaviour Changes
 
+- **Support: the debug log is `ofxPluginLog.txt`, appended to** (upstream 1.5.1): debug builds of the Support library log to `ofxPluginLog.txt` (was `ofxTestLog.txt`; `OFX_PLUGIN_LOGFILE` still sets the name) and open it in append mode, so that the plug-in binaries loaded by a host no longer erase each other's log (each binary has its own copy of the logger). `mainEntry` logs the plug-in identifier with each action, the status it returns, and the exceptions it catches.
 - **Support: `OFX_THROW`, `OFX_THROW2`, `OFX_THROW3` and `OFX_THROW4` removed** (`ofxsCore.h`): they were dynamic exception specifications (`throw(x, ...)` in C++98, where a function that throws a type not listed calls `std::unexpected()`, then `std::terminate()`; `noexcept(false)` in C++11 and later) on the Support functions, which no longer use them ([E.30](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#re-specifications)). No consumer uses them; a plug-in that does must delete them (NatronGitHub/openfx#224).
 Changes that existing hosts, plugins or SDK users may need to act on:
 
