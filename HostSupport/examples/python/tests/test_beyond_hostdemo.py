@@ -72,11 +72,15 @@ def test_rgb_input_to_an_rgba_clip(sample_plugins, spec):
 
 def test_alpha_input(sample_plugins):
     """An Alpha input of MultiplyGPU (Alpha supported): the plug-in gets an Alpha image of the ramp's
-    alpha (its output stays RGBA, the clip preferences' choice)."""
+    alpha, and the output is Alpha (HostSupport's default, as the spec says: no input is RGBA)."""
     r = render(sample_plugins, MULTIPLY, inputs={"Source": "ramp"}, components={"Source": "OfxImageComponentAlpha"},
                params={"value": [1, 1, 1, 0.5]}, frames=[0], window=(0, 0, 8, 6))
-    assert r.report["clipPreferences"]["clips"]["Source"]["components"] == "OfxImageComponentAlpha"
+    clips = r.report["clipPreferences"]["clips"]
+    assert clips["Source"]["components"] == "OfxImageComponentAlpha"
+    assert clips["Output"]["components"] == "OfxImageComponentAlpha"
     assert r.report["inputs"]["Source"]["spec"] == "ramp#alpha"
+    assert r.output.shape == (6, 8, 1)
+    assert_close(r.output[..., 0], 0.5 * ramp(), atol=1e-6)
     # components= overrides a spec's suffix, and the report says so
     r = render(sample_plugins, MULTIPLY, inputs={"Source": "ramp#rgb"}, components={"Source": "alpha"},
                frames=[0], window=(0, 0, 8, 6))
@@ -85,8 +89,22 @@ def test_alpha_input(sample_plugins):
                frames=[0], window=(0, 0, 8, 6))
     assert r.report["inputs"]["Source"]["spec"] == "ramp"
     assert r.report["inputs"]["Source"]["unmappedComponents"] == "OfxImageComponentRGBA"
-    seen = r.report["clipPreferences"]["clips"]["Output"]["components"]
-    assert r.output.shape[2] == {"OfxImageComponentRGBA": 4, "OfxImageComponentAlpha": 1}[seen]
+    assert r.report["clipPreferences"]["clips"]["Output"]["components"] == "OfxImageComponentRGBA"
+    assert r.output.shape == (6, 8, 4)
+
+
+def test_alpha_input_of_invert(sample_plugins):
+    """Invert needs the same components on Source and Output. The render runs in the filter context,
+    where the spec doesn't let the host remap the output, so it is the Source's Alpha; in the general
+    context, the default output is "RGBA if any of the inputs is RGBA - otherwise A if the effect has
+    any inputs" (ofxClipPreferences.rst). With an RGBA output, the render failed (#332)."""
+    r = render(sample_plugins, INVERT, inputs={"Source": "ramp"}, components={"Source": "alpha"},
+               frames=[0], window=(0, 0, 8, 6))
+    clips = r.report["clipPreferences"]["clips"]
+    assert clips["Source"]["components"] == "OfxImageComponentAlpha"
+    assert clips["Output"]["components"] == "OfxImageComponentAlpha"
+    assert r.output.shape == (6, 8, 1)
+    assert_close(r.output[..., 0], 1 - ramp(), atol=1e-6)
 
 
 def test_components_errors_and_the_subprocess_backend(sample_plugins):
@@ -128,7 +146,8 @@ def test_graph_components(sample_plugins, tmp_path):
     out = r.images["m"][0.].pixels
     assert out.shape == (6, 8, 3)
     assert_close(out, src * np.array(value[:3], np.float32), atol=1e-6)
-    assert r.images["a"][0.].pixels.shape[:2] == (6, 8)
+    assert r.report["nodes"]["a"]["clipPreferences"]["clips"]["Output"]["components"] == "alpha"
+    assert r.images["a"][0.].pixels.shape == (6, 8, 1)
 
 
 # --- the output files and the report of extra_args --------------------------------------------
