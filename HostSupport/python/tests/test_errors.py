@@ -107,6 +107,10 @@ class BadSource(ofxh.ClipInstance):
         return (0., 0., 8 * self.aspect_ratio, 8.)
 
     def get_image(self, time, view, bounds, plane="Colour"):
+        if self.error is None:  # a good image
+            if self.is_output:
+                return super().get_image(time, view, bounds, plane)
+            return ofxh.ImageData(np.zeros((8, 8, 4), np.float32), (0, 0, 8, 8))
         if self.is_output:
             if self.error == "small_output":
                 return ofxh.ImageData(self.new_image((0, 0, 4, 4)), (0, 0, 4, 4))
@@ -157,6 +161,14 @@ def test_bad_image(plugin_dir, error, cause):
         else:
             # the plug-in got no source image: Invert renders nothing, and succeeds
             assert e.value.status == ofxh.Stat.OK
+        # a render with good images after the failed one: the failure (and, for the output errors,
+        # the flag that makes abort() return 1 and the render fail) doesn't carry over
+        inst.clip("Source").error = None
+        inst.clip("Output").error = None
+        st, out = inst.render_action(0., (0, 0, 8, 8))
+        assert st == ofxh.Stat.OK
+        assert "Colour" in out
+        assert not inst.aborted
         inst.end_sequence_render_action(0., 0.)
 
 
