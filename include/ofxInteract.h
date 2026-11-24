@@ -357,7 +357,7 @@ and pass this hot spot unchanged to QCursor).
 /** @} */
 #endif // OFX_EXTENSIONS_NATRON
 
-/** @brief Indicates whether the dits per component in the interact's openGL frame buffer
+/** @brief Indicates the bits per component in the interact's openGL frame buffer
 
    - Type - int X 1
    - Property Set - interact instance and descriptor (read only)

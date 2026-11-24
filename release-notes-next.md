@@ -10,7 +10,7 @@ This is version NEXT of the OpenFX API.
 
 ## Key Features of OpenFX Version NEXT:
 
-- **Upstream OpenFX 1.5.1 merged** (NatronGitHub/openfx#263): the fork's merge base with upstream is now `OFX_Release_1.5.1` (it was `f6c60f92`, from 2020), with no API change; the files that came from upstream carry upstream's SPDX copyright header.
+- **Upstream OpenFX merged** (NatronGitHub/openfx#263): the fork's merge base with upstream is now upstream `main` of 2026-11-11 (`4249fe1b`; it was `f6c60f92`, from 2020, then `OFX_Release_1.5.1`), with no API change; the files that came from upstream carry upstream's SPDX copyright header.
 - **Unlicensed-render behaviour**: Added `kOfxImageEffectPropBehaviourWhenUnlicensed` so a host can tell plugins whether to fail a render or render anyway (e.g. watermarked) when unlicensed (issue #202).
 - **Parameter interpolation types**: Added `kOfxParamInterpType` and related definitions documenting standard keyframe interpolation modes (issue #116).
 - **Obsolete plugins**: Added `kOfxImageEffectPluginPropObsolete` so a plugin bundle can mark a plugin as obsolete: available for use in old projects but not offered to users for new use (issue #221).
