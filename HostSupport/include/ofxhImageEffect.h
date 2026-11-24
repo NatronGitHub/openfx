@@ -1109,12 +1109,11 @@ namespace OFX {
         ///     - whether the effect is frame varying
         ///     - the fielding of the output clip
         ///
-        /// This will be run automatically by the effect in the following situations...
-        ///     - an input clip is changed
-        ///     - a clip preferences slave param is changed
-        /// 
-        /// The host still needs to call this explicitly just after the effect is wired
-        /// up.
+        /// It is not run automatically. The host calls it once the effect is wired up.
+        /// clipInstanceChangedAction(), and paramInstanceChangedAction() for a parameter
+        /// listed in kOfxImageEffectPropClipPreferencesSlaveParam, only mark the clip
+        /// preferences dirty: the host then calls runGetClipPrefsConditionally() (or this
+        /// function, if areClipPrefsDirty()) before the next render.
         virtual bool getClipPreferences();
 
         /// calls getClipPreferences only if the prefs are dirty
