@@ -21,6 +21,7 @@ RETIMER = "net.sf.openfx.retimer"
 DOT = "net.sf.openfx.dotexample"
 CHOICES = "org.openeffects.support.choiceParamsPlugin"
 TESTER = "net.sf.openfx.GenericTestPlugin"
+MULTIPLY = "net.sf.openfx.MultiplyGPU"
 
 
 @pytest.fixture
@@ -136,6 +137,22 @@ def test_image_inputs(both, tmp_path):
     ofxhost.write_pfm(tmp_path / "a.pfm", a[..., 3])
     _compare(both, INVERT, inputs={"Source": f"file:{tmp_path}/c.pfm+{tmp_path}/a.pfm@-3,4#unpremult"}, frames=[0])
     _compare(both, INVERT, inputs={"Source": tmp_path / "a.pfm"}, frames=[0], depth="short")
+
+
+def test_components(both, tmp_path):
+    """Per-input components (hostDemo's -i Clip=spec#rgb...): a suffix, components=, which overrides it, and
+    arrays. (Alpha inputs: Invert renders an Alpha output, HostSupport's default.)"""
+    ofxhost.write_pfm(tmp_path / "c.pfm", rgba(8, 9)[..., :3])
+    for plugin, kw in ((INVERT, dict(inputs={"Source": "ramp#rgb"})), (MULTIPLY, dict(inputs={"Source": "ramp#rgb"})),
+                       (INVERT, dict(inputs={"Source": f"file:{tmp_path}/c.pfm#premult#rgb"})),
+                       (MULTIPLY, dict(inputs={"Source": rgba()[..., :3]}, components={"Source": "rgb"})),
+                       (INVERT, dict(inputs={"Source": "ramp#rgb"}, components={"Source": "alpha"})),
+                       (INVERT, dict(components={"Source": k.kOfxImageComponentAlpha}))):
+        _compare(both, plugin, frames=[0], window=(0, 0, 40, 30), **kw)
+
+
+def test_no_normalised_defaults(both):
+    _compare(both, TESTER, frames=[0], query=True, extra_args=["--no-normalised-defaults"])
 
 
 def test_params_mask_keys(both):

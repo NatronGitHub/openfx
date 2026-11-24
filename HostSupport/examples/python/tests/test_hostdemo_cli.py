@@ -202,10 +202,12 @@ def test_run_errors(tmp_path, hosts, sample_plugins, args):
     ["--frames", "0,0"], ["--frames", "0,x"], ["--frames", "1e-400"], ["--scale", "0"], ["--scale", "1,2"],
     ["--window", "1,1,1,1"],
     ["--format", "png"], ["-d", "half"], ["-c", "paint"], ["-m", "-1"], ["-i", "Source=bogus"], ["-i", "=ramp"],
+    ["-i", "Source=ramp#rg"], ["-i", "Source=#rgb"], ["-i", "Source=ramp#rgb#alpha"],
     ["-i", "Source=ramp", "-i", "Source=none"], ["--report", "a.json", "--describe", "b.json"], ["--bogus"],
     # -i Clip@Plane=spec (the in-process backend checks it as hostDemo, then refuses it without --multiplane)
     ["-i", "Source@Nope=ramp"], ["-i", "@BackMotionVector=ramp"], ["-i", "Source@BackMotionVector=none"],
     ["-i", "Source@BackMotionVector=bogus"], ["-i", "Source@BackMotionVector=ramp"],
+    ["-i", "Source@BackMotionVector=ramp#rgb"], ["-i", "Source@StereoDisparityLeft=file:in.pfm#premult#alpha"],
     ["-i", "Source@StereoDisparityLeft=ramp", "-i", "Source@StereoDisparityLeft=checker:4"],
     ["-p"], ["--opengl-describe"], ["--opengl-describe", "--report", "r.json"],
 ], ids=lambda a: " ".join(a))
@@ -215,6 +217,14 @@ def test_usage_errors(tmp_path, hosts, sample_plugins, args):
     assert s.returncode == i.returncode == 1
     first = [x for x in s.stderr.splitlines() if x.startswith("Error")][:1]
     assert first and first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]
+
+
+def test_plane_components_suffix(tmp_path, hosts, sample_plugins):
+    """-i Clip@Plane=spec#rgb: a plane's components are the plane's, so both hosts refuse the suffix."""
+    (s, _), (i, _) = both(tmp_path, hosts, sample_plugins, [*Q, "-i", "Source@BackMotionVector=ramp#alpha"])
+    assert s.returncode == i.returncode == 1
+    for p in (s, i):
+        assert "(a plane has no #rgb/#alpha/#rgba suffix)" in p.stderr
 
 
 def test_multiplane(tmp_path, hosts, sample_plugins):
@@ -251,7 +261,8 @@ def test_help(tmp_path, hosts, sample_plugins):
     (s, _), (i, _) = both(tmp_path, hosts, sample_plugins, ["-h"])
     assert s.returncode == i.returncode == 0
     for opt in ("-p id", "--format ppm|pfm", "--report file.json", "--describe file.json", "--ofx14",
-                "--opengl-describe", "--quiet", "--multiplane", "-i Clip@Plane=spec"):
+                "--opengl-describe", "--quiet", "#rgb, #alpha or #rgba", "--no-normalised-defaults",
+                "--multiplane", "-i Clip@Plane=spec"):
         assert opt in s.stdout and opt in i.stdout
 
 
@@ -270,17 +281,41 @@ def test_keep_loaded(tmp_path, hosts, sample_plugins, keep):
     assert trace(i) == expected
 
 
-def test_components_suffix(tmp_path, hosts, sample_plugins):
-    """Beyond hostDemo: -i Clip=spec#rgb (the report gives the unmapped components)."""
-    hostdemo, ofxh_dir = hosts
-    p = _run([sys.executable, "-m", "ofxhost.hostdemo", *Q, "-p", INVERT, "-i", "Source=ramp#rgb", "--frames", "0",
-              "--format", "pfm", "-o", "out", "--report", "r.json"], tmp_path, _env(sample_plugins, ofxh_dir))
-    assert p.returncode == 0, p.stderr
-    r = json.loads((tmp_path / "r.json").read_text())
-    assert r["inputs"]["Source"] == dict(r["inputs"]["Source"], spec="ramp#rgb",
-                                         unmappedComponents=k.kOfxImageComponentRGB)
-    alphas = sorted(tmp_path.glob("out.0*.alpha.pfm"))  # (out.0l and out.0r with two views)
-    assert alphas and all(np.all(ofxhost.read_pfm(a) == 0.) for a in alphas)  # (opaque, inverted)
+@pytest.mark.parametrize("plugin, spec", [(INVERT, "ramp#rgb"), (MULTIPLY, "ramp#rgb"),
+                                          (INVERT, "file:in.pfm#premult#rgb"), (INVERT, "ramp#rgba"),
+                                          (INVERT, "checker:8#alpha"), (INVERT, "file:in.pfm#alpha")])
+def test_components_suffix(tmp_path, hosts, sample_plugins, plugin, spec):
+    """-i Clip=spec#rgb|#alpha|#rgba: the input's unmapped components; the clip preferences map them to the
+    clip's (Invert: RGBA or Alpha; MultiplyGPU also RGB). With an Alpha input, HostSupport's default output is
+    Alpha (#332), so Invert renders it."""
+    rgb = np.random.default_rng(0).random((24, 32, 3), dtype=np.float32)
+    args = [*Q, "-p", plugin, "-i", f"Source={spec}", "--frames", "0", "-d", "float", "--format", "pfm", "-o", "out",
+            "--report", "r.json"]
+    s, _, sd, _ = _compare(tmp_path, hosts, sample_plugins, args, files=[("in.pfm", ofxhost.encode_pfm(rgb))])
+    alpha = spec.endswith("#alpha")
+    assert s.returncode == 0, s.stderr
+    r = json.loads((sd / "r.json").read_text())
+    if alpha:
+        assert r["clipPreferences"]["clips"]["Output"]["components"] == k.kOfxImageComponentAlpha
+    comps = {"rgb": k.kOfxImageComponentRGB, "alpha": k.kOfxImageComponentAlpha}.get(spec.rpartition("#")[2],
+                                                                                      k.kOfxImageComponentRGBA)
+    assert r["inputs"]["Source"] == dict(r["inputs"]["Source"], spec=spec, unmappedComponents=comps)
+    if (plugin, spec) == (INVERT, "ramp#rgb"):  # (an RGBA clip, opaque input: the inverted alpha is 0)
+        alphas = sorted(sd.glob("out.0*.alpha.pfm"))  # (out.0l and out.0r: two views)
+        assert alphas and all(np.all(ofxhost.read_pfm(a) == 0.) for a in alphas)
+
+
+@pytest.mark.parametrize("extra", [[], ["--ofx14"]])
+def test_no_normalised_defaults(tmp_path, hosts, sample_plugins, extra):
+    """--no-normalised-defaults: the Tester's widgetPos (normalised default 0.5, 0.5) keeps its default as is,
+    in canonical coordinates; without it, the default is the middle of the project."""
+    args = [*Q, *extra, "-p", TESTER, "--query", "--frames", "0", "--report", "r.json"]
+    values = []
+    for opts in ([], ["--no-normalised-defaults"]):
+        s, _, sd, _ = _compare(tmp_path / str(len(opts)), hosts, sample_plugins, args + opts)
+        assert s.returncode == 0, s.stderr
+        values.append(json.loads((sd / "r.json").read_text())["params"]["widgetPos"]["value"])
+    assert values == [[384., 288.], [0.5, 0.5]]
 
 
 def test_entry_points(tmp_path, hosts, sample_plugins):

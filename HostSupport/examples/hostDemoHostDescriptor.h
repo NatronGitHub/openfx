@@ -22,6 +22,12 @@ namespace MyHost {
     /// is not called. Call it before the plug-in scan.
     void restrictToOFX14();
 
+    /// --no-normalised-defaults: behave as a host that doesn't support normalised parameter
+    /// defaults. The double param descriptors have no kOfxParamPropDefaultCoordinateSystem (a
+    /// plug-in's set fails with kOfxStatErrUnknown), so their defaults are canonical. Call it
+    /// before the plug-in scan.
+    void disableNormalisedDefaults() { _normalisedDefaults = false; }
+
     /// the base class suites, or only the OFX 1.4 ones with restrictToOFX14()
     virtual const void *fetchSuite(const char *suiteName, int suiteVersion);
 
@@ -91,6 +97,7 @@ namespace MyHost {
   private:
     bool _ofx14; ///< restrictToOFX14()
     bool _keepLoaded; ///< OFX_HOSTDEMO_KEEP_LOADED=1
+    bool _normalisedDefaults; ///< false after disableNormalisedDefaults()
   };
 
   // my ofx host object

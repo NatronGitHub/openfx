@@ -54,8 +54,8 @@ def split_components(spec: str) -> tuple[str, str | None]:
     """Split the components suffix off an input spec.
 
     Args:
-        spec: an input spec, which may end with "#rgb", "#alpha" or "#rgba" (in-process backend and
-            sample host only; e.g. "ramp#rgb", "file:x.pfm#premult#alpha").
+        spec: an input spec, which may end with "#rgb", "#alpha" or "#rgba" (hostDemo's -i suffix,
+            on both backends; e.g. "ramp#rgb", "file:x.pfm#premult#alpha").
 
     Returns:
         (the spec without the suffix, the components or None).
@@ -391,10 +391,10 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
         backend: "subprocess" (hostDemo) or "inprocess" (ofxhost.inprocess, on the ofxh module; it
             supports only some extra_args); default: "subprocess" if host_binary is given
             (ValueError with "inprocess"), else $OFXHOST_BACKEND, else "subprocess".
-        components: clip name -> "rgb", "alpha" or "rgba": the components of that input (default
-            RGBA; a spec string may also end with "#rgb", "#alpha" or "#rgba"). In-process backend
-            only (hostDemo's inputs are RGBA): ValueError on the subprocess backend for anything
-            but RGBA.
+        components: clip name -> "rgb", "alpha" or "rgba" (or the kOfxImageComponent* names): the
+            components of that input (its unmapped components; default RGBA; a spec string may also
+            end with "#rgb", "#alpha" or "#rgba", as hostDemo's -i, which this overrides); a clip not
+            in inputs gets the default pattern.
 
     Returns:
         The RenderResult: the output images and the report.
@@ -411,16 +411,18 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
         return inprocess.render(bundle_paths, plugin_id, context=context, inputs=inputs, params=params, depth=depth,
                                 frames=frames, scale=scale, window=window, query=query, extra_args=extra_args,
                                 check=check, components=components)
-    bad = [c for c, v in (components or {}).items() if COMPONENTS.get(v) != "rgba"]
-    bad += [c for c, v in (inputs or {}).items() if isinstance(v, str) and split_components(v)[1] not in (None, "rgba")]
-    if bad:
-        raise ValueError(f"inputs {bad}: per-input components need the in-process backend (backend=\"inprocess\"): "
-                         "hostDemo's inputs are RGBA")
+    comps = {}
+    for clip, c in (components or {}).items():
+        if c not in COMPONENTS:
+            raise ValueError(f"components of input {clip!r}: {c!r}, expected rgba, rgb or alpha")
+        comps[clip] = COMPONENTS[c]
     own = [a for a in extra_args if a in ("--format", "-o", "--report")]
     if own:
         raise ValueError(f"extra_args {own}: the subprocess backend runs hostDemo with its own --format pfm, -o and "
                          "--report (use backend=\"inprocess\" to write the files, or run hostDemo itself)")
-    inputs = {c: (split_components(v)[0] if isinstance(v, str) else v) for c, v in (inputs or {}).items()}
+    given = dict(inputs or {})
+    for clip in comps:
+        given.setdefault(clip, "default")  # (components alone: the default pattern, as in-process)
     host = find_hostdemo(host_binary)
     env = _env(bundle_paths)
     with tempfile.TemporaryDirectory(prefix="ofxhost-") as tmp:
@@ -429,8 +431,12 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
         cmd = [str(host), "--no-std-paths", "--no-cache", "--quiet", "--format", "pfm",
                "--report", str(report_path),
                "-p", plugin_id, "-c", context, "-d", depth, "-o", OUTPUT_PREFIX]
-        for i, (clip, value) in enumerate((inputs or {}).items()):
-            cmd += ["-i", f"{clip}={_hostdemo_input(clip, value, workdir, i)}"]
+        for i, (clip, value) in enumerate(given.items()):
+            # (hostDemo's "#rgb", "#alpha" or "#rgba" suffix; components= overrides the spec's)
+            body, suffix = split_components(value) if isinstance(value, str) else (value, None)
+            if clip in comps:
+                suffix = None if comps[clip] == "rgba" else comps[clip]
+            cmd += ["-i", f"{clip}={_hostdemo_input(clip, body, workdir, i)}" + (f"#{suffix}" if suffix else "")]
         if frames is not None:
             cmd += ["--frames", ",".join(_format_value(float(f)) for f in frames)]
         if scale is not None:

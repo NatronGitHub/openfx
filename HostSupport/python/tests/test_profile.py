@@ -1,5 +1,6 @@
 """The OFX 1.4 host profile (ofxh.init(profile="ofx14"), as hostDemo --ofx14), the one host per
-process, PropertySet.__delitem__, ImageEffectInstance.param_props() and default_output_depth."""
+process, PropertySet.__delitem__, ImageEffectInstance.param_props(), default_output_depth, and a host
+without normalised defaults (ofxh.init(normalised_defaults=False))."""
 
 import json
 import os
@@ -234,3 +235,19 @@ def test_keep_loaded(plugin_dir):
         finally:
             ofxh.shutdown()
         assert ofxh.keep_loaded() is None
+
+
+def test_normalised_defaults(plugin_dir):
+    """ofxh.init(normalised_defaults=False), as hostDemo --no-normalised-defaults: the double param
+    descriptors have no kOfxParamPropDefaultCoordinateSystem, so the Tester's widgetPos (normalised
+    0.5, 0.5) has none. (The values it gives are checked against hostDemo's in
+    HostSupport/examples/python/tests/test_hostdemo_cli.py.)"""
+    tester = "net.sf.openfx.GenericTestPlugin"
+    for normalised, system in ((True, k.kOfxParamCoordinatesNormalised), (False, "")):
+        ofxh.init(ofxh.Host(), [plugin_dir], use_env_path=False, normalised_defaults=normalised)
+        try:
+            p = ofxh.get_plugin(tester).descriptor("filter").param("widgetPos")
+            assert p.default_coordinate_system == system
+            assert (k.kOfxParamPropDefaultCoordinateSystem in p.props) is normalised
+        finally:
+            ofxh.shutdown()

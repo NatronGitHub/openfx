@@ -248,7 +248,8 @@ namespace MyHost {
     return true;
   }
 
-  bool parseInputSpec(const std::string& s, InputSpec& spec, std::string& error)
+  /// parseInputSpec, without the components suffix
+  static bool parseInputSpecBody(const std::string& s, InputSpec& spec, std::string& error)
   {
     spec = InputSpec();
     error.clear();
@@ -388,6 +389,31 @@ namespace MyHost {
       }
     }
     return false;
+  }
+
+  bool parseInputSpec(const std::string& text, InputSpec& spec, std::string& error, bool allowComponents)
+  {
+    // "#rgb", "#alpha" or "#rgba" at the end (after a whole spec: "#rgb" alone is not one)
+    std::string s = text;
+    std::string components = kOfxImageComponentRGBA;
+    const std::string::size_type hash = s.rfind('#');
+    if (hash != std::string::npos && hash > 0) {
+      const std::string c = s.substr(hash + 1);
+      if (c == "rgb" || c == "alpha" || c == "rgba") {
+        if (!allowComponents) {
+          error = "a plane has no #rgb/#alpha/#rgba suffix";
+          return false;
+        }
+        components = c == "rgb" ? kOfxImageComponentRGB
+                   : c == "alpha" ? kOfxImageComponentAlpha : kOfxImageComponentRGBA;
+        s.erase(hash);
+      }
+    }
+    if (!parseInputSpecBody(s, spec, error)) {
+      return false;
+    }
+    spec.components = components;
+    return true;
   }
 
   // is the full-resolution pixel (px,py) part of digit d drawn at (x0,y0) with the given scale?
@@ -614,6 +640,12 @@ namespace MyHost {
           // for RGBA and Alpha); RGB images drop the alpha, and are opaque; the two-component
           // planes keep the first two
           evalPattern(spec, time, view, X, Y, W, H, rgba);
+          // what is connected: RGB is opaque, Alpha is the alpha (in all four, as a Pf file)
+          if (spec.components == kOfxImageComponentRGB) {
+            rgba[3] = 1.;
+          } else if (spec.components == kOfxImageComponentAlpha) {
+            rgba[0] = rgba[1] = rgba[2] = rgba[3];
+          }
           if (_nComps == 1) {
             out[0] = rgba[3];
           } else {
@@ -762,13 +794,13 @@ namespace MyHost {
     return getConnected() ? _unmappedDepth : none;
   }
     
-  /// Get the Raw Unmapped Components from the host: RGBA, or kOfxImageComponentNone if the
-  /// clip is disconnected ("implying a clip is unconnected, not valid for an image")
+  /// Get the Raw Unmapped Components from the host: those of the input (RGBA, or -i Clip=spec#rgb
+  /// or #alpha), or kOfxImageComponentNone if the clip is disconnected ("implying a clip is
+  /// unconnected, not valid for an image")
   const std::string &MyClipInstance::getUnmappedComponents() const
   {
-    static const std::string rgba(kOfxImageComponentRGBA);
     static const std::string none(kOfxImageComponentNone);
-    return getConnected() ? rgba : none;
+    return getConnected() ? _input.components : none;
   }
 
   /// The mapped pixel depth: kOfxBitDepthNone if the clip is disconnected
@@ -792,8 +824,9 @@ namespace MyHost {
   //  kOfxImageUnPreMultiplied - the image is unpremultiplied
   //
   // The output clip has the premultiplication set by the clip preferences. An RGB input (or
-  // a disconnected one) is opaque: "an image with no alpha is opaque". RGBA and Alpha inputs are
-  // unpremultiplied: the synthetic patterns are unpremultiplied colours.
+  // a disconnected one) is opaque: "an image with no alpha is opaque", also when an RGB input
+  // (#rgb) is mapped to RGBA (its alpha is 1). RGBA and Alpha inputs are unpremultiplied: the
+  // synthetic patterns are unpremultiplied colours.
   const std::string &MyClipInstance::getPremult() const
   {
     static const std::string opaque(kOfxImageOpaque);
@@ -801,7 +834,7 @@ namespace MyHost {
     if (isOutput()) {
       return _effect->getOutputPreMultiplication();
     }
-    if (!getConnected() || getComponents() == kOfxImageComponentRGB) {
+    if (!getConnected() || getComponents() == kOfxImageComponentRGB || _input.components == kOfxImageComponentRGB) {
       return opaque;
     }
     if (_input.type == InputSpec::eFile && !_input.premult.empty()) {

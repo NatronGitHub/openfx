@@ -699,8 +699,30 @@ OHIE::Descriptor *PyHost::makeDescriptor(OHIE::ImageEffectPlugin *plugin)
   return new OHIE::Descriptor(plugin);
 }
 
+namespace {
+/// normalised_defaults=False: a context descriptor (where the plug-in defines its params) whose params
+/// have no kOfxParamPropDefaultCoordinateSystem, as hostDemo's (hostDemoHostDescriptor.cpp)
+class NoNormalisedDefaultsDescriptor : public OHIE::Descriptor {
+public:
+  NoNormalisedDefaultsDescriptor(const OHIE::Descriptor &rootContext, OHIE::ImageEffectPlugin *plugin)
+      : OHIE::Descriptor(rootContext, plugin) {}
+
+  OFX::Host::Param::Descriptor *paramDefine(const char *paramType, const char *name) override
+  {
+    OFX::Host::Param::Descriptor *desc = OHIE::Descriptor::paramDefine(paramType, name);
+    if (desc) {
+      desc->getProperties().removeProperty(kOfxParamPropDefaultCoordinateSystem);
+    }
+    return desc;
+  }
+};
+}  // namespace
+
 OHIE::Descriptor *PyHost::makeDescriptor(const OHIE::Descriptor &rootContext, OHIE::ImageEffectPlugin *plugin)
 {
+  if (!_normalisedDefaults) {
+    return new NoNormalisedDefaultsDescriptor(rootContext, plugin);
+  }
   return new OHIE::Descriptor(rootContext, plugin);
 }
 

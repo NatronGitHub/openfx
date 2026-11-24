@@ -60,14 +60,20 @@ namespace MyHost {
     /// input (kOfxImagePreMultiplied...; empty: the default, unpremultiplied unless RGB)
     std::string premult;
     double      fileScaleX, fileScaleY; ///< for eFile: hostDemo --scale
-    InputSpec() : type(eDefault), checkerSize(16), fileX(0), fileY(0), fileScaleX(1.), fileScaleY(1.)
+    /// what is connected to the clip (its unmapped components): kOfxImageComponentRGBA, or a
+    /// "#rgb" or "#alpha" suffix of any spec (kOfxImageComponentRGB, kOfxImageComponentAlpha).
+    /// An RGB input is the pattern with alpha 1, an Alpha input is the pattern's alpha.
+    std::string components;
+    InputSpec() : type(eDefault), checkerSize(16), fileX(0), fileY(0), fileScaleX(1.), fileScaleY(1.),
+                  components(kOfxImageComponentRGBA)
     { colour[0] = colour[1] = colour[2] = colour[3] = 0.; rod[0] = rod[1] = rod[2] = rod[3] = 0.; }
   };
 
   /// parse "solid:r,g,b,a", "ramp", "checker:N", "file:path.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]",
-  /// "none" or "default". Returns
-  /// false if invalid, with the reason in error. "file:" reads the PFM file.
-  bool parseInputSpec(const std::string& s, InputSpec& spec, std::string& error);
+  /// "none" or "default", then optionally "#rgb", "#alpha" or "#rgba" (InputSpec::components). Returns
+  /// false if invalid, with the reason in error. "file:" reads the PFM file. allowComponents false
+  /// (a plane of -i Clip@Plane=spec, whose components are the plane's) rejects the suffix.
+  bool parseInputSpec(const std::string& s, InputSpec& spec, std::string& error, bool allowComponents = true);
 
   /// an extra plane of an input clip (hostDemo -i Clip@Plane=spec, with --multiplane): one of the
   /// Nuke extension's planes other than the colour plane, which have two components
@@ -222,6 +228,7 @@ namespace MyHost {
     /// \returns
     ///     - kOfxImageComponentNone (implying a clip is unconnected, not valid for an image)
     ///     - kOfxImageComponentRGBA
+    ///     - kOfxImageComponentRGB
     ///     - kOfxImageComponentAlpha
     virtual const std::string &getUnmappedComponents() const;
 

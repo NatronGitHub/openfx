@@ -502,7 +502,7 @@ static OH::PluginCache *makePluginCache(bool useEnvPath)
 }
 
 static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnvPath, const std::string &profile,
-                 bool keepLoaded)
+                 bool keepLoaded, bool normalisedDefaults)
 {
   State &st = state();
   if (st.initialized) {
@@ -539,6 +539,7 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
   }
   st.host = std::make_unique<PyHost>(host, hb.ref);
   st.host->_keepLoaded = keepLoaded;
+  st.host->_normalisedDefaults = normalisedDefaults;
   st.initialized = true;
   st.profile = profile;
   st.keepLoaded = keepLoaded;
@@ -1544,7 +1545,7 @@ static void bindClipInstance(nb::module_ &m)
 static void bindFunctions(nb::module_ &m)
 {
   m.def("init", &init, "host"_a, "plugin_dirs"_a.none() = nb::none(), "use_std_paths"_a = false,
-        "use_env_path"_a = true, "profile"_a = "default", "keep_loaded"_a = false,
+        "use_env_path"_a = true, "profile"_a = "default", "keep_loaded"_a = false, "normalised_defaults"_a = true,
         "Initialize HostSupport with this host (an ofxh.Host), and scan the plug-ins of plugin_dirs, of\n"
         "OFX_PLUGIN_PATH if use_env_path, and of the standard locations if use_std_paths. One host per\n"
         "process: RuntimeError if one is initialized; call shutdown() before another init(). If it raises,\n"
@@ -1557,7 +1558,10 @@ static void bindFunctions(nb::module_ &m)
         "keep_loaded: keep the scanned plug-ins loaded (Host::keepPluginsLoadedAfterScan(), as hostDemo with\n"
         "OFX_HOSTDEMO_KEEP_LOADED=1): one kOfxActionLoad and Describe per plug-in, and Unload at shutdown().\n"
         "By default the scan sends Load, Describe and Unload and unloads the binary, and the first use of a\n"
-        "plug-in loads it again.");
+        "plug-in loads it again.\n"
+        "normalised_defaults: False for a host without normalised parameter defaults, as hostDemo\n"
+        "--no-normalised-defaults: the double param descriptors have no kOfxParamPropDefaultCoordinateSystem\n"
+        "(a plug-in's set fails with kOfxStatErrUnknown), so their defaults are canonical.");
   m.def("shutdown", &shutdown,
         "Close the open instances, unload the plug-ins and delete the plug-in cache and the host. Also\n"
         "called at exit. Not in an action or a callback.");
