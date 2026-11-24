@@ -93,7 +93,7 @@ fetches the clips and parameters by name; the effect owns them:
 
 It overrides ``getRegionsOfInterest()`` and ``changedParam()`` for the
 two test parameters, and ``render()``. Mark each overridden action
-``override`` (C++11): the configuration macros change some signatures
+``override``: the configuration macros change some signatures
 (:ref:`supportConfiguration`), and without ``override`` a function with
 the wrong arguments compiles and is never called.
 
@@ -113,7 +113,7 @@ time, checks them, and runs the processor on the render window:
 - ``checkBadRenderScaleOrField()`` checks, in debug builds, that the
   host gave the render scale and field of the render arguments.
 
-The ``OFX::auto_ptr`` objects (``std::unique_ptr`` from C++11) release
+The ``OFX::auto_ptr`` objects (``std::unique_ptr``) release
 the images to the host when they go out of scope:
 
 .. literalinclude:: ../../../Support/Plugins/Invert/invert.cpp
@@ -366,8 +366,7 @@ They change class layouts and virtual function signatures. For example,
 with ``OFX_EXTENSIONS_NUKE``, ``ImageEffect::isIdentity()`` has two more
 arguments, a view and a plane. So **every source file of one plug-in
 binary, including the Support sources compiled into it, must be compiled
-with the same set**, and with the same C++ standard (``OFX::auto_ptr`` is
-``std::unique_ptr`` or ``std::auto_ptr`` depending on it;
+with the same set**, and with the same C++ standard (C++17 or later;
 ``OFX_CXX_STANDARD`` with CMake). A mismatch is not detected at build time: it is a
 silent violation of the one-definition rule, and the plug-in may crash.
 Different binaries may use different sets: a plug-in and the host that
@@ -430,8 +429,8 @@ Makefiles. It provides:
 - **Property validation, in debug builds.** When the Support sources are
   compiled with ``DEBUG``, ``ofxsPropertyValidation.cpp`` checks the
   host's properties against the specification, and the library logs to
-  ``ofxTestLog.txt`` in the current directory, or to the file named by
-  the ``OFX_PLUGIN_LOGFILE`` environment variable. The Makefiles'
+  ``ofxPluginLog.txt`` in the current directory (appended to), or to the
+  file named by the ``OFX_PLUGIN_LOGFILE`` environment variable. The Makefiles'
   ``CONFIG=debug`` does this. With CMake, in Debug builds,
   ``add_ofx_plugin()`` defines ``DEBUG`` for the plug-in; with
   ``add_subdirectory(openfx)``, openfx defines it for ``openfx::Support``
@@ -530,7 +529,7 @@ They are declared in ``Support/include``: ``ofxsImageEffect.h``,
    ``Clip`` gives a clip's preferences (``getPixelDepth()``,
    ``getPixelComponents()``, ...) and fetches images with
    ``fetchImage(time)``. The caller owns the returned ``Image``: hold it
-   in an ``OFX::auto_ptr`` (``std::unique_ptr`` from C++11), which releases
+   in an ``OFX::auto_ptr`` (``std::unique_ptr``), which releases
    it to the host. ``Image`` gives the bounds, depth, components, row
    bytes and ``getPixelAddress(x, y)``.
 

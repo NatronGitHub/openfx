@@ -33,7 +33,7 @@ test -n "$slt" || { echo "support-library-test was not built"; exit 1; }
 # context, Linux without a context (run-time loading of libGL and of the context checks)
 dct=$(find "$build" -name drawcontext-opengl-test -type f -perm -u+x | head -1)
 test -n "$dct" || { echo "drawcontext-opengl-test was not built"; exit 1; }
-(cd "$build" && "$dct")  # (writes ofxTestLog.txt)
+(cd "$build" && "$dct")  # (writes ofxPluginLog.txt)
 cmake --install "$build" --prefix "$build/install"
 # Linux: linuxCheckBundle.sh on the installed examples. They need only system libraries, so the
 # full check (no system library bundled, no other library needed) applies; the symbol-version

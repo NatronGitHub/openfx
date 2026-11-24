@@ -56,7 +56,7 @@ def _binaries(bundles, name):
 
 
 def test_null_and_unknown_action(bundles, tmp_path):
-    # cwd: a debug build of the plug-in writes ofxTestLog.txt in the current directory
+    # cwd: a debug build of the plug-in writes ofxPluginLog.txt in the current directory
     r = subprocess.run([sys.executable, "-c", SCRIPT, PLUGIN, *_binaries(bundles, "basic")],
                        capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL,
                        cwd=tmp_path)

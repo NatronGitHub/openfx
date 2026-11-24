@@ -14,8 +14,8 @@ set_target_properties(OfxHost PROPERTIES
 	POSITION_INDEPENDENT_CODE ON
 	EXPORT_NAME HostSupport)
 
-# The library compiles as C++98; consumers (Natron, plug-ins) use C++11 or later.
-target_compile_features(OfxHost PUBLIC cxx_std_11)
+# C++17 or later, as upstream, for the library and the hosts that use it.
+target_compile_features(OfxHost PUBLIC cxx_std_17)
 target_compile_definitions(OfxHost PUBLIC ${OFX_DEFINITIONS})
 # expat.h is included by the public header ofxhPluginCache.h
 target_link_libraries(OfxHost PUBLIC OfxApi expat::expat)

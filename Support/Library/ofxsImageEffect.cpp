@@ -1,38 +1,5 @@
-/*
-OFX Support Library, a library that skins the OFX plug-in API with C++ classes.
-Copyright (C) 2004-2007 The Open Effects Association Ltd
-Author Bruno Nicoletti bruno@thefoundry.co.uk
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice,
-this list of conditions and the following disclaimer.
-* Redistributions in binary form must reproduce the above copyright notice,
-this list of conditions and the following disclaimer in the documentation
-and/or other materials provided with the distribution.
-* Neither the name The Open Effects Association Ltd, nor the names of its 
-contributors may be used to endorse or promote products derived from this
-software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-The Open Effects Association Ltd
-1 Wardour St
-London W1D 6PA
-England
-
-
-*/
+// Copyright OpenFX and contributors to the OpenFX project.
+// SPDX-License-Identifier: BSD-3-Clause
 
 /** @brief This file contains code that skins the ofx effect suite */
 
@@ -5847,7 +5814,7 @@ namespace OFX {
         return kOfxStatFailed;
       }
       OFX::Log::print("********************************************************************************");
-      OFX::Log::print("START mainEntry (%s)", actionRaw);
+      OFX::Log::print("START mainEntry (%s for %s)", actionRaw, plugname ? plugname : "");
       OFX::Log::indent();
       OfxStatus stat = kOfxStatReplyDefault;
       try {
@@ -6218,6 +6185,7 @@ namespace OFX {
       // catch suite exceptions
       catch (const OFX::Exception::Suite &ex)
       {
+        OFX::Log::error(true, "Caught OFX::Exception::Suite: %s", ex.what());
 #      ifdef DEBUG
         std::cout << "Caught OFX::Exception::Suite: " << ex.what() << std::endl;
 #      endif
@@ -6227,20 +6195,20 @@ namespace OFX {
       // catch host inadequate exceptions
       catch (const OFX::Exception::HostInadequate &e)
       {
+        OFX::Log::error(true, "Caught OFX::Exception::HostInadequate: %s", e.what());
 #      ifdef DEBUG
         std::cout << "Caught OFX::Exception::HostInadequate: " << e.what() << std::endl;
 #      endif
-        unused(e);
         stat = kOfxStatErrMissingHostFeature;
       }
 
       // catch exception due to a property being unknown to the host, implies something wrong with host if not caught further down
       catch (const OFX::Exception::PropertyUnknownToHost &e)
       {
+        OFX::Log::error(true, "Caught OFX::Exception::PropertyUnknownToHost: %s", e.what());
 #      ifdef DEBUG
         std::cout << "Caught OFX::Exception::PropertyUnknownToHost: " << e.what() << std::endl;
 #      endif
-        unused(e);
         stat = kOfxStatErrMissingHostFeature;
       }
 
@@ -6260,14 +6228,15 @@ namespace OFX {
       // Catch anything else, unknown
       catch (const std::exception &e)
       {
+        OFX::Log::error(true, "Caught std::exception: %s", e.what());
 #      ifdef DEBUG
-        std::cout << "Caught exception: " << e.what() << std::endl;
+        std::cout << "Caught std::exception: " << e.what() << std::endl;
 #      endif
-        unused(e);
         stat = kOfxStatFailed;
       }
       catch (...)
       {
+        OFX::Log::error(true, "Caught unknown exception");
 #      ifdef DEBUG
         std::cout << "Caught Unknown exception" << std::endl;
 #      endif
@@ -6275,7 +6244,8 @@ namespace OFX {
       }
 
       OFX::Log::outdent();
-      OFX::Log::print("STOP mainEntry (%s)\n", actionRaw);
+      OFX::Log::print("STOP mainEntry (%s for %s, returning %d=%s)\n", actionRaw, plugname ? plugname : "",
+                      stat, mapStatusToString(stat));
       return stat;
     }      
 

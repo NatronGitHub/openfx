@@ -10,7 +10,14 @@ Examples/*/*/*.bundle
 *~
 ofx-docgen
 
-build
+ofxTestLog.txt
+ofxPluginLog.txt
+CMakeUserPresets.json
+cmake-build.log
+
+build*/
+build.log
+.cache/
 
 xcuserdata
 
@@ -59,3 +66,5 @@ __pycache__/
 CMakeUserPresets.json
 build-ci/
 build-ci-natron/
+# the virtual environment of `uv run` (Documentation/build.sh, with the root pyproject.toml)
+.venv/

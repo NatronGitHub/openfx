@@ -42,7 +42,7 @@ jobs:
           - os: ubuntu-latest
             config: Debug
             extensions: 'ON'
-          # newer C++ standards (the libraries also build as C++98/11)
+          # newer C++ standards (the libraries need C++17)
           - {os: ubuntu-latest, config: Release, extensions: 'ON', cxx: '20'}
           - {os: ubuntu-latest, config: Release, extensions: 'ON', cxx: '23'}
           - {os: macos-latest, config: Release, extensions: 'ON', cxx: '20'}

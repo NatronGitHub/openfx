@@ -8,8 +8,8 @@ additions listed in `release-notes-next.md`, and keeps the Natron, Nuke, Vegas,
 Resolve and TuttleOFX extension headers. See the documentation page
 *Extensions in the NatronGitHub fork* (`Documentation/sources/Reference/ofxForkExtensions.rst`).
 
-Fixes in HostSupport and Support made before the 1.5 port, since the last upstream
-merge, are listed in the pull requests of NatronGitHub/openfx (#23–#58), e.g. expat
+Fixes in HostSupport and Support made before the 1.5 port, since f6c60f92 (the
+2020 upstream commit the fork was based on), are listed in the pull requests of NatronGitHub/openfx (#23–#58), e.g. expat
 2.10.0, property dimension checks, exception safety at the C API boundary, and plugin
 cache robustness.
 

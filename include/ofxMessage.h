@@ -3,34 +3,8 @@
 
 #include "ofxCore.h"
 
-/*
-Software License :
-
-Copyright (c) 2003-2009, The Open Effects Association Ltd. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-    * Redistributions of source code must retain the above copyright notice,
-      this list of conditions and the following disclaimer.
-    * Redistributions in binary form must reproduce the above copyright notice,
-      this list of conditions and the following disclaimer in the documentation
-      and/or other materials provided with the distribution.
-    * Neither the name The Open Effects Association Ltd, nor the names of its 
-      contributors may be used to endorse or promote products derived from this
-      software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
-ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+// Copyright OpenFX and contributors to the OpenFX project.
+// SPDX-License-Identifier: BSD-3-Clause
 
 
 #ifdef __cplusplus
@@ -91,14 +65,14 @@ typedef struct OfxMessageSuiteV1 {
 
   /** @brief Post a message on the host, using printf style varargs
 
-      \arg handle     - effect handle (descriptor or instance) the message should be associated with, may be null
-      \arg messageType - string describing the kind of message to post, one of the kOfxMessageType* constants
-      \arg messageId - plugin specified id to associate with this message. If overriding the message in XML resource, the message is identified with this, this may be NULL, or "", in which case no override will occur,
-      \arg format    - printf style format string
-      \arg ...       - printf style varargs list to print
+      \arg \c handle     effect handle (descriptor or instance) the message should be associated with, may be NULL
+      \arg \c messageType string describing the kind of message to post, one of the kOfxMessageType* constants
+      \arg \c messageId plugin specified id to associate with this message. If overriding the message in XML resource, the message is identified with this, this may be NULL, or "", in which case no override will occur,
+      \arg \c format    printf style format string
+      \arg \c ...       printf style varargs list to print
 
 \returns 
-  - ::kOfxStatOK - if the message was sucessfully posted 
+  - ::kOfxStatOK - if the message was successfully posted 
   - ::kOfxStatReplyYes - if the message was of type  kOfxMessageQuestion and the user reply yes
   - ::kOfxStatReplyNo - if the message was of type kOfxMessageQuestion and the user reply no
   - ::kOfxStatFailed - if the message could not be posted for some reason
@@ -123,14 +97,14 @@ typedef struct OfxMessageSuiteV2 {
 
   /** @brief Post a transient message on the host, using printf style varargs. Same as the V1 message suite call.
 
-      \arg handle     - effect handle (descriptor or instance) the message should be associated with, may be null
-      \arg messageType - string describing the kind of message to post, one of the kOfxMessageType* constants
-      \arg messageId - plugin specified id to associate with this message. If overriding the message in XML resource, the message is identified with this, this may be NULL, or "", in which case no override will occur,
-      \arg format    - printf style format string
-      \arg ...       - printf style varargs list to print
+      \arg \c handle     effect handle (descriptor or instance) the message should be associated with, may be null
+      \arg \c messageType string describing the kind of message to post, one of the kOfxMessageType* constants
+      \arg \c messageId plugin specified id to associate with this message. If overriding the message in XML resource, the message is identified with this, this may be NULL, or "", in which case no override will occur,
+      \arg \c format    printf style format string
+      \arg \c ...       printf style varargs list to print
 
       \returns 
-      - ::kOfxStatOK - if the message was sucessfully posted 
+      - ::kOfxStatOK - if the message was successfully posted 
       - ::kOfxStatReplyYes - if the message was of type  kOfxMessageQuestion and the user reply yes
       - ::kOfxStatReplyNo - if the message was of type kOfxMessageQuestion and the user reply no
       - ::kOfxStatFailed - if the message could not be posted for some reason
@@ -143,23 +117,23 @@ typedef struct OfxMessageSuiteV2 {
 
   /** @brief Post a persistent message on an effect, using printf style varargs, and set error states. New for V2 message suite.
 
-      \arg handle     - effect instance handle the message should be associated with, may NOT be null,
-      \arg messageType - string describing the kind of message to post, should be one of...
+      \arg \c handle     effect instance handle the message should be associated with, may NOT be null,
+      \arg \c messageType string describing the kind of message to post, should be one of...
             - kOfxMessageError
             - kOfxMessageWarning
             - kOfxMessageMessage            
-      \arg messageId - plugin specified id to associate with this message. If overriding the message in XML resource, the message is identified with this, this may be NULL, or "", in which case no override will occur,
-      \arg format    - printf style format string
-      \arg ...       - printf style varargs list to print
+      \arg \c messageId plugin specified id to associate with this message. If overriding the message in XML resource, the message is identified with this, this may be NULL, or "", in which case no override will occur,
+      \arg \c format    printf style format string
+      \arg \c ...       printf style varargs list to print
 
       \returns 
-        - ::kOfxStatOK - if the message was sucessfully posted 
+        - ::kOfxStatOK - if the message was successfully posted 
         - ::kOfxStatErrBadHandle - the handle was rubbish
         - ::kOfxStatFailed - if the message could not be posted for some reason
 
      Persistent messages are associated with an effect handle until explicitly cleared by an effect. So if an error message is posted the error state, and associated message will persist and be displayed on the effect appropriately. (eg: draw a node in red on a node based compostor and display the message when clicked on).
 
-     If \e messageType is error or warning, associated error states should be flagged on host applications. Posting an error message implies that the host cannot proceeed, a warning allows the host to proceed, whilst a simple message should have no stop anything.
+     If \e messageType is error or warning, associated error states should be flagged on host applications. Posting an error message implies that the host cannot proceed, a warning allows the host to proceed, whilst a simple message should have no stop anything.
    */
   OfxStatus (*setPersistentMessage)(void *handle,
                                     const char *messageType,
@@ -170,11 +144,11 @@ typedef struct OfxMessageSuiteV2 {
   
   /** @brief Clears any persistent message on an effect handle that was set by OfxMessageSuiteV2::setPersistentMessage. New for V2 message suite.
 
-      \arg handle     - effect instance handle messages should be cleared from.
-      \arg handle     - effect handle (descriptor or instance) 
+      \arg \c handle     effect instance handle messages should be cleared from.
+      \arg \c handle     effect handle (descriptor or instance) 
 
       \returns 
-        - ::kOfxStatOK - if the message was sucessfully cleared
+        - ::kOfxStatOK - if the message was successfully cleared
         - ::kOfxStatErrBadHandle - the handle was rubbish
         - ::kOfxStatFailed - if the message could not be cleared for some reason
 
