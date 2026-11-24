@@ -91,6 +91,9 @@ protected :
   // do not need to delete these, the ImageEffect is managing them for us
   OFX::Clip *dstClip_;
   OFX::Clip *srcClip_;
+  // an error message is shown: clear it once a render works again. Render calls on one instance
+  // aren't concurrent (the default render thread safety, instance safe), so it needs no lock.
+  bool messagePosted_;
 
 public :
   /** @brief ctor */
@@ -98,6 +101,7 @@ public :
     : ImageEffect(handle)
     , dstClip_(NULL)
     , srcClip_(NULL)
+    , messagePosted_(false)
   {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
@@ -105,6 +109,14 @@ public :
 
   /* Override the render */
   virtual void render(const OFX::RenderArguments &args);
+
+  /* tell the user why the render fails, then fail with that status */
+  void renderError(const char *message, OfxStatus status)
+  {
+    setPersistentMessage(OFX::Message::eMessageError, "", message);
+    messagePosted_ = true;
+    OFX::throwSuiteStatusException(status);
+  }
 
   /* set up and run a processor */
   void setupAndProcess(FieldBase &, const OFX::RenderArguments &args);
@@ -122,12 +134,20 @@ public :
 void
 FieldPlugin::setupAndProcess(FieldBase &processor, const OFX::RenderArguments &args)
 {
-  // get a dst image
+  // get a dst image: NULL means the host has none, an error for the output
   OFX::auto_ptr<OFX::Image> dst(dstClip_->fetchImage(args.time));
+  if (!dst.get()) {
+    renderError("The host gave no output image", kOfxStatFailed);
+  }
   OFX::BitDepthEnum dstBitDepth       = dst->getPixelDepth();
   OFX::PixelComponentEnum dstComponents  = dst->getPixelComponents();
+  // render() chose the processor from the clip: the image must match it
+  if (dstBitDepth != dstClip_->getPixelDepth() || dstComponents != dstClip_->getPixelComponents()) {
+    renderError("The host gave an output image with the wrong depth or components", kOfxStatFailed);
+  }
+  checkBadRenderScaleOrField(dst, args); // debug builds only
 
-  // fetch main input image
+  // fetch main input image: NULL (no input there) renders black and transparent
   OFX::auto_ptr<OFX::Image> src(srcClip_->fetchImage(args.time));
 
   // make sure bit depths are sane
@@ -136,8 +156,16 @@ FieldPlugin::setupAndProcess(FieldBase &processor, const OFX::RenderArguments &a
     OFX::PixelComponentEnum srcComponents = src->getPixelComponents();
 
     // see if they have the same depths and bytes and all
-    if(srcBitDepth != dstBitDepth || srcComponents != dstComponents)
-      throw int(1); // HACK!! need to throw an sensible exception here!
+    if(srcBitDepth != dstBitDepth || srcComponents != dstComponents) {
+      renderError("The source and output images differ in depth or components", kOfxStatErrImageFormat);
+    }
+    checkBadRenderScaleOrField(src, args); // debug builds only
+  }
+
+  // the images are right: remove the message of an earlier failed render
+  if (messagePosted_) {
+    clearPersistentMessage();
+    messagePosted_ = false;
   }
 
   // set the images

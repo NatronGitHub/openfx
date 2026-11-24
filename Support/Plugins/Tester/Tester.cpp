@@ -245,11 +245,15 @@ class GenericTestPlugin : public OFX::ImageEffect
 protected :
   OFX::Clip *dstClip_;
   OFX::Clip *srcClip_;
+  // an error message of setupAndProcess() is shown: clear it once a render works again. Render
+  // calls on one instance aren't concurrent (the default render thread safety, instance safe), so
+  // it needs no lock.
+  bool messagePosted_;
 
 public :
   double nestedTime_; ///< the time of the last plug-in edit of keysDouble (keysTest)
 
-  GenericTestPlugin(OfxImageEffectHandle handle) : ImageEffect(handle), dstClip_(NULL), srcClip_(NULL), nestedTime_(0.)
+  GenericTestPlugin(OfxImageEffectHandle handle) : ImageEffect(handle), dstClip_(NULL), srcClip_(NULL), messagePosted_(false), nestedTime_(0.)
   {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
@@ -257,6 +261,14 @@ public :
 
   virtual void render(const OFX::RenderArguments &args);
   void setupAndProcess(GenericTestBase &, const OFX::RenderArguments &args);
+
+  /* tell the user why the render fails, then fail with that status */
+  void renderError(const char *message, OfxStatus status)
+  {
+    setPersistentMessage(OFX::Message::eMessageError, "", message);
+    messagePosted_ = true;
+    OFX::throwSuiteStatusException(status);
+  }
 
   // A test of the host's keyframe functions (paramSetValueAtTime, paramGetNumKeys, paramGetKeyTime,
   // paramGetKeyIndex, paramDeleteKey, paramDeleteAllKeys, paramGetValueAtTime, paramGetDerivative,
@@ -482,9 +494,18 @@ public :
 
 void GenericTestPlugin::setupAndProcess(GenericTestBase &processor, const OFX::RenderArguments &args)
 {
+  // NULL means the host has no output image, an error
   OFX::auto_ptr<OFX::Image> dst(dstClip_->fetchImage(args.time));
+  if (!dst.get()) {
+    renderError("The host gave no output image", kOfxStatFailed);
+  }
   OFX::BitDepthEnum dstBitDepth       = dst->getPixelDepth();
   OFX::PixelComponentEnum dstComponents  = dst->getPixelComponents();
+  // render() chose the processor from the clip: the image must match it
+  if (dstBitDepth != dstClip_->getPixelDepth() || dstComponents != dstClip_->getPixelComponents()) {
+    renderError("The host gave an output image with the wrong depth or components", kOfxStatFailed);
+  }
+  checkBadRenderScaleOrField(dst, args); // debug builds only
   OFX::auto_ptr<OFX::Image> src(srcClip_->fetchImage(args.time));
 
   if(src.get()) 
@@ -493,8 +514,16 @@ void GenericTestPlugin::setupAndProcess(GenericTestBase &processor, const OFX::R
     OFX::PixelComponentEnum srcComponents = src->getPixelComponents();
 
     // see if they have the same depths and bytes and all
-    if(srcBitDepth != dstBitDepth || srcComponents != dstComponents)
-      throw int(1); // HACK!! need to throw an sensible exception here!
+    if(srcBitDepth != dstBitDepth || srcComponents != dstComponents) {
+      renderError("The source and output images differ in depth or components", kOfxStatErrImageFormat);
+    }
+    checkBadRenderScaleOrField(src, args); // debug builds only
+  }
+
+  // the images are right: remove the message of an earlier failed render
+  if (messagePosted_) {
+    clearPersistentMessage();
+    messagePosted_ = false;
   }
 
   processor.setDstImg(dst.get());
@@ -511,6 +540,7 @@ void GenericTestPlugin::render(const OFX::RenderArguments &args)
     OFX::DoubleParam* keysDouble = fetchDoubleParam("keysDouble");
     if (std::fabs(keysDouble->getValue() - keysDouble->getValueAtTime(args.time)) > 1e-9) {
       setPersistentMessage(OFX::Message::eMessageError, "", "render: paramGetValue isn't the value at the render's time");
+      messagePosted_ = false; // it replaced any message of setupAndProcess(): keep it
     }
   }
   // a test of the Support library, intentional: the progressUpdate() and progressEnd() after

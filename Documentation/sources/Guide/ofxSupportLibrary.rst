@@ -165,7 +165,8 @@ on both backends of the Python ``ofxhost`` module: the demo host,
 hostDemo, in a subprocess, and in-process on the HostSupport Python
 bindings (skipped if they aren't built). Build the samples and hostDemo
 with ``-DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON``, and see
-``Support/Plugins/tests/README.md`` for how to run them.
+``Support/Plugins/tests/README.md`` for how to run them. The demo hosts
+are described in :ref:`demoHostsGuide`.
 
 Beyond the Sample
 -----------------

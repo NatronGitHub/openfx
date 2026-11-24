@@ -23,8 +23,9 @@ A host using HostSupport:
 
 This chapter describes these steps. The example host ``hostDemo``
 (``HostSupport/examples/hostDemo*.cpp``) is a complete, small
-implementation, and the excerpts below come from it. The headers in
-``HostSupport/include`` document each class and function.
+implementation, and the excerpts below come from it (see
+:ref:`demoHostsGuide`). The headers in ``HostSupport/include`` document
+each class and function.
 
 You still need to know what the API does: HostSupport implements its
 mechanics, not the host's policy. The :ref:`reference guide<ImageEffectActions>`

@@ -341,7 +341,7 @@ clipLoadTexture
 resources,
     - ::kOfxStatReplyDefault - nothing the host could do..
  */
-  OfxStatus (*flushResources)( );
+  OfxStatus (*flushResources)(void);
 
 } OfxImageEffectOpenGLRenderSuiteV1;
 
