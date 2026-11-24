@@ -9,11 +9,14 @@
 /// kOfxParamPropColourManagement; and that the render inArgs have the
 /// kOfxImageEffectPropBehaviourWhenUnlicensed the host sets; and the fixes of the HostSupport
 /// review: NULL pointer defaults, exact doubles, plug-in cache rescans and reads (also of a
-/// malformed cache), and per-clip kFnOfxImageEffectPropComponentsPresent. Run by
-/// .github/scripts/hostdemo-checks.sh; exits with 1 if a check fails.
+/// malformed cache), per-clip kFnOfxImageEffectPropComponentsPresent, and the host's plug-in
+/// directories (setPluginHostPath()). Run by .github/scripts/hostdemo-checks.sh and the Windows
+/// job of .github/workflows/build.yml; exits with 1 if a check fails.
 
 #include <cstdio>
 #include <cstring>
+#include <iterator> // std::next
+#include <list>
 #include <string>
 #include <vector>
 
@@ -52,6 +55,7 @@
 #include <sstream>
 #include <stdexcept>
 #include "ofxhPluginAPICache.h"
+#include "ofxhUtilities.h" // utf16_to_utf8 (Windows)
 #if !defined(_WIN32)
 #include <fcntl.h> // open (lowestFreeFd)
 #include <unistd.h> // close
@@ -472,6 +476,40 @@ namespace {
     if (myInstance) {
       myInstance->clearRenderState();
     }
+  }
+
+  /// setPluginHostPath(hostId) adds the host's own directories, .../OFX/hostId, and not the standard
+  /// one, .../OFX/Plugins (#324: on Windows, getStdOFXPluginPath() returned its first result for
+  /// every hostId)
+  void checkPluginHostPath()
+  {
+    const auto endsWith = [](const std::string &s, const std::string &end) {
+      return s.size() >= end.size() && s.compare(s.size() - end.size(), end.size(), end) == 0;
+    };
+    const std::string hostId = "SuiteHandleChecksHost";
+#if defined(WINDOWS)
+    const std::string suffix = "\\OFX\\" + hostId;
+    // (the default hostId first, as in a host: the PluginCache constructor)
+    const std::string stdPath = OFX::utf16_to_utf8(PluginCache::getStdOFXPluginPath());
+    check("getStdOFXPluginPath() ends with \\OFX\\Plugins", endsWith(stdPath, "\\OFX\\Plugins"));
+    check("getStdOFXPluginPath(hostId) is getStdOFXPluginPath() with hostId instead of Plugins",
+          OFX::utf16_to_utf8(PluginCache::getStdOFXPluginPath(hostId)) == stdPath.substr(0, stdPath.size() - std::strlen("Plugins")) + hostId);
+#else
+    const std::string suffix = "/OFX/" + hostId;
+#endif
+    PluginCache pc; // (not the singleton)
+    const std::list<std::string> before = pc.getPluginPath();
+    pc.setPluginHostPath(hostId);
+    const std::list<std::string> &after = pc.getPluginPath();
+    check("setPluginHostPath(hostId) adds directories", after.size() > before.size());
+    bool allHost = true;
+    for (std::list<std::string>::const_iterator it = std::next(after.begin(), before.size()); it != after.end(); ++it) {
+      if (!endsWith(*it, suffix)) {
+        std::printf("suiteHandleChecks: setPluginHostPath(\"%s\") added %s\n", hostId.c_str(), it->c_str());
+        allHost = false;
+      }
+    }
+    check("setPluginHostPath(hostId) adds only .../OFX/hostId directories", allHost);
   }
 
   /// the labels of an image effect fall back to the label, then to the name (#229: the short and
@@ -1515,6 +1553,9 @@ int main()
 
   // the effect labels' fallbacks (#229)
   checkEffectLabels();
+
+  // the host's plug-in directories (#324)
+  checkPluginHostPath();
 
   // a real effect instance (the progress and timeline functions on a valid handle)
   checkEffectInstance(host);

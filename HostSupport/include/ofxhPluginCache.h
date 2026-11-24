@@ -521,8 +521,10 @@ namespace OFX {
       static void clearPluginCache();
         
 #if defined (WINDOWS)
-      /// This is windows only since it may vary on the location of CSIDL_PROGRAM_FILES_COMMON.
-      static const std::wstring& getStdOFXPluginPath(const std::string &hostId = "Plugins");
+      /// The directory OFX/hostId (with backslashes) of the Common Files folder, CSIDL_PROGRAM_FILES_COMMON:
+      /// by default the standard plug-in directory, OFX/Plugins. Computed for each call. Windows only,
+      /// since the location of CSIDL_PROGRAM_FILES_COMMON varies.
+      static std::wstring getStdOFXPluginPath(const std::string &hostId = "Plugins");
 #endif
         
       /// get the list in which plugins are sought

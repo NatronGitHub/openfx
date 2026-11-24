@@ -14,7 +14,7 @@ name: Build
 #     Python tests on the ofxh module (MacPorts' Python 3.11 and nanobind), as on Linux
 #   - Windows: MSYS2 UCRT64, CMake, the plug-in and host projects, and the ofxh module (built and
 #     imported, plus a smoke comparison of ofxhost.hostdemo with hostDemo: one describe and one render,
-#     also in its batch mode, with a killed worker)
+#     also in its batch mode, with a killed worker), and the HostSupport checks (suiteHandleChecks)
 # The plug-in repositories build with CMake (Natron#1181), so the per-PR builds do too. Other
 # variants (the Makefiles, C++20/23, MSVC, debug builds) are in extended.yml, which runs weekly
 # and on demand.
@@ -343,13 +343,23 @@ jobs:
           slt=$(find build -name support-library-test.exe -type f | head -1)
           test -n "$slt" || { echo "support-library-test was not built"; exit 1; }
           "$slt"
+      - name: HostSupport checks (suiteHandleChecks), with the Windows plug-in search path
+        run: |
+          set -eo pipefail
+          # as hostdemo-checks.sh on Linux and macOS, with the extensions on; also the Windows-only
+          # getStdOFXPluginPath() and setPluginHostPath() (#324)
+          shc=$(find build -name suiteHandleChecks.exe -type f | head -1)
+          test -n "$shc" || { echo "suiteHandleChecks was not built"; exit 1; }
+          SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$(cygpath -w "$PWD/build/Plugins")" \
+            "$shc" > suitehandlechecks.log 2>&1 || { cat suitehandlechecks.log; exit 1; }
+          tail -1 suitehandlechecks.log
       - name: Install
         run: |
           set -eo pipefail
           cmake --install build --prefix install
           find install -name '*.ofx' | sort
           test "$(find install -name '*.ofx' | wc -l)" -ge 5
-          # the example hosts are only compiled on Windows (the test renders run on Linux and macOS)
+          # the example hosts are installed (on Windows, suiteHandleChecks runs above; the test renders run on Linux and macOS)
           ls install/bin/hostDemo.exe install/bin/cacheDemo.exe install/bin/propsetDump.exe install/bin/suiteHandleChecks.exe
       - name: Plug-in project built against the installed package and with add_subdirectory
         run: |
