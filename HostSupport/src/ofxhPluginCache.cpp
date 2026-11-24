@@ -529,22 +529,20 @@ PluginHandle::~PluginHandle() {
 
 
 #if defined (WINDOWS)
-const std::wstring&
+std::wstring
 PluginCache::getStdOFXPluginPath(const std::string &hostId)
 {
-  static std::wstring ret;
-  static int gotIt = 0;
-  if(!gotIt) {
-	gotIt = 1;
-    wchar_t buffer[MAX_PATH];
-    SHGetFolderPathW(NULL, CSIDL_PROGRAM_FILES_COMMON, NULL, SHGFP_TYPE_CURRENT, buffer);
-	std::wstring str;
-	str.append(L"\\OFX\\");
-	str.append(OFX::utf8_to_utf16(hostId));
-	wcscat_s(buffer, MAX_PATH, str.c_str());
-	ret = std::wstring(buffer);
+  // not cached: setPluginHostPath() calls it again with another hostId (#324)
+  wchar_t buffer[MAX_PATH];
+  std::wstring ret;
+  if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PROGRAM_FILES_COMMON, NULL, SHGFP_TYPE_CURRENT, buffer))) {
+    ret = buffer;
+  } else {
+    ret = L"C:\\Program Files\\Common Files";
   }
-  return ret;	   
+  ret += L"\\OFX\\";
+  ret += OFX::utf8_to_utf16(hostId);
+  return ret;
 }
 #endif
 
