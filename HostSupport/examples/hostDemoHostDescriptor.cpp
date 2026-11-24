@@ -45,6 +45,7 @@ namespace MyHost
   Host::Host()
     : _ofx14(false)
     , _keepLoaded(false)
+    , _normalisedDefaults(true)
   {
     const char *keepLoaded = getenv("OFX_HOSTDEMO_KEEP_LOADED");
     _keepLoaded = keepLoaded != NULL && strcmp(keepLoaded, "1") == 0;
@@ -185,11 +186,37 @@ namespace MyHost
     OFX::Host::ImageEffect::Descriptor *desc = new OFX::Host::ImageEffect::Descriptor(plugin);
     return desc;
   }
-  
+
+  namespace {
+    /// --no-normalised-defaults: a context descriptor (where the plug-in defines its params) whose
+    /// params have no kOfxParamPropDefaultCoordinateSystem, as in a host without normalised defaults
+    class NoNormalisedDefaultsDescriptor : public OFX::Host::ImageEffect::Descriptor
+    {
+    public:
+      NoNormalisedDefaultsDescriptor(const OFX::Host::ImageEffect::Descriptor& rootContext,
+                                     OFX::Host::ImageEffect::ImageEffectPlugin* plugin)
+        : OFX::Host::ImageEffect::Descriptor(rootContext, plugin)
+      {
+      }
+
+      virtual OFX::Host::Param::Descriptor* paramDefine(const char* paramType, const char* name)
+      {
+        OFX::Host::Param::Descriptor* desc = OFX::Host::ImageEffect::Descriptor::paramDefine(paramType, name);
+        if (desc) {
+          desc->getProperties().removeProperty(kOfxParamPropDefaultCoordinateSystem);
+        }
+        return desc;
+      }
+    };
+  }
+
   /// used to construct a context description, rootContext is the main context
   OFX::Host::ImageEffect::Descriptor *Host::makeDescriptor(const OFX::Host::ImageEffect::Descriptor &rootContext, 
                                                            OFX::Host::ImageEffect::ImageEffectPlugin *plugin)
   {
+    if (!_normalisedDefaults) {
+      return new NoNormalisedDefaultsDescriptor(rootContext, plugin);
+    }
     OFX::Host::ImageEffect::Descriptor *desc = new OFX::Host::ImageEffect::Descriptor(rootContext, plugin);
     return desc;
   }

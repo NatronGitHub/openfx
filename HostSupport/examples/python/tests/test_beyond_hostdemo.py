@@ -108,12 +108,9 @@ def test_alpha_input_of_invert(sample_plugins):
 
 
 def test_components_errors_and_the_subprocess_backend(sample_plugins):
-    with pytest.raises(ValueError, match="expected rgba, rgb or alpha"):
-        render(sample_plugins, INVERT, components={"Source": "rg"})
-    with pytest.raises(ValueError, match="in-process backend"):
-        ofxhost.render(sample_plugins, INVERT, inputs={"Source": "ramp#rgb"}, backend="subprocess")
-    with pytest.raises(ValueError, match="in-process backend"):
-        ofxhost.render(sample_plugins, INVERT, components={"Source": "alpha"}, backend="subprocess")
+    for b in ofxhost.BACKENDS:
+        with pytest.raises(ValueError, match="expected rgba, rgb or alpha"):
+            ofxhost.render(sample_plugins, INVERT, components={"Source": "rg"}, backend=b)
     for a in ("--format", "-o", "--report"):
         with pytest.raises(ValueError, match="its own --format pfm"):
             ofxhost.render(sample_plugins, INVERT, extra_args=[a, "x"], backend="subprocess")

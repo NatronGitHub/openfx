@@ -346,7 +346,7 @@ class Session:
     host: Any
     dirs: tuple
     profile: str
-    options: tuple = ()  # (keep_loaded, use_std_paths, opengl_render)
+    options: tuple = ()  # (keep_loaded, use_std_paths, opengl_render, normalised_defaults)
 
 
 _session: Session | None = None
@@ -369,7 +369,7 @@ def shutdown() -> None:
 
 
 def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_paths: bool = False,
-                opengl_render: bool = False) -> None:
+                opengl_render: bool = False, normalised_defaults: bool = True) -> None:
     """Make sure the backend's ofxh host is initialized with these settings.
 
     ofxh has one host per process: a new one replaces the backend's own, but not another one.
@@ -381,12 +381,14 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
         use_std_paths: also the standard plug-in locations (hostDemo without --no-std-paths).
         opengl_render: the host's kOfxImageEffectPropOpenGLRenderSupported is "true" (hostDemo
             --opengl-describe; for describing only: the host renders without OpenGL).
+        normalised_defaults: False: no kOfxParamPropDefaultCoordinateSystem (hostDemo's
+            --no-normalised-defaults, see ofxh.init()).
 
     Raises:
         RuntimeError: another ofxh host is initialized.
     """
     global _session
-    options = (bool(keep_loaded), bool(use_std_paths), bool(opengl_render))
+    options = (bool(keep_loaded), bool(use_std_paths), bool(opengl_render), bool(normalised_defaults))
     if _session is not None and ofxh.host() is not _session.host:
         _session = None  # (shut down by someone else)
     if _session is not None and (_session.dirs, _session.profile, _session.options) == (dirs, profile, options):
@@ -400,7 +402,7 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
         _session = None
     host = _Host(opengl_render)
     ofxh.init(host, list(dirs), use_std_paths=use_std_paths, use_env_path=False, profile=profile,
-              keep_loaded=keep_loaded)
+              keep_loaded=keep_loaded, normalised_defaults=normalised_defaults)
     _session = Session(host, dirs, profile, options)
 
 
@@ -440,6 +442,7 @@ def _frames(frames) -> list[float]:
 class _Extra:
     """The hostDemo options of extra_args."""
     ofx14: bool = False
+    normalised_defaults: bool = True  # (--no-normalised-defaults: False)
     allow_unwritten: bool = False
     major: int = -1
     assignments: list = dataclasses.field(default_factory=list)
@@ -451,7 +454,8 @@ class _Extra:
 def _extra(extra_args: Sequence[str]) -> _Extra:
     """The hostDemo options that the in-process backend takes in extra_args.
 
-    --ofx14, --allow-unwritten, -m MAJOR, -s ASSIGNMENT (hostDemo's -s, before the params'),
+    --ofx14, --no-normalised-defaults, --allow-unwritten, -m MAJOR, -s ASSIGNMENT (hostDemo's -s, before the
+    params'),
     --format ppm|pfm, -o PREFIX and --report FILE.
     """
     x = _Extra()
@@ -461,6 +465,8 @@ def _extra(extra_args: Sequence[str]) -> _Extra:
         a = args[i]
         if a == "--ofx14":
             x.ofx14 = True
+        elif a == "--no-normalised-defaults":
+            x.normalised_defaults = False
         elif a == "--allow-unwritten":
             x.allow_unwritten = True
         elif a in ("--quiet", "--no-cache", "--no-std-paths"):
@@ -484,7 +490,8 @@ def _extra(extra_args: Sequence[str]) -> _Extra:
                 x.report = v
         else:
             raise ValueError(f"extra_args {a!r}: not supported by the in-process backend (supported: --ofx14, "
-                             "--allow-unwritten, -m MAJOR, -s ASSIGNMENT, --format ppm|pfm, -o PREFIX, --report FILE)")
+                             "--no-normalised-defaults, --allow-unwritten, -m MAJOR, -s ASSIGNMENT, --format ppm|pfm, "
+                             "-o PREFIX, --report FILE)")
         i += 1
     return x
 
@@ -497,7 +504,7 @@ class Job:
     assignments: hostDemo's -s values, in order. frames: the times, distinct. scale: (sx, sy).
     window: pixels at the render scale, or None. fmt: write the outputs to
     <prefix>.<t>[l|r].<fmt> ("ppm" or "pfm"), in out_dir (None: the current directory), or None:
-    no files. keep_loaded, use_std_paths: of the host (see ofxh.init()).
+    no files. keep_loaded, use_std_paths, normalised_defaults: of the host (see ofxh.init()).
     """
     plugin_id: str
     context: str
@@ -516,6 +523,7 @@ class Job:
     out_dir: str | None = None
     keep_loaded: bool = False
     use_std_paths: bool = False
+    normalised_defaults: bool = True
 
 
 class _Run:
@@ -906,7 +914,7 @@ def run_job(dirs: tuple, job: Job) -> tuple[int, dict, dict]:
     """
     run = _Run(job)
     profile = "ofx14" if job.ofx14 else "default"
-    ensure_host(dirs, profile, job.keep_loaded, job.use_std_paths)
+    ensure_host(dirs, profile, job.keep_loaded, job.use_std_paths, normalised_defaults=job.normalised_defaults)
     plugin = ofxh.get_plugin(job.plugin_id, job.major)
     report: dict = {"schema": "hostDemo.report", "schemaVersion": 1, "ok": False, "plugin": {"id": job.plugin_id},
                     "context": job.context, "host": {"name": ofxh.host().props[kOfxPropName][0], "profile": profile},
@@ -1286,7 +1294,8 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
             _input_specs(inputs, comps, sc, specs)
             # (hostDemo's order: the -s of extra_args, then those of params; its default format: ppm)
             job = Job(plugin_id, ctx, specs, x.assignments + assignments, depth, fr, sc, win, query=query,
-                      ofx14=x.ofx14, allow_unwritten=x.allow_unwritten, major=x.major,
+                      ofx14=x.ofx14, normalised_defaults=x.normalised_defaults, allow_unwritten=x.allow_unwritten,
+                      major=x.major,
                       fmt=x.format or ("ppm" if x.prefix is not None else None),
                       prefix=x.prefix if x.prefix is not None else OUTPUT_PREFIX, out_dir=out_dir)
             ret, report, outputs = run_job(dirs, job)
@@ -1330,7 +1339,7 @@ def describe(bundle_paths, plugin_id: str, context: str | None = None, extra_arg
             x = _extra(extra_args)
             if context:
                 _context(context)
-            ensure_host(dirs, "ofx14" if x.ofx14 else "default")
+            ensure_host(dirs, "ofx14" if x.ofx14 else "default", normalised_defaults=x.normalised_defaults)
             plugin = ofxh.get_plugin(plugin_id, x.major)
             if plugin is None:
                 stdio.write(2, f'Error: plug-in "{plugin_id}" not found. Check that OFX_PLUGIN_PATH contains the '

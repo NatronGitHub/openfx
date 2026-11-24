@@ -64,7 +64,7 @@ assert np.allclose(r.outputs[0][..., :3], 1 - src, atol=1e-6)
     `RenderResult.stdout` and `.stderr` are empty, and hostDemo's messages go to the real stderr);
   - `host_binary` is hostDemo's: with it, a call without `backend=` uses the subprocess backend
     whatever `$OFXHOST_BACKEND` says, and `backend="inprocess"` with it is a `ValueError`;
-  - `extra_args`: only `--ofx14`, `--allow-unwritten`, `-m MAJOR` and `-s ASSIGNMENT` (as
+  - `extra_args`: only `--ofx14`, `--no-normalised-defaults`, `--allow-unwritten`, `-m MAJOR` and `-s ASSIGNMENT` (as
     hostDemo's, before those of `params`; e.g. to press a button twice), `--format ppm|pfm`,
     `-o PREFIX` and `--report FILE` (and the no-ops `--quiet`, `--no-cache`, `--no-std-paths`);
     anything else raises `ValueError`. With `--format` or `-o`, the outputs are also written as
@@ -78,25 +78,19 @@ assert np.allclose(r.outputs[0][..., :3], 1 - src, atol=1e-6)
     the call, what other threads write to them is captured too, and their relative paths are
     relative to the temporary directory;
   - ofxh has one host per process. The backend keeps its host between the renders with the same
-    plug-in directories and profile (`--ofx14`), so the plug-ins stay loaded (hostDemo loads them in
-    each run); another set of directories or another profile makes a new host. It refuses to run
+    plug-in directories, profile (`--ofx14`) and options (`--no-normalised-defaults`), so the
+    plug-ins stay loaded (hostDemo loads them in each run); other directories, another profile or
+    other options make a new host. It refuses to run
     while another ofxh host is initialized (RuntimeError). `ofxhost.inprocess.shutdown()` releases
     its host.
   - the template of a host on ofxh is the sample host, `ofxhost/graphhost.py` (below), and
     `minimal_host.py` the minimal one; `ofxhost.inprocess` is a port of hostDemo.
+- **Per-input components** (both backends): `render(..., components={"Source": "rgb"})` (`"rgb"`,
+  `"alpha"`, `"rgba"`, or the `kOfxImageComponent*` names; a clip that isn't in `inputs` gets the
+  default pattern), or hostDemo's `#rgb`, `#alpha` or `#rgba` suffix at the end of a spec string
+  (`"ramp#rgb"`, `"checker:8#alpha"`, `"file:x.pfm#premult#rgb"`; `components=` overrides it).
+  `ofxhost.split_components(spec)` splits the suffix. See `-i` below.
 - Beyond hostDemo, in-process only (hostDemo is frozen):
-  - **per-input components**: `render(..., components={"Source": "rgb"})` (`"rgb"`, `"alpha"`,
-    `"rgba"`, or the `kOfxImageComponent*` names; a clip that isn't in `inputs` gets the default
-    pattern), or a `#rgb`, `#alpha` or `#rgba` suffix at the end of a spec string (`"ramp#rgb"`,
-    `"checker:8#alpha"`, `"file:x.pfm#premult#rgb"`). That is the clip's unmapped components (what
-    is connected to it). The clip preferences then give the clip's components: HostSupport's default
-    is the closest one the clip supports (an RGB input of an RGBA-only clip gets RGBA), and the
-    plug-in may ask for another; each fetch converts the input to them. An RGB input is opaque
-    (alpha 1 in an RGBA clip, premultiplication opaque); an Alpha input is the alpha of the pattern
-    or file, and gives (a, a, a, a) to an RGBA clip, as hostDemo's Pf files. The report's input
-    `unmappedComponents` and `spec` (with the suffix) say what was given. The subprocess backend
-    raises `ValueError` for anything but RGBA. `ofxhost.split_components(spec)` splits the suffix.
-    This lets a test cover the RGB-source code paths of a plug-in.
   - **worker threads**: a plug-in's worker thread (e.g. an OpenMP render loop) may be the first to
     fetch the output image of a render, or ask for the output's RoD during it. During a render, the
     output clip's `region_of_definition()` at the render's time and view returns the RoD computed
@@ -158,6 +152,21 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   `file:Out.0.pfm+Out.0.alpha.pfm@x1,y1#premult`. PF gives (r,g,b,1), Pf gives r=g=b=a=value; the values are converted
   to the clip's depth (clamped to [0,1] for byte and short) and components. Malformed files
   are rejected.
+- Any `-i` spec may end with `#rgb`, `#alpha` or `#rgba` (after `#premult`...): the input's
+  components, i.e. the clip's unmapped components (what is connected to it; default RGBA). The
+  clip preferences then give the clip's components: HostSupport's default is the closest one the
+  clip supports (an RGB input of an RGBA-only clip gets RGBA), and the plug-in may ask for
+  another; each fetch converts the input to them. An RGB input is opaque (alpha 1 in an RGBA
+  clip, premultiplication opaque); an Alpha input is the alpha of the pattern or file (a Pf
+  file's value, 1 for a PF file without `+alpha.pfm`), and gives (a, a, a, a) to an RGBA clip, as
+  Pf files. The report's input `unmappedComponents` and `spec` (with the suffix) say what was
+  given. This lets a test cover the RGB-source code paths of a plug-in.
+- `--no-normalised-defaults` makes hostDemo a host without normalised parameter defaults (a host
+  from before OFX 1.2, or one that ignores them): the double param descriptors have no
+  kOfxParamPropDefaultCoordinateSystem, so a plug-in's set fails (kOfxStatErrUnknown), Support's
+  `supportsDefaultCoordinateSystem()` is false, and the defaults are taken as canonical
+  coordinates. The report's `params` then show the values such a host gives. In Python:
+  `extra_args=["--no-normalised-defaults"]` (`ofxh.init(normalised_defaults=False)`).
 - The other `-i` specs: `default` (a grey level t: black at t=0, white at t=1, with the time
   drawn in the reverse colour), `solid:r,g,b,a`, `ramp` (0 at the left to 1 at the right),
   `checker:N` (N-pixel squares of 0 and 1), `none` (disconnected, optional clips only).
@@ -514,8 +523,7 @@ What differs from hostDemo (the complete list; `tests/test_hostdemo_cli.py` chec
   two-component motion-vector and disparity components, a `getComponentsPresent()` callback, and
   `ImageEffectInstance.get_clip_components_action()`. `-i Clip@Plane=spec` is checked as by
   hostDemo (the same errors), and refused without `--multiplane`;
-- beyond hostDemo: an input spec may end with `#rgb`, `#alpha` or `#rgba` (the components, as
-  above), and `$OFXHOST_PRELOAD` lists libraries (`os.pathsep`-separated) to load with
+- beyond hostDemo: `$OFXHOST_PRELOAD` lists libraries (`os.pathsep`-separated) to load with
   `RTLD_GLOBAL` before the plug-in scan: e.g. MacPorts' `libtbbmalloc` for IO.ofx, since oneTBB
   2023.2 can crash at exit when OpenImageIO loaded it.
 

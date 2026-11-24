@@ -725,7 +725,8 @@ static void usage(const char* prog)
     "  --format ppm|pfm   output format: plain 8-bit PPM (default), or float PFM\n"
     "  -d byte|short|float  input depth before clip preferences (default: byte)\n"
     "  -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none, or\n"
-    "                     file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]\n"
+    "                     file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque], then\n"
+    "                     optionally #rgb, #alpha or #rgba: the components of the input (default RGBA)\n"
     "  -i Clip@Plane=spec an extra plane of an input (with --multiplane): Plane is ForwardMotionVector,\n"
     "                     BackMotionVector, StereoDisparityLeft or StereoDisparityRight, and its two\n"
     "                     components are the first two of spec (any -i spec but none)\n"
@@ -749,6 +750,8 @@ static void usage(const char* prog)
     "                     (kOfxImageEffectPropOpenGLRenderSupported \"true\"), to describe OpenGL-only plug-ins\n"
     "  --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,\n"
     "                     the GetClipComponents action; Nuke-extension builds only)\n"
+    "  --no-normalised-defaults  be a host without normalised parameter defaults: double params\n"
+    "                     have no kOfxParamPropDefaultCoordinateSystem, their defaults are canonical\n"
     "  --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH\n"
     "  --no-cache         don't read or write the plug-in cache files (hostDemoPluginCache*.xml)\n"
     "  --quiet            print only the plug-in's messages on stdout\n"
@@ -1306,6 +1309,7 @@ static int run(int argc, char **argv)
   bool multiPlane = false;     ///< --multiplane
   std::vector<std::pair<std::string, MyHost::InputPlane> > inputPlanes; ///< -i Clip@Plane=spec
   std::map<std::string, std::map<std::string, std::string> > inputPlaneSpecs; ///< their spec text, for --report
+  bool normalisedDefaults = true; ///< --no-normalised-defaults
   bool quiet = false;
   bool allowUnwritten = false;
   OutputFormat format = eFormatPPM;
@@ -1343,6 +1347,8 @@ static int run(int argc, char **argv)
       std::cerr << "Error: --multiplane needs a hostDemo built with OFX_EXTENSIONS_NUKE" << std::endl;
       return 1;
 #endif
+    } else if (arg == "--no-normalised-defaults") {
+      normalisedDefaults = false;
     } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
                arg == "-d" || arg == "-i" || arg == "--format" ||
                arg == "--report" || arg == "--describe" ||
@@ -1403,7 +1409,7 @@ static int run(int argc, char **argv)
           error.clear();
           if (!MyHost::parseInputPlaneName(planeName, plane)) {
             error = "unknown plane \"" + planeName + "\"";
-          } else if (MyHost::parseInputSpec(optarg.substr(eq + 1), plane.spec, error) &&
+          } else if (MyHost::parseInputSpec(optarg.substr(eq + 1), plane.spec, error, false) &&
                      plane.spec.type == MyHost::InputSpec::eNone) {
             error = "a plane can't be none";
           }
@@ -1425,7 +1431,9 @@ static int run(int argc, char **argv)
         std::string error = "no clip name";
         if (eq == std::string::npos || eq == 0 || !MyHost::parseInputSpec(optarg.substr(eq + 1), spec, error)) {
           std::cerr << "Error: invalid input \"" << optarg << "\" (" << error
-                    << "), expected Clip=default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none|file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]" << std::endl;
+                    << "), expected Clip=default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none|"
+                       "file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque], then optionally #rgb|#alpha|#rgba"
+                    << std::endl;
           return 1;
         }
         if (inputSpecs.count(optarg.substr(0, eq))) {
@@ -1573,6 +1581,9 @@ static int run(int argc, char **argv)
     myHost.getProperties().setIntProperty(kFnOfxImageEffectPropMultiPlanar, 1);
   }
 #endif
+  if (!normalisedDefaults) {
+    myHost.disableNormalisedDefaults();
+  }
 
   // make an image effect plugin cache. This is what knows about
   // all the plugins.

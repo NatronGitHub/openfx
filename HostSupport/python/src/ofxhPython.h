@@ -302,6 +302,9 @@ public:
 
   bool _ofx14 = false;  ///< the OFX 1.4 host profile (ofxh.init(profile="ofx14")), see restrictToOFX14()
   bool _keepLoaded = false;  ///< ofxh.init(keep_loaded=True): keepPluginsLoadedAfterScan()
+  /// ofxh.init(normalised_defaults=False), as hostDemo --no-normalised-defaults: the double param
+  /// descriptors have no kOfxParamPropDefaultCoordinateSystem (makeDescriptor())
+  bool _normalisedDefaults = true;
 
   PyHost(nb::object py, RefPtr ref);
   ~PyHost() override;
