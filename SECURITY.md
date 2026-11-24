@@ -17,6 +17,14 @@ maintainers:
 
 https://github.com/AcademySoftwareFoundation/openfx/security/advisories/new
 
+> **Fork note (NatronGitHub/openfx):** this repository is the Natron fork
+> of OpenFX. Report vulnerabilities in code that exists only in the fork
+> (HostSupport, the Python host and its bindings, the Natron extensions,
+> and the fork's additions to Support) to the fork's maintainers, at
+> https://github.com/NatronGitHub/openfx/security/advisories/new.
+> For the code shared with upstream OpenFX, the rest of this policy
+> applies as written.
+
 Please include as much detail as you can:
 
 * The version, branch, or commit of OpenFX affected.
