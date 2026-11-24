@@ -65,7 +65,7 @@ def both(tmp_path, hosts, plugins, args, files=(), **env):
     out = []
     for name, cmd in (("hostDemo", [str(hostdemo)]), ("inprocess", [sys.executable, "-m", "ofxhost.hostdemo"])):
         d = tmp_path / name
-        d.mkdir()
+        d.mkdir(parents=True)
         for f, data in files:
             (d / f).write_bytes(data)
         out.append((_run(cmd + list(args), d, _env(plugins, ofxh_dir, **env)), d))
@@ -203,6 +203,10 @@ def test_run_errors(tmp_path, hosts, sample_plugins, args):
     ["--window", "1,1,1,1"],
     ["--format", "png"], ["-d", "half"], ["-c", "paint"], ["-m", "-1"], ["-i", "Source=bogus"], ["-i", "=ramp"],
     ["-i", "Source=ramp", "-i", "Source=none"], ["--report", "a.json", "--describe", "b.json"], ["--bogus"],
+    # -i Clip@Plane=spec (the in-process backend checks it as hostDemo, then refuses it without --multiplane)
+    ["-i", "Source@Nope=ramp"], ["-i", "@BackMotionVector=ramp"], ["-i", "Source@BackMotionVector=none"],
+    ["-i", "Source@BackMotionVector=bogus"], ["-i", "Source@BackMotionVector=ramp"],
+    ["-i", "Source@StereoDisparityLeft=ramp", "-i", "Source@StereoDisparityLeft=checker:4"],
     ["-p"], ["--opengl-describe"], ["--opengl-describe", "--report", "r.json"],
 ], ids=lambda a: " ".join(a))
 def test_usage_errors(tmp_path, hosts, sample_plugins, args):
@@ -213,11 +217,41 @@ def test_usage_errors(tmp_path, hosts, sample_plugins, args):
     assert first and first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]
 
 
+def test_multiplane(tmp_path, hosts, sample_plugins):
+    """--multiplane: hostDemo with the Nuke extension is a multi-plane host (README.md); the in-process backend,
+    whose ofxh bindings have the colour plane only, refuses it, as hostDemo without the Nuke extension."""
+    import ofxh
+    colour = [*Q, "-p", INVERT, "-i", "Source=ramp", "--frames", "0", "--format", "pfm", "-o", "out", "--report",
+              "r.json"]
+    args = colour + ["--multiplane", "-i", "Source@BackMotionVector=solid:0.5,0.25,0,1"]
+    (s, sd), (i, idir) = both(tmp_path, hosts, sample_plugins, args)
+    assert i.returncode == 1 and "Error: --multiplane: the in-process backend has no multi-plane support" in i.stderr
+    assert not (idir / "r.json").exists()
+    if not ofxh.build_config["OFX_EXTENSIONS_NUKE"]:  # (hostDemo is built with the same options as ofxh)
+        assert s.returncode == 1 and "Error: --multiplane needs a hostDemo built with OFX_EXTENSIONS_NUKE" in s.stderr
+        return
+    assert s.returncode == 0, s.stderr
+    r = json.loads((sd / "r.json").read_text())
+    assert r["inputs"]["Source"]["planes"] == {"BackMotionVector": "solid:0.5,0.25,0,1"}
+    assert r["clipPreferences"]["clips"]["Source"]["planesPresent"] == [k.kFnOfxImagePlaneColour,
+                                                                        k.kFnOfxImagePlaneBackwardMotionVector]
+    assert r["clipPreferences"]["clips"]["Output"]["planesPresent"] == [k.kFnOfxImagePlaneColour]
+    for x in r["renders"]:
+        # (Invert isn't multi-plane: the Support library's default, kOfxStatReplyDefault)
+        assert x["clipComponents"] == {"ok": True, "status": "kOfxStatReplyDefault", "clips": {},
+                                       "passThroughClip": None, "passThroughTime": None, "passThroughView": None}
+        assert x["isIdentity"]["identityPlane"] is None and x["render"]["ok"]
+    # the same files as without --multiplane (the colour plane)
+    (p, pd), _ = both(tmp_path / "colour", hosts, sample_plugins, colour)
+    assert p.returncode == 0, p.stderr
+    assert _files(sd) == _files(pd)
+
+
 def test_help(tmp_path, hosts, sample_plugins):
     (s, _), (i, _) = both(tmp_path, hosts, sample_plugins, ["-h"])
     assert s.returncode == i.returncode == 0
     for opt in ("-p id", "--format ppm|pfm", "--report file.json", "--describe file.json", "--ofx14",
-                "--opengl-describe", "--quiet"):
+                "--opengl-describe", "--quiet", "--multiplane", "-i Clip@Plane=spec"):
         assert opt in s.stdout and opt in i.stdout
 
 

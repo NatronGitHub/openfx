@@ -2329,6 +2329,7 @@ namespace OFX {
           };
           Property::Set inArgs(inStuff);
           inArgs.setDoubleProperty(kOfxPropTime,time);
+          inArgs.setIntProperty(kFnOfxImageEffectPropView, view); // (it was always 0)
           
           
           Property::PropSpec outStuff[] = {
