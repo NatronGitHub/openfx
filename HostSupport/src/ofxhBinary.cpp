@@ -75,7 +75,7 @@ void Binary::unload() {
   if (_dlHandle != 0) {
 #if defined (UNIX)
     dlclose(_dlHandle);
-#elif defined (_WIN32)
+#elif defined (WINDOWS)
     FreeLibrary(_dlHandle);
 #endif
     _dlHandle = 0;
@@ -88,7 +88,7 @@ void *Binary::findSymbol(const std::string &symbol) {
   if (_dlHandle != 0) {
 #if defined(UNIX)
     return dlsym(_dlHandle, symbol.c_str());
-#elif defined (_WIN32)
+#elif defined (WINDOWS)
     return (void*)GetProcAddress(_dlHandle, symbol.c_str());
 #endif
   } else {
