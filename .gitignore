@@ -66,3 +66,5 @@ __pycache__/
 CMakeUserPresets.json
 build-ci/
 build-ci-natron/
+# the virtual environment of `uv run` (Documentation/build.sh, with the root pyproject.toml)
+.venv/
