@@ -127,7 +127,7 @@ jobs:
           cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test support-library-test ofxh \
             hostDemo suiteHandleChecks example-Basic-support example-ChoiceParams-support example-Generator-support \
             example-Invert-support example-Tester-support example-Retimer-support example-MultiBundle-support \
-            example-Rectangle example-PropTester example-MultiplyGPU-support
+            example-Rectangle example-PropTester example-MultiplyGPU-support example-OpenGL
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test && Support/support-library-test)
           # the HostSupport checks with the extensions (e.g. kFnOfxImageEffectPropComponentsPresent per clip)
           SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
