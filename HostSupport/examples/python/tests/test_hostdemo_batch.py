@@ -352,13 +352,13 @@ def test_crash_and_timeout(tmp_path, env):
     timedOut, with the output it wrote before; the worker is replaced and the batch goes on."""
     hooks = ["kill", "exit", "raise", "hang"] + (["segv"] if sys.platform != "darwin" else [])
     # (no SIGSEGV on macOS: it would make a system crash report; SIGKILL kills the worker as well)
-    # (the hang: the batch's timeout, 5 s after a fresh plug-in scan; the others their own --timeout 60)
+    # (the hang: the batch's timeout, 2 s, on a worker that has run a command; the others their own --timeout 60)
     long = ["--timeout", "60"]
     cmds = []
     for h in hooks:
         cmds += [[*long, *_hook_line("host")], _hook_line(h) if h == "hang" else [*long, *_hook_line(h)]]
     cmds.append([*long, *_hook_line("host")])
-    recs = run_batch(cmds, jobs=1, timeout=5, cwd=tmp_path, env=env)
+    recs = run_batch(cmds, jobs=1, timeout=2, cwd=tmp_path, env=env)
     assert len(recs) == len(cmds)
     gen = 1
     for k, h in enumerate(hooks):
@@ -375,9 +375,9 @@ def test_crash_and_timeout(tmp_path, env):
         assert f"batch test hook: {h} (stderr)\n" in r["stderr"], r
         if h == "hang":
             assert r["timedOut"] and not r["crashed"]
-            assert 5 <= r["seconds"] < 60
+            assert 2 <= r["seconds"] < 60
             # (faulthandler's dump of the worker's Python threads, before it was killed)
-            assert "Timeout (0:00:05)!" in r["stderr"] and "most recent call first" in r["stderr"], r["stderr"]
+            assert "Timeout (0:00:02)!" in r["stderr"] and "most recent call first" in r["stderr"], r["stderr"]
         else:
             assert r["crashed"] and not r["timedOut"]
             assert r["exitStatus"] == {"kill": -9, "exit": 3, "segv": -11}[h] or sys.platform == "win32", r

@@ -254,8 +254,8 @@ def cmd_render(args) -> int:
 def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="python -m ofxhost", description="The sample host (ofxhost.graphhost).",
                                  formatter_class=argparse.RawDescriptionHelpFormatter,
-                                 epilog="python -m ofxhost hostdemo [hostDemo's options]: hostDemo's command line, "
-                                        "in-process (ofxhost.hostdemo). See ofxhost/cli.py and the README.")
+                                 epilog="python -m ofxhost.hostdemo [hostDemo's options]: hostDemo's command line, "
+                                        "in-process. See ofxhost/cli.py and the README.")
     ap.add_argument("-b", "--bundles", action="append", default=[], metavar="DIR",
                     help="a plug-in directory or .ofx.bundle (repeatable); $OFX_PLUGIN_PATH is scanned too")
     ap.add_argument("--loglevel", default="warning", choices=["debug", "info", "warning", "error"],
@@ -301,9 +301,6 @@ def _import_host(bundles) -> None:
 def main(argv=None) -> int:
     """python -m ofxhost: run the command line argv (default: sys.argv[1:]); the exit status."""
     argv = sys.argv[1:] if argv is None else list(argv)
-    if argv[:1] == ["hostdemo"]:
-        from .hostdemo import run
-        return run(argv[1:], "python -m ofxhost hostdemo")
     args = _parser().parse_args(argv)  # (a usage error exits with status 2)
     logging.basicConfig(level=getattr(logging, args.loglevel.upper()), format="%(levelname)s: %(message)s")
     try:

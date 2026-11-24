@@ -28,8 +28,8 @@ class Recorder(ofxh.ImageEffectInstance):
         self.log = []
         self.descriptors = []
 
-    def message(self, type, id, text):
-        self.messages.append((type, text))
+    def message(self, message_type, message_id, text):
+        self.messages.append((message_type, text))
 
     def new_param(self, desc):
         self.descriptors.append(desc)

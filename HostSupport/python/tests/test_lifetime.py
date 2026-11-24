@@ -158,7 +158,7 @@ def test_failed_init_shuts_down(plugin_dir):
 @pytest.mark.parametrize("call", ["close", "shutdown"])
 def test_close_and_shutdown_refused_in_callbacks(plugin_dir, call):
     class Closer(ofxh.ImageEffectInstance):
-        def message(self, type, id, text):
+        def message(self, message_type, message_id, text):
             self.close() if call == "close" else ofxh.shutdown()
 
     inst = _instance(plugin_dir, Closer(), plugin=TESTER)

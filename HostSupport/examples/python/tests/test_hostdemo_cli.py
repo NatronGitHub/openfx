@@ -319,10 +319,10 @@ def test_no_normalised_defaults(tmp_path, hosts, sample_plugins, extra):
 
 
 def test_entry_points(tmp_path, hosts, sample_plugins):
-    """python -m ofxhost hostdemo ... and the hostdemo-inprocess script are the same."""
+    """python -m ofxhost.hostdemo ... and the hostdemo-inprocess script are the same."""
     hostdemo, ofxh_dir = hosts
     env = _env(sample_plugins, ofxh_dir, OFXHOST_PYTHON=sys.executable)
-    for cmd in ([sys.executable, "-m", "ofxhost", "hostdemo"], [str(PYDIR / "hostdemo-inprocess")]):
+    for cmd in ([sys.executable, "-m", "ofxhost.hostdemo"], [str(PYDIR / "hostdemo-inprocess")]):
         p = _run(cmd + [*Q, "-p", INVERT, "--frames", "0", "-o", "e", "--report", "r.json"], tmp_path, env)
         assert p.returncode == 0, p.stderr
         files = sorted(tmp_path.glob("e.0*.ppm"))  # (e.0.ppm, or e.0l.ppm and e.0r.ppm with two views)

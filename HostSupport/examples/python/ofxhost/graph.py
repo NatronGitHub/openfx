@@ -377,7 +377,7 @@ def load(path: str | os.PathLike) -> Graph:
         return loads(f.read(), os.path.dirname(os.path.abspath(path)))
 
 
-_TOP_KEYS = ("schema", "schemaVersion", "project", "render", "outputs", "output", "nodes")
+_TOP_KEYS = ("schema", "schemaVersion", "project", "render", "outputs", "nodes")
 _NODE_KEYS = ("plugin", "version", "context", "params", "inputs")
 
 
@@ -391,8 +391,6 @@ def _from_json(doc, base) -> Graph:
     if not isinstance(doc, dict) or not isinstance(doc.get("nodes"), dict):
         raise ValueError('a graph file needs "nodes": {name: {"plugin": ...}, ...}')
     _unknown(doc, _TOP_KEYS, "the graph")
-    if "output" in doc and "outputs" in doc:
-        raise ValueError('the graph has both "output" and "outputs": give "outputs" only')
     if doc.get("schema", SCHEMA) != SCHEMA or doc.get("schemaVersion", SCHEMA_VERSION) != SCHEMA_VERSION:
         raise ValueError(f"schema {doc.get('schema')!r} version {doc.get('schemaVersion')!r}: expected "
                          f"{SCHEMA!r} version {SCHEMA_VERSION}")
@@ -421,8 +419,6 @@ def _from_json(doc, base) -> Graph:
                                  f"not {v!r}")
             nodes[name].inputs[clip] = v
     outputs = doc.get("outputs")
-    if outputs is None and "output" in doc:
-        outputs = {doc["output"]: None}
     if not isinstance(outputs, dict) or not outputs:
         raise ValueError('a graph file needs "outputs": {node: file pattern or null}')
     for name, f in outputs.items():

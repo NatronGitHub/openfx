@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import functools
 import json
 import math
 import os
 import tempfile
+import threading
 import traceback
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -92,7 +94,8 @@ def _capture():
     directory (e.g. logs) are deleted.
 
     The descriptors and the current directory are the process's: during the call, other threads'
-    output is captured too, and their relative paths are relative to the temporary directory.
+    output is captured too, and their relative paths are relative to the temporary directory (render()
+    and describe() run one at a time, see _one_at_a_time()).
     """
     out = {"stdout": "", "stderr": ""}
     files = {fd: tempfile.TemporaryFile() for fd in (1, 2)} if capture_enabled() else {}
@@ -111,6 +114,26 @@ def _capture():
                 files[fd].seek(0)
                 out[name] = files[fd].read().decode("utf-8", "replace")
                 files[fd].close()
+
+
+_lock = threading.RLock()
+
+
+def _one_at_a_time(f):
+    """Run f in one thread at a time (render(), describe() and shutdown()).
+
+    render() and describe() change the process's current directory and file descriptors 1 and 2 until they
+    return, and read the current directory first: concurrent calls would capture each other's output and restore
+    what another left (stdout and stderr then write to a deleted file); shutdown() would shut the host down under
+    a render. ofxh also refuses a call from another thread during an action. Reentrant only to avoid a deadlock: a
+    nested call from the same thread isn't supported. ensure_host() and run_job() aren't serialized: call them
+    from one thread.
+    """
+    @functools.wraps(f)
+    def one_at_a_time(*args, **kwargs):
+        with _lock:
+            return f(*args, **kwargs)
+    return one_at_a_time
 
 
 # --- the host, the instance and the clips ---------------------------------------------------
@@ -357,10 +380,11 @@ def session() -> Session | None:
     return _session if _session is not None and ofxh.host() is _session.host else None
 
 
+@_one_at_a_time
 def shutdown() -> None:
     """Shut down the backend's ofxh host (the next render starts a new one).
 
-    Doesn't touch another ofxh host.
+    Doesn't touch another ofxh host. Waits for a render() or describe() of another thread to return.
     """
     global _session
     if session() is not None:
@@ -1238,6 +1262,7 @@ def _write_report(path: str, report: dict, ret: int) -> int:
     return ret
 
 
+@_one_at_a_time
 def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mapping[str, Any] | None = None,
            params: Mapping[str, Any] | None = None, depth: str = "float", frames: Sequence[float] | None = None,
            scale: float | Sequence[float] | None = None, window: Sequence[int] | None = None, query: bool = False,
@@ -1315,6 +1340,7 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
                         stderr=cap["stderr"], cmd=cmd, images=images)
 
 
+@_one_at_a_time
 def describe(bundle_paths, plugin_id: str, context: str | None = None, extra_args: Sequence[str] = ()) -> dict:
     """ofxhost.describe(), in-process.
 

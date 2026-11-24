@@ -76,7 +76,8 @@ assert np.allclose(r.outputs[0][..., :3], 1 - src, atol=1e-6)
     plug-ins' `printf` and `std::cerr` too), and the call runs in a temporary current directory, as
     hostDemo does (relative paths in the inputs are resolved before). Both are the process's: during
     the call, what other threads write to them is captured too, and their relative paths are
-    relative to the temporary directory;
+    relative to the temporary directory. `render()`, `describe()` and `shutdown()` calls from several
+    threads run one at a time;
   - ofxh has one host per process. The backend keeps its host between the renders with the same
     plug-in directories, profile (`--ofx14`) and options (`--no-normalised-defaults`), so the
     plug-ins stay loaded (hostDemo loads them in each run); other directories, another profile or
@@ -337,8 +338,7 @@ order, `Graph.dumps()` gives the text; everything but `nodes` and `outputs` is o
   (pixels at the render scale; null: the project), and `depth` (of the patterns and unconnected
   inputs: byte, short or float).
 - `outputs`: each output node, and the file name pattern it is written to by the sample host
-  (null: rendered only; e.g. a writer plug-in, which writes its own files). `"output": "b"`, the
-  format before, is read as `{"b": null}`.
+  (null: rendered only; e.g. a writer plug-in, which writes its own files).
 - `params`: values as `ofxh.param_template()` gives them (numbers, booleans, strings, lists; a
   choice's index, or the label of one of its options), keys, `{"file": path}` (a file parameter's
   value, which `save()` rewrites as it does the file inputs), or null (press a push button).
@@ -355,8 +355,7 @@ order, `Graph.dumps()` gives the text; everything but `nodes` and `outputs` is o
   there is no relative path, and `"file:"` specs absolute), so that the saved graph still finds its
   files.
 - `version` is `[major, minor]`: the latest version of that major is used; without it, the latest.
-- Unknown keys are refused (in the nodes and at the top level), and so are `"output"` and
-  `"outputs"` together.
+- Unknown keys are refused (in the nodes and at the top level).
 - A graph built in Python, saved, then loaded, is equivalent (the same nodes, versions,
   connections, values and keys, outputs and settings), and saving it again gives the same bytes.
   Arrays and `Image` inputs can't be saved (`ValueError`): write them to files.
@@ -417,10 +416,11 @@ What it does (see its docstring):
 - **Image sequences and file name patterns** (`ofxhost.sequences`, as Natron): `####` (the frame,
   zero-padded to the number of `#`), `%d`, `%0Nd`, `%V` (the view name), `%v` (its first letter,
   upper case), `%%` (a literal `%`). The frame of a time is floor(t + 0.5). They apply to the
-  `Files` inputs (held at the first and last frames outside the sequence), to the output files, and
-  to the plug-ins' file parameters: the output file paths (string parameters in file path mode with
-  `kOfxParamPropStringFilePathExists` = 0), and the `filename` and `proxy` parameters of a reader
-  or writer (a plug-in with the reader or writer context). Those hold the pattern; paramGetValue
+  `Files` inputs (held at the first and last frames outside the sequence), to the output files
+  (two times that give the same file name fail the run), and to the plug-ins' file parameters: the
+  output file paths (string parameters in file path mode with `kOfxParamPropStringFilePathExists` =
+  0), and the `filename` and `proxy` parameters of a reader or writer (a plug-in with the reader or
+  writer context). Those hold the pattern; paramGetValue
   returns the name at the current time, paramGetValueAtTime at its time (Natron's
   `OfxStringInstance::get`), made absolute against the graph's directory, as Natron resolves them
   against the project's path. A reader's `originalFrameRange` (Integer2D), if the graph doesn't set
@@ -485,7 +485,6 @@ backend, a drop-in for the hostDemo binary:
 ```sh
 python -m ofxhost.hostdemo [hostDemo's options] [[-s] name=value]...
 HostSupport/examples/python/hostdemo-inprocess [hostDemo's options]...    # the same, as a script
-python -m ofxhost hostdemo [hostDemo's options]...                        # the same
 ```
 
 It takes all of hostDemo's options (`-h` lists them) with the same meaning and errors, reads the
@@ -637,22 +636,18 @@ records = run_batch(["--quiet -p net.sf.openfx.invertPlugin -o a --report a.json
   (the command's own `--env`, not an inherited variable) makes the worker crash, hang... after the
   command (`ofxhost/_batch.py`).
 
-## OFX constants and property metadata
+## OFX constants
 
 `ofxhost.constants` has every `#define` of `include/` (strings, status codes, key symbols...),
-with its C name. `ofxhost.props` has the `@propdef` metadata of every property: type,
-dimension (0 means any number), valid values of enums (including extension and deprecated
-values), and the extension it belongs to (`None` for standard properties).
+with its C name:
 
 ```python
 from ofxhost import constants as k
-from ofxhost.props import PROPS
-p = PROPS[k.kOfxImageEffectPropSupportedPixelDepths]
-p.type, p.dimension, p.values   # ('enum', 0, ('OfxBitDepthNone', 'OfxBitDepthByte', ...))
+k.kOfxImageEffectPropSupportedPixelDepths   # 'OfxImageEffectPropSupportedPixelDepths'
 ```
 
-Both are generated from the headers by `scripts/gen-ofxhost-py.py` (needs PyYAML); run it after
-changing a header. CI fails if they are out of date, and `scripts/check-props.py` fails if a
+It is generated from the headers by `scripts/gen-ofxhost-py.py` (needs PyYAML); run it after
+changing a header. CI fails if it is out of date, and `scripts/check-props.py` fails if a
 `#define` of `include/` is neither a property with a `@propdef` nor classified in
 `scripts/ofx_fork_props.py` (enum value, alias, or name).
 
@@ -682,9 +677,9 @@ Linux job, on both backends.
 - Python code follows the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html),
   with lines of up to 120 columns ([line length](https://google.github.io/styleguide/pyguide.html#s3.2-line-length)
   is 80 there). `HostSupport/python/pyproject.toml` says so to ruff (`line-length`, and E501, which
-  ruff doesn't check by default; the generated `constants.py` and `props.py` are excluded). No
-  linter runs in CI: `ruff check --config HostSupport/python/pyproject.toml HostSupport/examples/python`
-  checks it.
+  ruff doesn't check by default; the generated `constants.py` is excluded). The
+  Linux CI job runs `ruff check --config HostSupport/python/pyproject.toml` on these directories,
+  `Support/Plugins/tests` and the fork's own scripts (see `.github/workflows/build.yml`).
 - The helpers shared by the backends and the sample host are public modules of the package:
   `ofxhost.rects` (rectangles), `ofxhost.pixels` (arrays, depths, statistics), `ofxhost.specs`
   (hostDemo's input specs and patterns), `ofxhost.pfm`, `ofxhost.status` (status names),

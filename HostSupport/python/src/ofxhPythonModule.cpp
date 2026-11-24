@@ -781,10 +781,10 @@ static void bindHost(nb::module_ &m)
 {
   nb::class_<HostBase>(m, "Host",
                        "The host. Subclass it and override the callbacks; pass one to ofxh.init().\n\n"
-                       "Callbacks: message(type, id, text) (type: fatal, error, warning, message, log or\n"
-                       "question), persistent_message(type, id, text), clear_persistent_message(),\n"
-                       "init_properties(props). The defaults print the messages as hostDemo does, and answer\n"
-                       "yes to questions.",
+                       "Callbacks: message(message_type, message_id, text) (message_type: fatal, error, warning,\n"
+                       "message, log or question), persistent_message(message_type, message_id, text),\n"
+                       "clear_persistent_message(), init_properties(props). The defaults print the messages as\n"
+                       "hostDemo does, and answer yes to questions.",
                        nb::dynamic_attr())
     .def(nb::init<>())
     .def("message", [](HostBase &, const std::string &type, const std::string &, const std::string &text) {
@@ -809,8 +809,8 @@ static void bindImageEffectInstance(nb::module_ &m)
     "An image effect instance. Subclass it, override the callbacks, and create it with\n"
     "ofxh.create_instance(plugin, context, MyInstance()). close() it (or use `with`).\n\n"
     "Callbacks (the defaults are hostDemo's): the methods new_clip_instance(desc, index),\n"
-    "message(type, id, text), persistent_message(...), clear_persistent_message(), view_name(index),\n"
-    "progress_start(message, id), progress_end(), progress_update(t), timeline_get_time(),\n"
+    "message(message_type, message_id, text), persistent_message(...), clear_persistent_message(),\n"
+    "view_name(index), progress_start(message, id), progress_end(), progress_update(t), timeline_get_time(),\n"
     "timeline_goto_time(t), timeline_get_bounds(), edit_begin(name), edit_end(); and the values\n"
     "project_size, project_offset, project_extent, project_pixel_aspect_ratio, effect_duration,\n"
     "frame_rate, frame_recursive, render_scale_recursive, default_output_fielding, view_count, which\n"

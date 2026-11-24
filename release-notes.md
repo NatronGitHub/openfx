@@ -34,7 +34,7 @@ are in `release-notes-next.md`):
 
 - #85: upstream's header-only C++17 `openfx-cpp` layer, with its generator (`scripts/gen-props.py`) and examples
 - #86: upstream's CMake/conan build, adapted to the fork (the Makefiles are unchanged); #125, #127, #129: `cmake/OpenFX.cmake` helpers for the plug-in repositories (`add_ofx_plugin` options, `ofx_plugin_resources`, `ofx_target_openmp`, `ofx_deploy_bundle`); #139: `OFX_SUPPORTS_PARAMETRIC` options, so hosts can use the `openfx::HostSupport` target with `add_subdirectory`
-- #121: `@propdef` for every property, including the extension properties; `check-props.py` classifies every string `#define` of `include/`; generated Python `ofxhost.constants` and `ofxhost.props`
+- #121: `@propdef` for every property, including the extension properties; `check-props.py` classifies every string `#define` of `include/`; generated Python `ofxhost.constants`
 - #63: proposed interact-cursor extension (`kOfxInteractPropCursor` and related properties in `ofxInteract.h`, under `OFX_EXTENSIONS_NATRON`)
 - #87: Support feature macro `OFXS_SUPPORT_HAS_DRAWCONTEXT`
 - #92: `kOfxImageEffectPropNoSpatialAwareness` declared in every build, passed to Render and BeginSequenceRender (`ImageEffect::Instance::isNoSpatialAwarenessRender()`, `RenderArguments::isNoSpatialAwareness`)

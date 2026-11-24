@@ -56,8 +56,8 @@ class Instance(ofxh.ImageEffectInstance):
     def new_clip_instance(self, desc, index):
         return Clip() if desc.is_output else Clip(self.image, self.on_fetch, self.state)
 
-    def message(self, type, id, text):
-        self.messages.append((type, text))
+    def message(self, message_type, message_id, text):
+        self.messages.append((message_type, text))
 
 
 def _prepare(inst):
@@ -206,7 +206,7 @@ def test_plugin_worker_thread_may_call_back(plugin_dir):
     seen = []
 
     class Worker(Instance):
-        def message(self, type, id, text):
+        def message(self, message_type, message_id, text):
             try:
                 seen.append(("rect", self.project_pixel_rect()))
             except RuntimeError as e:
@@ -314,7 +314,7 @@ def test_worker_errors_stay_in_their_thread(plugin_dir):
         def project_size(self, value):
             pass
 
-        def message(self, type, id, text):
+        def message(self, message_type, message_id, text):
             name = threading.current_thread().name
             try:
                 seen[name] = ("rect", self.project_pixel_rect())

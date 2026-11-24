@@ -25,7 +25,7 @@ def test_topological_order():
 
 def test_load(tmp_path):
     (tmp_path / "g.json").write_text(json.dumps({
-        "output": "c",
+        "outputs": {"c": None},
         "nodes": {
             "a": {"plugin": INVERT, "inputs": {"Source": "file:in.pfm"}},
             "c": {"plugin": BASIC, "context": "general", "params": {"scale": 2},
@@ -39,7 +39,7 @@ def test_load(tmp_path):
     # paths stay as they are in the file, relative to its directory
     assert nodes["a"].inputs["Source"] == "file:in.pfm" and g.base == os.path.abspath(tmp_path)
     (tmp_path / "bad.json").write_text(json.dumps({
-        "output": "a", "nodes": {"a": {"plugin": INVERT, "inputs": {"Source": {"node": "x"}}}}}))
+        "outputs": {"a": None}, "nodes": {"a": {"plugin": INVERT, "inputs": {"Source": {"node": "x"}}}}}))
     with pytest.raises(ValueError, match="unknown node 'x'"):
         load(tmp_path / "bad.json")
 
@@ -57,11 +57,11 @@ def test_file_spec_paths(tmp_path, monkeypatch):
 
 
 def test_load_errors(tmp_path):
-    (tmp_path / "g.json").write_text(json.dumps({"output": "a", "nodes": {"a": {"inputs": {}}}}))
+    (tmp_path / "g.json").write_text(json.dumps({"outputs": {"a": None}, "nodes": {"a": {"inputs": {}}}}))
     with pytest.raises(ValueError, match="plugin"):
         load(tmp_path / "g.json")
     (tmp_path / "h.json").write_text(json.dumps(
-        {"output": "a", "nodes": {"a": {"plugin": INVERT, "inputs": {"Source": [1, 2]}}}}))
+        {"outputs": {"a": None}, "nodes": {"a": {"plugin": INVERT, "inputs": {"Source": [1, 2]}}}}))
     with pytest.raises(ValueError, match="Source"):
         load(tmp_path / "h.json")
 
@@ -143,13 +143,13 @@ def test_save_elsewhere(tmp_path):
 
 
 def test_load_strict():
-    """Unknown keys are refused, at the top level and in the nodes; and "output" with "outputs"."""
+    """Unknown keys are refused, at the top level (including "output") and in the nodes."""
     node = {"plugin": INVERT, "inputs": {"Source": "ramp"}}
     with pytest.raises(ValueError, match="unknown key 'ouputs'"):
-        loads(json.dumps({"ouputs": {"a": None}, "output": "a", "nodes": {"a": node}}))
+        loads(json.dumps({"ouputs": {"a": None}, "nodes": {"a": node}}))
     with pytest.raises(ValueError, match="node 'a': unknown key 'param'"):
         loads(json.dumps({"outputs": {"a": None}, "nodes": {"a": {**node, "param": {}}}}))
-    with pytest.raises(ValueError, match='both "output" and "outputs"'):
+    with pytest.raises(ValueError, match="unknown key 'output'"):
         loads(json.dumps({"outputs": {"a": None}, "output": "a", "nodes": {"a": node}}))
     # a project's pixel aspect ratio is positive
     for par in (0, -1.):

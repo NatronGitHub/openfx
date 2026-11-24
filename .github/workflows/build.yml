@@ -62,10 +62,15 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev
-          pip install pyyaml "nanobind>=2.0,<4" numpy pytest
+          pip install pyyaml "nanobind>=2.0,<4" numpy pytest "ruff~=0.17.0"
+      - name: Python lint (ruff, with the rules of HostSupport/python/pyproject.toml)
+        run: |
+          ruff check --config HostSupport/python/pyproject.toml \
+            HostSupport/examples/python HostSupport/python Support/Plugins/tests \
+            scripts/check-props.py scripts/ofx_fork_props.py scripts/audit-propsets.py scripts/gen-ofxhost-py.py
       - name: Property metadata (@propdef)
         run: python scripts/check-props.py
-      - name: Generated Python modules (ofxhost.constants, ofxhost.props) are up to date
+      - name: Generated Python module (ofxhost.constants) is up to date
         run: python scripts/gen-ofxhost-py.py --check
       - name: Generated property reference pages are up to date
         run: |

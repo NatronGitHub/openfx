@@ -47,12 +47,12 @@ def bundles():
 
 
 @pytest.fixture
-def render(backend, bundles):
+def render(backend, bundles):  # noqa: F811  (the backend fixture imported above)
     """ofxhost.render with our bundles, on each backend: render(plugin_id, inputs=..., params=...)."""
     return functools.partial(ofxhost.render, bundles, backend=backend)
 
 
 @pytest.fixture
-def describe(backend, bundles):
+def describe(backend, bundles):  # noqa: F811  (the backend fixture imported above)
     """ofxhost.describe with our bundles, on each backend: describe(plugin_id)."""
     return functools.partial(ofxhost.describe, bundles, backend=backend)
