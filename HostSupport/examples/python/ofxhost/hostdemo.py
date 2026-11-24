@@ -42,6 +42,9 @@ hostDemo's command line, in-process on the HostSupport Python bindings (ofxhost.
   -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none, or
                      file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque], then
                      optionally #rgb, #alpha or #rgba: the components of the input (default RGBA)
+  -i Clip@Plane=spec an extra plane of an input (with --multiplane): Plane is ForwardMotionVector,
+                     BackMotionVector, StereoDisparityLeft or StereoDisparityRight, and its two
+                     components are the first two of spec (any -i spec but none)
   --frames t,...     render (or query) at these times (default: 0,1)
   --scale s[,sy]     render scale, in (0,1] (default: 1)
   --window x1,y1,x2,y2  render window, in pixels at the render scale, clipped to the RoD
@@ -60,6 +63,8 @@ hostDemo's command line, in-process on the HostSupport Python bindings (ofxhost.
                      no OfxSetHost, no StrChoice or Bytes params, one view
   --opengl-describe  with --describe only: say the host supports OpenGL render
                      (kOfxImageEffectPropOpenGLRenderSupported "true"), to describe OpenGL-only plug-ins
+  --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,
+                     the GetClipComponents action; Nuke-extension builds only): not in-process
   --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH
   --no-cache         (no-op: ofxh has no plug-in cache file)
   --quiet            print only the plug-in's messages on stdout
@@ -78,6 +83,9 @@ _VALUE_OPTIONS = ("-p", "-m", "-c", "-o", "-s", "-d", "-i", "--format", "--repor
 _FLAGS = {"--no-std-paths": ("std_paths", False), "--quiet": ("quiet", True),
           "--allow-unwritten": ("allow_unwritten", True), "--query": ("query", True), "--ofx14": ("ofx14", True),
           "--opengl-describe": ("opengl_describe", True), "--no-cache": (None, None)}
+# -i Clip@Plane=spec: the planes (hostDemo's parseInputPlaneName: the kFnOfxImagePlane* names without
+# "uk.co.thefoundry.OfxImagePlane")
+_PLANES = ("ForwardMotionVector", "BackMotionVector", "StereoDisparityLeft", "StereoDisparityRight")
 _CONTEXTS = {"filter": kOfxImageEffectContextFilter, "general": kOfxImageEffectContextGeneral,
              kOfxImageEffectContextFilter: kOfxImageEffectContextFilter,
              kOfxImageEffectContextGeneral: kOfxImageEffectContextGeneral}
@@ -145,9 +153,36 @@ def scan_options(args: Sequence[str]) -> tuple[str, set]:
     return plugin, flags
 
 
+def _parse_input_plane(o: dict, v: str) -> None:
+    """-i Clip@Plane=spec: checked as hostDemo checks it (the in-process backend has no planes: see _parse())."""
+    from . import specs  # (not ofxh)
+    at, eq = v.find("@"), v.find("=")
+    clip, plane = v[:at], v[at + 1:eq]
+    error = "no clip name"
+    if at > 0:
+        error = ""
+        if plane not in _PLANES:
+            error = f'unknown plane "{plane}"'
+        else:
+            try:
+                if specs.parse_spec(v[eq + 1:]).type == "none":
+                    error = "a plane can't be none"
+            except specs.SpecError as e:
+                error = str(e)
+    if error:
+        _fail(f'Error: invalid input plane "{v}" ({error}), expected '
+              "Clip@ForwardMotionVector|BackMotionVector|StereoDisparityLeft|StereoDisparityRight=spec")
+    if (clip, plane) in o["planes"]:
+        _fail(f'Error: input plane "{clip}@{plane}" given twice (-i)')
+    o["planes"].append((clip, plane))
+
+
 def _parse_input(o: dict, v: str, seen: set) -> None:
     """-i Clip=spec"""
     from . import specs  # (not ofxh)
+    if "=" in v and v.find("@") != -1 and v.find("@") < v.find("="):
+        _parse_input_plane(o, v)
+        return
     eq = v.find("=")
     error = "no clip name"
     spec = None
@@ -247,8 +282,8 @@ def _parse(argv: list[str], prog: str) -> dict:
     from .specs import CLIP_LENGTH  # (not ofxh: it is imported after the command line, as hostDemo loads plug-ins)
     o = {"plugin": _DEFAULT_PLUGIN, "major": -1, "context": kOfxImageEffectContextFilter, "prefix": "Output",
          "depth": "byte", "assignments": [], "inputs": [], "report": "", "describe": "", "std_paths": True,
-         "quiet": False, "ofx14": False, "opengl_describe": False, "allow_unwritten": False, "format": "ppm",
-         "frames": None, "scale": (1., 1.), "window": None, "query": False}
+         "planes": [], "quiet": False, "ofx14": False, "opengl_describe": False, "allow_unwritten": False,
+         "format": "ppm", "frames": None, "scale": (1., 1.), "window": None, "query": False}
     seen: set = set()
     a = 0
     while a < len(argv):
@@ -256,6 +291,10 @@ def _parse(argv: list[str], prog: str) -> dict:
         if arg in ("-h", "--help"):
             sys.stdout.write(USAGE.format(prog=prog))
             raise _Exit(0)
+        if arg == "--multiplane":
+            # (as a hostDemo built without OFX_EXTENSIONS_NUKE: README.md, what differs)
+            _fail("Error: --multiplane: the in-process backend has no multi-plane support (the ofxh bindings fetch and "
+                  "render the colour plane only): use hostDemo")
         if arg in _FLAGS:
             key, value = _FLAGS[arg]
             if key is not None:
@@ -282,6 +321,8 @@ def _parse(argv: list[str], prog: str) -> dict:
         _fail("Error: --report and --describe can't be used together (--describe creates no instance)")
     if o["opengl_describe"] and not o["describe"]:
         _fail("Error: --opengl-describe needs --describe (hostDemo can't render with OpenGL)")
+    if o["planes"]:
+        _fail("Error: -i Clip@Plane=spec needs --multiplane")
     return o
 
 

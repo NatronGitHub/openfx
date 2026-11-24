@@ -726,6 +726,9 @@ static void usage(const char* prog)
     "  -d byte|short|float  input depth before clip preferences (default: byte)\n"
     "  -i Clip=spec       input: default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none, or\n"
     "                     file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque]\n"
+    "  -i Clip@Plane=spec an extra plane of an input (with --multiplane): Plane is ForwardMotionVector,\n"
+    "                     BackMotionVector, StereoDisparityLeft or StereoDisparityRight, and its two\n"
+    "                     components are the first two of spec (any -i spec but none)\n"
     "  --frames t,...     render (or query) at these times (default: 0,1)\n"
     "  --scale s[,sy]     render scale, in (0,1] (default: 1)\n"
     "  --window x1,y1,x2,y2  render window, in pixels at the render scale, clipped to the RoD\n"
@@ -744,6 +747,8 @@ static void usage(const char* prog)
     "                     no OfxSetHost, no StrChoice or Bytes params, one view\n"
     "  --opengl-describe  with --describe only: say the host supports OpenGL render\n"
     "                     (kOfxImageEffectPropOpenGLRenderSupported \"true\"), to describe OpenGL-only plug-ins\n"
+    "  --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,\n"
+    "                     the GetClipComponents action; Nuke-extension builds only)\n"
     "  --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH\n"
     "  --no-cache         don't read or write the plug-in cache files (hostDemoPluginCache*.xml)\n"
     "  --quiet            print only the plug-in's messages on stdout\n"
@@ -998,7 +1003,7 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
                         OfxTime t, int view, int nViews, const OfxPointD& renderScale,
                         const OfxRectI* window, bool query, bool sequential,
                         bool allowUnwritten, const std::string& base, OutputFormat format,
-                        Json* rep)
+                        bool multiPlane, Json* rep)
 {
   const std::string fname = base + (format == eFormatPFM ? ".pfm" : ".ppm");
   (void)nViews;
@@ -1109,8 +1114,44 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
     id["time"] = stat == kOfxStatOK ? Json(idTime) : Json();
 #ifdef OFX_EXTENSIONS_NUKE
     id["identityView"] = stat == kOfxStatOK ? Json(idView) : Json();
+    if (multiPlane) {
+      id["identityPlane"] = stat == kOfxStatOK ? Json(idPlane) : Json();
+    }
 #endif
   }
+
+#ifdef OFX_EXTENSIONS_NUKE
+  // --multiplane: the planes the plug-in needs on each clip and produces on the output, and the
+  // clip it passes the other planes through from (hostDemo renders the colour plane only)
+  if (multiPlane) {
+    OFX::Host::ImageEffect::ComponentsMap components;
+    OFX::Host::ImageEffect::ClipInstance* passThroughClip = NULL;
+    OfxTime passThroughTime = t;
+    int passThroughView = view;
+    stat = instance->getClipComponentsAction(t, view, components, passThroughClip, passThroughTime, passThroughView);
+    Json& cc = r["clipComponents"] = actionJson(stat);
+    if (!statusOK(stat)) {
+      std::cerr << "Error: get clip components action failed at time " << t << " (status " << stat << ")" << std::endl;
+      return false;
+    }
+    // (by clip name: the map is ordered by the clips' addresses)
+    Json& ccc = cc["clips"] = Json::object();
+    for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
+      OFX::Host::ImageEffect::ComponentsMap::const_iterator found = components.find(it->second);
+      if (found != components.end()) {
+        Json& l = ccc[it->first] = Json::array();
+        for (std::list<std::string>::const_iterator c = found->second.begin(); c != found->second.end(); ++c) {
+          l.push(*c);
+        }
+      }
+    }
+    cc["passThroughClip"] = passThroughClip ? Json(passThroughClip->getName()) : Json();
+    cc["passThroughTime"] = stat == kOfxStatOK ? Json(passThroughTime) : Json();
+    cc["passThroughView"] = stat == kOfxStatOK ? Json(passThroughView) : Json();
+  }
+#else
+  (void)multiPlane;
+#endif
 
   // the frames needed from each input clip (HostSupport only calls the action if the plug-in
   // asks for temporal clip access; the default is the frame itself)
@@ -1262,6 +1303,9 @@ static int run(int argc, char **argv)
   bool useCache = true;
   bool ofx14 = false;          ///< --ofx14
   bool openglDescribe = false; ///< --opengl-describe
+  bool multiPlane = false;     ///< --multiplane
+  std::vector<std::pair<std::string, MyHost::InputPlane> > inputPlanes; ///< -i Clip@Plane=spec
+  std::map<std::string, std::map<std::string, std::string> > inputPlaneSpecs; ///< their spec text, for --report
   bool quiet = false;
   bool allowUnwritten = false;
   OutputFormat format = eFormatPPM;
@@ -1292,6 +1336,13 @@ static int run(int argc, char **argv)
       ofx14 = true;
     } else if (arg == "--opengl-describe") {
       openglDescribe = true;
+    } else if (arg == "--multiplane") {
+#ifdef OFX_EXTENSIONS_NUKE
+      multiPlane = true;
+#else
+      std::cerr << "Error: --multiplane needs a hostDemo built with OFX_EXTENSIONS_NUKE" << std::endl;
+      return 1;
+#endif
     } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
                arg == "-d" || arg == "-i" || arg == "--format" ||
                arg == "--report" || arg == "--describe" ||
@@ -1340,6 +1391,34 @@ static int run(int argc, char **argv)
           std::cerr << "Error: unsupported depth \"" << optarg << "\", expected byte, short or float" << std::endl;
           return 1;
         }
+      } else if (arg == "-i" && optarg.find('=') != std::string::npos && optarg.find('@') < optarg.find('=')) {
+        // -i Clip@Plane=spec: an extra plane
+        const std::string::size_type at = optarg.find('@');
+        const std::string::size_type eq = optarg.find('=');
+        const std::string clipName = optarg.substr(0, at);
+        const std::string planeName = optarg.substr(at + 1, eq - at - 1);
+        MyHost::InputPlane plane;
+        std::string error = "no clip name";
+        if (at > 0) {
+          error.clear();
+          if (!MyHost::parseInputPlaneName(planeName, plane)) {
+            error = "unknown plane \"" + planeName + "\"";
+          } else if (MyHost::parseInputSpec(optarg.substr(eq + 1), plane.spec, error) &&
+                     plane.spec.type == MyHost::InputSpec::eNone) {
+            error = "a plane can't be none";
+          }
+        }
+        if (!error.empty()) {
+          std::cerr << "Error: invalid input plane \"" << optarg << "\" (" << error
+                    << "), expected Clip@ForwardMotionVector|BackMotionVector|StereoDisparityLeft|StereoDisparityRight=spec"
+                    << std::endl;
+          return 1;
+        }
+        if (!inputPlaneSpecs[clipName].insert(std::make_pair(planeName, optarg.substr(eq + 1))).second) {
+          std::cerr << "Error: input plane \"" << clipName << "@" << planeName << "\" given twice (-i)" << std::endl;
+          return 1;
+        }
+        inputPlanes.push_back(std::make_pair(clipName, plane));
       } else if (arg == "-i") {
         std::string::size_type eq = optarg.find('=');
         MyHost::InputSpec spec;
@@ -1431,6 +1510,10 @@ static int run(int argc, char **argv)
     inputs[k].second.fileScaleX = renderScale.x;
     inputs[k].second.fileScaleY = renderScale.y;
   }
+  for (size_t k = 0; k < inputPlanes.size(); ++k) {
+    inputPlanes[k].second.spec.fileScaleX = renderScale.x;
+    inputPlanes[k].second.spec.fileScaleY = renderScale.y;
+  }
 
   if (!reportPath.empty() && !describePath.empty()) {
     std::cerr << "Error: --report and --describe can't be used together (--describe creates no instance)" << std::endl;
@@ -1448,6 +1531,14 @@ static int run(int argc, char **argv)
     return 1;
   }
 #endif
+  if (!inputPlanes.empty() && !multiPlane) {
+    std::cerr << "Error: -i Clip@Plane=spec needs --multiplane" << std::endl;
+    return 1;
+  }
+  if (multiPlane && ofx14) {
+    std::cerr << "Error: --multiplane and --ofx14 can't be used together (OFX 1.4 has no plane suite)" << std::endl;
+    return 1;
+  }
 
   //_CrtSetBreakAlloc(3168);
 #if defined(_MSC_VER) && defined(_DEBUG)
@@ -1457,9 +1548,10 @@ static int run(int argc, char **argv)
   OFX::Host::PluginCache::useStdOFXPluginsLocation(useStdPaths);
 
   // set the version label in the global cache
-  // (the plug-ins may describe themselves differently to an OFX 1.4 host, or to a host with
-  // OpenGL render: another cache)
-  const std::string cacheSuffix = std::string(ofx14 ? "-ofx14" : "") + (openglDescribe ? "-opengl" : "");
+  // (the plug-ins may describe themselves differently to an OFX 1.4 host, to a host with
+  // OpenGL render, or to a multi-plane host: another cache)
+  const std::string cacheSuffix = std::string(ofx14 ? "-ofx14" : "") + (openglDescribe ? "-opengl" : "") +
+                                  (multiPlane ? "-multiplane" : "");
   OFX::Host::PluginCache::getPluginCache()->setCacheVersion("hostDemoV1" + cacheSuffix);
   const std::string cachePath = "hostDemoPluginCache" + cacheSuffix + ".xml";
 
@@ -1474,6 +1566,13 @@ static int run(int argc, char **argv)
     // (an OFX 1.4 host property: also with --ofx14)
     myHost.getProperties().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "true");
   }
+#ifdef OFX_EXTENSIONS_NUKE
+  if (multiPlane) {
+    // "Indicates that a host or plugin can fetch more than a type of image from a clip"
+    // (nuke/fnOfxExtensions.h): with the plane suites, which HostSupport gives in these builds
+    myHost.getProperties().setIntProperty(kFnOfxImageEffectPropMultiPlanar, 1);
+  }
+#endif
 
   // make an image effect plugin cache. This is what knows about
   // all the plugins.
@@ -1601,6 +1700,9 @@ static int run(int argc, char **argv)
       const std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>& clips = myInstance->getClipInstances();
       for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
         MyHost::MyClipInstance* clip = dynamic_cast<MyHost::MyClipInstance*>(it->second);
+        if (clip && multiPlane) {
+          clip->setMultiPlane();
+        }
         if (clip && !clip->isOutput()) {
           clip->setUnmappedBitDepth(inputDepth);
         }
@@ -1618,6 +1720,19 @@ static int run(int argc, char **argv)
         }
         clip->setInput(inputs[k].second);
       }
+      for (size_t k = 0; ret == 0 && k < inputPlanes.size(); ++k) {
+        MyHost::MyClipInstance* clip = dynamic_cast<MyHost::MyClipInstance*>(instance->getClip(inputPlanes[k].first));
+        if (!clip || clip->isOutput()) {
+          std::cerr << "Error: the plug-in has no input clip named \"" << inputPlanes[k].first << "\". Its clips are:";
+          for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
+            std::cerr << " " << it->first;
+          }
+          std::cerr << std::endl;
+          ret = 1;
+          break;
+        }
+        clip->setInputPlane(inputPlanes[k].second);
+      }
       myInstance->setDefaultDepth(inputDepth);
       // the inputs used
       for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
@@ -1631,6 +1746,14 @@ static int run(int argc, char **argv)
           in["isMask"] = clip->isMask();
           in["unmappedDepth"] = clip->getUnmappedBitDepth();
           in["unmappedComponents"] = clip->getUnmappedComponents();
+          if (multiPlane) {
+            // its -i Clip@Plane=spec
+            Json& planes = in["planes"] = Json::object();
+            const std::map<std::string, std::string>& ps = inputPlaneSpecs[it->first];
+            for (std::map<std::string, std::string>::const_iterator p = ps.begin(); p != ps.end(); ++p) {
+              planes[p->first] = p->second;
+            }
+          }
         }
       }
     }
@@ -1733,6 +1856,16 @@ static int run(int argc, char **argv)
         c["unmappedDepth"] = it->second->getUnmappedBitDepth();
         c["unmappedComponents"] = it->second->getUnmappedComponents();
         c["connected"] = it->second->getConnected();
+#ifdef OFX_EXTENSIONS_NUKE
+        if (multiPlane) {
+          // kFnOfxImageEffectPropComponentsPresent: "the planes present"
+          Json& present = c["planesPresent"] = Json::array();
+          const std::vector<std::string>& cp = it->second->getComponentsPresent();
+          for (size_t k = 0; k < cp.size(); ++k) {
+            present.push(cp[k]);
+          }
+        }
+#endif
       }
       cp["outputPremultiplication"] = instance->getOutputPreMultiplication();
       cp["outputFielding"] = instance->getOutputFielding();
@@ -1822,7 +1955,7 @@ static int run(int argc, char **argv)
           std::ostringstream ss;
           ss << outputPrefix << "." << tname.str() << (nViews == 1 ? "" : view == 0 ? "l" : "r");
           Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-          if (!renderFrame(myInstance, outputClip, t, view, nViews, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, r)) {
+          if (!renderFrame(myInstance, outputClip, t, view, nViews, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r)) {
             ret = 1;
           }
         }
@@ -1830,7 +1963,7 @@ static int run(int argc, char **argv)
         std::ostringstream ss;
         ss << outputPrefix << "." << tname.str();
         Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, r)) {
+        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r)) {
           ret = 1;
         }
 #endif

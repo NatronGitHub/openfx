@@ -189,6 +189,22 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   are plain times, not `(t, "l"|"r")`. The report's `host.profile` is "ofx14" (else
   "default"). It uses its own plug-in cache file, hostDemoPluginCache-ofx14.xml. In Python:
   `extra_args=["--ofx14"]`.
+- `--multiplane` (hostDemo built with the Nuke extension, `OFX_EXTENSIONS_NUKE`; not with
+  `--ofx14`) makes hostDemo a multi-plane host, as Nuke is: the host descriptor has
+  kFnOfxImageEffectPropMultiPlanar 1, with the plane suite (V1 and V2) that HostSupport
+  implements. `-i Clip@Plane=spec` gives an input an extra plane: `Plane` is `ForwardMotionVector`,
+  `BackMotionVector`, `StereoDisparityLeft` or `StereoDisparityRight` (the kFnOfxImagePlane*
+  names without `uk.co.thefoundry.OfxImagePlane`), and `spec` any `-i` spec but `none`: the
+  plane's two components (u, v or x, y) are the first two of the spec's pattern or file, at the
+  clip's depth, over the clip's RoD. A plug-in fetches it with clipGetImagePlane (an image of
+  kFnOfxImageComponentMotionVectors or kFnOfxImageComponentStereoDisparity components, opaque);
+  a plane that isn't given gives no image. kFnOfxImageEffectPropComponentsPresent lists "the
+  planes present" (nuke/fnOfxExtensions.h): the colour plane, then the given ones. Before each
+  render, hostDemo calls the plug-in's GetClipComponents action, and reports the planes it needs
+  and its pass-through clip; it still renders the colour plane only (the output has no other
+  plane). It uses its own plug-in cache file, hostDemoPluginCache-multiplane.xml. The in-process
+  backend refuses it (see below). No dynamic choices (kNatronOfxParamHostPropSupportsDynamicChoices
+  stays 0): SupportExt's multi-plane plug-ins see a "V1" host, with the built-in planes only.
 - The environment variable `OFX_HOSTDEMO_KEEP_LOADED=1` makes hostDemo keep the plug-ins that
   the scan found loaded (`Host::keepPluginsLoadedAfterScan()`): they get one kOfxActionLoad and
   kOfxActionDescribe, and kOfxActionUnload at exit. By default (as in a run that uses the plug-in
@@ -229,6 +245,10 @@ outputPremultiplication, outputFielding, outputFrameRate, continuousSamples, fra
 {name: {type, value, enabled, secret[, keys]}} (after the run; value at time 0, keys
 [[time, value]...] for the numeric parameters), `messages` [{kind, type, id, text}],
 `progress` [{message, id, started, ended, ends (the number of progressEnd calls), updates, lastValue}].
+With `--multiplane`, also: `inputs` {Clip: {planes {Plane: spec}}}, `clipPreferences` {clips
+{Clip: {planesPresent}}}, and in each `renders` item `isIdentity` {identityPlane} and
+`clipComponents` {ok, status, clips {Clip: [plane...]}, passThroughClip, passThroughTime,
+passThroughView} (the GetClipComponents action, after isIdentity).
 
 Each `renders` item is one time and view: {time, view, renderScale, params {name: value} (at
 that time, for the parameters with keys), inputs {Clip: {connected,
@@ -488,6 +508,12 @@ What differs from hostDemo (the complete list; `tests/test_hostdemo_cli.py` chec
 - ofxh's string choice parameters refuse a value outside their enums (hostDemo's accept it);
 - an error in the Python host itself (a bug: an uncaught Python exception) exits with status 1 and a
   traceback on stderr, and writes no report;
+- `--multiplane` is refused (exit status 1), as by a hostDemo built without the Nuke extension:
+  the ofxh bindings fetch and render the colour plane only. Mirroring it needs, in the bindings,
+  `ClipInstance::getImagePlane()` passing the plane to `get_image()` and images with the
+  two-component motion-vector and disparity components, a `getComponentsPresent()` callback, and
+  `ImageEffectInstance.get_clip_components_action()`. `-i Clip@Plane=spec` is checked as by
+  hostDemo (the same errors), and refused without `--multiplane`;
 - beyond hostDemo: an input spec may end with `#rgb`, `#alpha` or `#rgba` (the components, as
   above), and `$OFXHOST_PRELOAD` lists libraries (`os.pathsep`-separated) to load with
   `RTLD_GLOBAL` before the plug-in scan: e.g. MacPorts' `libtbbmalloc` for IO.ofx, since oneTBB

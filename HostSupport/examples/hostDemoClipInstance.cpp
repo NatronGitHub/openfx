@@ -20,9 +20,9 @@
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
 #include "ofxPixels.h"
-#ifdef OFX_EXTENSIONS_NUKE
-#include "nuke/fnOfxExtensions.h" // kFnOfxImagePlaneColour
-#endif
+// kFnOfxImagePlaneColour, and the plane names of -i Clip@Plane=spec (parsed in all builds, so that
+// the command line gives the same errors)
+#include "nuke/fnOfxExtensions.h"
 
 // ofx host
 #include "ofxhBinary.h"
@@ -370,6 +370,26 @@ namespace MyHost {
     return false;
   }
 
+  bool parseInputPlaneName(const std::string& name, InputPlane& plane)
+  {
+    static const struct { const char* plane; const char* components; } kPlanes[] = {
+      { kFnOfxImagePlaneForwardMotionVector, kFnOfxImageComponentMotionVectors },
+      { kFnOfxImagePlaneBackwardMotionVector, kFnOfxImageComponentMotionVectors },
+      { kFnOfxImagePlaneStereoDisparityLeft, kFnOfxImageComponentStereoDisparity },
+      { kFnOfxImagePlaneStereoDisparityRight, kFnOfxImageComponentStereoDisparity },
+      { NULL, NULL }
+    };
+    static const std::string prefix = "uk.co.thefoundry.OfxImagePlane";
+    for (int i = 0; kPlanes[i].plane; ++i) {
+      if (prefix + name == kPlanes[i].plane) {
+        plane.plane = kPlanes[i].plane;
+        plane.components = kPlanes[i].components;
+        return true;
+      }
+    }
+    return false;
+  }
+
   // is the full-resolution pixel (px,py) part of digit d drawn at (x0,y0) with the given scale?
   static bool digitPixel(int d, int x0, int y0, int scale, int px, int py)
   {
@@ -477,6 +497,11 @@ namespace MyHost {
     if (components == kOfxImageComponentRGBA) return 4;
     if (components == kOfxImageComponentRGB) return 3;
     if (components == kOfxImageComponentAlpha) return 1;
+#ifdef OFX_EXTENSIONS_NUKE
+    // the planes of these components have two (u and v, or x and y)
+    if (components == kFnOfxImageComponentMotionVectors) return 2;
+    if (components == kFnOfxImageComponentStereoDisparity) return 2;
+#endif
     return 0;
   }
 
@@ -527,11 +552,11 @@ namespace MyHost {
 
   MyImage::MyImage(MyClipInstance &clip, OfxTime time, int view,
                    const OfxRectI& bounds, const OfxRectI& rod, const OfxPointD& renderScale,
-                   bool isOutput)
+                   bool isOutput, const InputPlane* plane)
     : OFX::Host::ImageEffect::Image(clip) /// this ctor sets the depth, components, premult and PAR from the clip
     , _data(NULL)
     , _depth(clip.getPixelDepth())
-    , _components(clip.getComponents())
+    , _components(plane ? plane->components : clip.getComponents())
     , _nComps(componentCount(_components))
     , _bytesPerComp(bytesPerComponent(_depth))
     , _rowBytes(0)
@@ -573,7 +598,7 @@ namespace MyHost {
         std::fill(_data, _data + size, (unsigned char)0xCD);
       }
     } else {
-      const InputSpec& spec = clip.getInput();
+      const InputSpec& spec = plane ? plane->spec : clip.getInput();
       // full-resolution size of the RoD, in pixels
       const double W = (rod.x2 - rod.x1) / renderScale.x;
       const double H = (rod.y2 - rod.y1) / renderScale.y;
@@ -586,7 +611,8 @@ namespace MyHost {
         for (int x = _bounds.x1; x < _bounds.x2; ++x) {
           const double X = (x + 0.5) / renderScale.x;
           // the patterns are unpremultiplied colours (getPremult() is kOfxImageUnPreMultiplied
-          // for RGBA and Alpha); RGB images drop the alpha, and are opaque
+          // for RGBA and Alpha); RGB images drop the alpha, and are opaque; the two-component
+          // planes keep the first two
           evalPattern(spec, time, view, X, Y, W, H, rgba);
           if (_nComps == 1) {
             out[0] = rgba[3];
@@ -630,8 +656,13 @@ namespace MyHost {
     setIntProperty(kOfxImagePropRowBytes, _rowBytes);
 
     setStringProperty(kOfxImagePropField, kOfxImageFieldNone);
+    if (plane) {
+      // a plane's components, and no alpha
+      setStringProperty(kOfxImageEffectPropComponents, plane->components);
+      setStringProperty(kOfxImageEffectPropPreMultiplication, kOfxImageOpaque);
+    }
     std::ostringstream uid;
-    uid << clip.getName() << ":" << time << ":" << view << (isOutput ? ":output" : "");
+    uid << clip.getName() << ":" << time << ":" << view << (isOutput ? ":output" : "") << (plane ? ":" + plane->plane : "");
     setStringProperty(kOfxImagePropUniqueIdentifier, uid.str());
   }
 
@@ -706,6 +737,7 @@ namespace MyHost {
     , _view(0)
 #endif
     , _inRoDAction(false)
+    , _multiPlane(false)
   {
   }
 
@@ -980,13 +1012,18 @@ namespace MyHost {
            width * bytesPerPixel <= 0x7fffffffLL;
   }
 
-  MyImage* MyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds)
+  void MyClipInstance::setInputPlane(const InputPlane& plane)
+  {
+    _planes[plane.plane] = plane;
+  }
+
+  MyImage* MyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds, const InputPlane* plane)
   {
     if (!getConnected()) {
       return NULL;
     }
     const std::string& depth = getPixelDepth();
-    const std::string& components = getComponents();
+    const std::string& components = plane ? plane->components : getComponents();
     if (!MyImage::isSupported(depth, components)) {
       std::cerr << "Error: clip " << _name << ": hostDemo can't make images with pixel depth \"" << depth
                 << "\" and components \"" << components << "\"" << std::endl;
@@ -1055,7 +1092,7 @@ namespace MyHost {
     if (bounds.x2 <= bounds.x1 || bounds.y2 <= bounds.y1) {
       return NULL;
     }
-    return new MyImage(*this, time, view, bounds, rod, renderScale, /*isOutput=*/false);
+    return new MyImage(*this, time, view, bounds, rod, renderScale, /*isOutput=*/false, plane);
   }
 
   /// override this to fill in the image at the given time.
@@ -1088,11 +1125,35 @@ namespace MyHost {
   ///
   OFX::Host::ImageEffect::Image* MyClipInstance::getImagePlane(OfxTime time, int view, const std::string& plane,const OfxRectD *optionalBounds)
   {
-    // only the colour plane
+    // the colour plane, or an extra plane of an input (-i Clip@Plane=spec); the output has only
+    // the colour plane
+    const InputPlane* extra = NULL;
     if (plane != kFnOfxImagePlaneColour) {
-      return NULL;
+      std::map<std::string, InputPlane>::const_iterator it = _planes.find(plane);
+      if (isOutput() || it == _planes.end()) {
+        return NULL;
+      }
+      extra = &it->second;
     }
-    return fetchImage(time, view < 0 ? _view : view, optionalBounds);
+    return fetchImage(time, view < 0 ? _view : view, optionalBounds, extra);
+  }
+
+  const std::vector<std::string>& MyClipInstance::getComponentsPresent() const OFX_EXCEPTION_SPEC
+  {
+    if (!_multiPlane || !getConnected()) {
+      return OFX::Host::ImageEffect::ClipInstance::getComponentsPresent();
+    }
+    // "Property indicating the planes present on something" (nuke/fnOfxExtensions.h): the colour
+    // plane, then the extra planes of the input
+    std::vector<std::string> present(1, kFnOfxImagePlaneColour);
+    for (std::map<std::string, InputPlane>::const_iterator it = _planes.begin(); it != _planes.end(); ++it) {
+      present.push_back(it->first);
+    }
+    // (written only when it changed, as the base class's: a plug-in keeps the const char* of a value)
+    if (_componentsPresent != present) {
+      _componentsPresent = present;
+    }
+    return _componentsPresent;
   }
 
   /// override this to return the rod on the clip for the given view

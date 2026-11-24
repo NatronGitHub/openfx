@@ -6,6 +6,7 @@
 
 #define OFXHOSTDEMOCLIPLENGTH 1.0
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -68,6 +69,19 @@ namespace MyHost {
   /// false if invalid, with the reason in error. "file:" reads the PFM file.
   bool parseInputSpec(const std::string& s, InputSpec& spec, std::string& error);
 
+  /// an extra plane of an input clip (hostDemo -i Clip@Plane=spec, with --multiplane): one of the
+  /// Nuke extension's planes other than the colour plane, which have two components
+  struct InputPlane {
+    std::string plane;      ///< kFnOfxImagePlaneForwardMotionVector, ...BackwardMotionVector, ...StereoDisparityLeft or ...Right
+    std::string components; ///< its components: kFnOfxImageComponentMotionVectors or kFnOfxImageComponentStereoDisparity
+    InputSpec   spec;       ///< its pixels: the first two components (r and g) of the spec's pattern
+  };
+
+  /// the plane of a short plane name of -i Clip@Plane=spec: ForwardMotionVector, BackMotionVector,
+  /// StereoDisparityLeft or StereoDisparityRight (the plane names after "uk.co.thefoundry.OfxImagePlane").
+  /// Returns false if it is not one of them.
+  bool parseInputPlaneName(const std::string& name, InputPlane& plane);
+
   /// parse a finite decimal number (e.g. "0.5", "-2", "1e3"). Returns false for anything else,
   /// including nan, inf, hexadecimal and out-of-range (ERANGE) values, and surrounding spaces.
   bool parseFiniteDouble(const std::string& s, double& d);
@@ -109,10 +123,11 @@ namespace MyHost {
     /// returns true if the depth and components are supported by MyImage
     static bool isSupported(const std::string& depth, const std::string& components);
 
-    /// bounds and rod are in pixel coordinates (at the given render scale)
+    /// bounds and rod are in pixel coordinates (at the given render scale); plane: an extra
+    /// plane of an input (NULL: the colour plane, with the clip's components)
     MyImage(MyClipInstance &clip, OfxTime t, int view,
             const OfxRectI& bounds, const OfxRectI& rod, const OfxPointD& renderScale,
-            bool isOutput);
+            bool isOutput, const InputPlane* plane = NULL);
     ~MyImage();
 
     const std::string& getDepth() const { return _depth; }
@@ -147,11 +162,13 @@ namespace MyHost {
     std::string       _name;
     MyImage          *_outputImage; ///< only set for output clips, during a render
     InputSpec         _input; ///< what the input clip contains
+    std::map<std::string, InputPlane> _planes; ///< its extra planes, by plane (-i Clip@Plane=spec)
     std::string       _unmappedDepth; ///< the depth of the input clip, before clip preferences
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
     int               _view; ///< view used by the last renderAction
 #endif
     mutable bool      _inRoDAction; ///< set while the output clip calls the effect's RoD action
+    bool              _multiPlane; ///< hostDemo --multiplane (getComponentsPresent())
 
   public:
     MyClipInstance(MyEffectInstance* effect, OFX::Host::ImageEffect::ClipDescriptor* desc);
@@ -169,11 +186,16 @@ namespace MyHost {
     /// set the depth returned by getUnmappedBitDepth() (byte, short or float)
     void setUnmappedBitDepth(const std::string& depth) { _unmappedDepth = depth; }
 
+    /// hostDemo --multiplane: kFnOfxImageEffectPropComponentsPresent lists the planes
+    void setMultiPlane() { _multiPlane = true; }
+    /// add an extra plane to the input (-i Clip@Plane=spec), replacing the one of that plane
+    void setInputPlane(const InputPlane& plane);
+
     /// make the image for a fetch at the given time and view: the output image (shared by all fetches
     /// in a render) covers the render window, an input image covers optionalBounds (or the RoI if none
-    /// was given, or the RoD outside of render) clipped to the RoD. Returns NULL if the clip is
-    /// disconnected or the bounds are empty.
-    MyImage* fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds);
+    /// was given, or the RoD outside of render) clipped to the RoD; plane: an extra plane of an input
+    /// (NULL: the colour plane). Returns NULL if the clip is disconnected or the bounds are empty.
+    MyImage* fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds, const InputPlane* plane = NULL);
 
     /// the RoD of the clip at the given time and view, in canonical coordinates: the PAL SD frame
     /// for a connected input (for a PFM file, its size in pixels at the clip's PAR), empty (0,0,0,0) for a disconnected one, and the result of the
@@ -291,6 +313,10 @@ namespace MyHost {
     /// by using thread local storage. In V2 the view index will be correctly set with a value >= 0.
     ///
     virtual OFX::Host::ImageEffect::Image* getImagePlane(OfxTime time, int view, const std::string& plane,const OfxRectD *optionalBounds);
+
+    /// kFnOfxImageEffectPropComponentsPresent: with setMultiPlane(), the planes of the clip: the
+    /// colour plane, then the extra planes of an input (else HostSupport's: the components)
+    virtual const std::vector<std::string>& getComponentsPresent() const OFX_EXCEPTION_SPEC;
 
     /// override this to return the rod on the clip for the given view
     virtual OfxRectD getRegionOfDefinition(OfxTime time, int view) const;
