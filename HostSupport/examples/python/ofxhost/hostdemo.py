@@ -58,6 +58,8 @@ hostDemo's command line, in-process on the HostSupport Python bindings (ofxhost.
   --describe file.json  describe the plug-in as JSON (no instance, no render)
   --ofx14            be an OFX 1.4 host: only the OFX 1.4 host properties and suites,
                      no OfxSetHost, no StrChoice or Bytes params, one view
+  --opengl-describe  with --describe only: say the host supports OpenGL render
+                     (kOfxImageEffectPropOpenGLRenderSupported "true"), to describe OpenGL-only plug-ins
   --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH
   --no-cache         (no-op: ofxh has no plug-in cache file)
   --quiet            print only the plug-in's messages on stdout
@@ -75,7 +77,7 @@ _VALUE_OPTIONS = ("-p", "-m", "-c", "-o", "-s", "-d", "-i", "--format", "--repor
 # the options without a value: (the key in _parse()'s result, its value); --no-cache is a no-op
 _FLAGS = {"--no-std-paths": ("std_paths", False), "--quiet": ("quiet", True),
           "--allow-unwritten": ("allow_unwritten", True), "--query": ("query", True), "--ofx14": ("ofx14", True),
-          "--no-cache": (None, None)}
+          "--opengl-describe": ("opengl_describe", True), "--no-cache": (None, None)}
 _CONTEXTS = {"filter": kOfxImageEffectContextFilter, "general": kOfxImageEffectContextGeneral,
              kOfxImageEffectContextFilter: kOfxImageEffectContextFilter,
              kOfxImageEffectContextGeneral: kOfxImageEffectContextGeneral}
@@ -245,8 +247,8 @@ def _parse(argv: list[str], prog: str) -> dict:
     from .specs import CLIP_LENGTH  # (not ofxh: it is imported after the command line, as hostDemo loads plug-ins)
     o = {"plugin": _DEFAULT_PLUGIN, "major": -1, "context": kOfxImageEffectContextFilter, "prefix": "Output",
          "depth": "byte", "assignments": [], "inputs": [], "report": "", "describe": "", "std_paths": True,
-         "quiet": False, "ofx14": False, "allow_unwritten": False, "format": "ppm", "frames": None,
-         "scale": (1., 1.), "window": None, "query": False}
+         "quiet": False, "ofx14": False, "opengl_describe": False, "allow_unwritten": False, "format": "ppm",
+         "frames": None, "scale": (1., 1.), "window": None, "query": False}
     seen: set = set()
     a = 0
     while a < len(argv):
@@ -278,6 +280,8 @@ def _parse(argv: list[str], prog: str) -> dict:
         spec.scale = o["scale"]  # (the pixels of a file input are pixels at the render scale)
     if o["report"] and o["describe"]:
         _fail("Error: --report and --describe can't be used together (--describe creates no instance)")
+    if o["opengl_describe"] and not o["describe"]:
+        _fail("Error: --opengl-describe needs --describe (hostDemo can't render with OpenGL)")
     return o
 
 
@@ -353,7 +357,10 @@ def run(argv: list[str], prog: str = "hostdemo", shutdown: bool = True) -> int:
 
 def _describe(ip, o: dict, dirs: tuple, profile: str, keep: bool) -> int:
     """--describe FILE: the exit status."""
-    ip.ensure_host(dirs, profile, keep, o["std_paths"])
+    if o["opengl_describe"] and not ip.ofxh.build_config.get("OFX_SUPPORTS_OPENGLRENDER"):
+        _err("Error: --opengl-describe: ofxh was built without OFX_SUPPORTS_OPENGLRENDER (no OpenGL render suite)")
+        return 1
+    ip.ensure_host(dirs, profile, keep, o["std_paths"], opengl_render=o["opengl_describe"])
     if not o["quiet"]:
         _dump(ip.ofxh)
     plugin = ip.ofxh.get_plugin(o["plugin"], o["major"])

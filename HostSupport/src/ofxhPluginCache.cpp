@@ -428,6 +428,32 @@ void PluginBinary::releaseScanReference() {
   }
 }
 
+namespace {
+  /// whether op is the cached plug-in p. The comparisons are exact, as elsewhere in HostSupport:
+  /// ofxCore.h doesn't make the identifier case-insensitive, and it is unique only "among all
+  /// plug-ins that implement an API".
+  bool matchesCached(const OfxPlugin *op, const Plugin &p)
+  {
+    return op && op->pluginApi && op->pluginIdentifier
+      && p.getPluginApi() == op->pluginApi
+      && p.getRawIdentifier() == op->pluginIdentifier
+      && p.getVersionMajor() == static_cast<int>(op->pluginVersionMajor)
+      && p.getVersionMinor() == static_cast<int>(op->pluginVersionMinor);
+  }
+
+  /// the plug-in of the binary (getPlug, n plug-ins) that matches the cached plug-in p, or 0
+  OfxPlugin *findPlugin(OfxGetPluginFunc getPlug, int n, const Plugin &p)
+  {
+    for (int i = 0; i < n; ++i) {
+      OfxPlugin *op = getPlug(i);
+      if (matchesCached(op, p)) {
+        return op;
+      }
+    }
+    return 0;
+  }
+}
+
 PluginHandle::PluginHandle(Plugin *p, OFX::Host::Host *host)
 {
   _b = p->getBinary();
@@ -464,8 +490,27 @@ PluginHandle::PluginHandle(Plugin *p, OFX::Host::Host *host)
     getPlug = 0;
   }
   if (getPlug) {
-    _op = getPlug(p->getIndex());
-    if (_op) {         
+    // ofxCore.h: "The order of calls is then: 1) OfxSetHost, 2) OfxGetNumberOfPlugins, 3)
+    // OfxGetPlugin". The cache records a plug-in by its index in the binary, and stays valid while
+    // the binary's mtime and size don't change, but the binary's list of plug-ins may change
+    // without them: if the index is out of range or has another plug-in, look for this one at the
+    // other indices, and use no plug-in rather than another one. A valid cache costs no scan.
+    OfxGetNumberOfPluginsFunc getNum = freshLoad ? 0 : _b->_getNumberOfPlugins;
+    if (!getNum && _b->_binary) {
+      getNum = (OfxGetNumberOfPluginsFunc) _b->_binary->findSymbol("OfxGetNumberOfPlugins");
+    }
+    const int n = getNum ? (*getNum)() : 0;
+    const int index = p->getIndex();
+    OfxPlugin *op = (index >= 0 && index < n) ? getPlug(index) : 0;
+    if (!matchesCached(op, *p)) {
+      op = findPlugin(getPlug, n, *p);
+      // also if found: the cache is stale, and hides the binary's new plug-ins
+      std::cerr << "OFX: stale plug-in cache: " << _b->getFilePath() << (op ? " has " : " no longer has ")
+                << p->getRawIdentifier() << " " << p->getVersionMajor() << "." << p->getVersionMinor()
+                << (op ? " at another index" : "") << "; clear the OpenFX plug-in cache" << std::endl;
+    }
+    if (op) {
+      _op = op;
       _op->setHost(host->getHandle());
     }
   }

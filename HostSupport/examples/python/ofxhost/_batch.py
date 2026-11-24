@@ -212,7 +212,8 @@ def _host_key(flags: set) -> tuple:
     dirs = [d for d in os.environ.get("OFX_PLUGIN_PATH", "").split(os.pathsep) if d]
     dirs_t = tuple(dict.fromkeys(os.path.abspath(d) for d in dirs if os.path.isdir(d)))
     return (dirs_t, "ofx14" if "--ofx14" in flags else "default",
-            (os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1", "--no-std-paths" not in flags))
+            (os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1", "--no-std-paths" not in flags,
+             "--opengl-describe" in flags))
 
 
 _hosts: list = []  # (the test hook "host": the hosts seen, kept so that their ids aren't reused)

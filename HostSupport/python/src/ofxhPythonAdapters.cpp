@@ -783,6 +783,12 @@ void PyClipInstance::releaseOutputImage()
   }
 }
 
+void PyClipInstance::resetOutput()
+{
+  releaseOutputImage();
+  _outputData.reset();
+}
+
 static bool dtypeOf(const std::string &depth, nb::dlpack::dtype &dt, const char *&name)
 {
   if (depth == kOfxBitDepthByte) {
@@ -851,27 +857,26 @@ static void fillSentinel(unsigned char *data, long long rowBytes, int width, int
   }
 }
 
-/// make the C++ image of what get_image() returned (raises if it isn't a valid image)
-static PyImage *makeImage(PyClipInstance &clip, nb::object r, OfxTime time, int view)
+PyImage *PyClipInstance::makeImage(nb::object r, OfxTime time, int view)
 {
-  PyEffectInstance *const effect = clip._effect;
-  if (clip.isOutput() && clip._outputImage) {
+  PyEffectInstance *const effect = _effect;
+  if (isOutput() && _outputImage) {
     // another fetch of this render made the output image while get_image() ran (several worker
     // threads that fetch the output first: get_image() may let another thread take the GIL). There
     // is one output image per render: return it (r is dropped), never overwrite it (its pixels
     // would be lost, and the image leaked)
-    clip._outputImage->addReference();
-    return clip._outputImage;
+    _outputImage->addReference();
+    return _outputImage;
   }
   if (!nb::isinstance<ImageData>(r)) {
-    raiseError(PyExc_TypeError, "clip " + clip.getName() + ": get_image() must return an ofxh.ImageData or None, not " +
+    raiseError(PyExc_TypeError, "clip " + getName() + ": get_image() must return an ofxh.ImageData or None, not " +
                                 typeName(r));
   }
   ImageData &d = nb::cast<ImageData &>(r);
-  const std::string where = "clip " + clip.getName() + ": get_image(): ";
+  const std::string where = "clip " + getName() + ": get_image(): ";
   const OfxRectI bounds = toRectI(d.bounds, "bounds");
-  const std::string &depth = clip.getPixelDepth();
-  const std::string &comps = clip.getComponents();
+  const std::string &depth = getPixelDepth();
+  const std::string &comps = getComponents();
   const int nComps = componentCount(comps);
   nb::dlpack::dtype dt;
   const char *dtname = nullptr;
@@ -913,8 +918,8 @@ static PyImage *makeImage(PyClipInstance &clip, nb::object r, OfxTime time, int 
     raiseError(PyExc_ValueError, where + "the pixels must be writable (the plug-in gets a non-const pointer): "
                                  "pass a copy of a read-only array");
   }
-  if (clip.isOutput() && effect->_rendering) {
-    const OfxRectI &w = effect->_renderWindow;
+  if (isOutput() && effect->rendering()) {
+    const OfxRectI &w = effect->renderWindow();
     if (bounds.x1 > w.x1 || bounds.y1 > w.y1 || bounds.x2 < w.x2 || bounds.y2 < w.y2) {
       std::ostringstream ss;
       ss << where << "the bounds (" << bounds.x1 << ", " << bounds.y1 << ", " << bounds.x2 << ", " << bounds.y2
@@ -928,24 +933,24 @@ static PyImage *makeImage(PyClipInstance &clip, nb::object r, OfxTime time, int 
     raiseError(PyExc_ValueError, where + "the rows are too large");
   }
   void *data = const_cast<void *>(static_cast<const void *>(a.data()));
-  const double par = clip.getAspectRatio();
-  const OfxRectI rodPixels = d.rod.is_none() ? canonicalToPixelEnclosing(clip.rod(time, view), effect->_renderScale, par)
+  const double par = getAspectRatio();
+  const OfxRectI rodPixels = d.rod.is_none() ? canonicalToPixelEnclosing(rod(time, view), effect->renderScale(), par)
                                              : toRectI(d.rod, "rod");
   std::string uid = d.uniqueId;
   if (uid.empty()) {
     std::ostringstream ss;  // as hostDemo
-    ss << clip.getName() << ":" << time << ":" << view << (clip.isOutput() ? ":output" : "");
+    ss << getName() << ":" << time << ":" << view << (isOutput() ? ":output" : "");
     uid = ss.str();
   }
-  if (clip.isOutput()) {
+  if (isOutput()) {
     fillSentinel(static_cast<unsigned char *>(data), rowBytes, width, height, nComps, depth);
   }
-  PyImage *img = new PyImage(clip, nb::borrow(d.pixels), data, effect->_renderScale, bounds, rodPixels,
+  PyImage *img = new PyImage(*this, nb::borrow(d.pixels), data, effect->renderScale(), bounds, rodPixels,
                              static_cast<int>(rowBytes), fieldName(d.field), uid);
-  if (clip.isOutput()) {
+  if (isOutput()) {
     // the clip keeps a reference until the end of the render (releaseOutputImage)
-    clip._outputImage = img;
-    clip._outputData = r;
+    _outputImage = img;
+    _outputData = r;
     img->addReference();
   }
   return img;
@@ -954,7 +959,7 @@ static PyImage *makeImage(PyClipInstance &clip, nb::object r, OfxTime time, int 
 OHIE::Image *PyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds)
 {
   OHIE::Image *img = fetchFromPython(time, view, optionalBounds);
-  if (img || !isOutput() || !_effect->_rendering) {
+  if (img || !isOutput() || !_effect->rendering()) {
     return img;  // (an input may have no image: the plug-in checks)
   }
   // During a render, the output image is never nullptr (plug-ins don't check it): the host makes one
@@ -962,14 +967,14 @@ OHIE::Image *PyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *
   return callPython(nullptr, [&] {
     saveError(("clip " + getName() + ": get_image() gave no valid output image during the render: ofxh made one "
                "over the render window, and the render fails").c_str());
-    _effect->_outputFailed = true;
-    const OfxRectI &w = _effect->_renderWindow;
+    _effect->setOutputFailed();
+    const OfxRectI &w = _effect->renderWindow();
     ImageData d;
     d.pixels = newImage(w.x1, w.y1, w.x2, w.y2);
     d.bounds = nb::make_tuple(w.x1, w.y1, w.x2, w.y2);
     d.rod = nb::none();
     d.field = "none";
-    return makeImage(*this, nb::cast(std::move(d)), time, view);
+    return makeImage(nb::cast(std::move(d)), time, view);
   });
 }
 
@@ -997,7 +1002,7 @@ OHIE::Image *PyClipInstance::fetchFromPython(OfxTime time, int view, const OfxRe
     if (r.is_none()) {
       return nullptr;
     }
-    return makeImage(*this, r, time, view);
+    return makeImage(r, time, view);
   });
 }
 
@@ -1030,7 +1035,7 @@ OfxRectD PyClipInstance::defaultRoD(OfxTime time, [[maybe_unused]] int view) con
       // the timeline at the RoD's time, restored when nested, as the RoD action binding)
       TimeLineScope tl(_effect, time);
       const OfxStatus st = withoutGil([&] {
-        return _effect->getRegionOfDefinitionAction(time, _effect->_renderScale,
+        return _effect->getRegionOfDefinitionAction(time, _effect->renderScale(),
 #ifdef OFX_EXTENSIONS_NUKE
                                                     view,
 #endif
@@ -1330,7 +1335,7 @@ OfxStatus PyEffectInstance::clearPersistentMessage()
   return callPython(StatusFallback{kOfxStatFailed}, [&] { return statusFromResult(_py.attr("clear_persistent_message")()); });
 }
 
-int PyEffectInstance::abort() { return (_abort.load() || _outputFailed) ? 1 : 0; }
+int PyEffectInstance::abort() { return (_abort.load() || _outputFailed.load()) ? 1 : 0; }
 
 void PyEffectInstance::getProjectSize(double &xSize, double &ySize) const
 {

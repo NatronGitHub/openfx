@@ -3,9 +3,9 @@
 OpenFX Programming Guide
 ========================
 
-This is a mostly complete reference guide to the OFX image effect plugin
-architecture. It is a backwards compatible update to the 1.2 version of
-the API.
+This guide shows, by example, how to write OFX image effect plug-ins,
+first with the C API and then with the C++ Support library. The
+:doc:`reference guide <../Reference/index>` documents the API itself.
 
 .. toctree::
     :maxdepth: 2
@@ -16,6 +16,8 @@ the API.
     ofxExample3_Gain
     ofxExample4_Saturation
     ofxExample5_Circle
+    ofxSupportLibrary
+    ofxHostSupport
 
 .. literalinclude:: README.txt
 .. literalinclude:: TODO.txt

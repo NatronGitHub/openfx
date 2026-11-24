@@ -36,7 +36,8 @@ from .build import import_ofxh
 from .constants import (kOfxBitDepthByte, kOfxBitDepthFloat, kOfxBitDepthNone, kOfxBitDepthShort,
                         kOfxImageComponentAlpha, kOfxImageComponentNone, kOfxImageComponentRGB,
                         kOfxImageComponentRGBA, kOfxImageEffectContextFilter, kOfxImageEffectContextGeneral,
-                        kOfxImageEffectOutputClipName, kOfxImageEffectPropSupportedPixelDepths, kOfxParamPropAnimates,
+                        kOfxImageEffectOutputClipName, kOfxImageEffectPropOpenGLRenderSupported,
+                        kOfxImageEffectPropSupportedPixelDepths, kOfxParamPropAnimates,
                         kOfxParamPropChoiceOption, kOfxParamPropEnabled, kOfxParamPropSecret, kOfxPluginPropFilePath,
                         kOfxPropName)
 from .pfm import alpha_path, encode_pfm, split_alpha
@@ -117,7 +118,14 @@ def _capture():
 class _Host(ofxh.Host):
     """hostDemo's Host (hostDemoHostDescriptor.cpp): its messages go to stdout, questions are answered yes."""
 
+    def __init__(self, opengl_render: bool = False):
+        super().__init__()
+        self.opengl_render = opengl_render
+
     def init_properties(self, props):
+        # hostDemo --opengl-describe (an OFX 1.4 host property: also kept by profile="ofx14")
+        if self.opengl_render:
+            props[kOfxImageEffectPropOpenGLRenderSupported] = "true"
         # hostDemo's depths (BYTES, DEPTHS): byte, short and float. ofxh's PyHost also lists half
         # (its images make float16 arrays), which this host's image code doesn't make. (Before the
         # OFX 1.4 restriction: it is an OFX 1.4 host property, kept by profile="ofx14".)
@@ -338,7 +346,7 @@ class Session:
     host: Any
     dirs: tuple
     profile: str
-    options: tuple = ()  # (keep_loaded, use_std_paths)
+    options: tuple = ()  # (keep_loaded, use_std_paths, opengl_render)
 
 
 _session: Session | None = None
@@ -360,7 +368,8 @@ def shutdown() -> None:
     _session = None
 
 
-def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_paths: bool = False) -> None:
+def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_paths: bool = False,
+                opengl_render: bool = False) -> None:
     """Make sure the backend's ofxh host is initialized with these settings.
 
     ofxh has one host per process: a new one replaces the backend's own, but not another one.
@@ -370,12 +379,14 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
         profile: "default" or "ofx14" (see ofxh.init()).
         keep_loaded: the scanned plug-ins stay loaded (hostDemo's OFX_HOSTDEMO_KEEP_LOADED=1).
         use_std_paths: also the standard plug-in locations (hostDemo without --no-std-paths).
+        opengl_render: the host's kOfxImageEffectPropOpenGLRenderSupported is "true" (hostDemo
+            --opengl-describe; for describing only: the host renders without OpenGL).
 
     Raises:
         RuntimeError: another ofxh host is initialized.
     """
     global _session
-    options = (bool(keep_loaded), bool(use_std_paths))
+    options = (bool(keep_loaded), bool(use_std_paths), bool(opengl_render))
     if _session is not None and ofxh.host() is not _session.host:
         _session = None  # (shut down by someone else)
     if _session is not None and (_session.dirs, _session.profile, _session.options) == (dirs, profile, options):
@@ -387,7 +398,7 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
                                "backend=\"subprocess\"")
         ofxh.shutdown()
         _session = None
-    host = _Host()
+    host = _Host(opengl_render)
     ofxh.init(host, list(dirs), use_std_paths=use_std_paths, use_env_path=False, profile=profile,
               keep_loaded=keep_loaded)
     _session = Session(host, dirs, profile, options)

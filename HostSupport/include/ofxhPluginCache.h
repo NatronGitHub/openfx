@@ -414,6 +414,15 @@ namespace OFX {
       PluginHandle(Plugin *p, OFX::Host::Host *_host);
       virtual ~PluginHandle();
 
+      /// NULL if the binary can't be loaded, if its OfxSetHost refused the host, or if it no longer
+      /// has this plug-in (a stale plug-in cache: its list of plug-ins changed, but not its mtime
+      /// and size). The host should report it and offer to clear the plug-in cache: until then,
+      /// the cache also keeps the binary's old menu entries and hides its new plug-ins. The
+      /// plug-in's contexts may be stale too: ImageEffectPlugin::getContexts() keeps the list read
+      /// from the cache (Natron's menus use it). A context that the plug-in no longer supports
+      /// still gets kOfxImageEffectActionDescribeInContext: if the plug-in returns an error,
+      /// ImageEffectPlugin::getContext() returns NULL and the instance isn't created. The new
+      /// contexts stay hidden until the cache is cleared.
       OfxPlugin *getOfxPlugin() {
         return _op;
       }

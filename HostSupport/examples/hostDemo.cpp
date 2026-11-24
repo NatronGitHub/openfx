@@ -530,8 +530,9 @@ static Json paramJson(const OFX::Host::Param::Descriptor& d, const std::string& 
 }
 
 // --describe: the plug-in's contexts, and in each context its effect flags, clips and parameters.
+// loaded is false if kOfxActionLoad or kOfxActionDescribe failed: no context is described then.
 // Returns false if a context couldn't be described.
-static bool describePlugin(OFX::Host::ImageEffect::ImageEffectPlugin* plugin, Json& out)
+static bool describePlugin(OFX::Host::ImageEffect::ImageEffectPlugin* plugin, bool loaded, Json& out)
 {
   bool ok = true;
   out["schema"] = "hostDemo.describe";
@@ -541,7 +542,7 @@ static bool describePlugin(OFX::Host::ImageEffect::ImageEffectPlugin* plugin, Js
   const std::set<std::string>& cs = plugin->getContexts();
   for (std::set<std::string>::const_iterator it = cs.begin(); it != cs.end(); ++it) {
     Json& c = contexts[*it] = Json::object();
-    OFX::Host::ImageEffect::Descriptor* d = plugin->getContext(*it);
+    OFX::Host::ImageEffect::Descriptor* d = loaded ? plugin->getContext(*it) : NULL;
     if (!d) {
       std::cerr << "Error: the describe in context action failed for the " << *it << " context" << std::endl;
       c["ok"] = false;
@@ -741,8 +742,10 @@ static void usage(const char* prog)
     "  --describe file.json  describe the plug-in as JSON (no instance, no render)\n"
     "  --ofx14            be an OFX 1.4 host: only the OFX 1.4 host properties and suites,\n"
     "                     no OfxSetHost, no StrChoice or Bytes params, one view\n"
+    "  --opengl-describe  with --describe only: say the host supports OpenGL render\n"
+    "                     (kOfxImageEffectPropOpenGLRenderSupported \"true\"), to describe OpenGL-only plug-ins\n"
     "  --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH\n"
-    "  --no-cache         don't read or write hostDemoPluginCache.xml\n"
+    "  --no-cache         don't read or write the plug-in cache files (hostDemoPluginCache*.xml)\n"
     "  --quiet            print only the plug-in's messages on stdout\n"
     "  --allow-unwritten  don't fail on unwritten (NaN) output pixels (float only)\n"
     "Environment: OFX_HOSTDEMO_KEEP_LOADED=1 keeps the scanned plug-ins loaded (by default they\n"
@@ -1258,6 +1261,7 @@ static int run(int argc, char **argv)
   bool useStdPaths = true;
   bool useCache = true;
   bool ofx14 = false;          ///< --ofx14
+  bool openglDescribe = false; ///< --opengl-describe
   bool quiet = false;
   bool allowUnwritten = false;
   OutputFormat format = eFormatPPM;
@@ -1286,6 +1290,8 @@ static int run(int argc, char **argv)
       query = true;
     } else if (arg == "--ofx14") {
       ofx14 = true;
+    } else if (arg == "--opengl-describe") {
+      openglDescribe = true;
     } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
                arg == "-d" || arg == "-i" || arg == "--format" ||
                arg == "--report" || arg == "--describe" ||
@@ -1430,6 +1436,18 @@ static int run(int argc, char **argv)
     std::cerr << "Error: --report and --describe can't be used together (--describe creates no instance)" << std::endl;
     return 1;
   }
+  // a host whose kOfxImageEffectPropOpenGLRenderSupported is "true" must render with OpenGL when
+  // the plug-in needs it, which hostDemo can't: describe only
+  if (openglDescribe && describePath.empty()) {
+    std::cerr << "Error: --opengl-describe needs --describe (hostDemo can't render with OpenGL)" << std::endl;
+    return 1;
+  }
+#ifndef OFX_SUPPORTS_OPENGLRENDER
+  if (openglDescribe) {
+    std::cerr << "Error: --opengl-describe: hostDemo was built without OFX_SUPPORTS_OPENGLRENDER (no OpenGL render suite)" << std::endl;
+    return 1;
+  }
+#endif
 
   //_CrtSetBreakAlloc(3168);
 #if defined(_MSC_VER) && defined(_DEBUG)
@@ -1439,9 +1457,11 @@ static int run(int argc, char **argv)
   OFX::Host::PluginCache::useStdOFXPluginsLocation(useStdPaths);
 
   // set the version label in the global cache
-  // (the plug-ins may describe themselves differently to an OFX 1.4 host: another cache)
-  OFX::Host::PluginCache::getPluginCache()->setCacheVersion(ofx14 ? "hostDemoV1-ofx14" : "hostDemoV1");
-  const std::string cachePath = ofx14 ? "hostDemoPluginCache-ofx14.xml" : "hostDemoPluginCache.xml";
+  // (the plug-ins may describe themselves differently to an OFX 1.4 host, or to a host with
+  // OpenGL render: another cache)
+  const std::string cacheSuffix = std::string(ofx14 ? "-ofx14" : "") + (openglDescribe ? "-opengl" : "");
+  OFX::Host::PluginCache::getPluginCache()->setCacheVersion("hostDemoV1" + cacheSuffix);
+  const std::string cachePath = "hostDemoPluginCache" + cacheSuffix + ".xml";
 
   // create our derived image effect host which provides
   // a factory to make plugin instances and acts
@@ -1449,6 +1469,10 @@ static int run(int argc, char **argv)
   MyHost::Host myHost;
   if (ofx14) {
     myHost.restrictToOFX14();
+  }
+  if (openglDescribe) {
+    // (an OFX 1.4 host property: also with --ofx14)
+    myHost.getProperties().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "true");
   }
 
   // make an image effect plugin cache. This is what knows about
@@ -1483,6 +1507,15 @@ static int run(int argc, char **argv)
 
   // get the plugin (by default, the invert example plugin which uses the OFX C++ support code)
   OFX::Host::ImageEffect::ImageEffectPlugin* plugin = imageEffectPluginCache.getPluginById(pluginId, pluginMajor);
+  // kOfxActionLoad and kOfxActionDescribe first, so that the label, grouping and contexts
+  // reported are those the plug-in describes, not those of the plug-in cache, which may be stale.
+  // getPluginHandle() logs a failure, and the plug-in is then not used: ofxCore.h, kOfxActionLoad:
+  // "kOfxStatFailed, the load action failed, no further actions will be passed to the plug-in".
+  // A plug-in that describes no context (its Load or Describe failed during the scan) is not
+  // loaded again: it can't be described in a context or instantiated anyway.
+  const bool loaded = !plugin ||
+    plugin->getDescriptor().getProps().getDimension(kOfxImageEffectPropSupportedContexts) == 0 ||
+    plugin->getPluginHandle() != NULL;
 
   if (!quiet) {
     imageEffectPluginCache.dumpToStdOut();
@@ -1529,7 +1562,7 @@ static int run(int argc, char **argv)
   } else if (!describePath.empty()) {
     // describe the plug-in in all its contexts, without creating an instance
     Json desc = Json::object();
-    if (!describePlugin(plugin, desc)) {
+    if (!describePlugin(plugin, loaded, desc)) {
       ret = 1;
     }
     if (!writeJson(describePath, desc)) {
@@ -1538,6 +1571,10 @@ static int run(int argc, char **argv)
   } else if (plugin->getContexts().find(context) == plugin->getContexts().end()) {
     std::cerr << "Error: plug-in \"" << pluginId << "\" does not support the " << context << " context." << std::endl;
     report["plugin"] = pluginJson(plugin);
+    ret = 1;
+  } else if (!loaded) {
+    report["plugin"] = pluginJson(plugin);
+    std::cerr << "Error: could not create an instance of plug-in \"" << pluginId << "\" in the " << context << " context." << std::endl;
     ret = 1;
   } else {
     report["plugin"] = pluginJson(plugin);
