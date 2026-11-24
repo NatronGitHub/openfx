@@ -4,7 +4,8 @@ OpenFX Programming Guide
 ========================
 
 This guide shows, by example, how to write OFX image effect plug-ins,
-first with the C API and then with the C++ Support library. The
+first with the C API and then with the C++ Support library, and how to
+write a host with the C++ HostSupport library. The
 :doc:`reference guide <../Reference/index>` documents the API itself.
 
 .. toctree::
@@ -18,6 +19,7 @@ first with the C API and then with the C++ Support library. The
     ofxExample5_Circle
     ofxSupportLibrary
     ofxHostSupport
+    ofxDemoHosts
 
 .. literalinclude:: README.txt
 .. literalinclude:: TODO.txt
