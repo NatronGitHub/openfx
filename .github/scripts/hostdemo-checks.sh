@@ -64,6 +64,20 @@ for f in "float 191 128 0" "byte 191 127 0"; do
 414720 $2 $3 $4"
 done
 
+# The DepthConverter example (Examples/DepthConverter, CMake builds only) must address whole RGBA
+# pixels, not components: on the ramp (x + 0.5) / 720 it gives back the ramp, i.e.
+# round((2x + 1) * 255 / 1440) in the 8-bit PPM, at every depth (hostDemo has no multiple clip
+# depths: the output depth is the input's)
+if grep -q "^Plug-in:uk.co.thefoundry.DepthConverterExample$" cachedemo.log; then
+  for d in byte short float; do
+    run hostdemo-depthconverter-$d.log -p uk.co.thefoundry.DepthConverterExample -d $d -i Source=ramp --frames 0 -o DepthConverter-$d
+    bad=$(ppm DepthConverter-$d.0.ppm | awk 'NR > 1 { x = (NR - 2) % 720; v = int(((2 * x + 1) * 255 + 720) / 1440)
+      if (!bad && ($1 != v || $2 != v || $3 != v)) bad = "pixel (" x "," 575 - int((NR - 2) / 720) "): " $0 ", expected " v }
+      END { print bad }')
+    expect "DepthConverter-$d.0.ppm: the input ramp" "$bad" ""
+  done
+fi
+
 # An Alpha clip: the basic plug-in (general context) scales the Source by scale=2, modulated by
 # its Mask, an Alpha clip. A Mask whose alpha is 0 (and RGB is 1: the Alpha image must take the
 # alpha) scales no pixel. --quiet prints nothing on stdout.

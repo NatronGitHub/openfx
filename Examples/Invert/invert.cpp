@@ -30,7 +30,7 @@ OfxPropertySuiteV1    *gPropHost = 0;
 inline OfxRGBAColourB *
 pixelAddress(OfxRGBAColourB *img, OfxRectI rect, int x, int y, int bytesPerLine)
 {  
-  if(x < rect.x1 || x >= rect.x2 || y < rect.y1 || y > rect.y2)
+  if(x < rect.x1 || x >= rect.x2 || y < rect.y1 || y >= rect.y2)
     return 0;
   OfxRGBAColourB *pix = (OfxRGBAColourB *) (((char *) img) + (y - rect.y1) * bytesPerLine);
   pix += x - rect.x1;  
