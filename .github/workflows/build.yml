@@ -1,6 +1,6 @@
 name: Build
 
-# Per push / pull request: exactly three full builds plus tests, one per OS
+# Per push / pull request: exactly three full builds (two on drafts: no macOS) plus tests, one per OS
 # (policy for all Natron-related repos). macOS runs after Linux and Windows pass, and isn't
 # required for merging (macOS arm64 runners are scarce); extended.yml builds it weekly:
 #   - Linux (ubuntu-24.04): CMake (.github/scripts/cmake-build-test.sh: build, install, the hostDemo
@@ -21,7 +21,9 @@ name: Build
 #
 # Frugal CI (NatronGitHub runners are shared by all repos): one run per change.
 # Pushes run CI only on master and tags; feature branches run through their pull
-# request (not on every push, and not twice). Draft pull requests don't run CI.
+# request (not on every push, and not twice). Draft pull requests run Linux and Windows, so that
+# branches are tested by CI rather than on the shared build machine; macOS runs once a pull
+# request is ready (its runners are scarce, and it isn't required).
 # Superseded runs are cancelled, except for tags. Jobs time out.
 
 on:
@@ -48,8 +50,6 @@ defaults:
 jobs:
   linux:
     name: Linux (ubuntu-24.04, CMake)
-    # no CI for draft pull requests
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -172,8 +172,9 @@ jobs:
 
   macos:
     name: macOS 15 arm64 (CMake, Xcode clang, MacPorts)
-    # macOS arm64 runners are scarce: start only once Linux and Windows have passed. Merging only
-    # requires Linux and Windows; macOS is also built weekly (extended.yml).
+    # macOS arm64 runners are scarce: start only once Linux and Windows have passed, and not for
+    # draft pull requests. Merging only requires Linux and Windows; macOS is also built weekly
+    # (extended.yml).
     needs: [linux, windows]
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: macos-15
@@ -227,7 +228,6 @@ jobs:
 
   windows:
     name: Windows (MSYS2 UCRT64, CMake)
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: windows-latest
     timeout-minutes: 60
     defaults:
