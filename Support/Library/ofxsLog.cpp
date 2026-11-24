@@ -25,11 +25,8 @@ The log file is written to using printf style functions, rather than via c++ ios
 
 #include "ofxsLog.h"
 
-#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
-#  define OFXS_LOG_CXX11 1
-#  ifdef DEBUG
-#    include <mutex>
-#  endif
+#ifdef DEBUG
+#  include <mutex>
 #endif
 
 namespace OFX {
@@ -50,15 +47,11 @@ namespace OFX {
       return *name;
     }
 
-    /** @brief indent level. Per thread with C++11, since plug-ins log from render threads too and
-        the indent follows each thread's nesting of actions; a single global before C++11. */
-#ifdef OFXS_LOG_CXX11
+    /** @brief indent level. Per thread, since plug-ins log from render threads too and the indent
+        follows each thread's nesting of actions. */
     static thread_local int gIndent = 0;
-#else
-    static int gIndent = 0;
-#endif
 
-#if defined(OFXS_LOG_CXX11) && defined(DEBUG)
+#ifdef DEBUG
     /** @brief serializes opening the log file (on the first log from any thread), writing each log
         line (so that lines from different threads don't interleave), closing it and setting its
         name. Recursive: the writers call open(). Only in DEBUG builds, the only ones that open a

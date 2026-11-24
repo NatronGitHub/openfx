@@ -14,10 +14,10 @@ namespace OFX {
 
   /** @brief this namespace wraps up logging functionality */
   namespace Log {
-    /** @brief Indent it, per thread with C++11 */
+    /** @brief Indent it, per thread */
     void indent(void);
 
-    /** @brief Outdent it, per thread with C++11 */
+    /** @brief Outdent it, per thread */
     void outdent(void);
 
     /** @brief Sets the name of the log file. */

@@ -1,15 +1,7 @@
 // Copyright OpenFX and contributors to the OpenFX project.
 // SPDX-License-Identifier: BSD-3-Clause
 
-// std::mutex with C++11, else a platform mutex
-#if __cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)
-#define GPUGAIN_STD_MUTEX 1
 #include <mutex>
-#elif defined(_WIN32)
-#include <windows.h>
-#else
-#include <pthread.h>
-#endif
 #include <map>
 #include <stdio.h>
 
@@ -82,70 +74,8 @@ cl_int CheckError(cl_int p_Error, const char* p_Msg)
     return p_Error;
 }
 
-#ifdef GPUGAIN_STD_MUTEX
 typedef std::mutex Locker;
 typedef std::lock_guard<std::mutex> AutoLock;
-#else
-class Locker
-{
-public:
-    Locker()
-    {
-#ifdef _WIN32
-        InitializeCriticalSection(&mutex);
-#else
-        pthread_mutex_init(&mutex, NULL);
-#endif
-    }
-
-    ~Locker()
-    {
-#ifdef _WIN32
-        DeleteCriticalSection(&mutex);
-#else
-        pthread_mutex_destroy(&mutex);
-#endif
-    }
-
-    void lock()
-    {
-#ifdef _WIN32
-        EnterCriticalSection(&mutex);
-#else
-        pthread_mutex_lock(&mutex);
-#endif
-    }
-
-    void unlock()
-    {
-#ifdef _WIN32
-        LeaveCriticalSection(&mutex);
-#else
-        pthread_mutex_unlock(&mutex);
-#endif
-    }
-
-private:
-    Locker(const Locker&);
-    Locker& operator=(const Locker&);
-#ifdef _WIN32
-    CRITICAL_SECTION mutex;
-#else
-    pthread_mutex_t mutex;
-#endif
-};
-
-class AutoLock
-{
-public:
-    explicit AutoLock(Locker& p_Locker) : _locker(p_Locker) { _locker.lock(); }
-    ~AutoLock() { _locker.unlock(); }
-private:
-    AutoLock(const AutoLock&);
-    AutoLock& operator=(const AutoLock&);
-    Locker& _locker;
-};
-#endif
 
 // One kernel per OpenCL context and kernel source. ofxGPURender.h: "the plug-in should keep a
 // separate set of kernels per OpenCL context (e.g., using a map). The OpenCL context can be found

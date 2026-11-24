@@ -117,9 +117,9 @@ namespace OFX {
     /// owned by the PluginBinary it lives inside
     /// Plugins can only be pass about either by pointer or reference
     private :
-      // not copyable (C++98 style: private and not defined)
-      Plugin(const Plugin&);
-      Plugin &operator= (const Plugin&);
+      // not copyable
+      Plugin(const Plugin&) = delete;
+      Plugin &operator= (const Plugin&) = delete;
 
     protected :
       PluginBinary *_binary; ///< the file I live inside
@@ -205,10 +205,9 @@ namespace OFX {
       friend class PluginHandle;
       friend class PluginCache; // scanPluginFiles() resets _binaryChanged
 
-      // not copyable (C++98 style: private and not defined): a PluginBinary owns _binary, which
-      // its destructor deletes, and its plug-ins
-      PluginBinary(const PluginBinary &);
-      PluginBinary &operator=(const PluginBinary &);
+      // not copyable: a PluginBinary owns _binary, which its destructor deletes, and its plug-ins
+      PluginBinary(const PluginBinary &) = delete;
+      PluginBinary &operator=(const PluginBinary &) = delete;
 
     protected :
       Binary* _binary;                 ///< our binary object, abstracted layer ontop of OS calls, defined in ofxhBinary.h, may not be valid if function pointers below are already set
@@ -405,10 +404,10 @@ namespace OFX {
       PluginBinary *_b;
       OfxPlugin *_op;
 
-      // not copyable (C++98 style: private and not defined): the destructor releases the
-      // reference to the binary that the constructor took
-      PluginHandle(const PluginHandle &);
-      PluginHandle &operator=(const PluginHandle &);
+      // not copyable: the destructor releases the reference to the binary that the constructor
+      // took
+      PluginHandle(const PluginHandle &) = delete;
+      PluginHandle &operator=(const PluginHandle &) = delete;
 
     public:
       PluginHandle(Plugin *p, OFX::Host::Host *_host);

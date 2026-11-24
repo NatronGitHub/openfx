@@ -10,10 +10,7 @@
 #include <set>
 #include <utility> // pair
 #include <vector>
-#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
-#define OFXS_IMAGEEFFECT_CXX11 1
 #include <mutex>
-#endif
 #ifdef DEBUG
 #include <iostream>
 #endif
@@ -1092,9 +1089,7 @@ namespace OFX {
     // openfx-misc CImg plug-ins, whose SUPPORTOBJECTS have no ofxsInteract.o).
     // Written during describe and cleared at the last kOfxActionUnload; read by the interact
     // actions. A host may describe one plug-in of a binary while another one draws its overlay,
-    // so the accesses are serialized with a mutex in C++11 (the Support sources are also
-    // C++98-compatible: then there is no lock, and the host must not describe a plug-in while an
-    // overlay of the same binary handles an action).
+    // so the accesses are serialized with a mutex.
     namespace {
       struct OverlayEntryRecord {
         OfxPluginEntryPoint *mainEntry;
@@ -1111,28 +1106,18 @@ namespace OFX {
         return *entries;
       }
 
-#ifdef OFXS_IMAGEEFFECT_CXX11
       std::mutex &overlayEntriesMutex()
       {
         static std::mutex *m = new std::mutex;
         return *m;
       }
-      struct OverlayEntriesLock {
-        OverlayEntriesLock() { overlayEntriesMutex().lock(); }
-        ~OverlayEntriesLock() { overlayEntriesMutex().unlock(); }
-      };
-#else
-      struct OverlayEntriesLock {
-        OverlayEntriesLock() {}
-      };
-#endif
 
       void recordOverlayInteract(OfxPluginEntryPoint *mainEntry, bool v2)
       {
         if (!mainEntry) {
           return;
         }
-        OverlayEntriesLock lock;
+        std::lock_guard<std::mutex> lock(overlayEntriesMutex());
         std::vector<OverlayEntryRecord> &entries = overlayEntries();
         OverlayEntryRecord *rec = NULL;
         for (size_t i = 0; i < entries.size(); ++i) {
@@ -1180,7 +1165,7 @@ namespace OFX {
       if (!mainEntry || !mainEntryV1) {
         return;
       }
-      OverlayEntriesLock lock;
+      std::lock_guard<std::mutex> lock(overlayEntriesMutex());
       std::vector<OverlayEntrySibling> &siblings = overlayEntrySiblings();
       for (size_t i = 0; i < siblings.size(); ++i) {
         if (siblings[i].first == mainEntry) {
@@ -1195,7 +1180,7 @@ namespace OFX {
       if (!mainEntry) {
         return NULL;
       }
-      OverlayEntriesLock lock;
+      std::lock_guard<std::mutex> lock(overlayEntriesMutex());
       const std::vector<OverlayEntrySibling> &siblings = overlayEntrySiblings();
       for (size_t i = 0; i < siblings.size(); ++i) {
         if (siblings[i].first == mainEntry) {
@@ -1220,7 +1205,7 @@ namespace OFX {
       if (!mainEntry) {
         return false;
       }
-      OverlayEntriesLock lock;
+      std::lock_guard<std::mutex> lock(overlayEntriesMutex());
       const std::vector<OverlayEntryRecord> &entries = overlayEntries();
       for (size_t i = 0; i < entries.size(); ++i) {
         if (entries[i].mainEntry == mainEntry) {
@@ -1232,7 +1217,7 @@ namespace OFX {
 
     void clearOverlayInteractRegistrations()
     {
-      OverlayEntriesLock lock;
+      std::lock_guard<std::mutex> lock(overlayEntriesMutex());
       overlayEntries().clear();
     }
   } // namespace Private
