@@ -236,9 +236,12 @@ uninstall:
 
   CXXFLAGS := $(DEBUGFLAG) $(CPPFLAGS) -I$(PATHTOROOT)/../include -I$(PATHTOROOT)/include -I$(PATHTOROOT)/Plugins/include $(BITSFLAG) -fvisibility=hidden $(CXXFLAGS_ADD) $(CXXFLAGS_EXTRA)
   # C++17, which the Support library requires (Apple clang defaults to C++14), unless CXX,
-  # CXXFLAGS_ADD or CXXFLAGS_EXTRA already has a -std option. CXXSTD is the whole flag, e.g.
-  # `make CXXSTD=-std=c++20` (openfx-io's Makefile.master uses the same variable).
-  CXXSTD ?= $(if $(findstring -std=,$(CXX) $(CXXFLAGS_ADD) $(CXXFLAGS_EXTRA)),,-std=c++17)
+  # CXXFLAGS_ADD or CXXFLAGS_EXTRA already has a -std option. CXXSTD chooses the standard, as a
+  # bare name (`make CXXSTD=c++20`, as openfx-arena and openfx-gmic pass it) or as the whole flag
+  # (`make CXXSTD=-std=c++20`); it is turned into the flag here, so that openfx-io's
+  # Makefile.master, which adds $(CXXSTD) to CXXFLAGS too, gets the flag in both cases.
+  CXXSTD ?= $(if $(findstring -std=,$(CXX) $(CXXFLAGS)),,c++17)
+  override CXXSTD := $(if $(filter -std=% /std:%,$(CXXSTD)),$(strip $(CXXSTD)),$(if $(strip $(CXXSTD)),-std=$(strip $(CXXSTD))))
   CXXFLAGS += $(CXXSTD)
 
 $(OBJECTPATH)/$(PLUGINNAME).ofx: $(addprefix $(OBJECTPATH)/,$(PLUGINOBJECTS) $(SUPPORTOBJECTS))
