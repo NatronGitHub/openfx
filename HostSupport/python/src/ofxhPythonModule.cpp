@@ -159,7 +159,7 @@ static void requireNoAction(const char *what)
 /// and leave the instance not rendering
 static void requireNotRendering(PyEffectInstance *p, const char *what)
 {
-  if (p->_rendering) {
+  if (p->rendering()) {
     raiseError(PyExc_RuntimeError, std::string(what) + " can't be called during a render action (from one of its "
                                    "callbacks)");
   }
@@ -381,12 +381,14 @@ struct RenderScaleScope {
   RenderScaleScope &operator=(const RenderScaleScope &) = delete;
 };
 
-/// the render state, for the duration of a render action
+/// the render state, for the duration of a render action (and no output image made by the host
+/// yet, see PyClipInstance::fetchImage())
 struct RenderScope : RenderScaleScope {
   RenderScope(PyEffectInstance *inst, const OfxPointD &scale, const OfxRectI &window) : RenderScaleScope(inst, scale)
   {
     p->_rendering = true;
     p->_renderWindow = window;
+    p->_outputFailed.store(false);
   }
   ~RenderScope() { p->_rendering = false; }
 };
@@ -845,8 +847,8 @@ static void bindImageEffectInstance(nb::module_ &m)
     .def("progress_start", [](InstanceBase &, const std::string &, const std::string &) {}, "message"_a, "id"_a)
     .def("progress_end", [](InstanceBase &) {})
     .def("progress_update", [](InstanceBase &, double) { return true; }, "t"_a)
-    .def("timeline_get_time", [](InstanceBase &s) { return s.get()->_timeLineTime; })
-    .def("timeline_goto_time", [](InstanceBase &s, double t) { s.get()->_timeLineTime = t; }, "t"_a,
+    .def("timeline_get_time", [](InstanceBase &s) { return s.get()->timeLineTime(); })
+    .def("timeline_goto_time", [](InstanceBase &s, double t) { s.get()->setTimeLineTime(t); }, "t"_a,
          "The default stores the time (no callback: nothing to raise). The actions with a time also\n"
          "move it there (see the class docstring).")
     .def("timeline_get_bounds", [](InstanceBase &s) {
@@ -861,9 +863,9 @@ static void bindImageEffectInstance(nb::module_ &m)
   overridable(inst, "project_pixel_aspect_ratio", [](InstanceBase &) { return nb::cast(768. / 720.); });
   overridable(inst, "effect_duration", [](InstanceBase &) { return nb::cast(25.); });
   overridable(inst, "frame_rate", [](InstanceBase &) { return nb::cast(25.); });
-  overridable(inst, "frame_recursive", [](InstanceBase &s) { return nb::cast(s.get()->_timeLineTime); });
+  overridable(inst, "frame_recursive", [](InstanceBase &s) { return nb::cast(s.get()->timeLineTime()); });
   overridable(inst, "render_scale_recursive", [](InstanceBase &s) {
-    return nb::cast(Point(s.get()->_renderScale.x, s.get()->_renderScale.y));
+    return nb::cast(Point(s.get()->renderScale().x, s.get()->renderScale().y));
   });
   overridable(inst, "default_output_fielding", [](InstanceBase &) { return nb::cast(std::string("none")); });
   overridable(inst, "view_count", [](InstanceBase &) { return nb::cast(1); });
@@ -968,7 +970,7 @@ static void bindImageEffectInstance(nb::module_ &m)
     }, "name"_a,
        "The value a parameter starts with: its default, with the normalised spatial defaults in\n"
        "canonical coordinates for the project (as the C++ parameters and param_template()).")
-    .def_prop_ro("param_changed_count", [](InstanceBase &s) { return s.get()->_paramChangedCount; },
+    .def_prop_ro("param_changed_count", [](InstanceBase &s) { return s.get()->paramChangedCount(); },
                  "The number of kOfxActionInstanceChanged sent for parameters so far (the plug-in's own\n"
                  "changes too): a diagnostic, e.g. to check that a project load sends none.")
     .def("param_descriptor", [](InstanceBase &s, const std::string &name) {
@@ -1050,13 +1052,13 @@ static void bindImageEffectInstance(nb::module_ &m)
        "Press a push button. This runs actions (despite its name without _action):\n"
        "kOfxActionInstanceChanged (reason \"user edited\", between the begin and end instance changed\n"
        "actions) at time (None: timeline_get_time()). Returns its Stat.")
-    .def_prop_ro("rendering", [](InstanceBase &s) { return s.get()->_rendering; })
-    .def_prop_ro("render_window", [](InstanceBase &s) { return tuple(s.get()->_renderWindow); },
+    .def_prop_ro("rendering", [](InstanceBase &s) { return s.get()->rendering(); })
+    .def_prop_ro("render_window", [](InstanceBase &s) { return tuple(s.get()->renderWindow()); },
                  "The render window of the current (or last) render action, in pixels.")
-    .def_prop_ro("render_scale", [](InstanceBase &s) { return Point(s.get()->_renderScale.x, s.get()->_renderScale.y); },
+    .def_prop_ro("render_scale", [](InstanceBase &s) { return Point(s.get()->renderScale().x, s.get()->renderScale().y); },
                  "The render scale of the current action ((1, 1) outside the actions).")
-    .def_prop_rw("aborted", [](InstanceBase &s) { return s.get()->_abort.load() != 0; },
-                 [](InstanceBase &s, bool a) { s.get()->_abort.store(a ? 1 : 0); },
+    .def_prop_rw("aborted", [](InstanceBase &s) { return s.get()->aborted(); },
+                 [](InstanceBase &s, bool a) { s.get()->setAborted(a); },
                  "What the plug-in's abort() gets (an atomic flag).")
     .def_prop_ro("supports_tiles", [](InstanceBase &s) { return s.get()->supportsTiles(); })
     .def_prop_ro("output_premultiplication", [](InstanceBase &s) {
@@ -1233,8 +1235,7 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
       const std::map<std::string, OHIE::ClipInstance *> &clips = p->clips();
       for (std::map<std::string, OHIE::ClipInstance *>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
         if (PyClipInstance *c = pyClip(it->second)) {
-          c->releaseOutputImage();
-          c->_outputData.reset();
+          c->resetOutput();
         }
       }
       // the output image can be made (the clip preferences set its depth and components): else the
@@ -1258,7 +1259,6 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
 #endif
       OfxStatus st;
       ActionScope scope;
-      p->_outputFailed = false;
       TimeLineScope tl(p, time);
       {
         RenderScope rs(p, toPoint(renderScale), toRectI(window));
@@ -1284,15 +1284,14 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
       // the output image of this render (the clip keeps the array, not the C++ image)
       nb::dict out;
       if (PyClipInstance *c = pyClip(p->getClip(kOfxImageEffectOutputClipName))) {
-        if (c->_outputData.is_valid()) {
-          out["Colour"] = c->_outputData;
+        if (c->outputData().is_valid()) {
+          out["Colour"] = c->outputData();
         }
         c->releaseOutputImage();
       }
-      if (p->_outputFailed) {
+      if (p->takeOutputFailed()) {
         // (the plug-in rendered into an image that ofxh made, see PyClipInstance::fetchImage())
         st = kOfxStatFailed;
-        p->_outputFailed = false;
       }
       scope.check("render", &st);
       return nb::make_tuple(stat(st), out);
@@ -1434,11 +1433,11 @@ static void bindClipInstance(nb::module_ &m)
       }
       // the output: the render window (outside a render, the RoD clipped to the project)
       PyEffectInstance *e = c->_effect;
-      OfxRectI b = e->_renderWindow;
-      if (!e->_rendering) {
+      OfxRectI b = e->renderWindow();
+      if (!e->rendering()) {
         b = scoped("get_image()", [&] {
-          return intersect(canonicalToPixelEnclosing(c->rod(time, view), e->_renderScale, c->getAspectRatio()),
-                           e->projectPixelRect(e->_renderScale));
+          return intersect(canonicalToPixelEnclosing(c->rod(time, view), e->renderScale(), c->getAspectRatio()),
+                           e->projectPixelRect(e->renderScale()));
         });
       }
       ImageData d;
@@ -1533,7 +1532,7 @@ static void bindClipInstance(nb::module_ &m)
       if (d == kOfxBitDepthFloat) return nb::str("float32");
       return nb::none();
     }, "The NumPy dtype name of the images (from pixel_depth), or None.")
-    .def_prop_ro("view", [](ClipBase &s) { return s.get()->_view; })
+    .def_prop_ro("view", [](ClipBase &s) { return s.get()->view(); })
     .def_prop_ro("instance", [](ClipBase &s) { return s.get()->_effect->_py; })
     .def_prop_ro("props", [](ClipBase &s) { s.get(); return PropertySetView{s.ref, PropertySetView::Kind::clip}; })
     .def("new_image", [](ClipBase &s, const RectI &b) {

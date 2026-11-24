@@ -352,17 +352,19 @@ public:
   PyEffectInstance *_effect;
   nb::object _py;
   RefPtr _ref;
-  int _view;                   ///< the view of getImage() (setView)
-  PyImage *_outputImage;       ///< the output image of the current render (output clip only)
-  nb::object _outputData;      ///< its ImageData
-  // the strings returned by reference
-  mutable std::string _unmappedDepth, _unmappedComponents, _premult, _fieldOrder;
 
   PyClipInstance(PyEffectInstance *effect, OHIE::ClipDescriptor &desc, nb::object py, RefPtr ref);
   ~PyClipInstance() override;
 
+  /// the view of getImage() (setView)
+  int view() const { return _view; }
+  /// the ImageData of the output image of the current (or last) render (output clip only; may be
+  /// invalid)
+  const nb::object &outputData() const { return _outputData; }
   /// release the output image of the last render (the next fetch gets a new one)
   void releaseOutputImage();
+  /// releaseOutputImage(), and drop its ImageData: before a render
+  void resetOutput();
   /// call the Python get_image() and make a C++ image from what it returns (nullptr if None). The
   /// output image of a render is never nullptr (see fetchImage()).
   OHIE::Image *fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds);
@@ -408,6 +410,16 @@ public:
   void setView(int view) override;
 #endif
   OfxRectD getRegionOfDefinition(OfxTime time) const override;
+
+private:
+  /// make the C++ image of what get_image() returned (raises if it isn't a valid image)
+  PyImage *makeImage(nb::object r, OfxTime time, int view);
+
+  int _view;                   ///< the view of getImage() (setView)
+  PyImage *_outputImage;       ///< the output image of the current render (output clip only)
+  nb::object _outputData;      ///< its ImageData
+  // the strings returned by reference
+  mutable std::string _unmappedDepth, _unmappedComponents, _premult, _fieldOrder;
 };
 
 /// ofxh.ImageEffectInstance
@@ -415,20 +427,31 @@ class PyEffectInstance : public OHIE::Instance {
 public:
   nb::object _py;
   RefPtr _ref;
-  // the render state, set by the action bindings
-  bool _rendering;
-  OfxPointD _renderScale;         ///< the render scale of the current action (1, 1 outside)
-  OfxRectI _renderWindow;
-  double _timeLineTime;           ///< the default timeline (timeline_get_time/goto_time)
-  std::atomic<int> _abort;        ///< ImageEffectInstance.aborted
-  bool _outputFailed;             ///< the host made the output image of the render (abort() is 1)
-  int _paramChangedCount;         ///< the kOfxActionInstanceChanged sent for parameters
-  mutable std::string _fielding;  ///< getDefaultOutputFielding()
-  mutable std::map<int, std::string> _viewNames;  ///< getViewName()
 
   PyEffectInstance(OHIE::ImageEffectPlugin *plugin, OHIE::Descriptor &desc,
                    const std::string &context, nb::object py, RefPtr ref);
   ~PyEffectInstance() override;
+
+  // rendering, renderScale, renderWindow: written only by RenderScaleScope and RenderScope
+  // (ofxhPythonModule.cpp)
+  bool rendering() const { return _rendering; }
+  /// the render scale of the current action ((1, 1) outside)
+  const OfxPointD &renderScale() const { return _renderScale; }
+  /// the render window of the current (or last) render action
+  const OfxRectI &renderWindow() const { return _renderWindow; }
+  /// the default timeline (written by TimeLineScope and timeline_goto_time)
+  double timeLineTime() const { return _timeLineTime; }
+  void setTimeLineTime(double t) { _timeLineTime = t; }
+  /// ImageEffectInstance.aborted (written by that Python property)
+  bool aborted() const { return _abort.load() != 0; }
+  void setAborted(bool a) { _abort.store(a ? 1 : 0); }
+  /// the host made the output image of the render (written by PyClipInstance::fetchImage(), from
+  /// any worker thread; abort() returns 1 until takeOutputFailed())
+  void setOutputFailed() { _outputFailed.store(true); }
+  /// whether the host made the output image of the render, and clear it
+  bool takeOutputFailed() { return _outputFailed.exchange(false); }
+  /// the kOfxActionInstanceChanged sent for parameters (counted by paramInstanceChangedAction())
+  int paramChangedCount() const { return _paramChangedCount; }
 
   const std::map<std::string, OHIE::ClipInstance *> &clips() const { return _clips; }
   /// the project rectangle in pixels at the given render scale
@@ -473,6 +496,20 @@ public:
   double timeLineGetTime() override;
   void timeLineGotoTime(double t) override;
   void timeLineGetBounds(double &t1, double &t2) override;
+
+private:
+  friend struct RenderScaleScope;
+  friend struct RenderScope;
+
+  bool _rendering;
+  OfxPointD _renderScale;
+  OfxRectI _renderWindow;
+  double _timeLineTime;
+  std::atomic<int> _abort;
+  std::atomic<bool> _outputFailed;  ///< atomic: abort() reads it from the plug-in's threads
+  int _paramChangedCount;
+  mutable std::string _fielding;  ///< getDefaultOutputFielding()
+  mutable std::map<int, std::string> _viewNames;  ///< getViewName()
 };
 
 /// what the Python parameters (ofxh.Param subclasses, made by new_param()) share: the adapter of
@@ -502,14 +539,14 @@ struct TimeLineScope {
   double saved;
   bool nested;
   TimeLineScope(PyEffectInstance *inst, double time)
-    : p(inst), saved(inst->_timeLineTime), nested(ActionScope::depth() > 1 || ActionScope::onWorker())
+    : p(inst), saved(inst->timeLineTime()), nested(ActionScope::depth() > 1 || ActionScope::onWorker())
   {
-    p->_timeLineTime = time;
+    p->setTimeLineTime(time);
   }
   ~TimeLineScope()
   {
     if (nested) {
-      p->_timeLineTime = saved;
+      p->setTimeLineTime(saved);
     }
   }
   TimeLineScope(const TimeLineScope &) = delete;
