@@ -49,7 +49,8 @@ wheel.packages = []
 # HostSupport/examples/python: ruff check --config HostSupport/python/pyproject.toml <dir>
 line-length = 120
 # (generated from the headers)
-extend-exclude = ["**/ofxhost/constants.py", "**/ofxhost/props.py"]
+extend-exclude = ["**/ofxhost/constants.py"]
 
 [tool.ruff.lint]
-extend-select = ["E501"]  # (the line length: not in ruff's default rules)
+# ruff's classic default rules, and the line length; listed, not ruff's defaults, which change
+select = ["E4", "E7", "E9", "F", "E501"]

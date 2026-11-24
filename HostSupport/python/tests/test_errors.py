@@ -21,8 +21,8 @@ class Recorder(ofxh.ImageEffectInstance):
         self.fail = fail
         self.messages = []
 
-    def message(self, type, id, text):
-        self.messages.append((type, text))
+    def message(self, message_type, message_id, text):
+        self.messages.append((message_type, text))
         if self.fail is not None:
             raise self.fail
 
@@ -47,11 +47,11 @@ def _press(inst, button):
 _MESSAGE = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p)
 
 
-def _plugin_message(inst, type, text):
+def _plugin_message(inst, message_type, text):
     suite = ofxh.fetch_suite("OfxMessageSuite", 1)
     assert suite
     message = _MESSAGE(ctypes.c_void_p.from_address(suite).value)
-    return message(inst.handle, type.encode(), b"test", text.encode())
+    return message(inst.handle, message_type.encode(), b"test", text.encode())
 
 
 def test_message(plugin_dir):

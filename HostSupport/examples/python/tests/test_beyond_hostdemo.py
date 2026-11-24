@@ -4,6 +4,7 @@ image first, and the bounded planning of the sample host."""
 
 import ctypes
 import json
+import os
 import threading
 
 import numpy as np
@@ -275,6 +276,38 @@ def test_worker_threads_fetch_the_output_first(sample_plugins, monkeypatch, host
     del r
     gc.collect()
     assert [w for w in made if w() is not None] == []  # (none leaked)
+
+
+# --- renders from several Python threads ------------------------------------------------------
+
+def test_renders_from_several_threads(sample_plugins):
+    """Renders started at once from several Python threads run one after the other: each gets its own
+    output, and the current directory and the file descriptors 1 and 2 (which each render changes until
+    it returns) are the caller's again."""
+    render(sample_plugins, INVERT, inputs={"Source": "ramp"}, frames=[0])  # (the host, before the threads)
+    before = os.getcwd(), [(os.fstat(fd).st_dev, os.fstat(fd).st_ino) for fd in (1, 2)]
+    n = 4
+    start = threading.Barrier(n, timeout=60)
+    results, errors = {}, []
+
+    def one(k):
+        try:
+            start.wait()
+            results[k] = render(sample_plugins, INVERT, inputs={"Source": f"solid:{k / 8},0,0,1"}, frames=[0])
+        except Exception as e:  # (reported by the assert below)
+            errors.append(repr(e))
+
+    threads = [threading.Thread(target=one, args=(k,)) for k in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(60)
+    assert not any(t.is_alive() for t in threads)
+    assert not errors, errors
+    assert sorted(results) == list(range(n))
+    for k, r in results.items():
+        assert_close(r.output[..., 0], 1 - k / 8, atol=1e-6)
+    assert (os.getcwd(), [(os.fstat(fd).st_dev, os.fstat(fd).st_ino) for fd in (1, 2)]) == before
 
 
 # --- the sample host's planning -----------------------------------------------------------------

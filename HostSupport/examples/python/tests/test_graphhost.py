@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 import ofxhost
-from ofxhost import sequences
+from ofxhost import rects, sequences
 from ofxhost.graph import FilePath, Files, Graph, Keys, Node, Project, load
 from ofxhost.testing import assert_close, check_backend
 
@@ -25,6 +25,16 @@ BASIC = "net.sf.openfx.basicPlugin"
 TESTER = "net.sf.openfx.GenericTestPlugin"
 RETIMER = "net.sf.openfx.retimer"
 NOISE = "net.sf.openfx.noisePlugin"
+
+
+def test_to_pixels_is_ofxh_canonical_to_pixel():
+    """rects.to_pixels(), which the sample host uses, gives the bindings' (and hostDemo's) pixel rectangles,
+    infinite and NaN bounds included."""
+    inf, nan = math.inf, math.nan
+    for r in [(0.5, -0.5, 10.2, 768 / (768 / 720)), (-3.25, 2., 1e9, 7.999999), (-inf, nan, inf, nan),
+              (1e300, -1e300, -inf, inf), (0., 0., 0., 0.)]:
+        for rs, par in (((1., 1.), 1.), ((0.5, 0.25), 2.), ((1 / 3, 3.), 0.9)):
+            assert rects.to_pixels(r, rs, par) == tuple(ofxh.canonical_to_pixel(r, rs, par)), (r, rs, par)
 
 
 def rgba(h=24, w=32):
@@ -468,6 +478,10 @@ def test_errors(sample_plugins, tmp_path):
               (Graph({"i": Node(INVERT, inputs=ramp)}, {"i": "out.png"}, frames=[0]), "unsupported image format"),
               (Graph({"i": Node(INVERT, inputs=ramp)}, {"x": None}, frames=[0]), "'x' is not a node"),
               (Graph({"i": Node(INVERT, inputs=ramp)}, {"i": "o.pfm"}, frames=[0, 1]), "no frame number"),
+              (Graph({"i": Node(INVERT, inputs=ramp)}, {"i": "o.####.pfm"}, frames=[0, 0.25]),
+               "the times 0 and 0.25 would both write o.0000.pfm"),
+              (Graph({"i": Node(INVERT, inputs=ramp)}, {"i": "o.%V.pfm"}, frames=[0, 1]),
+               "the times 0 and 1 would both write o.main.pfm"),
               (Graph.of(Node(INVERT, inputs=ramp), frames=[0], scale=0.), "render scale"),
               (Graph.of(Node(INVERT, inputs=ramp), frames=[math.nan]), "finite"),
               (Graph.of(Node(INVERT, inputs=ramp), frames=[0], project=Project(pixel_aspect_ratio=0.)),

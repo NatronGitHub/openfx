@@ -112,7 +112,7 @@ def test_filter(ofx, tmp_path):
 
 def test_render_dump(ofx, tmp_path):
     """--dump prints the graph, normalised (Graph.dumps()), and renders nothing."""
-    (tmp_path / "g.json").write_text(json.dumps({"output": "a", "nodes": {"a": {"plugin": INVERT}}}))
+    (tmp_path / "g.json").write_text(json.dumps({"outputs": {"a": None}, "nodes": {"a": {"plugin": INVERT}}}))
     status, out, _ = ofx("render", "g.json", "--dump")
     assert status == 0 and out == graph.load(tmp_path / "g.json").dumps()
     assert json.loads(out)["outputs"] == {"a": None} and not list(tmp_path.glob("*.pfm"))

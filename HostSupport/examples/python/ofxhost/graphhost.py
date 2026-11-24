@@ -325,7 +325,7 @@ class Clip(ofxh.ClipInstance):
             return (0, 0, w, h)
         if self.spec.type == "file" and not self.is_output:
             return self.spec.file_format()
-        return tuple(ofxh.canonical_to_pixel(self.run.project_rect(), (1., 1.), self.run.project.pixel_aspect_ratio))
+        return rects.to_pixels(self.run.project_rect(), (1., 1.), self.run.project.pixel_aspect_ratio)
 
     # the regions and images
     def _spec_at(self, time):
@@ -1009,10 +1009,9 @@ def _execute(graph: g.Graph, r: _Run, report: dict, images: dict, written: list,
         fs = report["frames"] = _frames(r, outs)
         for ns in outs:
             pattern = graph.outputs[ns.name]
-            if write and pattern is not None and len(fs) > 1 and not sequences.has_pattern(pattern):
-                raise GraphError(f"output {ns.name!r}: {len(fs)} frames, but {pattern} has no frame number "
-                                 "(e.g. ####)")
-        r.project_window = tuple(ofxh.canonical_to_pixel(r.project_rect(), r.scale, r.project.pixel_aspect_ratio))
+            if write and pattern is not None and len(fs) > 1:
+                _check_distinct_files(ns, pattern, fs)
+        r.project_window = rects.to_pixels(r.project_rect(), r.scale, r.project.pixel_aspect_ratio)
         window = tuple(graph.window) if graph.window is not None else r.project_window
         # the frames each node will render, then its sequence render
         seen: dict = {}  # (node name, time) -> the union of the windows planned
@@ -1025,6 +1024,22 @@ def _execute(graph: g.Graph, r: _Run, report: dict, images: dict, written: list,
             if ns.instance is not None and ns.instance.alive:
                 ns.report["params"] = _param_report(ns.instance)
                 ns.instance.close()
+
+
+def _output_name(ns: _NodeState, pattern: str, t: float) -> str:
+    """The file name of an output node's image at t (the frame of t is floor(t + 0.5))."""
+    return sequences.expand(pattern, sequences.frame_of(t), ns.instance.view_name(0))
+
+
+def _check_distinct_files(ns: _NodeState, pattern: str, fs: list[float]) -> None:
+    """Raise GraphError if two of the times would write the same file."""
+    if not sequences.has_pattern(pattern):
+        raise GraphError(f"output {ns.name!r}: {len(fs)} frames, but {pattern} has no frame number (e.g. ####)")
+    by_file: dict[str, float] = {}
+    for t in fs:
+        f = _output_name(ns, pattern, t)
+        if by_file.setdefault(f, t) != t:
+            raise GraphError(f"output {ns.name!r}: the times {by_file[f]:.12g} and {t:.12g} would both write {f}")
 
 
 def _render_frames(r: _Run, order: list[_NodeState], outs: list[_NodeState], fs: list[float], window,
@@ -1084,7 +1099,7 @@ def _output(r: _Run, ns: _NodeState, t: float, img: _Rendered | None, window, pa
         if not rects.is_empty(b):  # (top-down rows: from the top of the window, and of the image)
             full[window[3] - b[3]:window[3] - b[1], b[0] - window[0]:b[2] - window[0]] = \
                 top_down[img.bounds[3] - b[3]:img.bounds[3] - b[1], b[0] - img.bounds[0]:b[2] - img.bounds[0]]
-    path = r.graph.path(sequences.expand(pattern, sequences.frame_of(t), ns.instance.view_name(0)))
+    path = r.graph.path(_output_name(ns, pattern, t))
     files = imageio.write_image(path, full)
     j["files"] = files
     log.info("%s: wrote %s", ns.name, ", ".join(files))
