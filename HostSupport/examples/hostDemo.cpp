@@ -1869,11 +1869,12 @@ static int run(int argc, char **argv)
         c["connected"] = it->second->getConnected();
 #ifdef OFX_EXTENSIONS_NUKE
         if (multiPlane) {
-          // kFnOfxImageEffectPropComponentsPresent: "the planes present"
+          // kFnOfxImageEffectPropComponentsPresent: "the planes present", as a plug-in reads it
           Json& present = c["planesPresent"] = Json::array();
-          const std::vector<std::string>& cp = it->second->getComponentsPresent();
-          for (size_t k = 0; k < cp.size(); ++k) {
-            present.push(cp[k]);
+          const OFX::Host::Property::Set& cprops = it->second->getProps();
+          const int n = cprops.getDimension(kFnOfxImageEffectPropComponentsPresent);
+          for (int k = 0; k < n; ++k) {
+            present.push(cprops.getStringProperty(kFnOfxImageEffectPropComponentsPresent, k));
           }
         }
 #endif

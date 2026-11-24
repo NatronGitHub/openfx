@@ -240,7 +240,7 @@ namespace OFX {
         { kOfxImagePropPixelOrder, Property::eString, 1, true, kOfxImagePixelOrderRGBA }, // a string enum, not an int
 #endif
 #ifdef OFX_EXTENSIONS_NUKE
-        { kFnOfxImageEffectPropComponentsPresent, Property::eString, 0, true, kOfxImageComponentNone},
+        { kFnOfxImageEffectPropComponentsPresent, Property::eString, 0, true, kFnOfxImagePlaneColour},
 #endif
 #ifdef OFX_EXTENSIONS_NATRON
         { kOfxImageClipPropFormat, Property::eInt, 4, true, "0"},
@@ -277,6 +277,9 @@ namespace OFX {
         , _isOutput(desc.isOutput())
         , _pixelDepth(kOfxBitDepthNone) 
         , _components(kOfxImageComponentNone)
+#ifdef OFX_EXTENSIONS_NUKE
+        , _componentsPresent(1, kFnOfxImagePlaneColour)
+#endif
       {
         // this will add parameters that are needed in an instance but not a
         // Descriptor
@@ -379,6 +382,11 @@ namespace OFX {
       {
         if(name == kOfxImageEffectPropUnmappedFrameRange || name == kOfxImageEffectPropFrameRange)
           return 2;
+#ifdef OFX_EXTENSIONS_NUKE
+        // string X N: as many as getComponentsPresent() (a plug-in got the first plane only)
+        if (name == kFnOfxImageEffectPropComponentsPresent)
+          return static_cast<int>(getComponentsPresent().size());
+#endif
         return 1;
       }
 
@@ -415,10 +423,18 @@ namespace OFX {
       {
           // per instance (a static vector was shared by all the clips of all the instances: the
           // const char* a plug-in got for one clip changed with a query on another clip, and two
-          // threads raced on it). Written only when the components changed, so that concurrent
-          // queries of the same clip only read it.
-          if (_componentsPresent.size() != 1 || _componentsPresent[0] != _components) {
-              _componentsPresent.assign(1, _components);
+          // threads raced on it). Written only when it changes, so that concurrent queries only
+          // read it. "Property indicating the planes present on something"
+          // (nuke/fnOfxExtensions.h), not components; "all the planes [...] that exist on the
+          // clip": none on a disconnected input, else the colour plane, the only one a host
+          // without multi-plane support has. A multi-plane host overrides this to add its other
+          // planes.
+          if (!isOutput() && !getConnected()) {
+              if (!_componentsPresent.empty()) {
+                  _componentsPresent.clear();
+              }
+          } else if (_componentsPresent.size() != 1 || _componentsPresent[0] != kFnOfxImagePlaneColour) {
+              _componentsPresent.assign(1, kFnOfxImagePlaneColour);
           }
           return _componentsPresent;
       }
