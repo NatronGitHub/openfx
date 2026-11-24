@@ -1,6 +1,11 @@
 #ifndef _ofxNatron_h_
 #define _ofxNatron_h_
 
+#ifndef __cplusplus
+/* bool, in OfxInverseDistortionFunctionV1: _Bool in C99, the same ABI as C++ bool */
+#include <stdbool.h>
+#endif
+
 /** @brief The kOfxPropName property of the Natron Host */
 #define kNatronOfxHostName          "fr.inria.Natron"
 
