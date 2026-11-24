@@ -406,6 +406,28 @@ lifecycle "from the cache, keep mode" "Load Describe Unload " 1 1
 rm -rf lifecycle-cache
 lifecycle "scan that writes the cache, kept loaded" "Load Describe Unload " 1 1
 
+# A plug-in cache that is still valid for its binary (same modification time and size) may hold a
+# label, grouping or contexts that the plug-in no longer describes (openfx-gmic's plug-ins come
+# from user data): --describe and --report give what the describe action set, not the cache.
+stale() { (cd stale-cache && OFX_PLUGIN_PATH="$dirs" "$hostDemo" --no-std-paths --quiet -p net.sf.openfx.basicPlugin "$@") \
+  > stale-cache.log 2>&1 || { echo "stale cache: hostDemo $* failed"; cat stale-cache.log; exit 1; }; }
+rm -rf stale-cache && mkdir stale-cache
+stale --describe stale.json  # writes the cache
+perl -0pi -e 's{<plugin name="net\.sf\.openfx\.basicPlugin".*?</plugin>}{ my $b = $&;
+  $b =~ s/(name="OfxPropLabel"[^\n]*\n\s*<value index="0" value=)"Gain"/$1"Stale"/;
+  $b =~ s/(name="OfxImageEffectPluginPropGrouping"[^\n]*\n\s*<value index="0" value=)"OFX"/$1"Stale"/;
+  $b =~ s/\n\s*<value index="2" value="OfxImageEffectContextPaint" \/>//; $b }se' stale-cache/hostDemoPluginCache.xml
+expect "stale cache: cache edited" "$(perl -0ne 'my ($b) = /(<plugin name="net\.sf\.openfx\.basicPlugin".*?<\/plugin>)/s;
+  my $n = () = $b =~ /value="Stale"/g; print $n, $b =~ /ContextPaint/ ? " paint" : " no paint"' stale-cache/hostDemoPluginCache.xml)" "2 no paint"
+stale --describe stale.json
+stale -c general -i Mask=none --frames 0 --report stale-report.json
+jcheck "stale cache: --describe" stale-cache/stale.json '
+assert (r["plugin"]["label"], r["plugin"]["grouping"]) == ("Gain", "OFX"), r["plugin"]
+assert sorted(r["contexts"]) == ["OfxImageEffectContextFilter", "OfxImageEffectContextGeneral", "OfxImageEffectContextPaint"], list(r["contexts"])
+'
+jcheck "stale cache: --report" stale-cache/stale-report.json 'assert (r["plugin"]["label"], r["plugin"]["grouping"]) == ("Gain", "OFX"), r["plugin"]'
+rm -rf stale-cache stale-cache.log
+
 # OFX 1.4 hosts: every plug-in must keep working in a host that implements only OFX 1.4. hostDemo
 # --ofx14 has only the OFX 1.4 host properties (a plug-in reading another one gets
 # kOfxStatErrUnknown) and suites (no DrawSuite, OpenCL program, plane or Vegas suites), doesn't
