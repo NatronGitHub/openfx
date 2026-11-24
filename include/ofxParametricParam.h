@@ -39,6 +39,11 @@ parameters.
 
 #include "ofxParam.h"
 
+#ifndef __cplusplus
+/* bool, in the control point functions: _Bool in C99, the same ABI as C++ bool */
+#include <stdbool.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
