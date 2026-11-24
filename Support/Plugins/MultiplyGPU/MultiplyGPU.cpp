@@ -98,13 +98,13 @@ void MultiplyProcessorBase::processImagesCUDA()
   const int dstRowBytes = _dstImg->getRowBytes();
   if (dstDepth != eBitDepthFloat || dstComponents != ePixelComponentRGBA ||
       dstRowBytes != (dstBounds.x2 - dstBounds.x1) * _dstImg->getPixelBytes() ) {
-    throwSuiteStatusException(kOfxStatErrFormat);
+    throwSuiteStatusException(kOfxStatErrImageFormat);
   }
   if (dstDepth != srcDepth || dstComponents != srcComponents ||
       dstRowBytes != srcRowBytes ||
       dstBounds.x1 != srcBounds.x1 || dstBounds.x2 != srcBounds.x2 ||
       dstBounds.y1 != srcBounds.y1 || dstBounds.y2 != srcBounds.y2) {
-    throwSuiteStatusException(kOfxStatErrFormat);
+    throwSuiteStatusException(kOfxStatErrImageFormat);
   }
 #endif
 
@@ -138,13 +138,13 @@ void MultiplyProcessorBase::processImagesOpenCL()
   const int dstRowBytes = _dstImg->getRowBytes();
   if (dstDepth != eBitDepthFloat || dstComponents != ePixelComponentRGBA ||
       dstRowBytes != (dstBounds.x2 - dstBounds.x1) * _dstImg->getPixelBytes() ) {
-    throwSuiteStatusException(kOfxStatErrFormat);
+    throwSuiteStatusException(kOfxStatErrImageFormat);
   }
   if (dstDepth != srcDepth || dstComponents != srcComponents ||
       dstRowBytes != srcRowBytes ||
       dstBounds.x1 != srcBounds.x1 || dstBounds.x2 != srcBounds.x2 ||
       dstBounds.y1 != srcBounds.y1 || dstBounds.y2 != srcBounds.y2) {
-    throwSuiteStatusException(kOfxStatErrFormat);
+    throwSuiteStatusException(kOfxStatErrImageFormat);
   }
 #endif
 

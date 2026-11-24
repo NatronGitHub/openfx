@@ -187,9 +187,10 @@ protected :
   OFX::DoubleParam  *bScale_;
   OFX::DoubleParam  *aScale_;
   OFX::BooleanParam *componentScalesEnabled_;
+  bool messagePosted_; // an error message is shown (render is instance safe: no lock)
 public :
   GammaPlugin(OfxImageEffectHandle handle): ImageEffect(handle), dstClip_(NULL), srcClip_(NULL), scale_(NULL)
-    , rScale_(NULL), gScale_(NULL), bScale_(NULL), aScale_(NULL), componentScalesEnabled_(NULL)
+    , rScale_(NULL), gScale_(NULL), bScale_(NULL), aScale_(NULL), componentScalesEnabled_(NULL), messagePosted_(false)
   {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
@@ -214,20 +215,37 @@ public :
   virtual bool getRegionOfDefinition(const OFX::RegionOfDefinitionArguments &args, OfxRectD &rod);
   virtual void getRegionsOfInterest(const OFX::RegionsOfInterestArguments &args, OFX::RegionOfInterestSetter &rois);
   void setupAndProcess(ImageScalerBase &, const OFX::RenderArguments &args);
+  void renderError(const char *message, OfxStatus status)
+  {
+    setPersistentMessage(OFX::Message::eMessageError, "", message);
+    messagePosted_ = true;
+    OFX::throwSuiteStatusException(status);
+  }
 };
 
 void GammaPlugin::setupAndProcess(ImageScalerBase &processor, const OFX::RenderArguments &args)
 {
   OFX::auto_ptr<OFX::Image> dst(dstClip_->fetchImage(args.time));
+  if(!dst.get())
+    renderError("The host gave no output image", kOfxStatFailed);
   OFX::BitDepthEnum dstBitDepth       = dst->getPixelDepth();
   OFX::PixelComponentEnum dstComponents  = dst->getPixelComponents();
+  if(dstBitDepth != dstClip_->getPixelDepth() || dstComponents != dstClip_->getPixelComponents())
+    renderError("The host gave an output image with the wrong depth or components", kOfxStatFailed);
+  checkBadRenderScaleOrField(dst, args);
   OFX::auto_ptr<OFX::Image> src(srcClip_->fetchImage(args.time));
   if(src.get()) 
   {
     OFX::BitDepthEnum    srcBitDepth      = src->getPixelDepth();
     OFX::PixelComponentEnum srcComponents = src->getPixelComponents();
     if(srcBitDepth != dstBitDepth || srcComponents != dstComponents)
-      throw int(1);
+      renderError("The source and output images differ in depth or components", kOfxStatErrImageFormat);
+    checkBadRenderScaleOrField(src, args);
+  }
+  if(messagePosted_)
+  {
+    clearPersistentMessage();
+    messagePosted_ = false;
   }
   OFX::auto_ptr<OFX::Image> mask(getContext() != OFX::eContextFilter ? maskClip_->fetchImage(args.time) : 0);
   if(getContext() != OFX::eContextFilter) 
