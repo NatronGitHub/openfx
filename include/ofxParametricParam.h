@@ -384,7 +384,7 @@ typedef struct OfxParametricParameterSuiteV1 {
    \arg instance   the plugin instance that this parameter occurs in
    \arg inArgs     handle holding the following properties...
    - kOfxPropName - the name of the parametric parameter to interpolate
-   - kOfxPropTime - absolute time the interpolation is ocurring at
+   - kOfxPropTime - absolute time the interpolation is occurring at
    - kOfxParametricParamCustomInterpInterpolationTime - 2D double property that gives the time of the two control points we are interpolating
    - kOfxParametricParamCustomInterpInterpolationValue - 2D double property that gives the value of the two control points we are interpolating
    - kOfxParametricParamCustomInterpControlPointIndex - 1D int property that gives the index of the previous control point relative to kOfxPropTime
@@ -475,7 +475,7 @@ typedef struct OfxParametricParameterSuiteV2 {
 
    @returns
    - ::kOfxStatOK            - all was fine
-   - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+   - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
    - ::kOfxStatErrBadIndex   - the curve index was invalid
    */
   OfxStatus (*parametricParamGetValue)(OfxParamHandle param,
@@ -494,7 +494,7 @@ typedef struct OfxParametricParameterSuiteV2 {
 
    @returns
    - ::kOfxStatOK            - all was fine
-   - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+   - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
    - ::kOfxStatErrBadIndex   - the curve index was invalid
    */
   OfxStatus (*parametricParamGetNControlPoints)(OfxParamHandle param,
@@ -513,7 +513,7 @@ typedef struct OfxParametricParameterSuiteV2 {
 
    @returns
    - ::kOfxStatOK            - all was fine
-   - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+   - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
    - ::kOfxStatErrUnknown    - if the type is unknown
    */
   OfxStatus (*parametricParamGetNthControlPoint)(OfxParamHandle param,
@@ -537,7 +537,7 @@ typedef struct OfxParametricParameterSuiteV2 {
 
    @returns
    - ::kOfxStatOK            - all was fine
-   - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+   - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
    - ::kOfxStatErrUnknown    - if the type is unknown
    */
   OfxStatus (*parametricParamGetNthControlPointDerivatives)(OfxParamHandle param,
@@ -563,7 +563,7 @@ typedef struct OfxParametricParameterSuiteV2 {
 
    @returns
    - ::kOfxStatOK            - all was fine
-   - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+   - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
    - ::kOfxStatErrUnknown    - if the type is unknown
 
    This modifies an existing control point. Note that by changing key, the order of the
@@ -591,7 +591,7 @@ typedef struct OfxParametricParameterSuiteV2 {
    @returns
    - ::kOfxStatOK            - all was fine
    - ::kOfxStatErrValue      - the host does not know this interpolation type. This must be one of the interpolation modes advertised by the host with the kOfxHostPropSupportedParametricInterpolations property
-   - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+   - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
    - ::kOfxStatErrUnknown    - if the type is unknown
    */
   OfxStatus (*parametricParamSetNthControlPointInterpolation)(OfxParamHandle param,
@@ -618,7 +618,7 @@ typedef struct OfxParametricParameterSuiteV2 {
    @returns
    - ::kOfxStatOK            - all was fine
    - ::kOfxStatErrValue      - the host does not know this interpolation type. This must be one of the interpolation modes advertised by the host with the kOfxHostPropSupportedParametricInterpolations property
-   - ::kOfxStatErrBadHandle  - if the paramter handle was invalid
+   - ::kOfxStatErrBadHandle  - if the parameter handle was invalid
    - ::kOfxStatErrUnknown    - if the type is unknown
 
    This will add a new control point to the given dimension of a parametric parameter. If a key exists

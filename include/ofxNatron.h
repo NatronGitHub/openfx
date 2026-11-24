@@ -1297,7 +1297,7 @@ says:
  - The Render Action
  - The Begin Sequence Render Action
  - The End Sequence Render Action
- The effect only needs a single image frome the clip named in the out args of this action
+ The effect only needs a single image from the clip named in the out args of this action
 
 
  For maximum flexibility, a plug-in must be allowed to fetch images inside this action, so as to be
