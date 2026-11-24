@@ -32,7 +32,7 @@ Problems And Debugging
 
 	- unsupported properties on a host. If a hosts returns kOfxStatErrUnsupported when the plugin sets a property that is not absolutely essential (eg the hint property on a parameter), an exception is thrown at line 39 of Library/ofxsProperty.cpp. This in turn will cause the plug-in to return kOfxStatFailed. Comment out this line out if you encounter failure on a host and it may run.
 
-	- if compiled in debug, the plugin writes a log file out, call "ofxTestLog.txt" in the current directory. This log will contain a variety of error messages. The most important of which concern property validation. The file Library/ofxsPropertyValidation.cpp contains code to validate each possible type of property handle used by OFX, making sure the host has the correct properties on each. If it finds a property not to exist, or to have the wrong default, it will print messages to the log file.
+	- if compiled in debug, the plugin writes a log file out, called "ofxPluginLog.txt" in the current directory (appended to; the OFX_PLUGIN_LOGFILE environment variable sets another name). This log will contain a variety of error messages. The most important of which concern property validation. The file Library/ofxsPropertyValidation.cpp contains code to validate each possible type of property handle used by OFX, making sure the host has the correct properties on each. If it finds a property not to exist, or to have the wrong default, it will print messages to the log file.
 
 ********************************************************************************
 Release Notes
