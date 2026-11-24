@@ -21,7 +21,7 @@ There are several ways to connect with the OpenFX project:
   mail list: This is our primary mailing list, intended for technical
   discussion and help implementing and using OpenFX.
 
-* [GitHub Issues](https://github.com/ofxa/openfx/issues): GitHub
+* [GitHub Issues](https://github.com/AcademySoftwareFoundation/openfx/issues): GitHub
   Issues are used both to track bugs and to discuss feature requests.
 
 * [Slack channel](https://slack.aswf.io/)
@@ -34,7 +34,7 @@ using, or extending OpenFX are the mailing list and our Slack.
 ### How to Report a Bug
 
 OpenFX use GitHub's issue tracking system for bugs and enhancements:
-https://github.com/ofxa/openfx/issues
+https://github.com/AcademySoftwareFoundation/openfx/issues
 
 If you are submitting a bug report, please be sure to note which
 plug-in(s) and host products are involved, what OS and compilers
@@ -49,7 +49,7 @@ with enough detail that others can reproduce the problem.
 
 ### How to Request a Standard Change
 
-Open a GitHub issue: https://github.com/ofxa/openfx/issues.
+Open a GitHub issue: https://github.com/AcademySoftwareFoundation/openfx/issues.
 
 Describe the goal and the proposed feature in as much detail as
 possible. Standard change requests will almost certainly spawn a
@@ -58,7 +58,7 @@ discussion among the project community.
 ### How to Report a Security Vulnerability
 
 If you think you've found a potential vulnerability in OpenFX, please
-refer to [SECURITY.md] to responsibly disclose it.
+refer to [SECURITY.md](SECURITY.md) to responsibly disclose it.
 
 ### How to Contribute a Bug Fix or Change
 
@@ -72,8 +72,26 @@ You'll need:
 
 * An understanding of the project's development workflow.
 
-* Legal authorization, that is, you need to have signed a Contributor
-  License Agreement. See below for details.
+* Legal authorization, that is, every commit by you must be properly
+  signed off. See below for details.
+
+## Policy on AI Tools
+
+Please read our [Policy on AI Coding Assistants](AI_POLICY.md) before
+contributing or participating in the project in any way mediated by
+"AI" assistants.
+
+High-level summary:
+- A human must always be in the loop, and is the responsible party for
+  the contents of a PR (including fully understanding and being able
+  to explain, defend, and modify it in response to review comments).
+- Interact with the project and community yourself, not by agent.
+- Disclose what tools you used and how. At a minimum, we require an
+  "Assisted-by: TOOL/MODEL" line in the commit message and PR description.
+- Don't waste maintainers' time with low quality PRs.
+
+Please do read the whole [Policy on AI Coding Assistants](AI_POLICY.md)
+for all the details.
 
 ## Legal Requirements
 
@@ -160,7 +178,7 @@ repository](https://help.github.com/articles/cloning-a-repository/)
 and [Configuring a remote for a
 fork](https://help.github.com/articles/configuring-a-remote-for-a-fork/),
 but again, if you need assistance feel free to reach out on the
-openexr-dev@lists.aswf.io mail list.
+openfx-discussion@lists.aswf.io mail list.
 
 ### Pull Requests
 

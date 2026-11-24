@@ -489,6 +489,7 @@ These are the list of actions passed to an image effect plugin's main function. 
      a memory purge
      -  \ref kOfxStatFailed, something wrong, but no error code appropriate,
      plugin to post message
+     -  \ref kOfxStatUnlicensed, see kOfxImageEffectPropBehaviourWhenUnlicensed
      -  \ref kOfxStatErrFatal
 
     @actiondef
@@ -558,6 +559,7 @@ These are the list of actions passed to an image effect plugin's main function. 
      a memory purge,
      -  \ref kOfxStatFailed, something wrong, but no error code appropriate,
      plugin to post message,
+     -  \ref kOfxStatUnlicensed, see kOfxImageEffectPropBehaviourWhenUnlicensed
      -  \ref kOfxStatErrFatal
 
     @actiondef
@@ -959,6 +961,11 @@ This property is set to indicate whether the effect is currently being rendered 
 */
 #define kOfxImageEffectPropSequentialRenderStatus "OfxImageEffectPropSequentialRenderStatus"
 
+/* NOTE: these constants are irregularly named: the macro name differs from the
+   string value, and unusually the string value itself begins with "k" (e.g.
+   kOfxHostNativeOriginBottomLeft is "kOfxImageEffectHostPropNativeOriginBottomLeft").
+   The string values are fixed by ABI and cannot change. Do not copy this in new
+   constants; values should not begin with "k". */
 #define kOfxHostNativeOriginBottomLeft   "kOfxImageEffectHostPropNativeOriginBottomLeft"  
 #define kOfxHostNativeOriginTopLeft      "kOfxImageEffectHostPropNativeOriginTopLeft"  
 #define kOfxHostNativeOriginCenter       "kOfxImageEffectHostPropNativeOriginCenter"  
@@ -1072,9 +1079,8 @@ The entry point pointed to must be one that handles custom interaction actions.
        - 0 - the plugin or host does not support multiple resolutions
        - 1 - the plugin or host does support multiple resolutions
 
-Multiple resolution images mean...
-       - input and output images can be of any size
-       - input and output images can be offset from the origin
+Multiple resolution images mean that input and output images can be of
+any size and can be offset from the origin.
 
     @propdef
    type: bool
@@ -1218,7 +1224,7 @@ then the plugin can detect this via an identifier change and re-evaluate the cac
    - Default - 0 as an out argument to the ::kOfxImageEffectActionGetClipPreferences action
    - Valid Values - This must be one of...
      - 0 if the images can only be sampled at discreet times (eg: the clip is a sequence of frames),
-     - 1 if the images can only be sampled continuously (eg: the clip is infact an animating roto spline and can be rendered anywhen).
+     - 1 if the images can only be sampled continuously (eg: the clip is in fact an animating roto spline and can be rendered at any time).
 
 If this is set to true, then the frame rate of a clip is effectively infinite, so to stop arithmetic
 errors the frame rate should then be set to 0.
@@ -1298,6 +1304,11 @@ See the documentation on clip preferences for more details on how this is used w
 
 /** Used to flag the alpha of an image as opaque */
 #define kOfxImageOpaque  "OfxImageOpaque"
+
+/* NOTE: the two constants below are irregularly named: the string value differs
+   from the macro name (it inserts "Alpha" and changes case, e.g.
+   kOfxImagePreMultiplied is "OfxImageAlphaPremultiplied"). The string values are
+   fixed by ABI and cannot change. Do not copy this mismatch in new constants. */
 
 /** Used to flag an image as premultiplied */
 #define kOfxImagePreMultiplied "OfxImageAlphaPremultiplied"
@@ -1688,7 +1699,14 @@ This contains the duration of the plug-in effect, in frames.
     - Type - pointer X 1
     - Property Set - an image  instance (read only)
 
-This property contains a pointer to memory that is the lower left hand corner of an image.
+This property contains one of:
+  - a pointer to memory that is the lower left hand corner of an image
+  - a pointer to CUDA memory, if the Render action arguments includes kOfxImageEffectPropCudaEnabled=1
+  - an id<MTLBuffer>, if the Render action arguments includes kOfxImageEffectPropMetalEnabled=1
+  - an id<MTLTexture>, if the Render action arguments includes kOfxImageEffectPropMetalTextureEnabled=1
+  - a cl_mem, if the Render action arguments includes kOfxImageEffectPropOpenCLEnabled=1
+
+See \ref kOfxImageEffectPropCudaEnabled, \ref kOfxImageEffectPropMetalEnabled, \ref kOfxImageEffectPropMetalTextureEnabled and \ref kOfxImageEffectPropOpenCLEnabled
 
     @propdef
     type: pointer
@@ -1746,7 +1764,8 @@ For various alignment reasons, a row of pixels may need to be padded at the end 
 This property indicates the number of bytes in a row of pixels. This will be at least sizeof(PIXEL) * (bounds.x2-bounds.x1). Where bounds
 is fetched from the ::kOfxImagePropBounds property.
 
-Note that row bytes can be negative, which allows hosts with a native top down row order to pass image into OFX without having to repack pixels.
+Note that (for CPU images only, not CUDA/Metal/OpenCL Buffers, nor OpenGL textures accessed via the OpenGL Render Suite) row bytes can be negative, which allows hosts with a native top down row order to pass image into OFX without having to repack pixels.
+Row bytes is not supported for OpenCL Images or Metal textures (see ::kOfxImageEffectPropMetalTextureEnabled); it is 0 for those.
 
     @propdef
     type: int
@@ -2071,6 +2090,10 @@ it will be bypassed during LUT generation.
 #define kOfxImageEffectPropNoSpatialAwareness "OfxImageEffectPropNoSpatialAwareness"
 #endif
 
+/* NOTE: these kOfxImageField* constants are irregularly named: the macro name
+   contains "Image" but the string value does not (e.g. kOfxImageFieldNone is
+   "OfxFieldNone", not "OfxImageFieldNone"). The string values are fixed by ABI
+   and cannot change. Do not copy this name/value mismatch in new constants. */
 /** String used to label imagery as having no fields */
 #define kOfxImageFieldNone "OfxFieldNone"
 /** String used to label the lower field (scan lines 0,2,4...) of fielded imagery */
