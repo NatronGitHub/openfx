@@ -284,7 +284,7 @@ Lerp(float a, float b, float v)
 template <class PIX> inline PIX *
 pixelAddress(PIX *img, OfxRectI rect, int x, int y, int bytesPerLine)
 {  
-  if(x < rect.x1 || x >= rect.x2 || y < rect.y1 || y > rect.y2)
+  if(x < rect.x1 || x >= rect.x2 || y < rect.y1 || y >= rect.y2)
     return 0;
   PIX *pix = (PIX *) (((char *) img) + (y - rect.y1) * bytesPerLine);
   pix += x - rect.x1;  

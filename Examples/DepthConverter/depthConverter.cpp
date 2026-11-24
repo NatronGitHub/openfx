@@ -144,14 +144,15 @@ Clamp(T v, int min, int max)
   return v;
 }
 
-// look up a pixel in the image, does bounds checking to see if it is in the image rectangle
+// look up a pixel in the image, does bounds checking to see if it is in the image rectangle;
+// PIX is a component type, and a pixel has nComponents of them
 template <class PIX> inline PIX *
-pixelAddress(PIX *img, OfxRectI rect, int x, int y, int bytesPerLine)
+pixelAddress(PIX *img, OfxRectI rect, int x, int y, int bytesPerLine, int nComponents)
 {  
-  if(x < rect.x1 || x >= rect.x2 || y < rect.y1 || y > rect.y2)
+  if(x < rect.x1 || x >= rect.x2 || y < rect.y1 || y >= rect.y2)
     return 0;
   PIX *pix = (PIX *) (((char *) img) + (y - rect.y1) * bytesPerLine);
-  pix += x - rect.x1;  
+  pix += (x - rect.x1) * nComponents;
   return pix;
 }
 
@@ -253,12 +254,12 @@ class ProcessPix : public Processor {
     for(int y = procWindow.y1; y < procWindow.y2; y++) {
       if(gEffectHost->abort(instance)) break;
 
-      DSTPIX *dstPix = pixelAddress(dst, dstRect, procWindow.x1, y, dstBytesPerLine);
+      DSTPIX *dstPix = pixelAddress(dst, dstRect, procWindow.x1, y, dstBytesPerLine, nComponents);
 
       for(int x = procWindow.x1; x < procWindow.x2; x++) {
         
         // if a generator, we have no source
-        SRCPIX *srcPix = pixelAddress(src, srcRect, x, y, srcBytesPerLine);        
+        SRCPIX *srcPix = pixelAddress(src, srcRect, x, y, srcBytesPerLine, nComponents);
         
         // change my pixel depths
         if(srcPix) {
