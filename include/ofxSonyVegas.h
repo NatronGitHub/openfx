@@ -1,20 +1,39 @@
+// Copyright OpenFX and contributors to the OpenFX project.
+// SPDX-License-Identifier: BSD-3-Clause
+
 #ifndef _ofxSonyVegas_h_
 #define _ofxSonyVegas_h_
-/******************************************************************************
- *  Copyright (C) 2010 Sony Creative Software Inc. All rights reserved. 
- *
- *
- *  Description:
- *      Sony-added messages to the OFX standard
- ******************************************************************************/
+
+/** @file ofxSonyVegas.h
+    @brief Extensions of the VEGAS Pro hosts (formerly Sony Vegas, now MAGIX/VEGAS Creative
+    Software) and of the Vegas Movie Studio hosts.
+
+    The names and values are those VEGAS Pro hosts use, for interoperability.
+
+    The Support library uses them when it is built with OFX_EXTENSIONS_VEGAS, and HostSupport
+    implements some of them. This header does not include the OFX headers it builds on: include
+    ofxImageEffect.h first.
+*/
 
 
+/* ------------------------------------------------------------------------------------------ */
+/* Host names (the kOfxPropName of the host) */
+
+/** @brief Host name of Sony Vegas Pro and of VEGAS Pro up to version 15 at least (versions 12 to 15 seen) */
 #define kOfxSonyVegasHostName                    "com.sonycreativesoftware.vegas"
+
+/** @brief Host name of VEGAS Pro 19 (at least) */
+#define kOfxVegasProHostName                     "com.vegascreativesoftware.vegas"
+
+/** @brief Host name of Sony Vegas Movie Studio HD */
 #define kOfxSonyVegasMovieStudioHostName         "com.sonycreativesoftware.vegas.moviestudio.hd"
+
+/** @brief Host name of Sony Vegas Movie Studio Platinum Edition */
 #define kOfxSonyVegasMovieStudioPlatinumHostName "com.sonycreativesoftware.vegas.moviestudio.pe"
 
 
-/** @brief string property on a Vegas host for the appropriate app data directory (for logs and caches)
+/** @brief Directory where the host wants plug-ins to keep their own files, such as logs and caches.
+    It is set by the host on its host descriptor.
 
     @propdef
     type: string
@@ -23,16 +42,29 @@
 */
 #define kOfxPropVegasHostAppDataDirectory "OfxPropVegasHostAppDataDirectory"
 
-/** @brief Double value on the OfxParamPropDoubleType property of a double 2d parameter (Vegas extension) */
+
+/* ------------------------------------------------------------------------------------------ */
+/* Parameters */
+
+/** @brief kOfxParamPropDoubleType value of a 2D double parameter edited as an angle and a radius */
 #define kOfxParamDoubleTypePolar "OfxParamDoubleTypePolar"
 
-/** @brief Double value on the OfxParamPropDoubleType property of a double 2d parameter (Vegas extension) */
+/** @brief kOfxParamPropDoubleType value of a 2D double parameter edited as a point on a color wheel */
 #define kOfxParamDoubleTypeChrominance "OfxParamDoubleTypeChrominance"
 
-/** @brief Double value on the OfxParamPropDoubleType property of a double 2d parameter (Vegas extension) */
+/** @brief Color wheel level of a 2D double parameter of type kOfxParamDoubleTypeChrominance.
+    The Support library sets it on the parameter descriptor
+    (OFX::Double2DParamDescriptor::setColorWheelLevel).
+
+    @propdef
+    type: double
+    dimension: 1
+    extension: vegas
+*/
 #define kOfxParamPropColorWheelLevel "OfxParamPropColorWheelLevel"
 
-/** @brief String property of a RGB or RGBA parameter for the default UI colorspace (Vegas extension)
+/** @brief Color model the host uses by default to edit an RGB or RGBA color parameter.
+    It is set on the parameter descriptor.
 
     @propdef
     type: enum
@@ -46,23 +78,93 @@
 */
 #define kOfxParamColorDefaultColorspace "OfxParamColorDefaultColorspace"
 
-/** @brief String values on the kOfxParamColorDefaultColorspace property of a RGB or RGBA parameter (Vegas extension) */
+/** @brief Values of kOfxParamColorDefaultColorspace */
 #define kOfxParamColorColorspaceRGB "OfxParamColorColorspaceRGB"
 #define kOfxParamColorColorspaceHSL "OfxParamColorColorspaceHSL"
 #define kOfxParamColorColorspaceHSV "OfxParamColorColorspaceHSV"
 #define kOfxParamColorColorspaceLab "OfxParamColorColorspaceLab"
 
-/** @brief Integer property indicates the default open/closed state of a UI item defined 
-  * (Vegas extension, only double 3d, 2d, int 3d, 2d, rgb, rgba)
+/** @brief Whether the host shows the parameter unfolded (1) or folded (0) when it first appears.
+    It applies to the 2D and 3D double and integer parameters and to the RGB and RGBA parameters,
+    and is set on the parameter descriptor.
 
     @propdef
     type: int
     dimension: 1
     extension: vegas
-  */
+*/
 #define kOfxParamPropParameterExpanded "OfxParamPropParameterExpanded"
 
-/** @brief String property on plug-ins for preset thumb hinting
+
+/* ------------------------------------------------------------------------------------------ */
+/* Pixel formats */
+
+/** @brief kOfxImageEffectPropSupportedPixelDepths and clip pixel depth values of the Vegas pixel
+    formats whose components are stored in reverse (B, G, R, A) order: 8-bit unsigned integers,
+    16-bit unsigned integers and 32-bit floats.
+*/
+#define kOfxBitDepthByteBGR  "OfxBitDepthByteBGR"
+#define kOfxBitDepthShortBGR "OfxBitDepthShortBGR"
+#define kOfxBitDepthFloatBGR "OfxBitDepthFloatBGR"
+
+/** @brief Values of kOfxImagePropPixelOrder */
+#define kOfxImagePixelOrderRGBA "OfxImagePixelOrderRGBA"
+#define kOfxImagePixelOrderBGRA "OfxImagePixelOrderBGRA"
+
+/** @brief Order of the components of the pixels of a clip's images, R, G, B, A or B, G, R, A.
+    The host sets it on the clip instance (read only); the Support library reads RGBA when it is
+    missing.
+
+    @propdef
+    type: enum
+    dimension: 1
+    values:
+      - OfxImagePixelOrderRGBA
+      - OfxImagePixelOrderBGRA
+    extension: vegas
+*/
+#define kOfxImagePropPixelOrder "OfxImageEffectPropPixelOrder"
+
+
+/* ------------------------------------------------------------------------------------------ */
+/* Plug-in descriptor: help, about and preset thumbnails */
+
+/** @brief Path of the plug-in's help file, which the host opens when the plug-in doesn't handle
+    kOfxImageEffectActionInvokeHelp. Without it, the host looks for a help file named after the
+    plug-in in the plug-in's resource directory.
+
+    @propdef
+    type: string
+    dimension: 1
+    extension: vegas
+*/
+#define kOfxImageEffectPropHelpFile "OfxImageEffectPropHelpFile"
+
+/** @brief Topic of the help file (kOfxImageEffectPropHelpFile) that the host opens for this plug-in
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: vegas
+*/
+#define kOfxImageEffectPropHelpContextID "OfxImageEffectPropHelpContextID"
+
+/** @brief Action the host calls when the user asks for the plug-in's help.
+    The handle is the image effect instance; inArgs and outArgs are NULL.
+    The plug-in returns kOfxStatOK if it showed its help itself, and kOfxStatReplyDefault to
+    let the host open kOfxImageEffectPropHelpFile.
+*/
+#define kOfxImageEffectActionInvokeHelp "OfxImageEffectActionInvokeHelp"
+
+/** @brief Action the host calls when the user asks for the plug-in's "about" information.
+    The handle is the image effect instance; inArgs and outArgs are NULL.
+    The plug-in returns kOfxStatOK if it showed it itself, and kOfxStatReplyDefault to let the
+    host show its own.
+*/
+#define kOfxImageEffectActionInvokeAbout "OfxImageEffectActionInvokeAbout"
+
+/** @brief How the host draws the thumbnails of the plug-in's presets.
+    It is set on the plug-in descriptor.
 
     @propdef
     type: enum
@@ -75,66 +177,19 @@
 */
 #define kOfxProbPluginVegasPresetThumbnail "OfxProbPluginVegasPresetThumbnail"
 
+/** @brief Values of kOfxProbPluginVegasPresetThumbnail: the host's default, an opaque image,
+    or an image with an alpha channel
+*/
 #define kOfxProbPluginVegasPresetThumbnailDefault        "OfxProbPluginVegasPresetThumbnailDefault"
 #define kOfxProbPluginVegasPresetThumbnailSolidImage     "OfxProbPluginVegasPresetThumbnailSolidImage"
 #define kOfxProbPluginVegasPresetThumbnailImageWithAlpha "OfxProbPluginVegasPresetThumbnailImageWithAlpha"
 
 
-/** @brief Name of the vegas progress suite (extended from the ofx 1.0 progress suite to support
-           localization) 
-*/
-#define kOfxVegasProgressSuite "OfxVegasProgressSuite"
+/* ------------------------------------------------------------------------------------------ */
+/* Upgrading the projects of older (non-OFX) Vegas plug-ins: "uplift" */
 
-/** @brief Name of the vegas stereoscopic image effect suite (used to get a clip image from the
-           other view (otherwise getClipImage by default returns the current image)
-*/
-#define kOfxVegasStereoscopicImageEffectSuite "OfxVegasStereoscopicImageEffectSuite"
-
-
-
-/** @brief String property (array of length 1) indicates the filename of the plug-in help file 
-        defaults to the "pluginname.chm" in the resource directory of the plug-in
-
-    @propdef
-    type: string
-    dimension: 1
-    extension: vegas
-*/
-#define kOfxImageEffectPropHelpFile "OfxImageEffectPropHelpFile"
-
-/** @brief Integer property (array of length 1) indicates the context id to use in the help file
-
-    @propdef
-    type: int
-    dimension: 1
-    extension: vegas
-*/
-#define kOfxImageEffectPropHelpContextID "OfxImageEffectPropHelpContextID"
-
-/** @brief Action to plug-in to invoke help
-      Arguments
-        - handle  - handle to the image effect
-        - inArgs  - is set to NULL
-        - outArgs - is set to NULL
-      Returns
-        kOfxStatOK           - the plug-in has handled the help do nothing
-        kOfxStatReplyDefault - plug-in has done nothing; check the help file and context ID
-*/
-#define kOfxImageEffectActionInvokeHelp  "OfxImageEffectActionInvokeHelp"
-
-/** @brief Action to plug-in to invoke about dialog
-      Arguments
-        - handle  - handle to the image effect
-        - inArgs  - is set to NULL
-        - outArgs - is set to NULL
-      Returns
-        kOfxStatOK           - the plug-in has handled the about do nothing
-        kOfxStatReplyDefault - plug-in has done nothing; vegas will show default about dialog
-*/
-#define kOfxImageEffectActionInvokeAbout  "OfxImageEffectActionInvokeAbout"
-
-
-/** @brief String property (array of any length) indicates the guid that a plug-in can uplift from
+/** @brief GUIDs of the older plug-ins whose project data this plug-in can take over.
+    It is set on the plug-in descriptor, one GUID per element.
 
     @propdef
     type: string
@@ -143,19 +198,35 @@
 */
 #define kOfxImageEffectPropVegasUpliftGUID "OfxImageEffectPropVegasUpliftGUID"
 
-/** @brief Action to plug-in to uplift the keyframe data 
-      Arguments
-        - handle - handle to the image effect
-        - inArgs - has the following properties
-              - kOfxImageEffectPropVegasUpliftGUID    - the guid of the data being uplifted
-              - kOfxPropVegasUpliftKeyframeData       - pointer array of all the keyframe data
-              - kOfxPropVegasUpliftKeyframeDataLength - integer array of all the keyframe data lengths
-              - kOfxPropVegasUpliftKeyframeTime       - double array of all the keyframe times
-        - outArgs - is set to NULL
+/** @brief Action the host calls to give an instance the data of an older plug-in it replaces.
+    The handle is the image effect instance and outArgs is NULL. inArgs has
+    kOfxImageEffectPropVegasUpliftGUID (the older plug-in) and one element per keyframe in
+    kOfxPropVegasUpliftKeyframeData, kOfxPropVegasUpliftKeyframeDataLength,
+    kOfxPropVegasUpliftKeyframeTime and kOfxPropVegasUpliftKeyframeInterpolation. It may also
+    have kOfxPropVegasUpliftData and kOfxPropVegasUpliftDataLength.
 */
-#define kOfxImageEffectActionVegasKeyframeUplift  "OfxImageEffectActionVegasKeyframeUplift"
+#define kOfxImageEffectActionVegasKeyframeUplift "OfxImageEffectActionVegasKeyframeUplift"
 
-/** @brief Pointer property (array of any length) to the original keyframe data plug-in can uplift from
+/** @brief The older plug-in's data (in the inArgs of kOfxImageEffectActionVegasKeyframeUplift)
+
+    @propdef
+    type: pointer
+    dimension: 1
+    extension: vegas
+*/
+#define kOfxPropVegasUpliftData "OfxPropVegasUpliftData"
+
+/** @brief Size in bytes of kOfxPropVegasUpliftData
+
+    @propdef
+    type: int
+    dimension: 1
+    extension: vegas
+*/
+#define kOfxPropVegasUpliftDataLength "OfxPropVegasUpliftDataLength"
+
+/** @brief The older plug-in's data at each keyframe (in the inArgs of
+    kOfxImageEffectActionVegasKeyframeUplift)
 
     @propdef
     type: pointer
@@ -164,7 +235,7 @@
 */
 #define kOfxPropVegasUpliftKeyframeData "OfxPropVegasUpliftKeyframeData"
 
-/** @brief Integer property (array of any length) to the original keyframe data length plug-in can uplift from
+/** @brief Size in bytes of each element of kOfxPropVegasUpliftKeyframeData
 
     @propdef
     type: int
@@ -173,7 +244,7 @@
 */
 #define kOfxPropVegasUpliftKeyframeDataLength "OfxPropVegasUpliftKeyframeDataLength"
 
-/** @brief Double property (array of any length) to the keyframe time for the keyframe data plug-in can uplift from
+/** @brief Time of each keyframe of kOfxPropVegasUpliftKeyframeData
 
     @propdef
     type: double
@@ -182,7 +253,8 @@
 */
 #define kOfxPropVegasUpliftKeyframeTime "OfxPropVegasUpliftKeyframeTime"
 
-/** @brief String property (array of any length) to the original keyframe interpolation type
+/** @brief Interpolation of each keyframe of kOfxPropVegasUpliftKeyframeData
+    (one of the kOfxVegasKeyframeInterpolation values)
 
     @propdef
     type: enum
@@ -201,68 +273,12 @@
 */
 #define kOfxPropVegasUpliftKeyframeInterpolation "OfxPropVegasUpliftKeyframeInterpolation"
 
-/** @brief Pointer property (array of length 1) to the original plug-in data
 
-    @propdef
-    type: pointer
-    dimension: 1
-    extension: vegas
-*/
-#define kOfxPropVegasUpliftData "OfxPropVegasUpliftData"
+/* ------------------------------------------------------------------------------------------ */
+/* Render arguments and instance context */
 
-/** @brief Integer property (array of length 1) to the original plug-in data length
-
-    @propdef
-    type: int
-    dimension: 1
-    extension: vegas
-*/
-#define kOfxPropVegasUpliftDataLength "OfxPropVegasUpliftDataLength"
-
-
-
-/** @brief String used to label unsigned 8 bit integer samples in BGR order */
-#define kOfxBitDepthByteBGR  "OfxBitDepthByteBGR"
-
-/** @brief String used to label unsigned 16 bit integer samples in BGR order */
-#define kOfxBitDepthShortBGR "OfxBitDepthShortBGR"
-
-/** @brief String used to label signed 32 bit floating point samples in BGR order */
-#define kOfxBitDepthFloatBGR "OfxBitDepthFloatBGR"
-
-
-
-/** @brief String to label images with RGBA pixel order */
-#define kOfxImagePixelOrderRGBA "OfxImagePixelOrderRGBA"
-
-/** @brief String to label images with BGRA pixel order */
-#define kOfxImagePixelOrderBGRA "OfxImagePixelOrderBGRA"
-
-
-/** @brief Indicates the components pixel order in an image,
-
-   - Type - string x 1
-   - Property Set - clip (read only)
-   - Valid Values - This must be one of
-     - kOfxImagePixelOrderRGBA
-     - kOfxImagePixelOrderBGRA
-
-    @propdef
-    type: enum
-    dimension: 1
-    values:
-      - OfxImagePixelOrderRGBA
-      - OfxImagePixelOrderBGRA
-    extension: vegas
-*/
-#define kOfxImagePropPixelOrder "OfxImageEffectPropPixelOrder"
-
-
-/** @brief Indicates the number of total views to render
-
-   - Type - int x 1
-   - Property Set - Render In Args (read only)
-   - Valid Values - 1 (standard), 2 (stereoscopic processing)
+/** @brief Number of views the host renders: 1 for a single view, 2 for stereo.
+    It is in the inArgs of the render action (read only).
 
     @propdef
     type: int
@@ -271,11 +287,8 @@
 */
 #define kOfxImageEffectPropViewsToRender "OfxImageEffectPropViewsToRender"
 
-/** @brief Indicates the number of the view to render
-
-   - Type - int x 1
-   - Property Set - Render In Args (read only)
-   - Valid Values - 0 (standard), 0 (left stereoscopic processing), 1 (right stereoscopic processing)
+/** @brief View the render action renders: 0 for a single view or the left eye, 1 for the right
+    eye. It is in the inArgs of the render action (read only).
 
     @propdef
     type: int
@@ -284,15 +297,8 @@
 */
 #define kOfxImageEffectPropRenderView "OfxImageEffectPropRenderView"
 
-
-
-
-
-/** @brief Indicates the quality level of the render
-
-   - Type - string x 1
-   - Property Set - Render In Args (read only)
-   - Valid Values - see below... (VeryBad, Bad, Good, Great)
+/** @brief Quality the host wants for this render, from the fastest (draft) to the best.
+    It is in the inArgs of the render action (read only).
 
     @propdef
     type: enum
@@ -306,17 +312,19 @@
 */
 #define kOfxImageEffectPropRenderQuality "OfxImageEffectPropRenderQuality"
 
+/** @brief Values of kOfxImageEffectPropRenderQuality. The string of
+    kOfxImageEffectPropRenderQualityDraft is also the name of the OFX 1.4 int property
+    kOfxImageEffectPropRenderQualityDraft of ofxImageEffect.h (the draft render flag): the same
+    macro, two different uses.
+*/
 #define kOfxImageEffectPropRenderQualityDraft   "OfxImageEffectPropRenderQualityDraft"
 #define kOfxImageEffectPropRenderQualityPreview "OfxImageEffectPropRenderQualityPreview"
 #define kOfxImageEffectPropRenderQualityGood    "OfxImageEffectPropRenderQualityGood"
 #define kOfxImageEffectPropRenderQualityBest    "OfxImageEffectPropRenderQualityBest"
 
-
-/** @brief Indicates the context a plug-in instance exists in vegas
-
-   - Type - string x 1
-   - Property Set - Effect Instance (read only)
-   - Valid Values - see below... (Media, Track, Event, Project, Generator, ...)
+/** @brief Where the effect instance is applied in the host's project: to a media file, a track,
+    an event (or its fade in or fade out), the whole project, or as a generator.
+    The host sets it on the effect instance (read only).
 
     @propdef
     type: enum
@@ -334,9 +342,10 @@
 */
 #define kOfxImageEffectPropVegasContext "OfxImageEffectPropVegasContext"
 
+/** @brief Values of kOfxImageEffectPropVegasContext */
 #define kOfxImageEffectPropVegasContextUnknown      "OfxImageEffectPropVegasContextUnknown"
 #define kOfxImageEffectPropVegasContextMedia        "OfxImageEffectPropVegasContextMedia"
-#define kOfxImageEffectPropVegasContextTrack        "OfxImageEffectPropVegasContextTrack"        
+#define kOfxImageEffectPropVegasContextTrack        "OfxImageEffectPropVegasContextTrack"
 #define kOfxImageEffectPropVegasContextEvent        "OfxImageEffectPropVegasContextEvent"
 #define kOfxImageEffectPropVegasContextEventFadeIn  "OfxImageEffectPropVegasContextEventFadeIn"
 #define kOfxImageEffectPropVegasContextEventFadeOut "OfxImageEffectPropVegasContextEventFadeOut"
@@ -344,160 +353,31 @@
 #define kOfxImageEffectPropVegasContextGenerator    "OfxImageEffectPropVegasContextGenerator"
 
 
-/*****************************************************************************/
-/*****************************************************************************/
-/*****************************************************************************/
+/* ------------------------------------------------------------------------------------------ */
+/* Progress suite */
 
-#define kOfxVegasKeyframeSuite "OfxVegasKeyframeSuite"
-
-#define kOfxVegasKeyframeInterpolationUnknown      "OfxVegasKeyframeInterpolationUnknown"
-#define kOfxVegasKeyframeInterpolationLinear       "OfxVegasKeyframeInterpolationLinear"
-#define kOfxVegasKeyframeInterpolationFast         "OfxVegasKeyframeInterpolationFast"
-#define kOfxVegasKeyframeInterpolationSlow         "OfxVegasKeyframeInterpolationSlow"
-#define kOfxVegasKeyframeInterpolationSmooth       "OfxVegasKeyframeInterpolationSmooth"
-#define kOfxVegasKeyframeInterpolationSharp        "OfxVegasKeyframeInterpolationSharp"
-#define kOfxVegasKeyframeInterpolationHold         "OfxVegasKeyframeInterpolationHold"
-#define kOfxVegasKeyframeInterpolationManual       "OfxVegasKeyframeInterpolationManual"
-#define kOfxVegasKeyframeInterpolationSplit        "OfxVegasKeyframeInterpolationSplit"
-
-// in calling the paramGetKeySlopes and paramSetKeySlopes order of parameters is...
-//  if type Manual keyframe is set on a double...
-//    double m1;
-//    keyframeSuite->paramGetSlopes(doubleParam, keyframetime, &m1);
-//    keyframeSuite->paramSetSlopes(doubleParam, keyframetime, m1);
-//  if type Split is set on a double param...
-//    double m_in, m_out;
-//    keyframeSuite->paramGetSlopes(doubleParam, keyframetime, &m_in, &m_out);
-//    keyframeSuite->paramSetSlopes(doubleParam, keyframetime, m_in, m_out);
-//  if type Manual keyframe is set on a double2d...
-//    double mx, my;
-//    keyframeSuite->paramGetSlopes(double2dParam, keyframetime, &mx, &my);
-//    keyframeSuite->paramSetSlopes(double2dParam, keyframetime, mx, my);
-//  if type Split is set on a double2d param...
-//    double mx_in, mx_out, my_in, my_out;
-//    keyframeSuite->paramGetSlopes(double2dParam, keyframetime, &mx_in, &mx_out, &my_in, &my_out);
-//    keyframeSuite->paramSetSlopes(double2dParam, keyframetime, mx_in, mx_out, my_in, my_out);
-//  if type Manual keyframe is set on a double3d...
-//    double mx, my, mz;
-//    keyframeSuite->paramGetSlopes(double3dParam, keyframetime, &mx, &my, &mz);
-//    keyframeSuite->paramSetSlopes(double3dParam, keyframetime, mx, my, mz);
-//  if type Split is set on a double3d param...
-//    double mx_in, mx_out, my_in, my_out, mz_in, mz_out;
-//    keyframeSuite->paramGetSlopes(double3dParam, keyframetime, &mx_in, &mx_out, &my_in, &my_out, &mz_in, &mz_out);
-//    keyframeSuite->paramSetSlopes(double3dParam, keyframetime, mx_in, mx_out, my_in, my_out, mz_in, mz_out);
-//    
-
-/*****************************************************************************/
-/*****************************************************************************/
-/*****************************************************************************/
-
-#define kOfxHWndInteractSuite "OfxHWndInteractSuite"
-
-// HWnd interact functions
-
-/** @brief Pointer property (array of length 1) to the HWnd interact function
-
-    @propdef
-    type: pointer
-    dimension: 1
-    extension: vegas
+/** @brief Suite name of OfxVegasProgressSuiteV1 (version 1) or
+    OfxVegasProgressSuiteV2 (version 2). It is the progress suite of ofxProgress.h with a
+    message identifier, which the host can use to translate the message.
 */
-#define kOfxImageEffectPluginPropHWndInteractV1 "OfxImageEffectPluginPropHWndInteractV1"
+#define kOfxVegasProgressSuite "OfxVegasProgressSuite"
 
-/** @brief Pointer property (array of length 1) to the HWnd parent window
-
-    @propdef
-    type: pointer
-    dimension: 1
-    extension: vegas
-*/
-#define kOfxHWndInteractPropParent "OfxHWndInteractPropParent"
-
-/** @brief Int property (array of length 2) to the minimum size (width, height)
-
-    @propdef
-    type: int
-    dimension: 2
-    extension: vegas
-*/
-#define kOfxHWndInteractPropMinSize "OfxHWndInteractPropMinSize"
-
-/** @brief Int property (array of length 2) to the preferred size (width, height)
-
-    @propdef
-    type: int
-    dimension: 2
-    extension: vegas
-*/
-#define kOfxHWndInteractPropPreferredSize "OfxHWndInteractPropPrefferedSize"
-
-/** @brief Action to plug-in to create an interaction hwnd
-      Arguments
-        - handle - handle to the image effect
-        - inArgs - has the following properties
-              - kOfxHWndInteractPropParent        - the HWND parent to create a window in
-        - outArgs - has the following properties
-              - kOfxHWndInteractPropMinSize       - the minimum size of the window
-              - kOfxHWndInteractPropPreferredSize - the preferred size of the window
-*/
-#define kOfxHWndInteractActionCreateWindow  "OfxHWndInteractActionCreateWindow"
-
-/** @brief Int property (array of length 4) to the rect to move to (left, top, width, height)
-
-    @propdef
-    type: int
-    dimension: 4
-    extension: vegas
-*/
-#define kOfxHWndInteractPropLocation "OfxHWndInteractPropLocation"
-
-/** @brief Action to plug-in to move the interact child window
-      Arguments
-        - handle - handle to the image effect
-        - inArgs - has the following properties
-              - kOfxHWndInteractPropLocation    - the rect to move to
-        - outArgs - is set to NULL
-*/
-#define kOfxHWndInteractActionMoveWindow  "OfxHWndInteractActionMoveWindow"
-
-/** @brief Action to plug-in to dispose the interact child window
-      Arguments
-        - handle - handle to the image effect
-        - inArgs - is set to NULL
-        - outArgs - is set to NULL
-*/
-#define kOfxHWndInteractActionDisposeWindow  "OfxHWndInteractActionDisposeWindow"
-
-/** @brief Action to plug-in to show the interact child window
-      Arguments
-        - handle - handle to the image effect
-        - inArgs - is set to NULL
-        - outArgs - is set to NULL
-*/
-#define kOfxHWndInteractActionShowWindow  "OfxHWndInteractActionShowWindow"
-
-
-
-/** @brief OFX suite that allows an effect to interact with an openGL window so as to provide custom interfaces.
-
-*/
-typedef struct OfxHWNDInteractSuiteV1 {	
-  /** @brief Gets the property set handle for this interact handle */
-  OfxStatus (*interactGetPropertySet)(OfxInteractHandle interactInstance,
-				      OfxPropertySetHandle *property);
-  OfxStatus (*interactUpdate)(OfxInteractHandle interactInstance);
-} OfxHWNDInteractSuiteV1;
-
-
-typedef struct OfxVegasProgressSuiteV1 {  
+/** @brief Version 1 of kOfxVegasProgressSuite */
+typedef struct OfxVegasProgressSuiteV1 {
+  /** @brief Starts a progress bar showing message; messageid identifies the message */
   OfxStatus (*progressStart)(void *effectInstance,
                              const char *message,
                              const char *messageid);
+  /** @brief Sets the progress, from 0 to 1 */
   OfxStatus (*progressUpdate)(void *effectInstance, double progress);
+  /** @brief Ends the progress started by progressStart */
   OfxStatus (*progressEnd)(void *effectInstance);
 } OfxVegasProgressSuiteV1;
 
-typedef struct OfxVegasProgressSuiteV2 {  
+/** @brief Version 2 of kOfxVegasProgressSuite: progressStart takes an extra int flag,
+    showTimeWindows. The Support library only uses version 1.
+*/
+typedef struct OfxVegasProgressSuiteV2 {
   OfxStatus (*progressStart)(void *effectInstance,
                              const char *message,
                              const char *messageid,
@@ -506,26 +386,162 @@ typedef struct OfxVegasProgressSuiteV2 {
   OfxStatus (*progressEnd)(void *effectInstance);
 } OfxVegasProgressSuiteV2;
 
-typedef struct OfxVegasStereoscopicImageEffectSuiteV1 {  
+
+/* ------------------------------------------------------------------------------------------ */
+/* Stereoscopic image suite */
+
+/** @brief Suite name of OfxVegasStereoscopicImageSuiteV1 (version 1), with which a plug-in can
+    fetch a clip's image for a given view
+*/
+#define kOfxVegasStereoscopicImageEffectSuite "OfxVegasStereoscopicImageEffectSuite"
+
+/** @brief Version 1 of kOfxVegasStereoscopicImageEffectSuite. The struct tag and the typedef
+    name differ: both are kept for compatibility.
+*/
+typedef struct OfxVegasStereoscopicImageEffectSuiteV1 {
+  /** @brief clipGetImage of the OfxImageEffectSuiteV1 for view iview (0: left, 1: right) */
   OfxStatus (*clipGetStereoscopicImage)(OfxImageClipHandle clip,
-			    OfxTime       time,
-                int           iview,
-			    OfxRectD     *region,
-			    OfxPropertySetHandle   *imageHandle);
+                                        OfxTime time,
+                                        int iview,
+                                        OfxRectD *region,
+                                        OfxPropertySetHandle *imageHandle);
 } OfxVegasStereoscopicImageSuiteV1;
 
+
+/* ------------------------------------------------------------------------------------------ */
+/* Keyframe suite */
+
+/** @brief Suite name of OfxVegasKeyframeSuiteV1 (version 1), which reads and
+    sets the interpolation and the slopes of a parameter's keyframes
+*/
+#define kOfxVegasKeyframeSuite "OfxVegasKeyframeSuite"
+
+/** @brief Keyframe interpolation types: values of kOfxPropVegasUpliftKeyframeInterpolation and
+    of the interpolationType of the OfxVegasKeyframeSuiteV1 functions
+*/
+#define kOfxVegasKeyframeInterpolationUnknown "OfxVegasKeyframeInterpolationUnknown"
+#define kOfxVegasKeyframeInterpolationLinear  "OfxVegasKeyframeInterpolationLinear"
+#define kOfxVegasKeyframeInterpolationFast    "OfxVegasKeyframeInterpolationFast"
+#define kOfxVegasKeyframeInterpolationSlow    "OfxVegasKeyframeInterpolationSlow"
+#define kOfxVegasKeyframeInterpolationSmooth  "OfxVegasKeyframeInterpolationSmooth"
+#define kOfxVegasKeyframeInterpolationSharp   "OfxVegasKeyframeInterpolationSharp"
+#define kOfxVegasKeyframeInterpolationHold    "OfxVegasKeyframeInterpolationHold"
+#define kOfxVegasKeyframeInterpolationManual  "OfxVegasKeyframeInterpolationManual"
+#define kOfxVegasKeyframeInterpolationSplit   "OfxVegasKeyframeInterpolationSplit"
+
+/** @brief Version 1 of kOfxVegasKeyframeSuite.
+
+    paramGetKeySlopes and paramSetKeySlopes take the slopes of the keyframe at time as variadic
+    double arguments (double * for paramGetKeySlopes, double for paramSetKeySlopes), dimension by
+    dimension (x, then y, then z for a 1D, 2D or 3D double parameter):
+    - kOfxVegasKeyframeInterpolationManual: one slope per dimension;
+    - kOfxVegasKeyframeInterpolationSplit: two slopes per dimension, the incoming one first, then
+      the outgoing one (x in, x out, y in, y out, ...).
+*/
 typedef struct OfxVegasKeyframeSuiteV1 {
-  OfxStatus (*paramGetKeyInterpolation)(OfxParamHandle  paramHandle,
-                   OfxTime time,
-                   char** interpolationType);
-  OfxStatus (*paramGetKeySlopes)(OfxParamHandle  paramHandle,
-                   OfxTime time,
-                   ...);
-  OfxStatus (*paramSetKeyInterpolation)(OfxParamHandle  paramHandle,
-                   OfxTime time,
-                   const char* interpolationType);
-  OfxStatus (*paramSetKeySlopes)(OfxParamHandle  paramHandle,
-                   OfxTime time,
-                   ...);
- } OfxVegasKeyframeSuiteV1;
-#endif // #ifndef _ofxSonyVegas_h_
+  /** @brief Gets the interpolation type of the keyframe at time */
+  OfxStatus (*paramGetKeyInterpolation)(OfxParamHandle paramHandle,
+                                        OfxTime time,
+                                        char **interpolationType);
+  /** @brief Gets the slopes of the keyframe at time (see above) */
+  OfxStatus (*paramGetKeySlopes)(OfxParamHandle paramHandle,
+                                 OfxTime time,
+                                 ...);
+  /** @brief Sets the interpolation type of the keyframe at time */
+  OfxStatus (*paramSetKeyInterpolation)(OfxParamHandle paramHandle,
+                                        OfxTime time,
+                                        const char *interpolationType);
+  /** @brief Sets the slopes of the keyframe at time (see above) */
+  OfxStatus (*paramSetKeySlopes)(OfxParamHandle paramHandle,
+                                 OfxTime time,
+                                 ...);
+} OfxVegasKeyframeSuiteV1;
+
+
+/* ------------------------------------------------------------------------------------------ */
+/* Windows custom interfaces (HWND interacts) */
+
+/** @brief Suite name of OfxHWNDInteractSuiteV1 (version 1). On Windows, it lets
+    a plug-in draw its custom interface in a child window of the host's window instead of an
+    OpenGL overlay.
+*/
+#define kOfxHWndInteractSuite "OfxHWndInteractSuite"
+
+/** @brief Entry point (OfxPluginEntryPoint) of the plug-in's HWND interact, which receives the
+    kOfxHWndInteract actions. It is set on the plug-in descriptor.
+
+    @propdef
+    type: pointer
+    dimension: 1
+    extension: vegas
+*/
+#define kOfxImageEffectPluginPropHWndInteractV1 "OfxImageEffectPluginPropHWndInteractV1"
+
+/** @brief The host's window (HWND) in which the interact creates its window
+    (in the inArgs of kOfxHWndInteractActionCreateWindow)
+
+    @propdef
+    type: pointer
+    dimension: 1
+    extension: vegas
+*/
+#define kOfxHWndInteractPropParent "OfxHWndInteractPropParent"
+
+/** @brief Smallest size (width, height) of the interact's window
+    (in the outArgs of kOfxHWndInteractActionCreateWindow)
+
+    @propdef
+    type: int
+    dimension: 2
+    extension: vegas
+*/
+#define kOfxHWndInteractPropMinSize "OfxHWndInteractPropMinSize"
+
+/** @brief Size (width, height) the interact's window would like to have
+    (in the outArgs of kOfxHWndInteractActionCreateWindow).
+    The string value is spelled "Preffered": hosts use it as it is.
+
+    @propdef
+    type: int
+    dimension: 2
+    extension: vegas
+*/
+#define kOfxHWndInteractPropPreferredSize "OfxHWndInteractPropPrefferedSize"
+
+/** @brief Position and size (left, top, width, height) of the interact's window
+    (in the inArgs of kOfxHWndInteractActionMoveWindow)
+
+    @propdef
+    type: int
+    dimension: 4
+    extension: vegas
+*/
+#define kOfxHWndInteractPropLocation "OfxHWndInteractPropLocation"
+
+/** @brief HWND interact action: create the interact's window as a child of
+    kOfxHWndInteractPropParent (inArgs), and return kOfxHWndInteractPropMinSize and
+    kOfxHWndInteractPropPreferredSize (outArgs)
+*/
+#define kOfxHWndInteractActionCreateWindow "OfxHWndInteractActionCreateWindow"
+
+/** @brief HWND interact action: move and resize the interact's window to
+    kOfxHWndInteractPropLocation (inArgs); outArgs is NULL
+*/
+#define kOfxHWndInteractActionMoveWindow "OfxHWndInteractActionMoveWindow"
+
+/** @brief HWND interact action: show the interact's window; inArgs and outArgs are NULL */
+#define kOfxHWndInteractActionShowWindow "OfxHWndInteractActionShowWindow"
+
+/** @brief HWND interact action: destroy the interact's window; inArgs and outArgs are NULL */
+#define kOfxHWndInteractActionDisposeWindow "OfxHWndInteractActionDisposeWindow"
+
+/** @brief Version 1 of kOfxHWndInteractSuite */
+typedef struct OfxHWNDInteractSuiteV1 {
+  /** @brief Returns, in property, the properties of an HWND interact instance */
+  OfxStatus (*interactGetPropertySet)(OfxInteractHandle interactInstance,
+                                      OfxPropertySetHandle *property);
+  /** @brief Tells the host that the interact needs updating (OFX::HWNDInteract::triggerUpdate) */
+  OfxStatus (*interactUpdate)(OfxInteractHandle interactInstance);
+} OfxHWNDInteractSuiteV1;
+
+#endif /* _ofxSonyVegas_h_ */

@@ -41,7 +41,7 @@ EXTRA_VALUES = {
     "OfxImageClipPropUnmappedPixelDepth": _DEPTHS,
     "OfxParamPropDoubleType": [
         # Vegas
-        "kOfxParamDoubleTypePolar", "kOfxParamDoubleTypeChrominance", "kOfxParamPropColorWheelLevel",
+        "kOfxParamDoubleTypePolar", "kOfxParamDoubleTypeChrominance",
         # ofxOld.h
         "kOfxParamDoubleTypeNormalisedX", "kOfxParamDoubleTypeNormalisedY",
         "kOfxParamDoubleTypeNormalisedXAbsolute", "kOfxParamDoubleTypeNormalisedYAbsolute",
@@ -73,7 +73,7 @@ NAMES = [
     (r"kOfxImageEffect(Output|SimpleSource|TransitionSourceFrom|TransitionSourceTo)ClipName",
      "standard clip name"),
     (r"kOfxImageEffect(File|Proxy|Transition|Retimer)ParamName", "standard parameter name"),
-    (r"(kNatronOfxHostName|kOfxSonyVegas\w*HostName)", "host name"),
+    (r"(kNatronOfxHostName|kOfxSonyVegas\w*HostName|kOfxVegasProHostName)", "host name"),
     (r"kNukeOfxCameraParam\w+", "Nuke camera parameter name"),
     (r"kNatronOfxParam(StringSublabelName|OutputChannels|Process[RGBA](Label|Hint)?|UndoRedoText"
      r"|UndoRedoState|RightClickMenu|SelectionRectangleState)",
