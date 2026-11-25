@@ -33,7 +33,7 @@
     System32 only, against DLL planting): the OpenGL 1.1 functions are exported by opengl32.dll,
     wglGetProcAddress doesn't return them.
   If they can't all be loaded, getDrawContext() doesn't use OpenGL. The result is computed once
-  (thread-safe in C++11 and later).
+  (thread-safe).
 
   It also checks that an OpenGL context is current before using OpenGL, since legacy OpenGL calls
   without one usually crash (macOS), and a host may have the DrawSuite and no OpenGL. The spec's
@@ -104,10 +104,7 @@
 
 #include <cstddef>
 #include <cstring>
-#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L))
-#define OFXS_DRAWCONTEXT_CXX11 1
 #include <mutex>
-#endif
 
 // the drawing code, shared with the hosts (no OpenGL header: it declares the OpenGL types and
 // constants it uses, and calls the functions loaded here)
@@ -126,12 +123,11 @@ namespace OFX {
       using DrawSuiteOpenGL::GLFunctions;
 
       // A function pointer can't be converted from a void* in standard C++: copy the bits. The
-      // sizes are checked at compile time (C++98-compatible static assertion).
+      // sizes are checked at compile time.
       template<class F>
       F functionFromPointer(void *p)
       {
-        typedef char function_and_object_pointers_have_the_same_size[(sizeof(F) == sizeof(void *)) ? 1 : -1];
-        (void)sizeof(function_and_object_pointers_have_the_same_size);
+        static_assert(sizeof(F) == sizeof(void *), "function and object pointers have the same size");
         F f;
         std::memcpy(&f, &p, sizeof(f));
         return f;
@@ -158,8 +154,7 @@ namespace OFX {
           return NULL;
         }
         FARPROC f = GetProcAddress((HMODULE)lib, name);
-        typedef char farproc_and_object_pointers_have_the_same_size[(sizeof(f) == sizeof(void *)) ? 1 : -1];
-        (void)sizeof(farproc_and_object_pointers_have_the_same_size);
+        static_assert(sizeof(f) == sizeof(void *), "FARPROC and object pointers have the same size");
         void *p = NULL;
         std::memcpy(&p, &f, sizeof(p));
         return p;
@@ -174,8 +169,7 @@ namespace OFX {
       template<class F>
       void *pointerFromFunction(F f)
       {
-        typedef char function_and_object_pointers_have_the_same_size[(sizeof(F) == sizeof(void *)) ? 1 : -1];
-        (void)sizeof(function_and_object_pointers_have_the_same_size);
+        static_assert(sizeof(F) == sizeof(void *), "function and object pointers have the same size");
         void *p = NULL;
         std::memcpy(&p, &f, sizeof(p));
         return p;
@@ -307,7 +301,7 @@ namespace OFX {
         return r;
       }
 
-      // loaded once, at the first call (thread-safe in C++11 and later)
+      // loaded once, at the first call (thread-safe)
       const OpenGLLoad &openGLLoad()
       {
         static const OpenGLLoad load = loadOpenGL();
@@ -374,22 +368,17 @@ namespace OFX {
         return c;
       }
 
-#ifdef OFXS_DRAWCONTEXT_CXX11
       std::mutex &currentContextFunctionsMutex()
       {
         static std::mutex *m = new std::mutex; // never deleted (usable at exit)
         return *m;
       }
-#endif
 
       // Loaded at the first call, and loaded again as long as none was found: the host may load
-      // libEGL or libGLX after the first draw. Serialized in C++11 and later (the C++98 build
-      // doesn't lock: then the first calls must not be concurrent).
+      // libEGL or libGLX after the first draw. Serialized.
       CurrentContextFunctions currentContextFunctions()
       {
-#ifdef OFXS_DRAWCONTEXT_CXX11
         std::lock_guard<std::mutex> lock( currentContextFunctionsMutex() );
-#endif
         static CurrentContextFunctions c; // zero-initialized
         if (c.count == 0) {
           c = loadCurrentContextFunctions();
@@ -408,7 +397,7 @@ namespace OFX {
       // (include/ofxDrawSuiteOpenGL.h)
       class OpenGLBackend : public DrawContextBackend {
       public:
-        // user-provided, so that a const object can be default-initialized (C++98 to C++14)
+        // user-provided, so that a const object can be default-initialized with every compiler
         OpenGLBackend() {}
 
         virtual OfxStatus getColour(const DrawContext & /*ctx*/, OfxStandardColour stdColour, OfxRGBAColourF *colour) const

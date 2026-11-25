@@ -101,33 +101,9 @@ of the direct OFX objects and any library side only functions.
 #include OFX_CLIENT_EXCEPTION_HEADER
 #endif
 
-#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
-   /** @brief thread_local where available (C++11): per-thread state of the Support library */
-#  define OFXS_THREAD_LOCAL thread_local
-#else
-#  define OFXS_THREAD_LOCAL
-#endif
-
-// Is noexcept supported?
-// "noexcept" is only supported since the Visual Studio 2015, as stated here: https://msdn.microsoft.com/en-us/library/wfa0edys.aspx
-#if defined(__clang__)
-#if __has_feature(cxx_noexcept)
-#define OFX_NOTHROW noexcept(true)
-#else
-#define OFX_NOTHROW throw()
-#endif
-#else
-#if defined(__GXX_EXPERIMENTAL_CXX0X__) && __GNUC__ * 10 + __GNUC_MINOR__ >= 46 || \
-    defined(_MSC_FULL_VER) && _MSC_FULL_VER >= 190023026
-#define OFX_NOTHROW noexcept(true)
-#else
-#if defined(_NOEXCEPT)
-#define OFX_NOTHROW _NOEXCEPT
-#else
-#define OFX_NOTHROW throw()
-#endif
-#endif
-#endif
+/** @brief Exception specification of the Support functions that never throw (what() and the
+    destructors of the Support exceptions, OFX::Memory::free); plug-ins may use it too. */
+#define OFX_NOTHROW noexcept
 
 /** @brief Defines an integer 3D point
 
@@ -148,12 +124,9 @@ struct Ofx3DPointD {
 /** @brief The core 'OFX Support' namespace, used by plugin implementations. All code for these are defined in the common support libraries.
 */
 namespace OFX {
-#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
+  /** @brief std::unique_ptr, under the name the plug-ins use (std::auto_ptr was removed in C++17) */
   template <typename T>
   using auto_ptr = std::unique_ptr<T>;
-#else
-  using std::auto_ptr;
-#endif
   
   // IsNaN and IsInfinite test the bits of the IEEE 754 binary64 representation instead of calling
   // std::isnan/std::isinf (or _isnan/_finite): with -ffast-math or -Ofast (-ffinite-math-only), or
@@ -164,9 +137,9 @@ namespace OFX {
   // file is compiled with. The bits are integers, but clang also deduces facts about them from the
   // double they come from (e.g. a fast-math function argument is marked as never infinite), so an
   // empty asm statement (gcc, clang, clang-cl), or volatile copies (MSVC), hide their origin from
-  // the optimizer. The bits are read as two 32-bit words, which needs neither long long (C++98)
-  // nor 64-bit registers (32-bit x86). The results are those of std::isnan and std::isinf (a float
-  // argument is converted to double, which keeps NaN and infinity).
+  // the optimizer. The bits are read as two 32-bit words, which needs no 64-bit registers (32-bit
+  // x86). The results are those of std::isnan and std::isinf (a float argument is converted to
+  // double, which keeps NaN and infinity).
   inline void DoubleWords(double x, unsigned int& hi, unsigned int& lo)
   {
     unsigned int w[2];
@@ -338,10 +311,10 @@ namespace OFX {
     /** @brief The raw property handle */
     OfxPropertySetHandle _propHandle;
 
-    /** @brief Class static, whether we are logging each property action. Per thread with C++11:
+    /** @brief Class static, whether we are logging each property action. Per thread:
         the property validation turns logging off on its thread while render threads use
         properties. */
-    static OFXS_THREAD_LOCAL int _gPropLogging;
+    static thread_local int _gPropLogging;
 
     /** @brief Do not throw an exception if a host returns 'unsupported' when setting a property.
         One flag per plug-in binary, not synchronized: set it in the load action or in describe,
@@ -349,10 +322,10 @@ namespace OFX {
     static bool _gThrowOnUnsupported;
 
   public :
-    /** @brief turns on logging of property access functions (on the calling thread, with C++11) */
+    /** @brief turns on logging of property access functions (on the calling thread) */
     static void propEnableLogging(void)  {++_gPropLogging;}
 
-    /** @brief turns off logging of property access functions (on the calling thread, with C++11) */
+    /** @brief turns off logging of property access functions (on the calling thread) */
     static void propDisableLogging(void) {--_gPropLogging;}
 
     /** @brief Do we throw an exception if a host returns 'unsupported' when setting a property. Default is true */

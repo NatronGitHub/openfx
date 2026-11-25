@@ -9,7 +9,7 @@
 #include <map>
 #include <list>
 #include <vector>
-#include "ofxhMemory.h" // OFX::Host::auto_ptr (std::unique_ptr in C++11)
+#include "ofxhMemory.h" // OFX::Host::auto_ptr (std::unique_ptr)
 #include <cstdarg>
 
 //ofx

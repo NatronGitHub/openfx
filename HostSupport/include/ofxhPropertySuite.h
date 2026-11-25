@@ -13,13 +13,10 @@
 
 #include "ofxCore.h" // OfxStatus, OfxPropertySetHandle
 
-// OFX_EXCEPTION_SPEC marks the functions that may throw: noexcept(false) under C++11 and later,
-// empty otherwise, never a dynamic exception specification (C++ Core Guidelines E.30).
-#if !defined(WINDOWS) && (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L))
+// OFX_EXCEPTION_SPEC marks the functions that may throw: noexcept(false), the default of a
+// function that isn't a destructor, never a dynamic exception specification (C++ Core
+// Guidelines E.30). Hosts use it in their overrides.
 #define OFX_EXCEPTION_SPEC noexcept(false)
-#else
-#define OFX_EXCEPTION_SPEC
-#endif
 
 namespace OFX {
   namespace Host {
@@ -29,11 +26,7 @@ namespace OFX {
       /// of 6 would turn DBL_MAX into 1.79769e+308, which reads back as another value.
       template<class T> inline std::string castToString(T i) {
         std::ostringstream o;
-#if __cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)
         o.precision(std::numeric_limits<double>::max_digits10);
-#else
-        o.precision(17); // std::numeric_limits<double>::max_digits10 (C++11) for IEEE 754 doubles
-#endif
         o << i;
         return o.str();
       }

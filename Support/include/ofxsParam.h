@@ -2497,7 +2497,7 @@ namespace OFX {
             }
 
             /** @brief ends the edit block if it was begun. It doesn't throw: an exception that leaves
-                a destructor calls std::terminate() (destructors are noexcept in C++11), and a
+                a destructor calls std::terminate() (destructors are noexcept), and a
                 destructor can't report the failure. */
             ~EditBlock()
             {

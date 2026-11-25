@@ -40,10 +40,10 @@ namespace OFX
     int _users;
 
   private :
-    // not copyable (C++98 style: private and not defined): the destructor unloads the library,
-    // so that a copy would unload it twice (C.21)
-    Binary(const Binary &);
-    Binary &operator=(const Binary &);
+    // not copyable: the destructor unloads the library, so that a copy would unload it twice
+    // (C.21)
+    Binary(const Binary &) = delete;
+    Binary &operator=(const Binary &) = delete;
 
   public :
 

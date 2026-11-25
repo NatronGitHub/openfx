@@ -30,7 +30,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef HOST_DEMO_JSON_H
 #define HOST_DEMO_JSON_H
 
-// A small JSON document model and writer (C++98, no external library), used by hostDemo's
+// A small JSON document model and writer (no external library), used by hostDemo's
 // --report and --describe. Objects keep the order in which keys were added. Strings are written
 // as UTF-8, with the control characters, '"' and '\\' escaped, and invalid UTF-8 bytes replaced
 // by U+FFFD, so that the output is always valid JSON (RFC 8259). Numbers are written as %.17g
@@ -273,7 +273,7 @@ namespace MyHost {
     std::vector<std::string> _keys; ///< for objects, the keys of _items
     // array items, or object values. push_back on a list keeps the references to the other items
     // valid, so a reference returned by push() or operator[] stays valid when items are added.
-    // (A list of an incomplete type is allowed since C++17, and works with all C++98 libraries.)
+    // (A list of an incomplete type is allowed since C++17.)
     std::list<Json> _items;
   };
 

@@ -43,7 +43,7 @@ namespace OFX {
   }
 
   /** @brief are we logging property get/set */
-  OFXS_THREAD_LOCAL int PropertySet::_gPropLogging = 1;
+  thread_local int PropertySet::_gPropLogging = 1;
 
   /** @brief Do we throw an exception if a host returns 'unsupported' when setting a property */
   bool PropertySet::_gThrowOnUnsupported = true;

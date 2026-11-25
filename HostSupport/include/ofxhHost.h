@@ -40,10 +40,10 @@ namespace OFX {
       Property::Set _properties;
 
     private :
-      // not copyable (C++98 style: private and not defined): _host.host is the handle of this
-      // host's _properties, so that a copy would hand out the properties of the original (C.21)
-      Host(const Host &);
-      Host &operator=(const Host &);
+      // not copyable: _host.host is the handle of this host's _properties, so that a copy would
+      // hand out the properties of the original (C.21)
+      Host(const Host &) = delete;
+      Host &operator=(const Host &) = delete;
 
     public:
       Host();

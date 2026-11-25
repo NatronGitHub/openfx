@@ -129,7 +129,6 @@ namespace MyHost {
   OfxStatus MyEffectInstance::recordMessage(const char* kind, const char* type, const char* id,
                                             const char* format, va_list args)
   {
-    // vsnprintf is C99 (and C++11), but every compiler hostDemo is built with has it
     std::vector<char> buf(65536);
     const int n = format ? vsnprintf(&buf[0], buf.size(), format, args) : 0;
     std::string text(n > 0 ? &buf[0] : "");

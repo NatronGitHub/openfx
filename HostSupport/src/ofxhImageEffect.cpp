@@ -589,15 +589,8 @@ namespace OFX {
         Property::propSpecEnd
       };
 
-#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
-#  define OFXH_THREAD_LOCAL thread_local
-#elif defined(_MSC_VER)
-#  define OFXH_THREAD_LOCAL __declspec(thread)
-#else
-#  define OFXH_THREAD_LOCAL __thread
-#endif
-      /// see ThumbnailRenderScope; a POD, so that __thread/__declspec(thread) work too
-      static OFXH_THREAD_LOCAL bool gThumbnailRenderThread = false;
+      /// see ThumbnailRenderScope
+      static thread_local bool gThumbnailRenderThread = false;
 
       ThumbnailRenderScope::ThumbnailRenderScope(bool thumbnail)
         : _previous(gThumbnailRenderThread)

@@ -13,12 +13,9 @@
 namespace OFX {
 
   namespace Host {
-#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
+    /// std::unique_ptr, under the name the hosts use (std::auto_ptr was removed in C++17)
     template <typename T>
     using auto_ptr = std::unique_ptr<T>;
-#else
-    using std::auto_ptr;
-#endif
 
     namespace Memory {
 
@@ -41,10 +38,10 @@ namespace OFX {
         int     _locked;
 
       private:
-        // not copyable (C++98 style: private and not defined): the instance owns _ptr, which
-        // freeMem() and the destructor delete[], so that a copy would free it twice (C.21, C.67)
-        Instance(const Instance &);
-        Instance &operator=(const Instance &);
+        // not copyable: the instance owns _ptr, which freeMem() and the destructor delete[], so
+        // that a copy would free it twice (C.21, C.67)
+        Instance(const Instance &) = delete;
+        Instance &operator=(const Instance &) = delete;
       };
 
     } // Memory

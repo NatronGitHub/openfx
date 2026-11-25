@@ -163,9 +163,9 @@ namespace OFX {
   // file is compiled with. The bits are integers, but clang also deduces facts about them from the
   // double they come from (e.g. a fast-math function argument is marked as never infinite), so an
   // empty asm statement (gcc, clang, clang-cl), or volatile copies (MSVC), hide their origin from
-  // the optimizer. The bits are read as two 32-bit words, which needs neither long long (C++98)
-  // nor 64-bit registers (32-bit x86). The results are those of std::isnan and std::isinf (a float
-  // argument is converted to double, which keeps NaN and infinity).
+  // the optimizer. The bits are read as two 32-bit words, which needs no 64-bit registers (32-bit
+  // x86). The results are those of std::isnan and std::isinf (a float argument is converted to
+  // double, which keeps NaN and infinity).
   inline void DoubleWords(double x, unsigned int& hi, unsigned int& lo)
   {
     unsigned int w[2];

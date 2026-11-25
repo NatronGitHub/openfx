@@ -45,14 +45,10 @@ namespace OFX {
       // malloc()'s usual alignment (16 on 64-bit systems, at least alignof(std::max_align_t)), which
       // satisfies "Allocated memory will be aligned for any use." (ofxMemory.h). The cost is 64
       // bytes per block.
-#if (__cplusplus >= 201103L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201103L)) // MSVC: __cplusplus is 199711L without /Zc:__cplusplus
       static const size_t kMemoryHeaderSize = alignof(std::max_align_t) > 64 ? alignof(std::max_align_t) : 64;
       static_assert(kMemoryHeaderSize % alignof(std::max_align_t) == 0,
                     "the memory suite header must keep the alignment of malloc()");
       static_assert(kMemoryHeaderSize >= sizeof(unsigned int), "the memory suite header holds the magic number");
-#else
-      static const size_t kMemoryHeaderSize = 64; // (no std::max_align_t before C++11)
-#endif
       static const unsigned int kMemoryMagic = 0x0f8e3a17; // a live block
 
       static OfxStatus memoryAlloc(void */*handle*/, size_t bytes, void **data)
