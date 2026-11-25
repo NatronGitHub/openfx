@@ -1023,6 +1023,16 @@ Double Properties
 - **Used in Property Sets**: :ref:`InteractInstance <propset_InteractInstance>` (host)
 - **Doc**: For detailed doc, see :c:macro:`kOfxInteractPropSuggestedColour`.
 
+.. _prop_OfxParamPropColorWheelLevel:
+
+**OfxParamPropColorWheelLevel**
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+- **C #define**: :c:macro:`kOfxParamPropColorWheelLevel`
+- **Type**: double
+- **Dimension**: 1
+- **Doc**: For detailed doc, see :c:macro:`kOfxParamPropColorWheelLevel`.
+
 .. _prop_OfxParamPropIncrement:
 
 **OfxParamPropIncrement**
