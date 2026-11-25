@@ -28,6 +28,14 @@ each represent the actions that can be carried out on those particular OFX objec
 #endif
 #include "ofxOld.h" // required for kOfxParamDoubleTypeNormalised*
 
+/** @brief Feature macro: defined when the Int, Int2D, Int3D, Double, Double2D and Double3D
+    descriptors try to set the spec's default range and display range (DaVinci Resolve clamps
+    params without them), and BaseDoubleParamDescriptor::setDoubleType() tries to set the default
+    coordinate system of the X, XAbsolute, Y, YAbsolute, XY and XYAbsolute types to the plug-in's
+    setDefaultCoordinateSystem() choice, or canonical. Code that only set these spec defaults can
+    drop those calls. */
+#define OFXS_SUPPORT_HAS_SPEC_PARAM_DEFAULTS 1
+
 /** @brief Nasty macro used to define empty protected copy ctors and assign ops */
 // Declared but not defined: these must never be called. (Defining them inline would make
 // the compiler instantiate member destructors, e.g. std::unique_ptr<ParamInteractDescriptor>
@@ -505,13 +513,18 @@ namespace OFX {
 
         friend class ParamSetDescriptor;
     public :
-        /** @brief set the type of the double param, defaults to eDoubleTypePlain */
+        /** @brief set the type of the double param, defaults to eDoubleTypePlain.
+
+            For the spatial types (X, XAbsolute, Y, YAbsolute, XY, XYAbsolute), also tries to set
+            the default coordinate system: see setDefaultCoordinateSystem(). */
         void setDoubleType(DoubleTypeEnum v);
 
         /** @brief returns true if the param descriptor prop kOfxParamPropDefaultCoordinateSystem is present */
         bool supportsDefaultCoordinateSystem();
 
-        /** @brief set the type of coordinate system for default values */
+        /** @brief set the type of coordinate system for default values, default is canonical.
+
+            Written now, and again by setDoubleType() for the spatial types. */
         void setDefaultCoordinateSystem(DefaultCoordinateSystemEnum v);
 
         /** @brief set the sensitivity of any gui slider */
@@ -519,6 +532,10 @@ namespace OFX {
 
         /** @brief set the number of digits printed after a decimal point in any gui */
         void setDigits(int v);
+
+    private :
+        /** @brief what setDoubleType() writes for the spatial types */
+        DefaultCoordinateSystemEnum _defaultCoordinateSystem = eCoordinatesCanonical;
     };
   
     ////////////////////////////////////////////////////////////////////////////////
