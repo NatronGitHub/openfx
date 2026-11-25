@@ -199,6 +199,24 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   are plain times, not `(t, "l"|"r")`. The report's `host.profile` is "ofx14" (else
   "default"). It uses its own plug-in cache file, hostDemoPluginCache-ofx14.xml. In Python:
   `extra_args=["--ofx14"]`.
+- `--ofx11` (not with `--ofx14`, `--multiplane` or `--opengl-describe`) makes hostDemo an OFX 1.1
+  host modelled on VEGAS Pro (openfx-misc's README-hosts.txt), to check that a plug-in still
+  works there: the host descriptor has only the OFX 1.1 host properties, and kOfxPropAPIVersion
+  1.1 (no kOfxPropVersion, kOfxImageEffectInstancePropSequentialRender or kOfxPropHostOSHandle),
+  no tiles, no multi-resolution, no overlays or custom interacts, byte and float depths only
+  (`-d short` is an error), and kOfxImageEffectPropSupportsMultipleClipPARs 0; fetchSuite gives
+  the OFX 1.1 suites but the interact suite, and the message suite V2, which VEGAS Pro 12 lists
+  (no progress suite V2, parametric parameter, OpenGL render or dialog suite); its persistent
+  messages are refused (kOfxStatFailed, not in the report), as DaVinci Resolve and Fusion 2026
+  refuse them; OfxSetHost is not called; the plug-in descriptors and
+  instances have no kOfxImageEffectInstancePropSequentialRender, and the double params no
+  kOfxParamPropDefaultCoordinateSystem (as `--no-normalised-defaults`); one view is rendered, as
+  with `--ofx14`. As in every profile, a plug-in may only set the clip depths and PARs in its clip
+  preferences if both the host and the plug-in support multiple clip depths and PARs: otherwise
+  hostDemo refuses the write. The report's `host.profile` is "ofx11", and it uses its own plug-in
+  cache file, hostDemoPluginCache-ofx11.xml. The in-process backend has no such profile: `python
+  -m ofxhost.hostdemo --ofx11` is an error, and `ofxhost.render(backend="inprocess")` doesn't take
+  it in `extra_args`.
 - `--multiplane` (hostDemo built with the Nuke extension, `OFX_EXTENSIONS_NUKE`; not with
   `--ofx14`) makes hostDemo a multi-plane host, as Nuke is: the host descriptor has
   kFnOfxImageEffectPropMultiPlanar 1, with the plane suite (V1 and V2) that HostSupport
@@ -520,6 +538,7 @@ What differs from hostDemo (the complete list; `tests/test_hostdemo_cli.py` chec
 - `--no-cache` is a no-op (ofxh has no cache file), and without `--quiet` the list of the plug-ins
   is shorter than hostDemo's dump;
 - ofxh's string choice parameters refuse a value outside their enums (hostDemo's accept it);
+- `--ofx11` is an error (ofxh has no OFX 1.1 host profile);
 - an error in the Python host itself (a bug: an uncaught Python exception) exits with status 1 and a
   traceback on stderr, and writes no report;
 - beyond hostDemo: `$OFXHOST_PRELOAD` lists libraries (`os.pathsep`-separated) to load with

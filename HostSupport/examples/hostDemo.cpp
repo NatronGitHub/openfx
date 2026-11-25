@@ -746,6 +746,11 @@ static void usage(const char* prog)
     "  --describe file.json  describe the plug-in as JSON (no instance, no render)\n"
     "  --ofx14            be an OFX 1.4 host: only the OFX 1.4 host properties and suites,\n"
     "                     no OfxSetHost, no StrChoice or Bytes params, one view\n"
+    "  --ofx11            be an OFX 1.1 host such as VEGAS Pro: only the OFX 1.1 host properties\n"
+    "                     (API version 1.1) and suites, no interact suite, message suite V2 that refuses\n"
+    "                     persistent messages, no tiles, no multi-resolution,\n"
+    "                     no overlays, byte and float depths, a single clip PAR, no OfxSetHost, no\n"
+    "                     kOfxImageEffectInstancePropSequentialRender, as --no-normalised-defaults, one view\n"
     "  --opengl-describe  with --describe only: say the host supports OpenGL render\n"
     "                     (kOfxImageEffectPropOpenGLRenderSupported \"true\"), to describe OpenGL-only plug-ins\n"
     "  --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,\n"
@@ -1305,6 +1310,7 @@ static int run(int argc, char **argv)
   bool useStdPaths = true;
   bool useCache = true;
   bool ofx14 = false;          ///< --ofx14
+  bool ofx11 = false;          ///< --ofx11
   bool openglDescribe = false; ///< --opengl-describe
   bool multiPlane = false;     ///< --multiplane
   std::vector<std::pair<std::string, MyHost::InputPlane> > inputPlanes; ///< -i Clip@Plane=spec
@@ -1338,6 +1344,8 @@ static int run(int argc, char **argv)
       query = true;
     } else if (arg == "--ofx14") {
       ofx14 = true;
+    } else if (arg == "--ofx11") {
+      ofx11 = true;
     } else if (arg == "--opengl-describe") {
       openglDescribe = true;
     } else if (arg == "--multiplane") {
@@ -1547,6 +1555,14 @@ static int run(int argc, char **argv)
     std::cerr << "Error: --multiplane and --ofx14 can't be used together (OFX 1.4 has no plane suite)" << std::endl;
     return 1;
   }
+  if (ofx11 && (ofx14 || multiPlane || openglDescribe)) {
+    std::cerr << "Error: --ofx11 can't be used with --ofx14, --multiplane or --opengl-describe" << std::endl;
+    return 1;
+  }
+  if (ofx11 && inputDepth == kOfxBitDepthShort) {
+    std::cerr << "Error: -d short: the --ofx11 host only supports byte and float depths" << std::endl;
+    return 1;
+  }
 
   //_CrtSetBreakAlloc(3168);
 #if defined(_MSC_VER) && defined(_DEBUG)
@@ -1558,7 +1574,7 @@ static int run(int argc, char **argv)
   // set the version label in the global cache
   // (the plug-ins may describe themselves differently to an OFX 1.4 host, to a host with
   // OpenGL render, or to a multi-plane host: another cache)
-  const std::string cacheSuffix = std::string(ofx14 ? "-ofx14" : "") + (openglDescribe ? "-opengl" : "") +
+  const std::string cacheSuffix = std::string(ofx14 ? "-ofx14" : ofx11 ? "-ofx11" : "") + (openglDescribe ? "-opengl" : "") +
                                   (multiPlane ? "-multiplane" : "");
   OFX::Host::PluginCache::getPluginCache()->setCacheVersion("hostDemoV1" + cacheSuffix);
   const std::string cachePath = "hostDemoPluginCache" + cacheSuffix + ".xml";
@@ -1569,6 +1585,9 @@ static int run(int argc, char **argv)
   MyHost::Host myHost;
   if (ofx14) {
     myHost.restrictToOFX14();
+  }
+  if (ofx11) {
+    myHost.restrictToOFX11();
   }
   if (openglDescribe) {
     // (an OFX 1.4 host property: also with --ofx14)
@@ -1643,7 +1662,7 @@ static int run(int argc, char **argv)
   {
     Json& host = report["host"] = Json::object();
     host["name"] = myHost.getProperties().getStringProperty(kOfxPropName);
-    host["profile"] = ofx14 ? "ofx14" : "default";
+    host["profile"] = ofx14 ? "ofx14" : ofx11 ? "ofx11" : "default";
   }
   report["depth"] = inputDepth;
   {
@@ -1960,9 +1979,9 @@ static int run(int argc, char **argv)
         tname.precision(12);
         tname << t;
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
-        // render a stereoscopic frame: left and right views (one view with --ofx14: views are
-        // an extension)
-        const int nViews = ofx14 ? 1 : 2;
+        // render a stereoscopic frame: left and right views (one view with --ofx14 or --ofx11:
+        // views are an extension)
+        const int nViews = (ofx14 || ofx11) ? 1 : 2;
         for (int view = 0; ret == 0 && view < nViews; ++view) {
           std::ostringstream ss;
           ss << outputPrefix << "." << tname.str() << (nViews == 1 ? "" : view == 0 ? "l" : "r");

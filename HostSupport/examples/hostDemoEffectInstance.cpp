@@ -43,6 +43,7 @@ namespace MyHost {
                                      , _rendering(false)
                                      , _defaultDepth(kOfxBitDepthByte)
                                      , _timeLineTime(0.)
+                                     , _refusePersistentMessages(false)
   {
     _renderScale.x = _renderScale.y = 1.;
     _renderWindow.x1 = _renderWindow.y1 = _renderWindow.x2 = _renderWindow.y2 = 0;
@@ -159,11 +160,17 @@ namespace MyHost {
                                                    const char* format,
                                                    va_list args)
   {
+    if (_refusePersistentMessages) {
+      return kOfxStatFailed;
+    }
     return recordMessage("persistentMessage", type, id, format, args);
   }
 
   OfxStatus MyEffectInstance::clearPersistentMessage()
   {
+    if (_refusePersistentMessages) {
+      return kOfxStatFailed;
+    }
     MessageRecord m;
     m.kind = "clearPersistentMessage";
     _messages.push_back(m);

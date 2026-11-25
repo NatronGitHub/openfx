@@ -41,6 +41,7 @@ namespace MyHost {
     std::vector<MessageRecord>  _messages; ///< the messages sent by the plug-in, in order
     std::vector<ProgressRecord> _progress; ///< the progresses started by the plug-in, in order
     double _timeLineTime; ///< the time of the current action (timeLineGetTime)
+    bool _refusePersistentMessages; ///< setRefusePersistentMessages()
 
     /// format, print (on stdout) and record a message
     OfxStatus recordMessage(const char* kind, const char* type, const char* id, const char* format, va_list args);
@@ -147,6 +148,11 @@ namespace MyHost {
     /// the default clip preferences of HostSupport, except that with no connected input the
     /// output gets the default depth (the -d option), instead of float
     virtual void setDefaultClipPreferences();
+
+    /// --ofx11: refuse the persistent messages (kOfxStatFailed, nothing recorded), as DaVinci
+    /// Resolve and Fusion 2026 do (https://github.com/creativevideotips/cvt-ltx-alpha-gen,
+    /// src/ofx/src/plugin.cpp)
+    void setRefusePersistentMessages() { _refusePersistentMessages = true; }
 
     /// the messages and progresses of the plug-in, for hostDemo --report
     const std::vector<MessageRecord>& getMessages() const { return _messages; }

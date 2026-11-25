@@ -257,6 +257,24 @@ public :
   {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
+    // a test of the Support library in hosts that lack kOfxImageEffectInstancePropSequentialRender
+    // (on the effect descriptor in Resolve and Nuke; hostDemo --ofx11 has it nowhere): writing its
+    // default ("Default - 0") must not fail the instance creation
+    setSequentialRender(false);
+  }
+
+  /* a test of the Support library: the output PAR is the source's, which a host that doesn't
+     support multiple clip PARs (kOfxImageEffectPropSupportsMultipleClipPARs 0, e.g. VEGAS and
+     hostDemo) doesn't let the plug-in set ("the plugin may not remap them"): this must not fail
+     the action. Nor must reading the default coordinate system of widgetPos
+     (kOfxParamPropDefaultCoordinateSystem, OFX 1.2) in a host without it (hostDemo --ofx11 or
+     --no-normalised-defaults): it is canonical there */
+  virtual void getClipPreferences(OFX::ClipPreferencesSetter &clipPreferences)
+  {
+    clipPreferences.setPixelAspectRatio(*dstClip_, srcClip_->getPixelAspectRatio());
+    OFX::DefaultCoordinateSystemEnum coords;
+    fetchDouble2DParam("widgetPos")->getDefaultCoordinateSystem(coords);
+    (void)coords;
   }
 
   virtual void render(const OFX::RenderArguments &args);
@@ -737,6 +755,14 @@ void GenericTestExamplePluginFactory::describeInContext(OFX::ImageEffectDescript
   widgetPos->setDefaultCoordinateSystem(eCoordinatesNormalised);
   widgetPos->setDimensionLabels("X Position", "Y Position");
   widgetPos->setDefault(0.5, 0.5);
+
+  // a test of the Support library in hosts without kOfxPluginPropParamPageOrder (Flame 2027:
+  // https://github.com/creativevideotips/cvt-ltx-alpha-gen, src/upstream-notes/ofx.md, "Flame host
+  // behaviour"; HostSupport doesn't have it either): setPageParamOrder() must not fail the describe
+  PageParamDescriptor* page = desc.definePageParam("Controls");
+  page->setLabels("Controls", "Controls", "Controls");
+  page->addChild(*param1);
+  desc.setPageParamOrder(*page);
 }
 
 OFX::ImageEffect* GenericTestExamplePluginFactory::createInstance(OfxImageEffectHandle handle, OFX::ContextEnum /*context*/)

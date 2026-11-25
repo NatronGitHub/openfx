@@ -10,6 +10,9 @@ of the direct OFX objects and any library side only functions.
 */
 
 #include "ofxsCore.h"
+#ifdef OFX_USE_MULTITHREAD_MUTEX
+#include <memory> // unique_ptr (Mutex)
+#endif
 
 typedef struct OfxMutex* OfxMutexHandle;
 
@@ -63,6 +66,9 @@ namespace OFX {
     class Mutex {
     protected :
       OfxMutexHandle _handle; /**< @brief The handle */
+      /** @brief used instead of the host's mutex when the host has no mutex functions (ofxsMultiThread.cpp) */
+      struct Fallback;
+      std::unique_ptr<Fallback> _fallback;
 
     private :
       // not copyable: the destructor destroys the mutex (C.21, R.1)

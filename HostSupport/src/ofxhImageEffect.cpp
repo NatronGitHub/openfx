@@ -2995,6 +2995,10 @@ namespace OFX {
 
 
         bool multipleClipsPAR = supportsMultipleClipPARs();
+        /// the plug-in may set the clip PARs iff the host and the plug-in both support multiple clip PARs
+        const bool pluginMaySetPARs =
+          gImageEffectHost->getProperties().getIntProperty(kOfxImageEffectPropSupportsMultipleClipPARs) != 0 &&
+          multipleClipsPAR;
         /// get the PAR of inputs, if it has different PARs and the effect does not support multiple clips PAR, throw an exception
         double inputPar = 1.;
 
@@ -3039,7 +3043,11 @@ namespace OFX {
           Property::PropSpec specDep = {depthParamName.c_str(),       Property::eString, 1, !pluginMaySetDepths, clip->getPixelDepth().c_str()};
           outArgs.createProperty(specDep);
 
-          Property::PropSpec specPAR = {parParamName.c_str(),         Property::eDouble, 1, false,          "1"};
+          // Likewise for the PARs (ofxClipPreferences.rst: "If the host sets this to 0, then all effect's
+          // input and output clips will always have the same pixel aspect ratio, and the plugin may not
+          // remap them. [...] If *both* the plugin and host set this to 1, then the plugin can, during
+          // kOfxImageEffectActionGetClipPreferences, specify how the host is to map each clip").
+          Property::PropSpec specPAR = {parParamName.c_str(),         Property::eDouble, 1, !pluginMaySetPARs, "1"};
           outArgs.createProperty(specPAR);
           if (!clip->isOutput()) {
             // If the clip is input, use the same par for all inputs unless the plug-in supports multiple clips PAR

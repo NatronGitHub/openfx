@@ -3,6 +3,8 @@
 
 /** @brief This file contains code that skins the ofx param suite */
 
+#include <limits> // numeric_limits (DBL_MAX is missing with some C++20 toolchains)
+#include <type_traits> // is_same
 #include <cstring>
 #ifdef DEBUG
 #include <iostream>
@@ -283,14 +285,14 @@ namespace OFX {
   void 
     ParamDescriptor::setIsSecret(bool v)
   {
-    _paramProps.propSetInt(kOfxParamPropSecret, v);
+    OFX::Private::propSetIntOr(_paramProps, kOfxParamPropSecret, v, 0);
   }
 
   /** @brief set the if the param is enabled, defaults to true */
   void 
     ParamDescriptor::setEnabled(bool v)
   {
-    _paramProps.propSetInt(kOfxParamPropEnabled, v);
+    OFX::Private::propSetIntOr(_paramProps, kOfxParamPropEnabled, v, 1);
   }
 
 #ifdef OFX_EXTENSIONS_VEGAS
@@ -356,7 +358,7 @@ namespace OFX {
   void 
     ParamDescriptor::setParent(const GroupParamDescriptor &v)
   {
-    _paramProps.propSetString(kOfxParamPropParent, v.getName());
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropParent, v.getName(), "");
   }
 
   /** @brief set the icon file name (SVG or PNG) */
@@ -396,19 +398,19 @@ namespace OFX {
   /** @brief set whether the param can animate, defaults to true in most cases */
   void ValueParamDescriptor::setAnimates(bool v)
   {
-    _paramProps.propSetInt(kOfxParamPropAnimates, v);
+    OFX::Private::propSetIntOr(_paramProps, kOfxParamPropAnimates, v, 1);
   }
 
   /** @brief set whether the param is persistent, defaults to true */
   void ValueParamDescriptor::setIsPersistent(bool v)
   {
-    _paramProps.propSetInt(kOfxParamPropPersistent, v);
+    OFX::Private::propSetIntOr(_paramProps, kOfxParamPropPersistent, v, 1);
   }
 
   /** @brief Set's whether the value of the param is significant (ie: affects the rendered image), defaults to true */
   void ValueParamDescriptor::setEvaluateOnChange(bool v)
   {
-    _paramProps.propSetInt(kOfxParamPropEvaluateOnChange, v);
+    OFX::Private::propSetIntOr(_paramProps, kOfxParamPropEvaluateOnChange, v, 1);
   }
 
   /** @brief Set's whether the value of the param is significant (ie: affects the rendered image), defaults to true */
@@ -423,15 +425,15 @@ namespace OFX {
     switch(v) 
     {
     case eCacheInvalidateValueChange :
-      _paramProps.propSetString(kOfxParamPropCacheInvalidation, kOfxParamInvalidateValueChange);
+      OFX::Private::propSetStringOr(_paramProps, kOfxParamPropCacheInvalidation, kOfxParamInvalidateValueChange, kOfxParamInvalidateValueChange);
       break;
 
     case eCacheInvalidateValueChangeToEnd :
-      _paramProps.propSetString(kOfxParamPropCacheInvalidation, kOfxParamInvalidateValueChangeToEnd);
+      OFX::Private::propSetStringOr(_paramProps, kOfxParamPropCacheInvalidation, kOfxParamInvalidateValueChangeToEnd, kOfxParamInvalidateValueChange);
       break;
 
     case eCacheInvalidateValueAll :
-      _paramProps.propSetString(kOfxParamPropCacheInvalidation, kOfxParamInvalidateAll);
+      OFX::Private::propSetStringOr(_paramProps, kOfxParamPropCacheInvalidation, kOfxParamInvalidateAll, kOfxParamInvalidateValueChange);
       break;
     }
   }
@@ -439,7 +441,7 @@ namespace OFX {
   void ValueParamDescriptor::setInteractDescriptor(ParamInteractDescriptor* desc)
   {
     _interact.reset(desc);
-    _paramProps.propSetPointer(kOfxParamPropInteractV1, (void*)desc->getMainEntry());
+    OFX::Private::propSetPointerOr(_paramProps, kOfxParamPropInteractV1, (void*)desc->getMainEntry(), NULL);
     desc->setParamName(getName());
   }
 
@@ -490,9 +492,36 @@ namespace OFX {
     return eColourManagementNone; // absent, empty or unknown
   }
 
+  /// Set the range and display range of a new numeric param descriptor to the spec's defaults (OFX
+  /// 1.4 ofxParam.h, kOfxParamPropMin: "Default - the smallest possible value corresponding to the
+  /// parameter type (eg: INT_MIN for an integer, -DBL_MAX for a double parameter)", and the largest
+  /// for kOfxParamPropMax; the same for the display range), so that the host has them even if the
+  /// plug-in never sets them: DaVinci Resolve clamps a Double or Int param that has no range and
+  /// display range to (-1,1) or (0,0) (openfx-misc's README-hosts.txt). A conforming host already
+  /// has these values: nothing changes there. The min first: "Setting this will also reset
+  /// kOfxParamPropDisplayMin" (ofxParam.h). The plug-in didn't ask for these writes: best effort,
+  /// they never throw.
+  template <typename T>
+  static void setSpecDefaultRange(PropertySet &props, int dimension)
+  {
+    const char* const names[4] = { kOfxParamPropMin, kOfxParamPropMax, kOfxParamPropDisplayMin, kOfxParamPropDisplayMax };
+    const T lo = std::numeric_limits<T>::lowest();
+    const T hi = std::numeric_limits<T>::max();
+    for (int p = 0; p < 4; ++p) {
+      for (int i = 0; i < dimension; ++i) {
+        if constexpr (std::is_same<T, int>::value) {
+          props.propSetInt(names[p], (p % 2 == 0) ? lo : hi, i, false);
+        } else {
+          props.propSetDouble(names[p], (p % 2 == 0) ? lo : hi, i, false);
+        }
+      }
+    }
+  }
+
   IntParamDescriptor::IntParamDescriptor(const std::string &name, OfxPropertySetHandle props)
     : ValueParamDescriptor(name, eIntParam, props)
   {
+    setSpecDefaultRange<int>(_paramProps, 1);
   }
 
   /** @brief set the default interpolation (kOfxParamInterpType, next OFX release, after 1.5.1) */
@@ -531,6 +560,7 @@ namespace OFX {
   Int2DParamDescriptor::Int2DParamDescriptor(const std::string &name, OfxPropertySetHandle props)
     : ValueParamDescriptor(name, eInt2DParam, props)
   {
+    setSpecDefaultRange<int>(_paramProps, 2);
   }
 
   /** @brief set the default value, default is 0 */
@@ -576,6 +606,7 @@ namespace OFX {
   Int3DParamDescriptor::Int3DParamDescriptor(const std::string &name, OfxPropertySetHandle props)
     : ValueParamDescriptor(name, eInt3DParam, props)
   {
+    setSpecDefaultRange<int>(_paramProps, 3);
   }
 
   /** @brief set the default value, default is 0 */
@@ -622,6 +653,26 @@ namespace OFX {
   BaseDoubleParamDescriptor::BaseDoubleParamDescriptor(const std::string &name, ParamTypeEnum type, OfxPropertySetHandle props)
     : ValueParamDescriptor(name, type, props)
   {
+    // the spec's default, kOfxParamCoordinatesCanonical (OFX 1.4 ofxParam.h: "Default -
+    // kOfxParamCoordinatesCanonical"), set explicitly: Nuke 10 defaults XY and XYAbsolute params to
+    // normalised (openfx-misc's README-hosts.txt). Only where the host has the property, so that a
+    // plug-in's own supportsDefaultCoordinateSystem() probe (SupportExt ofxsNormalisedDefaults.h)
+    // is unchanged; a host without it (OFX 1.1) takes defaults as canonical anyway. Non-throwing
+    if (supportsDefaultCoordinateSystem()) {
+      setDefaultCoordinateSystem(eCoordinatesCanonical);
+    }
+  }
+
+  /// set kOfxParamPropDoubleType ("Default - kOfxParamDoubleTypePlain"): a host without the property,
+  /// or one that refuses the type (kOfxStatErrValue, e.g. a spatial type of OFX 1.2 in an OFX 1.1 host),
+  /// keeps a plain double param
+  static void setDoubleTypeProp(PropertySet &props, const char *type)
+  {
+    try {
+      OFX::Private::propSetStringOr(props, kOfxParamPropDoubleType, type, kOfxParamDoubleTypePlain);
+    } catch (const OFX::Exception::PropertyValueIllegalToHost &) {
+      OFX::Log::warning(true, "setDoubleType(%s): the host refused this double type: the param is a plain double", type);
+    }
   }
 
   /** @brief set the type of the double param, defaults to eDoubleTypePlain */
@@ -630,64 +681,64 @@ namespace OFX {
     switch(v) 
     {
     case eDoubleTypePlain :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypePlain);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypePlain);
       break;
     case eDoubleTypeAngle :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeAngle);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeAngle);
       break;
     case eDoubleTypeScale :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeScale);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeScale);
       break;
     case eDoubleTypeTime :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeTime);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeTime);
       break;
     case eDoubleTypeAbsoluteTime :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeAbsoluteTime);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeAbsoluteTime);
       break;
     case eDoubleTypeX :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeX);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeX);
       break;
     case eDoubleTypeXAbsolute :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeXAbsolute);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeXAbsolute);
       break;
     case eDoubleTypeY :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeY);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeY);
       break;
     case eDoubleTypeYAbsolute :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeYAbsolute);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeYAbsolute);
       break;
     case eDoubleTypeXY :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeXY);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeXY);
       break;
     case eDoubleTypeXYAbsolute :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeXYAbsolute);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeXYAbsolute);
       break;
 #ifdef kOfxParamDoubleTypeNormalisedX
     case eDoubleTypeNormalisedX :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeNormalisedX);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeNormalisedX);
       break;
     case eDoubleTypeNormalisedY :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeNormalisedY);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeNormalisedY);
       break;
     case eDoubleTypeNormalisedXAbsolute :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeNormalisedXAbsolute);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeNormalisedXAbsolute);
       break;
     case eDoubleTypeNormalisedYAbsolute :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeNormalisedYAbsolute);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeNormalisedYAbsolute);
       break;
     case eDoubleTypeNormalisedXY :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeNormalisedXY);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeNormalisedXY);
       break;
     case eDoubleTypeNormalisedXYAbsolute :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeNormalisedXYAbsolute);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeNormalisedXYAbsolute);
       break;
 #endif
 #ifdef OFX_EXTENSIONS_VEGAS
     case eDoubleTypePolar :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypePolar);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypePolar);
       break;
     case eDoubleTypeChrominance :
-      _paramProps.propSetString(kOfxParamPropDoubleType, kOfxParamDoubleTypeChrominance);
+      setDoubleTypeProp(_paramProps, kOfxParamDoubleTypeChrominance);
       break;
 #endif
     }
@@ -720,13 +771,13 @@ namespace OFX {
   /** @brief set the sensitivity of any gui slider */
   void BaseDoubleParamDescriptor::setIncrement(double v)
   {
-    _paramProps.propSetDouble(kOfxParamPropIncrement, v);
+    OFX::Private::propSetDoubleOr(_paramProps, kOfxParamPropIncrement, v, 1.);
   }
 
   /** @brief set the number of digits printed after a decimal point in any gui */
   void BaseDoubleParamDescriptor::setDigits(int v)
   {
-    _paramProps.propSetInt(kOfxParamPropDigits, v);
+    OFX::Private::propSetIntOr(_paramProps, kOfxParamPropDigits, v, 2);
   }
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -736,6 +787,7 @@ namespace OFX {
   DoubleParamDescriptor::DoubleParamDescriptor(const std::string &name, OfxPropertySetHandle props)
     : BaseDoubleParamDescriptor(name, eDoubleParam, props)
   {
+    setSpecDefaultRange<double>(_paramProps, 1);
   }
 
   /** @brief set the default interpolation (kOfxParamInterpType, next OFX release, after 1.5.1) */
@@ -774,6 +826,7 @@ namespace OFX {
   Double2DParamDescriptor::Double2DParamDescriptor(const std::string &name, OfxPropertySetHandle props)
     : BaseDoubleParamDescriptor(name, eDouble2DParam, props)
   {
+    setSpecDefaultRange<double>(_paramProps, 2);
   }
 
 #ifdef OFX_EXTENSIONS_NATRON
@@ -830,8 +883,8 @@ namespace OFX {
 
   void Double2DParamDescriptor::setDimensionLabels(const std::string& x, const std::string& y)
   {
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, x, 0);
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, y, 1);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, x, "x", 0);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, y, "y", 1);
   }
 
 #ifdef OFX_EXTENSIONS_VEGAS
@@ -849,6 +902,7 @@ namespace OFX {
   Double3DParamDescriptor::Double3DParamDescriptor(const std::string &name, OfxPropertySetHandle props)
     : BaseDoubleParamDescriptor(name, eDouble3DParam, props)
   {
+    setSpecDefaultRange<double>(_paramProps, 3);
   }
   
 #ifdef OFX_EXTENSIONS_NATRON
@@ -893,9 +947,9 @@ namespace OFX {
 
   void Double3DParamDescriptor::setDimensionLabels(const std::string& x, const std::string& y, const std::string& z)
   {
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, x, 0);
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, y, 1);
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, z, 2);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, x, "x", 0);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, y, "y", 1);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, z, "z", 2);
   }
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -945,9 +999,9 @@ namespace OFX {
 
   void RGBParamDescriptor::setDimensionLabels(const std::string& r, const std::string& g, const std::string& b)
   {
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, r, 0);
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, g, 1);
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, b, 2);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, r, "x", 0);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, g, "y", 1);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, b, "z", 2);
   }
 
 #ifdef OFX_EXTENSIONS_VEGAS
@@ -1020,10 +1074,10 @@ namespace OFX {
 
   void RGBAParamDescriptor::setDimensionLabels(const std::string& r, const std::string& g, const std::string& b, const std::string& a)
   {
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, r, 0);
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, g, 1);
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, b, 2);
-    _paramProps.propSetString(kOfxParamPropDimensionLabel, a, 3);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, r, "x", 0);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, g, "y", 1);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, b, "z", 2);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropDimensionLabel, a, "w", 3);
   }
 
 #ifdef OFX_EXTENSIONS_VEGAS
@@ -1308,22 +1362,22 @@ namespace OFX {
     switch (v) 
     {
     case eStringTypeSingleLine :
-      _paramProps.propSetString(kOfxParamPropStringMode,  kOfxParamStringIsSingleLine);
+      OFX::Private::propSetStringOr(_paramProps, kOfxParamPropStringMode, kOfxParamStringIsSingleLine, kOfxParamStringIsSingleLine);
       break;
     case eStringTypeMultiLine :
-      _paramProps.propSetString(kOfxParamPropStringMode,  kOfxParamStringIsMultiLine);
+      OFX::Private::propSetStringOr(_paramProps, kOfxParamPropStringMode, kOfxParamStringIsMultiLine, kOfxParamStringIsSingleLine);
       break;
     case eStringTypeFilePath :
-      _paramProps.propSetString(kOfxParamPropStringMode,  kOfxParamStringIsFilePath);
+      OFX::Private::propSetStringOr(_paramProps, kOfxParamPropStringMode, kOfxParamStringIsFilePath, kOfxParamStringIsSingleLine);
       break;
     case eStringTypeDirectoryPath :
-      _paramProps.propSetString(kOfxParamPropStringMode,  kOfxParamStringIsDirectoryPath);
+      OFX::Private::propSetStringOr(_paramProps, kOfxParamPropStringMode, kOfxParamStringIsDirectoryPath, kOfxParamStringIsSingleLine);
       break;
     case eStringTypeLabel :
-      _paramProps.propSetString(kOfxParamPropStringMode,  kOfxParamStringIsLabel);
+      OFX::Private::propSetStringOr(_paramProps, kOfxParamPropStringMode, kOfxParamStringIsLabel, kOfxParamStringIsSingleLine);
       break;
     case eStringTypeRichTextFormat :
-      _paramProps.propSetString(kOfxParamPropStringMode,  kOfxParamStringIsRichTextFormat);
+      OFX::Private::propSetStringOr(_paramProps, kOfxParamPropStringMode, kOfxParamStringIsRichTextFormat, kOfxParamStringIsSingleLine);
       break;
     }
   }
@@ -1331,7 +1385,7 @@ namespace OFX {
   /** @brief if the string param is a file path, say that we are picking an existing file, defaults to true */
   void StringParamDescriptor::setFilePathExists(bool v)
   {
-    _paramProps.propSetInt(kOfxParamPropStringFilePathExists, int(v));
+    OFX::Private::propSetIntOr(_paramProps, kOfxParamPropStringFilePathExists, int(v), 1);
   }
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -1351,7 +1405,7 @@ namespace OFX {
 
   void CustomParamDescriptor::setCustomInterpolation(bool v)
   {
-    _paramProps.propSetPointer(kOfxParamPropCustomInterpCallbackV1, v ? (void*)OFX::Private::customParamInterpolationV1Entry : NULL);
+    OFX::Private::propSetPointerOr(_paramProps, kOfxParamPropCustomInterpCallbackV1, v ? (void*)OFX::Private::customParamInterpolationV1Entry : NULL, NULL);
   }
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -1445,8 +1499,8 @@ namespace OFX {
   /** @brief adds a child parameter. Note the two existing pseudo params, gColumnSkip  and gRowSkip */
   void PageParamDescriptor::addChild(const ParamDescriptor &p)
   {
-    int nKids = _paramProps.propGetDimension(kOfxParamPropPageChild);
-    _paramProps.propSetString(kOfxParamPropPageChild, p.getName(), nKids);
+    int nKids = _paramProps.propGetDimension(kOfxParamPropPageChild, false);
+    OFX::Private::propSetStringOr(_paramProps, kOfxParamPropPageChild, p.getName(), "", nKids); // (default: "")
   }
 
   ////////////////////////////////////////////////////////////////////////////////
@@ -1619,8 +1673,8 @@ namespace OFX {
   void 
     ParamSetDescriptor::setPageParamOrder(PageParamDescriptor &p)
   {
-    int nPages = _paramSetProps.propGetDimension(kOfxPluginPropParamPageOrder);
-    _paramSetProps.propSetString(kOfxPluginPropParamPageOrder, p.getName().c_str(), nPages);
+    int nPages = _paramSetProps.propGetDimension(kOfxPluginPropParamPageOrder, false);
+    OFX::Private::propSetStringOr(_paramSetProps, kOfxPluginPropParamPageOrder, p.getName(), "", nPages); // (default: "")
   }
 
 
@@ -1985,7 +2039,7 @@ namespace OFX {
   /** @brief set the secretness of the param, defaults to false */
   void Param::setIsSecret(bool v)
   {
-    _paramProps.propSetInt(kOfxParamPropSecret, v);
+    OFX::Private::propSetIntOr(_paramProps, kOfxParamPropSecret, v, 0);
   }
 
   /** @brief set the param hint */
@@ -1997,13 +2051,13 @@ namespace OFX {
   /** @brief whether the param is enabled */
   void Param::setEnabled(bool v)
   {
-    _paramProps.propSetInt(kOfxParamPropEnabled, v);
+    OFX::Private::propSetIntOr(_paramProps, kOfxParamPropEnabled, v, 1);
   }
 
   /** @brief set the private data pointer */
   void Param::setDataPtr(void* ptr)
   {
-    _paramProps.propSetPointer(kOfxParamPropDataPtr, ptr);
+    OFX::Private::propSetPointerOr(_paramProps, kOfxParamPropDataPtr, ptr, NULL);
   }
 
   /** @brief fetch the label */
@@ -2023,21 +2077,21 @@ namespace OFX {
   /** @brief get whether the param is secret */
   bool Param::getIsSecret(void) const
   {
-    bool v = _paramProps.propGetInt(kOfxParamPropSecret) != 0;
+    bool v = OFX::Private::propGetIntOr(_paramProps, kOfxParamPropSecret, 0) != 0;
     return v;
   }
 
   /** @brief whether the param is enabled */
   bool Param::getIsEnable(void) const
   {
-    bool v = _paramProps.propGetInt(kOfxParamPropEnabled) != 0;
+    bool v = OFX::Private::propGetIntOr(_paramProps, kOfxParamPropEnabled, 1) != 0;
     return v;
   }
 
   /** @brief get the private data pointer */
   void* Param::getDataPtr(void) const
   {
-    return   _paramProps.propGetPointer(kOfxParamPropDataPtr);
+    return   _paramProps.propGetPointer(kOfxParamPropDataPtr, false); // "Default - NULL"
   }
 
   /** @brief get the param hint */
@@ -2057,7 +2111,7 @@ namespace OFX {
   /** @brief get the group param that is the parent of this one */
   GroupParam *Param::getParent(void) const
   {
-    std::string v  = _paramProps.propGetString(kOfxParamPropParent);
+    std::string v  = OFX::Private::propGetStringOr(_paramProps, kOfxParamPropParent, "");
     if(v == "") return NULL;
     return _paramSet->fetchGroupParam(v);
   }
@@ -2108,7 +2162,7 @@ namespace OFX {
   void 
     ValueParam::setEvaluateOnChange(bool v)
   {
-    _paramProps.propSetInt(kOfxParamPropEvaluateOnChange, v);
+    OFX::Private::propSetIntOr(_paramProps, kOfxParamPropEvaluateOnChange, v, 1);
   }
 
   /** @brief is the param animating */
@@ -2129,21 +2183,21 @@ namespace OFX {
   bool 
     ValueParam::getIsPersistent(void) const
   {
-    return _paramProps.propGetInt(kOfxParamPropPersistent) != 0;
+    return OFX::Private::propGetIntOr(_paramProps, kOfxParamPropPersistent, 1) != 0;
   }
 
   /** @brief Get's whether the value of the param is significant (ie: affects the rendered image) */
   bool 
     ValueParam::getEvaluateOnChange(void) const
   {
-    return _paramProps.propGetInt(kOfxParamPropEvaluateOnChange) != 0;
+    return OFX::Private::propGetIntOr(_paramProps, kOfxParamPropEvaluateOnChange, 1) != 0;
   }
 
   /** @brief Get's whether the value of the param is significant (ie: affects the rendered image) */
   CacheInvalidationEnum 
     ValueParam::getCacheInvalidation(void) const
   {
-    std::string v = _paramProps.propGetString(kOfxParamPropCacheInvalidation);
+    std::string v = OFX::Private::propGetStringOr(_paramProps, kOfxParamPropCacheInvalidation, kOfxParamInvalidateValueChange);
     if(v == kOfxParamInvalidateValueChange)
       return eCacheInvalidateValueChange;
     else if(v == kOfxParamInvalidateValueChangeToEnd)
@@ -2615,31 +2669,31 @@ namespace OFX {
   /** @brief set the sensitivity of any gui slider */
   void BaseDoubleParam::setIncrement(double v)
   {
-    _paramProps.propSetDouble(kOfxParamPropIncrement, v);
+    OFX::Private::propSetDoubleOr(_paramProps, kOfxParamPropIncrement, v, 1.);
   }
 
   /** @brief set the number of digits printed after a decimal point in any gui */
   void BaseDoubleParam::setDigits(int v)
   {
-    _paramProps.propSetInt(kOfxParamPropDigits, v);
+    OFX::Private::propSetIntOr(_paramProps, kOfxParamPropDigits, v, 2);
   }
 
   /** @brief get the sensitivity of any gui slider */
   void BaseDoubleParam::getIncrement(double &v) const
   {
-    v = _paramProps.propGetDouble(kOfxParamPropIncrement);
+    v = OFX::Private::propGetDoubleOr(_paramProps, kOfxParamPropIncrement, 1.);
   }
 
   /** @brief get the number of digits printed after a decimal point in any gui */
   void BaseDoubleParam::getDigits(int &v) const
   {
-    v = _paramProps.propGetInt(kOfxParamPropDigits);
+    v = OFX::Private::propGetIntOr(_paramProps, kOfxParamPropDigits, 2);
   }
 
   /** @brief get the type of the double param, defaults to eDoubleTypePlain */
   void BaseDoubleParam::getDoubleType(DoubleTypeEnum &v) const
   {
-    std::string str = _paramProps.propGetString(kOfxParamPropDoubleType);
+    std::string str = OFX::Private::propGetStringOr(_paramProps, kOfxParamPropDoubleType, kOfxParamDoubleTypePlain);
 
     if(str == kOfxParamDoubleTypePlain)
       v = eDoubleTypePlain;
@@ -2684,7 +2738,8 @@ namespace OFX {
   /** @brief get the type of coordinate system for default values */
   void BaseDoubleParam::getDefaultCoordinateSystem(DefaultCoordinateSystemEnum &v) const
   {
-    std::string str = _paramProps.propGetString(kOfxParamPropDefaultCoordinateSystem);
+    // OFX 1.2 ("Default - kOfxParamCoordinatesCanonical"): without it, defaults are canonical, as in OFX 1.1
+    std::string str = OFX::Private::propGetStringOr(_paramProps, kOfxParamPropDefaultCoordinateSystem, kOfxParamCoordinatesCanonical);
 
     if(str == kOfxParamCoordinatesNormalised)
       v = eCoordinatesNormalised;
