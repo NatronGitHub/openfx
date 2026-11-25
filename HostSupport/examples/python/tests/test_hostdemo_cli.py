@@ -204,7 +204,7 @@ def test_run_errors(tmp_path, hosts, sample_plugins, args):
     ["--format", "png"], ["-d", "half"], ["-c", "paint"], ["-m", "-1"], ["-i", "Source=bogus"], ["-i", "=ramp"],
     ["-i", "Source=ramp#rg"], ["-i", "Source=#rgb"], ["-i", "Source=ramp#rgb#alpha"],
     ["-i", "Source=ramp", "-i", "Source=none"], ["--report", "a.json", "--describe", "b.json"], ["--bogus"],
-    # -i Clip@Plane=spec (the in-process backend checks it as hostDemo, then refuses it without --multiplane)
+    # -i Clip@Plane=spec (checked as hostDemo checks it; refused without --multiplane)
     ["-i", "Source@Nope=ramp"], ["-i", "@BackMotionVector=ramp"], ["-i", "Source@BackMotionVector=none"],
     ["-i", "Source@BackMotionVector=bogus"], ["-i", "Source@BackMotionVector=ramp"],
     ["-i", "Source@BackMotionVector=ramp#rgb"], ["-i", "Source@StereoDisparityLeft=file:in.pfm#premult#alpha"],
@@ -227,19 +227,31 @@ def test_plane_components_suffix(tmp_path, hosts, sample_plugins):
         assert "(a plane has no #rgb/#alpha/#rgba suffix)" in p.stderr
 
 
-def test_multiplane(tmp_path, hosts, sample_plugins):
-    """--multiplane: hostDemo with the Nuke extension is a multi-plane host (README.md); the in-process backend,
-    whose ofxh bindings have the colour plane only, refuses it, as hostDemo without the Nuke extension."""
+def _nuke():
     import ofxh
+    return bool(ofxh.build_config["OFX_EXTENSIONS_NUKE"])  # (hostDemo is built with the same options as ofxh)
+
+
+def test_multiplane(tmp_path, hosts, sample_plugins):
+    """--multiplane: a multi-plane host with the Nuke extension (README.md), on both backends; without it,
+    both refuse it."""
     colour = [*Q, "-p", INVERT, "-i", "Source=ramp", "--frames", "0", "--format", "pfm", "-o", "out", "--report",
               "r.json"]
     args = colour + ["--multiplane", "-i", "Source@BackMotionVector=solid:0.5,0.25,0,1"]
-    (s, sd), (i, idir) = both(tmp_path, hosts, sample_plugins, args)
-    assert i.returncode == 1 and "Error: --multiplane: the in-process backend has no multi-plane support" in i.stderr
-    assert not (idir / "r.json").exists()
-    if not ofxh.build_config["OFX_EXTENSIONS_NUKE"]:  # (hostDemo is built with the same options as ofxh)
-        assert s.returncode == 1 and "Error: --multiplane needs a hostDemo built with OFX_EXTENSIONS_NUKE" in s.stderr
+    if not _nuke():
+        (s, sd), (i, idir) = both(tmp_path, hosts, sample_plugins, args)
+        assert s.returncode == i.returncode == 1
+        assert "Error: --multiplane needs a hostDemo built with OFX_EXTENSIONS_NUKE" in s.stderr
+        assert "Error: --multiplane needs a hostDemo built with OFX_EXTENSIONS_NUKE" in i.stderr
+        assert not (sd / "r.json").exists() and not (idir / "r.json").exists()
+        # (refused at the option, before the errors of the next options)
+        (s, _), (i, _) = both(tmp_path / "order", hosts, sample_plugins, [*Q, "--multiplane", "--frames", "0,0"])
+        assert s.returncode == i.returncode == 1
+        first = [x for x in s.stderr.splitlines() if x.startswith("Error")][:1]
+        assert first == ["Error: --multiplane needs a hostDemo built with OFX_EXTENSIONS_NUKE"]
+        assert first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]
         return
+    s, _, sd, _ = _compare(tmp_path, hosts, sample_plugins, args)
     assert s.returncode == 0, s.stderr
     r = json.loads((sd / "r.json").read_text())
     assert r["inputs"]["Source"]["planes"] == {"BackMotionVector": "solid:0.5,0.25,0,1"}
@@ -255,6 +267,47 @@ def test_multiplane(tmp_path, hosts, sample_plugins):
     (p, pd), _ = both(tmp_path / "colour", hosts, sample_plugins, colour)
     assert p.returncode == 0, p.stderr
     assert _files(sd) == _files(pd)
+
+
+@pytest.mark.parametrize("args", [
+    # planes of each kind, a file plane, at a render scale, two frames (and views): the planes are in the
+    # report only (no sample plug-in fetches them, so they change no output file)
+    [*Q, "--multiplane", "-p", INVERT, "-d", "float", "--format", "pfm", "-o", "out", "--report", "r.json",
+     "--scale", "0.5", "-i", "Source=checker:8", "-i", "Source@StereoDisparityRight=ramp",
+     "-i", "Source@ForwardMotionVector=file:in.pfm@4,2", "-i", "Source@StereoDisparityLeft=default",
+     "-i", "Source@BackMotionVector=solid:0.5,-0.25,0,1"],
+    # an identity (Basic's scale 1), a disconnected optional input (no plane present), the queries only
+    [*Q, "--multiplane", "-p", BASIC, "-m", "1", "-c", "general", "--report", "r.json", "--query", "--frames", "0",
+     "-i", "Mask=none", "-i", "Source@BackMotionVector=ramp", "scale=1"],
+    # a run error: no such clip (the report is written)
+    [*Q, "--multiplane", "-p", INVERT, "--report", "r.json", "-i", "Nope@BackMotionVector=ramp"],
+], ids=["planes", "identity-query", "no-clip"])
+def test_multiplane_same_as_hostdemo(tmp_path, hosts, sample_plugins, args):
+    """--multiplane runs give the same files, report (inputs.planes, planesPresent, identityPlane,
+    clipComponents), stdout and exit status on both backends."""
+    if not _nuke():
+        pytest.skip("--multiplane needs OFX_EXTENSIONS_NUKE")
+    rgb = np.random.default_rng(1).random((12, 16, 3), dtype=np.float32)
+    s, i, _, _ = _compare(tmp_path, hosts, sample_plugins, args, files=[("in.pfm", ofxhost.encode_pfm(rgb))])
+    assert [x for x in s.stderr.splitlines() if x.startswith("Error")] == \
+        [x for x in i.stderr.splitlines() if x.startswith("Error")]
+    assert s.returncode == (1 if "Nope@BackMotionVector=ramp" in args else 0), s.stderr
+
+
+def test_multiplane_describe_and_usage(tmp_path, hosts, sample_plugins):
+    """--multiplane --describe (the plug-in may describe itself differently to a multi-plane host), and
+    --multiplane --ofx14, refused by both with hostDemo's message."""
+    if not _nuke():
+        pytest.skip("--multiplane needs OFX_EXTENSIONS_NUKE")
+    (s, sd), (i, idir) = both(tmp_path, hosts, sample_plugins,
+                              [*Q, "--multiplane", "-p", BASIC, "-m", "1", "--describe", "d.json"])
+    assert s.returncode == i.returncode == 0, (s.stderr, i.stderr)
+    _same(_strict((sd / "d.json").read_text()), _strict((idir / "d.json").read_text()))
+    (s, _), (i, _) = both(tmp_path / "ofx14", hosts, sample_plugins, [*Q, "--multiplane", "--ofx14"])
+    assert s.returncode == i.returncode == 1
+    first = [x for x in s.stderr.splitlines() if x.startswith("Error")][:1]
+    assert first == ["Error: --multiplane and --ofx14 can't be used together (OFX 1.4 has no plane suite)"]
+    assert first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]
 
 
 def test_help(tmp_path, hosts, sample_plugins):

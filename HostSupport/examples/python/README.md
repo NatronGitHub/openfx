@@ -213,8 +213,14 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   render, hostDemo calls the plug-in's GetClipComponents action, and reports the planes it needs
   and its pass-through clip; it still renders the colour plane only (the output has no other
   plane). It uses its own plug-in cache file, hostDemoPluginCache-multiplane.xml. The in-process
-  backend refuses it (see below). No dynamic choices (kNatronOfxParamHostPropSupportsDynamicChoices
-  stays 0): SupportExt's multi-plane plug-ins see a "V1" host, with the built-in planes only.
+  backend's command line (`python -m ofxhost.hostdemo`, below) does the same, on the bindings'
+  multi-plane support (Nuke extension builds): a host on `ofxh` lists an input's planes in
+  `ClipInstance.components_present`, gets `get_image(..., plane="BackMotionVector")` (short names,
+  as `-i`; `ofxh.ofx_name("plane", ...)`) for those, and returns (H, W, 2) arrays, and
+  `ImageEffectInstance.get_clip_components_action()` runs the GetClipComponents action
+  (`ofxhost.render(backend="inprocess")` doesn't take `--multiplane` in `extra_args`). No dynamic
+  choices (kNatronOfxParamHostPropSupportsDynamicChoices stays 0): SupportExt's multi-plane
+  plug-ins see a "V1" host, with the built-in planes only.
 - The environment variable `OFX_HOSTDEMO_KEEP_LOADED=1` makes hostDemo keep the plug-ins that
   the scan found loaded (`Host::keepPluginsLoadedAfterScan()`): they get one kOfxActionLoad and
   kOfxActionDescribe, and kOfxActionUnload at exit. By default (as in a run that uses the plug-in
@@ -516,18 +522,13 @@ What differs from hostDemo (the complete list; `tests/test_hostdemo_cli.py` chec
 - ofxh's string choice parameters refuse a value outside their enums (hostDemo's accept it);
 - an error in the Python host itself (a bug: an uncaught Python exception) exits with status 1 and a
   traceback on stderr, and writes no report;
-- `--multiplane` is refused (exit status 1), as by a hostDemo built without the Nuke extension:
-  the ofxh bindings fetch and render the colour plane only. Mirroring it needs, in the bindings,
-  `ClipInstance::getImagePlane()` passing the plane to `get_image()` and images with the
-  two-component motion-vector and disparity components, a `getComponentsPresent()` callback, and
-  `ImageEffectInstance.get_clip_components_action()`. `-i Clip@Plane=spec` is checked as by
-  hostDemo (the same errors), and refused without `--multiplane`;
 - beyond hostDemo: `$OFXHOST_PRELOAD` lists libraries (`os.pathsep`-separated) to load with
   `RTLD_GLOBAL` before the plug-in scan: e.g. MacPorts' `libtbbmalloc` for IO.ofx, since oneTBB
   2023.2 can crash at exit when OpenImageIO loaded it.
 
 As hostDemo, it reads the whole command line before it imports `ofxh`: `-h` and the usage errors
-behave the same where `ofxh` isn't built.
+behave the same where `ofxh` isn't built. Only `--multiplane` imports it at the option, to refuse it
+there, as hostDemo does, when `ofxh` has no Nuke extension.
 
 **Windows** (MSYS2 UCRT64, a native `python.exe`): run `python -m ofxhost.hostdemo ARGS...` with
 Windows paths in `PYTHONPATH`, separated by `;`:

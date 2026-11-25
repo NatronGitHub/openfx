@@ -214,7 +214,7 @@ def _host_key(flags: set) -> tuple:
     return (dirs_t, "ofx14" if "--ofx14" in flags else "default",
             (os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1", "--no-std-paths" not in flags,
              "--opengl-describe" in flags,
-             "--no-normalised-defaults" not in flags))
+             "--no-normalised-defaults" not in flags, "--multiplane" in flags))
 
 
 _hosts: list = []  # (the test hook "host": the hosts seen, kept so that their ids aren't reused)
