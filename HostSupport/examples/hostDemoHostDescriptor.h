@@ -22,17 +22,26 @@ namespace MyHost {
     /// is not called. Call it before the plug-in scan.
     void restrictToOFX14();
 
+    /// --ofx11: behave as an OFX 1.1 host such as VEGAS Pro (openfx-misc#66). The host descriptor
+    /// keeps only the OFX 1.1 host properties (and kOfxPropAPIVersion 1.1), with no tiles, no
+    /// multi-resolution, no overlays and only 8-bit and float depths; fetchSuite() returns only the
+    /// OFX 1.1 suites but the interact suite; OfxSetHost is not called; the double params have no
+    /// kOfxParamPropDefaultCoordinateSystem (as disableNormalisedDefaults()), and the plug-in
+    /// descriptors and instances no kOfxImageEffectInstancePropSequentialRender. Call it before
+    /// the plug-in scan.
+    void restrictToOFX11();
+
     /// --no-normalised-defaults: behave as a host that doesn't support normalised parameter
     /// defaults. The double param descriptors have no kOfxParamPropDefaultCoordinateSystem (a
     /// plug-in's set fails with kOfxStatErrUnknown), so their defaults are canonical. Call it
     /// before the plug-in scan.
     void disableNormalisedDefaults() { _normalisedDefaults = false; }
 
-    /// the base class suites, or only the OFX 1.4 ones with restrictToOFX14()
+    /// the base class suites, or only the OFX 1.4 (1.1) ones with restrictToOFX14() (restrictToOFX11())
     virtual const void *fetchSuite(const char *suiteName, int suiteVersion);
 
-    /// false with restrictToOFX14()
-    virtual bool supportsOfxSetHost() const { return !_ofx14; }
+    /// false with restrictToOFX14() or restrictToOFX11()
+    virtual bool supportsOfxSetHost() const { return !_ofx14 && !_ofx11; }
 
     /// true if the environment variable OFX_HOSTDEMO_KEEP_LOADED is 1: the scanned plug-ins stay
     /// loaded (one kOfxActionLoad and kOfxActionDescribe), instead of being unloaded after the
@@ -40,8 +49,8 @@ namespace MyHost {
     virtual bool keepPluginsLoadedAfterScan() const { return _keepLoaded; }
 
     /// kOfxParamPropColourManagement on RGB and RGBA params (a test-host hook: hostDemo doesn't
-    /// convert colours); false with restrictToOFX14()
-    virtual bool supportsParamColourManagement() const { return !_ofx14; }
+    /// convert colours); false with restrictToOFX14() or restrictToOFX11()
+    virtual bool supportsParamColourManagement() const { return !_ofx14 && !_ofx11; }
 
     /// Create a new instance of an image effect plug-in.
     ///
@@ -95,7 +104,12 @@ namespace MyHost {
     virtual OfxStatus flushOpenGLResources() const { return kOfxStatFailed; };
 #endif
   private:
+    /// restrictToOFX11(): remove kOfxImageEffectInstancePropSequentialRender from a plug-in
+    /// descriptor or instance
+    void removeSequentialRender(OFX::Host::Property::Set& props) const;
+
     bool _ofx14; ///< restrictToOFX14()
+    bool _ofx11; ///< restrictToOFX11()
     bool _keepLoaded; ///< OFX_HOSTDEMO_KEEP_LOADED=1
     bool _normalisedDefaults; ///< false after disableNormalisedDefaults()
   };

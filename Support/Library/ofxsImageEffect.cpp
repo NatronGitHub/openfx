@@ -781,15 +781,15 @@ namespace OFX {
     switch(v) 
     {
     case eFieldExtractBoth :
-      _clipProps.propSetString(kOfxImageClipPropFieldExtraction, kOfxImageFieldBoth);
+      OFX::Private::propSetStringOr(_clipProps, kOfxImageClipPropFieldExtraction, kOfxImageFieldBoth, kOfxImageFieldDoubled);
       break;
 
     case eFieldExtractSingle :
-      _clipProps.propSetString(kOfxImageClipPropFieldExtraction, kOfxImageFieldSingle);
+      OFX::Private::propSetStringOr(_clipProps, kOfxImageClipPropFieldExtraction, kOfxImageFieldSingle, kOfxImageFieldDoubled);
       break;
 
     case eFieldExtractDoubled :
-      _clipProps.propSetString(kOfxImageClipPropFieldExtraction, kOfxImageFieldDoubled);
+      OFX::Private::propSetStringOr(_clipProps, kOfxImageClipPropFieldExtraction, kOfxImageFieldDoubled, kOfxImageFieldDoubled);
       break;
     }
   }
@@ -846,25 +846,25 @@ namespace OFX {
   /** @brief say whether we are going to do random temporal access on this clip, defaults to false */
   void ClipDescriptor::setTemporalClipAccess(bool v)
   {
-    _clipProps.propSetInt(kOfxImageEffectPropTemporalClipAccess, int(v));
+    OFX::Private::propSetIntOr(_clipProps, kOfxImageEffectPropTemporalClipAccess, int(v), 0);
   }
 
   /** @brief say whether if the clip is optional, defaults to false */
   void ClipDescriptor::setOptional(bool v)
   {
-    _clipProps.propSetInt(kOfxImageClipPropOptional, int(v));
+    OFX::Private::propSetIntOr(_clipProps, kOfxImageClipPropOptional, int(v), 0);
   }
 
   /** @brief say whether this clip supports tiling, defaults to true */
   void ClipDescriptor::setSupportsTiles(bool v)
   {
-    _clipProps.propSetInt(kOfxImageEffectPropSupportsTiles, int(v));
+    OFX::Private::propSetIntOr(_clipProps, kOfxImageEffectPropSupportsTiles, int(v), 1);
   }
 
   /** @brief say whether this clip is a 'mask', so the host can know to replace with a roto or similar, defaults to false */
   void ClipDescriptor::setIsMask(bool v)
   {
-    _clipProps.propSetInt(kOfxImageClipPropIsMask, int(v));
+    OFX::Private::propSetIntOr(_clipProps, kOfxImageClipPropIsMask, int(v), 0);
   }
 
 #ifdef OFX_EXTENSIONS_NATRON
@@ -946,6 +946,7 @@ namespace OFX {
   /** @brief effect descriptor ctor */
   ImageEffectDescriptor::ImageEffectDescriptor(OfxImageEffectHandle handle)
     : _effectHandle(handle)
+    , _shortAndLongLabelsSet(false)
   {
     // fetch the property set handle of the effect
     OfxPropertySetHandle props;
@@ -990,12 +991,23 @@ namespace OFX {
   {
     validateXMLString(label, true);
     _effectProps.propSetString(kOfxPropLabel, label);
+    // the short and long labels follow the label unless setLabels() set them, as OFX 1.4 ofxCore.h
+    // says of kOfxPropShortLabel and kOfxPropLongLabel: "Default - initially kOfxPropName, but will
+    // be reset if kOfxPropLabel is changed". Not all hosts do it: DaVinci Resolve 21.0.4's Cut page
+    // shows only the long label (https://github.com/ntsc-rs/ntsc-rs/issues/875). Optional properties
+    if (!_shortAndLongLabelsSet) {
+      _effectProps.propSetString(kOfxPropShortLabel, label, false);
+      _effectProps.propSetString(kOfxPropLongLabel, label, false);
+    }
   }
 
-  /** @brief, set the label properties in a plugin */
+  /** @brief, set the label properties in a plugin. A later setLabel() keeps the short and long
+      labels set here (OFX 1.4 ofxCore.h says the host resets them when kOfxPropLabel changes:
+      Support doesn't do that for the host) */
   void ImageEffectDescriptor::setLabels(const std::string &label, const std::string &shortLabel, const std::string &longLabel)
   {
     setLabel(label);
+    _shortAndLongLabelsSet = true;
     validateXMLString(shortLabel, false);
     _effectProps.propSetString(kOfxPropShortLabel, shortLabel, false);
     validateXMLString(longLabel, false);
@@ -1026,7 +1038,7 @@ namespace OFX {
   void ImageEffectDescriptor::setPluginGrouping(const std::string &group)
   {
     validateXMLString(group, true);
-    _effectProps.propSetString(kOfxImageEffectPluginPropGrouping, group);
+    OFX::Private::propSetStringOr(_effectProps, kOfxImageEffectPluginPropGrouping, group, "");
   }
 
   /** @brief Set the plugin description, defaults to "" */
@@ -1238,7 +1250,7 @@ namespace OFX {
           entry = mainEntryV1;
         }
       }
-      _effectProps.propSetPointer(kOfxImageEffectPluginPropOverlayInteractV1, (void*)entry);
+      OFX::Private::propSetPointerOr(_effectProps, kOfxImageEffectPluginPropOverlayInteractV1, (void*)entry, NULL);
       OFX::Private::setOverlayInteractV1(entry);
     }
   }
@@ -1434,19 +1446,19 @@ namespace OFX {
   /** @brief Is the plugin single instance only ? */
   void ImageEffectDescriptor::setSingleInstance(bool v)
   {
-    _effectProps.propSetInt(kOfxImageEffectPluginPropSingleInstance, int(v));
+    OFX::Private::propSetIntOr(_effectProps, kOfxImageEffectPluginPropSingleInstance, int(v), 0);
   }
 
   /** @brief Does the plugin expect the host to perform per frame SMP threading */
   void ImageEffectDescriptor::setHostFrameThreading(bool v)
   {
-    _effectProps.propSetInt(kOfxImageEffectPluginPropHostFrameThreading, int(v));
+    OFX::Private::propSetIntOr(_effectProps, kOfxImageEffectPluginPropHostFrameThreading, int(v), 1);
   }
 
   /** @brief Does the plugin support multi resolution images */
   void ImageEffectDescriptor::setSupportsMultiResolution(bool v)
   {
-    _effectProps.propSetInt(kOfxImageEffectPropSupportsMultiResolution, int(v));
+    OFX::Private::propSetIntOr(_effectProps, kOfxImageEffectPropSupportsMultiResolution, int(v), 1);
   }
 
   /** @brief set the instance to be sequentially renderred, this should have been part of clip preferences! */
@@ -1464,7 +1476,7 @@ namespace OFX {
   /** @brief Does the plugin support image tiling */
   void ImageEffectDescriptor::setSupportsTiles(bool v)
   {
-    _effectProps.propSetInt(kOfxImageEffectPropSupportsTiles, int(v));
+    OFX::Private::propSetIntOr(_effectProps, kOfxImageEffectPropSupportsTiles, int(v), 1);
   }
 
   /** @brief Does the plugin handles render quality */
@@ -1476,25 +1488,25 @@ namespace OFX {
   /** @brief Does the plugin perform temporal clip access */
   void ImageEffectDescriptor::setTemporalClipAccess(bool v)
   {
-    _effectProps.propSetInt(kOfxImageEffectPropTemporalClipAccess, int(v));
+    OFX::Private::propSetIntOr(_effectProps, kOfxImageEffectPropTemporalClipAccess, int(v), 0);
   }
 
   /** @brief Does the plugin want to have render called twice per frame in all circumanstances for fielded images ? */
   void ImageEffectDescriptor::setRenderTwiceAlways(bool v)
   {
-    _effectProps.propSetInt(kOfxImageEffectPluginPropFieldRenderTwiceAlways, int(v));
+    OFX::Private::propSetIntOr(_effectProps, kOfxImageEffectPluginPropFieldRenderTwiceAlways, int(v), 1);
   }
 
   /** @brief Does the plugin support inputs and output clips of differing depths */
   void ImageEffectDescriptor::setSupportsMultipleClipDepths(bool v)
   {
-    _effectProps.propSetInt(kOfxImageEffectPropSupportsMultipleClipDepths, int(v));
+    OFX::Private::propSetIntOr(_effectProps, kOfxImageEffectPropSupportsMultipleClipDepths, int(v), 0);
   }
 
   /** @brief Does the plugin support inputs and output clips of pixel aspect ratios */
   void ImageEffectDescriptor::setSupportsMultipleClipPARs(bool v)
   {
-    _effectProps.propSetInt(kOfxImageEffectPropSupportsMultipleClipPARs, int(v));
+    OFX::Private::propSetIntOr(_effectProps, kOfxImageEffectPropSupportsMultipleClipPARs, int(v), 0);
   }
 
   /** @brief What kind of thread safety does the plugin have */
@@ -1503,13 +1515,13 @@ namespace OFX {
     switch(v) 
     {
     case eRenderUnsafe :
-      _effectProps.propSetString(kOfxImageEffectPluginRenderThreadSafety, kOfxImageEffectRenderUnsafe);
+      OFX::Private::propSetStringOr(_effectProps, kOfxImageEffectPluginRenderThreadSafety, kOfxImageEffectRenderUnsafe, kOfxImageEffectRenderInstanceSafe);
       break;
     case eRenderInstanceSafe :
-      _effectProps.propSetString(kOfxImageEffectPluginRenderThreadSafety, kOfxImageEffectRenderInstanceSafe);
+      OFX::Private::propSetStringOr(_effectProps, kOfxImageEffectPluginRenderThreadSafety, kOfxImageEffectRenderInstanceSafe, kOfxImageEffectRenderInstanceSafe);
       break;
     case eRenderFullySafe :
-      _effectProps.propSetString(kOfxImageEffectPluginRenderThreadSafety, kOfxImageEffectRenderFullySafe);
+      OFX::Private::propSetStringOr(_effectProps, kOfxImageEffectPluginRenderThreadSafety, kOfxImageEffectRenderFullySafe, kOfxImageEffectRenderInstanceSafe);
       break;
     }
   }
@@ -1725,14 +1737,15 @@ namespace OFX {
   /** @brief If the slave param changes the clip preferences need to be re-evaluated */
   void ImageEffectDescriptor::addClipPreferencesSlaveParam(ParamDescriptor &p)
   {
-    int n = _effectProps.propGetDimension(kOfxImageEffectPropClipPreferencesSlaveParam);
+    int n = _effectProps.propGetDimension(kOfxImageEffectPropClipPreferencesSlaveParam, false);
     validateXMLString(p.getName(), false);
 # ifdef DEBUG
     if (p.getPropertySet().propGetInt(kOfxParamPropAnimates, false)) {
       std::cout << "Warning: parameter " << p.getName() << " is a clip preferences slave param but is animated\n";
     }
 # endif
-    _effectProps.propSetString(kOfxImageEffectPropClipPreferencesSlaveParam, p.getName(), n);
+    // (default: "none set")
+    OFX::Private::propSetStringOr(_effectProps, kOfxImageEffectPropClipPreferencesSlaveParam, p.getName(), "", n);
   }
 
 #ifdef OFX_EXTENSIONS_VEGAS
@@ -2351,7 +2364,7 @@ namespace OFX {
   /** @brief can the clip be continuously sampled */
   bool Clip::hasContinuousSamples(void) const
   {
-    return _clipProps.propGetInt(kOfxImageClipPropContinuousSamples) != 0;
+    return OFX::Private::propGetIntOr(_clipProps, kOfxImageClipPropContinuousSamples, 0) != 0; // "Default - 0"
   }
 
   /** @brief get the scale factor that has been applied to this clip */
@@ -2856,13 +2869,15 @@ namespace OFX {
     }
 
     const ImageEffectHostDescription &hostDescription = *getImageEffectHostDescription();
-    _hostIsResolve = (hostDescription.hostName.rfind("DaVinciResolve", 0) == 0);  // Resolve gives bad image properties (RS is always 1 and field is None)
+    _hostIsResolve = (hostDescription.hostName.rfind("DaVinciResolve", 0) == 0);  // the field of Resolve's images is always None
     _hostIsFusion = (hostDescription.hostName == "com.eyeonline.Fusion") || (hostDescription.hostName == "com.blackmagicdesign.Fusion"); // Fusion gives inverse RS props in inargs and on the images
     // Vegas, and probably VegasMovieStudio, always use renderScale, and do not set it in the image props, see https://github.com/NatronGitHub/openfx-misc/issues/66#issuecomment-562783481
-    // VEGAS Pro 19 reports com.vegascreativesoftware.vegas (VEGAS Pro 12 to 15: com.sonycreativesoftware.vegas)
+    // VEGAS Pro 19 reports com.vegascreativesoftware.vegas, VEGAS Pro 12 to 15 com.sonycreativesoftware.vegas
+    // (openfx-misc's README-hosts.txt, the VEGAS Pro 15 and 19 host descriptions)
     _hostIsVegas = starts_with(hostDescription.hostName, "com.sonycreativesoftware.vegas") ||
                    starts_with(hostDescription.hostName, "com.vegascreativesoftware.vegas");
-    _ignoreBadRenderScale = _hostIsResolve || _hostIsFusion || _hostIsVegas;
+    _ignoreImageRenderScale = _hostIsFusion || _hostIsVegas;
+    _ignoreImageField = _hostIsResolve;
   }
 
   /** @brief dtor */
@@ -3211,13 +3226,15 @@ namespace OFX {
   /** @brief set the instance to be sequentially renderred, this should have been part of clip preferences! */
   void ImageEffect::setSequentialRender(bool v)
   {
-    _effectProps.propSetInt(kOfxImageEffectInstancePropSequentialRender, int(v));
+    // as on the descriptor: missing on the effect descriptor in Resolve and Nuke (openfx-misc's
+    // README-hosts.txt), and on the host descriptor before OFX 1.2. "Default - 0"
+    OFX::Private::propSetIntOr(_effectProps, kOfxImageEffectInstancePropSequentialRender, int(v), 0);
   }
 
   /** @brief Have we informed the host we want to be seqentially renderred ? */
   bool ImageEffect::getSequentialRender(void) const
   {
-    return _effectProps.propGetInt(kOfxImageEffectInstancePropSequentialRender) != 0;
+    return OFX::Private::propGetIntOr(_effectProps, kOfxImageEffectInstancePropSequentialRender, 0) != 0;
   }
 
   /** @brief Does the plugin support image tiling ? Can only be called from changedParam or changedClip. */
@@ -3229,7 +3246,7 @@ namespace OFX {
   /** @brief Have we informed the host we support image tiling ? */
   bool ImageEffect::getSupportsTiles(void) const
   {
-    return _effectProps.propGetInt(kOfxImageEffectPropSupportsTiles) != 0;
+    return OFX::Private::propGetIntOr(_effectProps, kOfxImageEffectPropSupportsTiles, 1) != 0; // "Default - to 1 for a plugin"
   }
 
 #ifdef OFX_EXTENSIONS_NATRON
@@ -3332,7 +3349,14 @@ namespace OFX {
     }
     // (a printf format, as for sendMessage)
     OfxStatus stat = OFX::Private::gMessageSuiteV2->setPersistentMessage(_effectHandle, mapMessageTypeEnumToStr(type), id.c_str(), "%s", msg.c_str());
-    return mapToMessageReplyEnum(stat);
+    if (stat != kOfxStatOK) {
+      // a host may refuse it (DaVinci Resolve and Fusion 2026: https://github.com/creativevideotips/cvt-ltx-alpha-gen,
+      // src/ofx/src/plugin.cpp): not an error of the plug-in's action
+      OFX::Log::warning(true, "OfxMessageSuiteV2::setPersistentMessage() refused the message \"%s\"/\"%s\" (%s)",
+                        id.c_str(), msg.c_str(), OFX::mapStatusToString(stat));
+      return OFX::Message::eMessageReplyFailed;
+    }
+    return OFX::Message::eMessageReplyOK;
   }
 
   OFX::Message::MessageReplyEnum ImageEffect::clearPersistentMessage(bool throwIfMissing)
@@ -3349,7 +3373,13 @@ namespace OFX {
       return OFX::Message::eMessageReplyFailed;
     }
     OfxStatus stat = OFX::Private::gMessageSuiteV2->clearPersistentMessage(_effectHandle);
-    return mapToMessageReplyEnum(stat);
+    if (stat != kOfxStatOK) {
+      // refused by DaVinci Resolve and Fusion 2026 (https://github.com/creativevideotips/cvt-ltx-alpha-gen,
+      // src/ofx/src/plugin.cpp)
+      OFX::Log::warning(true, "OfxMessageSuiteV2::clearPersistentMessage() refused (%s)", OFX::mapStatusToString(stat));
+      return OFX::Message::eMessageReplyFailed;
+    }
+    return OFX::Message::eMessageReplyOK;
   }
 
 #ifdef OFX_SUPPORTS_DIALOG
@@ -4302,9 +4332,27 @@ namespace OFX {
   /** @brief, force the host to set a clip's mapped Pixel Aspect Ratio to be \em PAR */
   void ClipPreferencesSetter::setPixelAspectRatio(Clip &clip, double PAR)
   {
-    doneSomething_ = true;
     const std::string& propName = extractValueForName(clipPARPropNames_, clip.name());
-    outArgs_.propSetDouble(propName.c_str(), PAR);
+    // ofxClipPreferences.rst: "If the host sets this [kOfxImageEffectPropSupportsMultipleClipPARs]
+    // to 0, then all effect's input and output clips will always have the same pixel aspect ratio,
+    // and the plugin may not remap them. [...] If *both* the plugin and host set this to 1, then
+    // the plugin can [...] specify how the host is to map each clip". A conforming host then refuses
+    // the write, and a host without the property (VEGAS, an OFX 1.1 host) doesn't know it: log it
+    // instead of failing the whole action, as setClipBitDepth does. The write is still made when
+    // the host reports 0: some accept it (e.g. a reader's output PAR, openfx-io GenericReader).
+    doneSomething_ = true;
+    try {
+      outArgs_.propSetDouble(propName.c_str(), PAR);
+    } catch (const OFX::Exception::PropertyValueIllegalToHost&) {
+      // kOfxStatErrValue: the property is read-only
+      OFX::Log::warning(true, "setPixelAspectRatio(%s, %g): the host refused to set %s: the plug-in may only "
+                        "set clip PARs if it and the host both support multiple clip PARs",
+                        clip.name().c_str(), PAR, propName.c_str());
+    } catch (const OFX::Exception::PropertyUnknownToHost&) {
+      OFX::Log::warning(true, "setPixelAspectRatio(%s, %g): the host does not support setting %s",
+                        clip.name().c_str(), PAR, propName.c_str());
+    }
+    // other failures (bad handle, bad index: OFX::Exception::Suite; kOfxStatErrMemory: std::bad_alloc) propagate
   }
 
   /** @brief Allows an effect to change the output frame rate */
@@ -4336,14 +4384,14 @@ namespace OFX {
   void ClipPreferencesSetter::setOutputHasContinuousSamples(bool v)
   {
     doneSomething_ = true;
-    outArgs_.propSetInt(kOfxImageClipPropContinuousSamples, int(v));
+    OFX::Private::propSetIntOr(outArgs_, kOfxImageClipPropContinuousSamples, int(v), 0); // default 0
   }
 
   /** @brief Sets whether the effect will produce different images in all frames, even if the no params or input images are varying (eg: a noise generator). */
   void ClipPreferencesSetter::setOutputFrameVarying(bool v)
   {
     doneSomething_ = true;
-    outArgs_.propSetInt(kOfxImageEffectFrameVarying, int(v));
+    OFX::Private::propSetIntOr(outArgs_, kOfxImageEffectFrameVarying, int(v), 0); // default 0
   }
 
 
@@ -4497,30 +4545,35 @@ namespace OFX {
         }
         gHostDescription.APIVersionMinor            = apiVersionDim > 1 ? hostProps.propGetInt(kOfxPropAPIVersion, 1, false) : 0; // OFX 1.2
         gHostDescription.hostName                   = hostProps.propGetString(kOfxPropName);
-        gHostDescription.hostLabel                  = hostProps.propGetString(kOfxPropLabel);
+        gHostDescription.hostLabel                  = OFX::Private::propGetStringOr(hostProps, kOfxPropLabel, gHostDescription.hostName); // "Default - the kOfxPropName the object was created with"
         gHostDescription.versionMajor               = versionDim > 0 ? hostProps.propGetInt(kOfxPropVersion, 0, false) : 0; // OFX 1.2
         gHostDescription.versionMinor               = versionDim > 1 ? hostProps.propGetInt(kOfxPropVersion, 1, false) : 0; // OFX 1.2
         gHostDescription.versionMicro               = versionDim > 2 ? hostProps.propGetInt(kOfxPropVersion, 2, false) : 0; // OFX 1.2
         gHostDescription.versionLabel               = hostProps.propGetString(kOfxPropVersionLabel, false); // OFX 1.2
-        gHostDescription.hostIsBackground           = hostProps.propGetInt(kOfxImageEffectHostPropIsBackground) != 0;
-        gHostDescription.supportsOverlays           = hostProps.propGetInt(kOfxImageEffectPropSupportsOverlays) != 0;
-        gHostDescription.supportsMultiResolution    = hostProps.propGetInt(kOfxImageEffectPropSupportsMultiResolution) != 0;
-        gHostDescription.supportsTiles              = hostProps.propGetInt(kOfxImageEffectPropSupportsTiles) != 0;
-        gHostDescription.temporalClipAccess         = hostProps.propGetInt(kOfxImageEffectPropTemporalClipAccess) != 0;
-        gHostDescription.supportsMultipleClipDepths = hostProps.propGetInt(kOfxImageEffectPropSupportsMultipleClipDepths) != 0;
-        gHostDescription.supportsMultipleClipPARs   = hostProps.propGetInt(kOfxImageEffectPropSupportsMultipleClipPARs) != 0;
-        gHostDescription.supportsSetableFrameRate   = hostProps.propGetInt(kOfxImageEffectPropSetableFrameRate) != 0;
-        gHostDescription.supportsSetableFielding    = hostProps.propGetInt(kOfxImageEffectPropSetableFielding) != 0;
+        gHostDescription.hostIsBackground           = hostProps.propGetInt(kOfxImageEffectHostPropIsBackground, false) != 0;
+        gHostDescription.supportsOverlays           = hostProps.propGetInt(kOfxImageEffectPropSupportsOverlays, false) != 0;
+        gHostDescription.supportsMultiResolution    = hostProps.propGetInt(kOfxImageEffectPropSupportsMultiResolution, false) != 0;
+        gHostDescription.supportsTiles              = hostProps.propGetInt(kOfxImageEffectPropSupportsTiles, false) != 0;
+        gHostDescription.temporalClipAccess         = hostProps.propGetInt(kOfxImageEffectPropTemporalClipAccess, false) != 0;
+        gHostDescription.supportsMultipleClipDepths = hostProps.propGetInt(kOfxImageEffectPropSupportsMultipleClipDepths, false) != 0;
+        gHostDescription.supportsMultipleClipPARs   = hostProps.propGetInt(kOfxImageEffectPropSupportsMultipleClipPARs, false) != 0;
+        gHostDescription.supportsSetableFrameRate   = hostProps.propGetInt(kOfxImageEffectPropSetableFrameRate, false) != 0;
+        gHostDescription.supportsSetableFielding    = hostProps.propGetInt(kOfxImageEffectPropSetableFielding, false) != 0;
         gHostDescription.sequentialRender           = hostProps.propGetInt(kOfxImageEffectInstancePropSequentialRender, false); // appeared in OFX 1.2
-        gHostDescription.supportsStringAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsStringAnimation) != 0;
-        gHostDescription.supportsCustomInteract     = hostProps.propGetInt(kOfxParamHostPropSupportsCustomInteract) != 0;
-        gHostDescription.supportsChoiceAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsChoiceAnimation) != 0;
+        gHostDescription.supportsStringAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsStringAnimation, false) != 0;
+        gHostDescription.supportsCustomInteract     = hostProps.propGetInt(kOfxParamHostPropSupportsCustomInteract, false) != 0;
+        gHostDescription.supportsChoiceAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsChoiceAnimation, false) != 0;
         gHostDescription.supportsStrChoiceAnimation = hostProps.propGetInt(kOfxParamHostPropSupportsStrChoiceAnimation, false) != 0;
         gHostDescription.supportsStrChoice          = hostProps.propGetInt(kOfxParamHostPropSupportsStrChoice, false) != 0;
-        gHostDescription.supportsBooleanAnimation   = hostProps.propGetInt(kOfxParamHostPropSupportsBooleanAnimation) != 0;
-        gHostDescription.supportsCustomAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsCustomAnimation) != 0;
+        gHostDescription.supportsBooleanAnimation   = hostProps.propGetInt(kOfxParamHostPropSupportsBooleanAnimation, false) != 0;
+        gHostDescription.supportsCustomAnimation    = hostProps.propGetInt(kOfxParamHostPropSupportsCustomAnimation, false) != 0;
         gHostDescription.osHandle                   = hostProps.propGetPointer(kOfxPropHostOSHandle, false);
-        gHostDescription.supportsParametricParameter = gParametricParameterSuite != 0;
+        // Nuke 8 to 11.1 have the parametric parameter suite, but it doesn't work: report no
+        // parametric parameters there (the test of openfx-misc's ColorCorrect.cpp, ColorLookup.cpp,
+        // HueCorrect.cpp, HueCorrect1.cpp, Retime.cpp and TimeDissolve.cpp)
+        gHostDescription.supportsParametricParameter = gParametricParameterSuite != 0 &&
+          !(gHostDescription.hostName == "uk.co.thefoundry.nuke" &&
+            8 <= gHostDescription.versionMajor && gHostDescription.versionMajor <= 11);
         gHostDescription.supportsParametricAnimation = hostProps.propGetInt(kOfxParamHostPropSupportsParametricAnimation, false) != 0;
         gHostDescription.supportsOpenCLRender        = hostProps.propGetString(kOfxImageEffectPropOpenCLRenderSupported, 0, false) == "true";
         gHostDescription.supportsCudaRender          = hostProps.propGetString(kOfxImageEffectPropCudaRenderSupported, 0, false) == "true";
@@ -4575,10 +4628,10 @@ namespace OFX {
         gHostDescription.canTransform               = hostProps.propGetInt(kFnOfxImageEffectCanTransform, false) != 0;
         gHostDescription.isMultiPlanar              = hostProps.propGetInt(kFnOfxImageEffectPropMultiPlanar, false) != 0;
 #endif
-        gHostDescription.maxParameters              = hostProps.propGetInt(kOfxParamHostPropMaxParameters);
-        gHostDescription.maxPages                   = hostProps.propGetInt(kOfxParamHostPropMaxPages);
-        gHostDescription.pageRowCount               = hostProps.propGetInt(kOfxParamHostPropPageRowColumnCount, 0);
-        gHostDescription.pageColumnCount            = hostProps.propGetInt(kOfxParamHostPropPageRowColumnCount, 1);
+        gHostDescription.maxParameters              = OFX::Private::propGetIntOr(hostProps, kOfxParamHostPropMaxParameters, -1); // "-1 implies unlimited"
+        gHostDescription.maxPages                   = hostProps.propGetInt(kOfxParamHostPropMaxPages, false);
+        gHostDescription.pageRowCount               = hostProps.propGetInt(kOfxParamHostPropPageRowColumnCount, 0, false);
+        gHostDescription.pageColumnCount            = hostProps.propGetInt(kOfxParamHostPropPageRowColumnCount, 1, false);
 #ifdef OFX_EXTENSIONS_NATRON
         gHostDescription.isNatron                   = hostProps.propGetInt(kNatronOfxHostIsNatron, false) != 0;
         gHostDescription.supportsDynamicChoices     = hostProps.propGetInt(kNatronOfxParamHostPropSupportsDynamicChoices, false) != 0;

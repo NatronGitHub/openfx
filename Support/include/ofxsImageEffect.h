@@ -780,6 +780,9 @@ namespace OFX {
     auto_ptr<HWNDInteractDescriptor>  _hwndInteractDescriptor;
 #endif // #if defined(_WIN32) || defined(WIN32) || defined(WIN64)
 #endif
+
+    /** @brief whether setLabels() set the short and long labels: setLabel() then leaves them */
+    bool _shortAndLongLabelsSet;
   public :
     /** @brief ctor */
     ImageEffectDescriptor(OfxImageEffectHandle handle);
@@ -2117,26 +2120,26 @@ namespace OFX {
     int _modifierKeysDown;
 #endif
 
-    /** @brief used to disable checks on some hosts.
-
-    in Resolve, kOfxImagePropField property is always kOfxImageFieldNone on OFX images, regardless of the clip properties
-    */
+    /** @brief the host is DaVinci Resolve: kOfxImagePropField is always kOfxImageFieldNone on its
+        images, regardless of the clip properties (see _ignoreImageField) */
     bool _hostIsResolve;
 
-    /** @brief used to disable checks on some hosts.
-
-    in Fusion, kOfxImageEffectPropRenderScale is 1/3. in the inArgs for render, but 3. on the images
-    */
+    /** @brief the host is Fusion: kOfxImageEffectPropRenderScale is 1/3. in the inArgs of a render,
+        but 3. on the images (see _ignoreImageRenderScale) */
     bool _hostIsFusion;
 
-    /** @brief used to disable checks on some hosts.
-
-    in Sony Vegas and VEGAS Pro, kOfxImageEffectPropRenderScale is <1 in the inArgs for downscaled render, but =1. on the images
-    */
+    /** @brief the host is Sony Vegas or VEGAS Pro: kOfxImageEffectPropRenderScale is <1 in the inArgs
+        of a downscaled render, but 1. on the images (see _ignoreImageRenderScale) */
     bool _hostIsVegas;
 
-    /** @brief ignore render scale checks */
-    bool _ignoreBadRenderScale;
+    /** @brief the debug-build checks of the images (checkBadRenderScaleOrField(), checkBadRenderScale()
+        and checkRenderScaleOne()) skip the image's render scale (Fusion, VEGAS). An exemption from
+        the checks only: the Support library doesn't correct the host's values */
+    bool _ignoreImageRenderScale;
+
+    /** @brief checkBadRenderScaleOrField() (debug builds) skips the image's field (Resolve). An
+        exemption from the check only: the Support library doesn't correct the host's values */
+    bool _ignoreImageField;
 
   public :
     /** @brief ctor */
@@ -2359,12 +2362,11 @@ namespace OFX {
       unused(img);
       unused(args);
 #    else
-      if (_ignoreBadRenderScale) {
-        return;
-      }
-      if ( (img->getRenderScale().x != args.renderScale.x) ||
-           (img->getRenderScale().y != args.renderScale.y) ||
-           (img->getField() != args.fieldToRender) ) {
+      const bool badScale = !_ignoreImageRenderScale &&
+                            ( (img->getRenderScale().x != args.renderScale.x) ||
+                              (img->getRenderScale().y != args.renderScale.y) );
+      const bool badField = !_ignoreImageField && (img->getField() != args.fieldToRender);
+      if (badScale || badField) {
         // stderr (debug builds only): the OFX log only writes a file when DEBUG is defined
         fprintf(stderr, "OFX Host gave image with wrong scale or field properties: "
                 "renderScale (%g, %g) instead of (%g, %g), field %d instead of %d\n",
@@ -2392,7 +2394,7 @@ namespace OFX {
       unused(img);
       unused(args);
 #    else
-      if (_ignoreBadRenderScale) {
+      if (_ignoreImageRenderScale) {
         return;
       }
       if ( (img->getRenderScale().x != args.renderScale.x) ||
@@ -2412,7 +2414,7 @@ namespace OFX {
 #    ifdef NDEBUG
       unused(img);
 #    else
-      if (_ignoreBadRenderScale) {
+      if (_ignoreImageRenderScale) {
         return;
       }
       if ( (img->getRenderScale().x != 1.) ||

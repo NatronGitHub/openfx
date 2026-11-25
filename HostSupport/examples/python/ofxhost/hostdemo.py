@@ -62,6 +62,7 @@ hostDemo's command line, in-process on the HostSupport Python bindings (ofxhost.
   --describe file.json  describe the plug-in as JSON (no instance, no render)
   --ofx14            be an OFX 1.4 host: only the OFX 1.4 host properties and suites,
                      no OfxSetHost, no StrChoice or Bytes params, one view
+  --ofx11            (hostDemo only: an OFX 1.1 host such as VEGAS Pro; refused here)
   --opengl-describe  with --describe only: say the host supports OpenGL render
                      (kOfxImageEffectPropOpenGLRenderSupported "true"), to describe OpenGL-only plug-ins
   --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,
@@ -303,6 +304,10 @@ def _parse(argv: list[str], prog: str) -> dict:
             raise _Exit(0)
         if arg == "--multiplane":
             _check_multiplane()
+        if arg == "--ofx11":
+            # hostDemo's OFX 1.1 profile changes the plug-in descriptors and instances too (no
+            # kOfxImageEffectInstancePropSequentialRender): ofxh.init() has no such profile
+            _fail("Error: --ofx11: the in-process backend has no OFX 1.1 host profile: use hostDemo")
         if arg in _FLAGS:
             key, value = _FLAGS[arg]
             if key is not None:

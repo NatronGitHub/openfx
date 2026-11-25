@@ -159,6 +159,26 @@ file, ``hostDemoPluginCache-ofx14.xml``, because a plug-in may describe
 itself differently to an OFX 1.4 host. The report's ``host.profile`` is
 ``"ofx14"``.
 
+An OFX 1.1 Host: ``--ofx11``
+----------------------------
+
+Some hosts still implement OFX 1.1: VEGAS Pro, for one (openfx-misc's
+``README-hosts.txt``). With ``--ofx11``, hostDemo behaves as such a host:
+the host descriptor has only the OFX 1.1 host properties, and API version
+1.1; it has no tiles, no multi-resolution, no overlays, byte and float
+depths only (``-d short`` is an error), and a single clip pixel aspect
+ratio. ``fetchSuite`` returns the OFX 1.1 suites but the interact suite,
+which VEGAS lacks, plus the message suite V2, which VEGAS Pro 12 lists; it
+refuses persistent messages, as DaVinci Resolve and Fusion 2026 do.
+``OfxSetHost`` is not called. The double
+parameters have no :c:macro:`kOfxParamPropDefaultCoordinateSystem` (OFX
+1.2), and the plug-in descriptors and instances no
+:c:macro:`kOfxImageEffectInstancePropSequentialRender`, which other hosts
+lack on the descriptor. One view is rendered. It uses its own plug-in
+cache file, ``hostDemoPluginCache-ofx11.xml``, and the report's
+``host.profile`` is ``"ofx11"``. The Python host's in-process backend has
+no such profile.
+
 The Code, as an Example Host
 ----------------------------
 
@@ -169,7 +189,8 @@ each:
   ``OFX::Host::ImageEffect::Host``. It describes the host, makes the
   effect instances (``newInstance``) and descriptors
   (``makeDescriptor``), and shows the plug-ins' messages.
-  ``restrictToOFX14()`` gives ``--ofx14``.
+  ``restrictToOFX14()`` gives ``--ofx14``, and ``restrictToOFX11()``
+  ``--ofx11``.
 - ``MyHost::MyEffectInstance`` (``hostDemoEffectInstance.h``) derives from
   ``OFX::Host::ImageEffect::Instance``: the project (size, pixel aspect
   ratio, frame rate), the timeline, the messages and progress, and the

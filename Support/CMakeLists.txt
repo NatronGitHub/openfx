@@ -16,9 +16,16 @@ if(BUILD_EXAMPLE_PLUGINS)
   # action of the interact entry point, ~AutoMutexT(), define*Param() on a type mismatch, and
   # (with OFX_EXTENSIONS_NATRON) the decoding of kNatronOfxPropNativeOverlays. Exits with 0 if all
   # passed (.github/scripts/cmake-build-test.sh runs it).
-  add_executable(support-library-test tests/SupportLibraryTest.cpp)
+  # It also compiles Library/ofxsMultiThread.cpp with OFX_USE_MULTITHREAD_MUTEX (which OfxSupport
+  # doesn't define: the plug-ins that use OFX::MultiThread::Mutex do), to test the Mutex used when
+  # the host has no mutex functions; its definitions take the place of OfxSupport's. This links a
+  # second copy of ofxsMultiThread.cpp, which works only because OfxSupport is a static library:
+  # the linker then never pulls in OfxSupport's ofxsMultiThread object.
+  add_executable(support-library-test tests/SupportLibraryTest.cpp Library/ofxsMultiThread.cpp)
+  target_compile_definitions(support-library-test PRIVATE OFX_USE_MULTITHREAD_MUTEX)
   target_include_directories(support-library-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Library")
-  target_link_libraries(support-library-test PRIVATE OfxSupport)
+  find_package(Threads REQUIRED) # (the Mutex test runs a second thread)
+  target_link_libraries(support-library-test PRIVATE OfxSupport Threads::Threads)
   # self-test of DrawArgs::getDrawContext() and its OpenGL backend: on macOS in an offscreen CGL
   # context (it links OpenGL for CGL); elsewhere without a context, and without linking OpenGL,
   # to test the run-time loading (not on Windows). It prints the failed checks and exits with 0

@@ -381,4 +381,114 @@ namespace OFX {
 
   }
 
+  namespace Private {
+
+    // the host doesn't have the property: kOfxStatErrUnknown (kOfxStatErrUnsupported is not a
+    // property suite status, but some hosts return it)
+    static inline bool hostLacksProperty(OfxStatus stat)
+    {
+      return stat == kOfxStatErrUnknown || stat == kOfxStatErrUnsupported;
+    }
+
+    int propGetIntOr(const PropertySet& props, const char* property, int defaultValue, int idx)
+    {
+      assert(props.propSetHandle() != 0);
+      int value = 0;
+      OfxStatus stat = gPropSuite->propGetInt(props.propSetHandle(), property, idx, &value);
+      if (hostLacksProperty(stat)) {
+        return defaultValue;
+      }
+      Log::error(stat != kOfxStatOK, "Failed on getting int property %s[%d], host returned status %s;",
+                 property, idx, mapStatusToString(stat));
+      throwPropertyException(stat, property);
+      return value;
+    }
+
+    double propGetDoubleOr(const PropertySet& props, const char* property, double defaultValue, int idx)
+    {
+      assert(props.propSetHandle() != 0);
+      double value = 0.;
+      OfxStatus stat = gPropSuite->propGetDouble(props.propSetHandle(), property, idx, &value);
+      if (hostLacksProperty(stat)) {
+        return defaultValue;
+      }
+      Log::error(stat != kOfxStatOK, "Failed on getting double property %s[%d], host returned status %s;",
+                 property, idx, mapStatusToString(stat));
+      throwPropertyException(stat, property);
+      return value;
+    }
+
+    std::string propGetStringOr(const PropertySet& props, const char* property, const std::string& defaultValue, int idx)
+    {
+      assert(props.propSetHandle() != 0);
+      const char* value = NULL;
+      OfxStatus stat = gPropSuite->propGetString(props.propSetHandle(), property, idx, &value);
+      if (hostLacksProperty(stat)) {
+        return defaultValue;
+      }
+      Log::error(stat != kOfxStatOK, "Failed on getting string property %s[%d], host returned status %s;",
+                 property, idx, mapStatusToString(stat));
+      throwPropertyException(stat, property);
+      return value != NULL ? std::string(value) : std::string();
+    }
+
+    void propSetIntOr(PropertySet& props, const char* property, int value, int defaultValue, int idx)
+    {
+      assert(props.propSetHandle() != 0);
+      OfxStatus stat = gPropSuite->propSetInt(props.propSetHandle(), property, idx, value);
+      if (hostLacksProperty(stat)) {
+        Log::warning(value != defaultValue, "The host does not have the property %s: it ignores the value %d "
+                     "(and behaves as with the default, %d)", property, value, defaultValue);
+        return;
+      }
+      Log::error(stat != kOfxStatOK, "Failed on setting int property %s[%d] to %d, host returned status %s;",
+                 property, idx, value, mapStatusToString(stat));
+      throwPropertyException(stat, property);
+    }
+
+    void propSetDoubleOr(PropertySet& props, const char* property, double value, double defaultValue, int idx)
+    {
+      assert(props.propSetHandle() != 0);
+      OfxStatus stat = gPropSuite->propSetDouble(props.propSetHandle(), property, idx, value);
+      if (hostLacksProperty(stat)) {
+        Log::warning(value != defaultValue, "The host does not have the property %s: it ignores the value %g "
+                     "(and behaves as with the default, %g)", property, value, defaultValue);
+        return;
+      }
+      Log::error(stat != kOfxStatOK, "Failed on setting double property %s[%d] to %g, host returned status %s;",
+                 property, idx, value, mapStatusToString(stat));
+      throwPropertyException(stat, property);
+    }
+
+    void propSetStringOr(PropertySet& props, const char* property, const std::string& value,
+                         const std::string& defaultValue, int idx)
+    {
+      assert(props.propSetHandle() != 0);
+      OfxStatus stat = gPropSuite->propSetString(props.propSetHandle(), property, idx, value.c_str());
+      if (hostLacksProperty(stat)) {
+        Log::warning(value != defaultValue, "The host does not have the property %s: it ignores the value \"%s\" "
+                     "(and behaves as with the default, \"%s\")", property, value.c_str(), defaultValue.c_str());
+        return;
+      }
+      Log::error(stat != kOfxStatOK, "Failed on setting string property %s[%d] to %s, host returned status %s;",
+                 property, idx, value.c_str(), mapStatusToString(stat));
+      throwPropertyException(stat, property);
+    }
+
+    void propSetPointerOr(PropertySet& props, const char* property, void* value, void* defaultValue, int idx)
+    {
+      assert(props.propSetHandle() != 0);
+      OfxStatus stat = gPropSuite->propSetPointer(props.propSetHandle(), property, idx, value);
+      if (hostLacksProperty(stat)) {
+        Log::warning(value != defaultValue, "The host does not have the property %s: it ignores the value %p "
+                     "(and behaves as with the default, %p)", property, value, defaultValue);
+        return;
+      }
+      Log::error(stat != kOfxStatOK, "Failed on setting pointer property %s[%d] to %p, host returned status %s;",
+                 property, idx, value, mapStatusToString(stat));
+      throwPropertyException(stat, property);
+    }
+
+  } // namespace Private
+
 }

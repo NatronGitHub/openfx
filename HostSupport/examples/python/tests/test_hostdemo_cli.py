@@ -310,10 +310,22 @@ def test_multiplane_describe_and_usage(tmp_path, hosts, sample_plugins):
     assert first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]
 
 
+def test_ofx11_usage(tmp_path, hosts, sample_plugins):
+    """--ofx11 (hostDemo only, README.md): hostDemo refuses -d short (the profile has byte and float depths
+    only) and another profile with it; the in-process backend refuses --ofx11 itself."""
+    for args, msg in ((["-d", "short"], "Error: -d short: the --ofx11 host only supports byte and float depths"),
+                      (["--ofx14"], "Error: --ofx11 can't be used with --ofx14, --multiplane or --opengl-describe")):
+        (s, _), (i, _) = both(tmp_path / args[0].lstrip("-"), hosts, sample_plugins, [*Q, "--ofx11", *args])
+        assert s.returncode == i.returncode == 1
+        assert [x for x in s.stderr.splitlines() if x.startswith("Error")][:1] == [msg]
+        assert [x for x in i.stderr.splitlines() if x.startswith("Error")][:1] == \
+            ["Error: --ofx11: the in-process backend has no OFX 1.1 host profile: use hostDemo"]
+
+
 def test_help(tmp_path, hosts, sample_plugins):
     (s, _), (i, _) = both(tmp_path, hosts, sample_plugins, ["-h"])
     assert s.returncode == i.returncode == 0
-    for opt in ("-p id", "--format ppm|pfm", "--report file.json", "--describe file.json", "--ofx14",
+    for opt in ("-p id", "--format ppm|pfm", "--report file.json", "--describe file.json", "--ofx14", "--ofx11",
                 "--opengl-describe", "--quiet", "#rgb, #alpha or #rgba", "--no-normalised-defaults",
                 "--multiplane", "-i Clip@Plane=spec"):
         assert opt in s.stdout and opt in i.stdout

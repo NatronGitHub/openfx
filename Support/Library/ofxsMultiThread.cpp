@@ -3,8 +3,14 @@
 
 #include "ofxsSupportPrivate.h"
 #include "ofxsLog.h"
+#include <atomic>
 #include <new> // bad_alloc
 #include <vector>
+#ifdef OFX_USE_MULTITHREAD_MUTEX
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#endif
 
 namespace OFX {
 
@@ -93,8 +99,15 @@ namespace OFX {
           ThreadArgs args;
           args.processor = this;
           args.status.resize(nCPUs, kOfxStatOK);
-          if(OFX::Private::gThreadSuite){
+          if(OFX::Private::gThreadSuite && OFX::Private::gThreadSuite->multiThread){
               stat = OFX::Private::gThreadSuite->multiThread(staticMultiThreadFunction, nCPUs, (void *)&args);
+          } else {
+              // a host without the thread suite or its multiThread function (getNumCPUs() is then
+              // 1 without multiThreadNumCPUs): run single-threaded rather than fail or crash
+              static std::atomic<bool> logged(false);
+              OFX::Log::warning(!logged.exchange(true), "multiThread: the host has no multiThread function: running single-threaded");
+              multiThreadFunction(0, 1);
+              return;
           }
 
         // did we do it?
@@ -128,7 +141,8 @@ namespace OFX {
     unsigned  int getNumCPUs(void)
     {
       unsigned int n = 1;
-      OfxStatus stat = OFX::Private::gThreadSuite ? OFX::Private::gThreadSuite->multiThreadNumCPUs(&n) : kOfxStatFailed;
+      OfxStatus stat = (OFX::Private::gThreadSuite && OFX::Private::gThreadSuite->multiThreadNumCPUs) ?
+                       OFX::Private::gThreadSuite->multiThreadNumCPUs(&n) : kOfxStatFailed;
 
       if(stat != kOfxStatOK) n = 1;
       return n;
@@ -138,7 +152,8 @@ namespace OFX {
     unsigned int getThreadIndex(void)
     {
       unsigned int n = 0;
-      OfxStatus stat = OFX::Private::gThreadSuite ? OFX::Private::gThreadSuite->multiThreadIndex(&n) : kOfxStatFailed;
+      OfxStatus stat = (OFX::Private::gThreadSuite && OFX::Private::gThreadSuite->multiThreadIndex) ?
+                       OFX::Private::gThreadSuite->multiThreadIndex(&n) : kOfxStatFailed;
       if(stat != kOfxStatOK) n = 0;
       return n;
     }
@@ -168,32 +183,115 @@ namespace OFX {
     ////////////////////////////////////////////////////////////////////////////////
     // MUTEX class
 
+    // the host's mutex functions, if it has them all: Sony Catalyst Edit's thread suite has none
+    // (openfx-misc's README-hosts.txt)
+    static bool hostHasMutexFunctions()
+    {
+      const OfxMultiThreadSuiteV1* t = OFX::Private::gThreadSuite;
+      return t && t->mutexCreate && t->mutexDestroy && t->mutexLock && t->mutexUnLock && t->mutexTryLock;
+    }
+
+    /** @brief the mutex used without the host's mutex functions: a lock count, as the OFX mutex
+        (ofxMultiThread.h: "A successful lock causes the mutex's lock count to be increased by one
+        and to block any other calls to lock the mutex until it is unlocked"; the initial count
+        "can be negative"). The mutex is free while the count is <= 0, and else held by the thread
+        that took the last lock that made it positive (the creating thread for a positive initial
+        count). Locks of the holding thread nest. Destroying it while locked is harmless. */
+    struct Mutex::Fallback {
+      std::mutex m;
+      std::condition_variable cv;
+      int count;
+      std::thread::id owner;
+
+      explicit Fallback(int lockCount) : count(lockCount)
+      {
+        if (count > 0) {
+          owner = std::this_thread::get_id();
+        }
+      }
+      bool available(std::thread::id me) const { return count <= 0 || owner == me; }
+      void take(std::thread::id me)
+      {
+        if (++count > 0) {
+          owner = me;
+        }
+      }
+      void lock()
+      {
+        const std::thread::id me = std::this_thread::get_id();
+        std::unique_lock<std::mutex> l(m);
+        cv.wait(l, [&] { return available(me); });
+        take(me);
+      }
+      bool tryLock()
+      {
+        const std::thread::id me = std::this_thread::get_id();
+        std::lock_guard<std::mutex> l(m);
+        if (!available(me)) {
+          return false;
+        }
+        take(me);
+        return true;
+      }
+      void unlock()
+      {
+        std::lock_guard<std::mutex> l(m);
+        if (--count <= 0) {
+          owner = std::thread::id();
+          cv.notify_all();
+        }
+      }
+    };
+
     /** @brief ctor */
     Mutex::Mutex(int lockCount)
       : _handle(NULL)
     {
-      OfxStatus stat = OFX::Private::gThreadSuite ? OFX::Private::gThreadSuite->mutexCreate(&_handle, lockCount) : kOfxStatReplyDefault;
+      if (!hostHasMutexFunctions()) {
+        // (also a static Mutex, constructed before the suites are fetched: SupportExt's g_glLoadOnceMutex)
+        static std::atomic<bool> logged(false);
+        OFX::Log::warning(!logged.exchange(true), "Mutex: no thread suite yet, or the host has no mutex functions: "
+                          "using Support's own mutex");
+        _fallback.reset(new Fallback(lockCount));
+        return;
+      }
+      OfxStatus stat = OFX::Private::gThreadSuite->mutexCreate(&_handle, lockCount);
       throwSuiteStatusException(stat);
     }
 
     /** @brief dtor */
     Mutex::~Mutex(void)
     {
-      OfxStatus stat = OFX::Private::gThreadSuite ? OFX::Private::gThreadSuite->mutexDestroy(_handle) : kOfxStatReplyDefault;
-      (void)stat;
+      if (_fallback) {
+        return;
+      }
+      if (OFX::Private::gThreadSuite && OFX::Private::gThreadSuite->mutexDestroy) {
+        OfxStatus stat = OFX::Private::gThreadSuite->mutexDestroy(_handle);
+        (void)stat;
+      }
     }
 
     /** @brief lock it, blocks until lock is gained */
     void Mutex::lock()
     {
-      OfxStatus stat = OFX::Private::gThreadSuite ? OFX::Private::gThreadSuite->mutexLock(_handle) : kOfxStatReplyDefault;
+      if (_fallback) {
+        _fallback->lock();
+        return;
+      }
+      OfxStatus stat = (OFX::Private::gThreadSuite && OFX::Private::gThreadSuite->mutexLock) ?
+                       OFX::Private::gThreadSuite->mutexLock(_handle) : kOfxStatReplyDefault;
       throwSuiteStatusException(stat);
     }
 
     /** @brief unlock it */
     void Mutex::unlock()
     {
-      OfxStatus stat = OFX::Private::gThreadSuite ? OFX::Private::gThreadSuite->mutexUnLock(_handle) : kOfxStatReplyDefault;
+      if (_fallback) {
+        _fallback->unlock();
+        return;
+      }
+      OfxStatus stat = (OFX::Private::gThreadSuite && OFX::Private::gThreadSuite->mutexUnLock) ?
+                       OFX::Private::gThreadSuite->mutexUnLock(_handle) : kOfxStatReplyDefault;
       // log it too: ~AutoMutexT() can't let the exception out
       OFX::Log::error(stat != kOfxStatOK && stat != kOfxStatReplyDefault, "Mutex::unlock: mutexUnLock failed (%s).", OFX::mapStatusToString(stat));
       throwSuiteStatusException(stat);
@@ -202,7 +300,11 @@ namespace OFX {
     /** @brief attempt to lock, non-blocking */
     bool Mutex::tryLock()
     {
-      OfxStatus stat = OFX::Private::gThreadSuite ? OFX::Private::gThreadSuite->mutexTryLock(_handle) : kOfxStatReplyDefault;
+      if (_fallback) {
+        return _fallback->tryLock();
+      }
+      OfxStatus stat = (OFX::Private::gThreadSuite && OFX::Private::gThreadSuite->mutexTryLock) ?
+                       OFX::Private::gThreadSuite->mutexTryLock(_handle) : kOfxStatReplyDefault;
       return stat == kOfxStatOK;
     }
 #endif

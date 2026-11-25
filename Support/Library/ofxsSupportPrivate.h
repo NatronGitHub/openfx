@@ -98,6 +98,24 @@ namespace OFX {
     OFX::PropertySet
       fetchEffectProps(OfxImageEffectHandle handle);
 
+    /** @name Properties a host may not have (ofxsProperty.cpp)
+        A property newer than the host's OFX version, or one a non-conforming host lacks (VEGAS
+        is an OFX 1.1 host; openfx-misc's README-hosts.txt lists other gaps). The property suite
+        returns kOfxStatErrUnknown (or kOfxStatErrUnsupported) for it: the getters then return the
+        spec default, and the setters write nothing, since such a host behaves as with the default
+        value; a setter whose value isn't the default logs a warning, as the host ignores it. Other
+        failures (bad handle, bad index, illegal value) throw, as in the PropertySet functions. */
+    //@{
+    int propGetIntOr(const PropertySet& props, const char* property, int defaultValue, int idx = 0);
+    double propGetDoubleOr(const PropertySet& props, const char* property, double defaultValue, int idx = 0);
+    std::string propGetStringOr(const PropertySet& props, const char* property, const std::string& defaultValue, int idx = 0);
+    void propSetIntOr(PropertySet& props, const char* property, int value, int defaultValue, int idx = 0);
+    void propSetDoubleOr(PropertySet& props, const char* property, double value, double defaultValue, int idx = 0);
+    void propSetStringOr(PropertySet& props, const char* property, const std::string& value,
+                         const std::string& defaultValue, int idx = 0);
+    void propSetPointerOr(PropertySet& props, const char* property, void* value, void* defaultValue, int idx = 0);
+    //@}
+
 #ifdef OFX_EXTENSIONS_NATRON
     /** @brief decodes a kNatronOfxPropNativeOverlays string of the host descriptor (ofxNatron.h);
         false if it isn't one, and then handle is unchanged (ofxsImageEffect.cpp) */

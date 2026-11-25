@@ -308,22 +308,11 @@ MultiplyPlugin::setupAndProcess(MultiplyProcessorBase &processor,
       ( dstComponents != _dstClip->getPixelComponents() ) ) {
     renderError("The host gave an output image with the wrong depth or components", kOfxStatFailed);
   }
-#ifndef NDEBUG
-  // not checkBadRenderScaleOrField(), which rejects the eFieldNone images of DaVinci Resolve
-  checkBadRenderScale(dst, args);
-  if ( ( dst->getField() != eFieldNone) /* for DaVinci Resolve */ && ( dst->getField() != args.fieldToRender) ) {
-    renderError("OFX Host gave image with wrong field properties", kOfxStatFailed);
-  }
-#endif
+  checkBadRenderScaleOrField(dst, args); // debug builds only (not the field in DaVinci Resolve)
   auto_ptr<const Image> src( ( _srcClip && _srcClip->isConnected() ) ?
                                  _srcClip->fetchImage(time) : 0 );
   if ( src.get() ) {
-#ifndef NDEBUG
-    checkBadRenderScale(src, args);
-    if ( ( src->getField() != eFieldNone) /* for DaVinci Resolve */ && ( src->getField() != args.fieldToRender) ) {
-      renderError("OFX Host gave image with wrong field properties", kOfxStatFailed);
-    }
-#endif
+    checkBadRenderScaleOrField(src, args); // debug builds only (not the field in DaVinci Resolve)
     // in all builds: the processor reads the source with the output's number of components
     BitDepthEnum srcBitDepth      = src->getPixelDepth();
     PixelComponentEnum srcComponents = src->getPixelComponents();

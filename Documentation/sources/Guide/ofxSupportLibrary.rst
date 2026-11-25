@@ -201,6 +201,50 @@ Invert keeps to the minimum. Real plug-ins also get these right:
   :c:macro:`kOfxParamPropDefaultCoordinateSystem`, so a normalised default
   arrives as is (``supportsDefaultCoordinateSystem()`` on the parameter
   descriptor tells).
+- **Old hosts.** Some hosts implement an older OFX version (VEGAS Pro
+  reports OFX 1.1), or lack properties of their own version (openfx-misc's
+  ``README-hosts.txt`` lists them). The Support library's getters and
+  setters of a property that has a default in the specification don't
+  fail when the host lacks the property: a getter returns the default (for
+  example ``getDefaultCoordinateSystem()`` is canonical without
+  :c:macro:`kOfxParamPropDefaultCoordinateSystem`, as in OFX 1.1), and a
+  setter writes nothing, so the host behaves as with the default; in debug
+  builds the OFX log says when a non-default value was ignored. The host
+  capabilities that such a host doesn't report are false. A plug-in may
+  only remap the clip depths and pixel aspect ratios in
+  ``getClipPreferences()`` if both the host and the plug-in support
+  multiple clip depths and PARs: otherwise ``setClipBitDepth()`` and
+  ``setPixelAspectRatio()`` write nothing (it is logged), and the host
+  maps all the clips to one depth and one PAR. The properties every OFX
+  version requires (the action arguments, the images, the clip and
+  instance properties, the parameters' type, default and range) still
+  throw when they are missing: such a host is broken. ``hostDemo
+  --ofx11`` is an OFX 1.1 host modelled on VEGAS Pro, to check a plug-in
+  there (``Support/Plugins/tests/test_ofx11.py``).
+- **Host quirks the library handles.** The numeric parameter descriptors
+  get the specification's default range and display range (the smallest
+  and largest values of their type) and, for doubles, the canonical
+  default coordinate system when they are defined, so a host that clamps
+  a parameter without a range (DaVinci Resolve: to (-1,1) or (0,0)) or
+  defaults spatial parameters to normalised coordinates (Nuke 10) gets
+  the specification's values; call ``setRange()``, ``setDisplayRange()``
+  and ``setDefaultCoordinateSystem()`` as before to change them. Without
+  the thread suite's ``multiThread`` function, ``Processor::multiThread()``
+  runs single-threaded, and without its mutex functions (Sony Catalyst
+  Edit), ``OFX::MultiThread::Mutex`` uses Support's own lock count (nested
+  in the holding thread, as the OFX mutex).
+  ``supportsParametricParameter`` is false in Nuke 8 to 11, whose
+  parametric parameter suite doesn't work. ``ImageEffectDescriptor::setLabel()``
+  also sets the short and long labels unless ``setLabels()`` set them
+  (DaVinci Resolve 21's Cut page shows only the long label).
+  ``setPageParamOrder()`` doesn't fail in a host without
+  :c:macro:`kOfxPluginPropParamPageOrder` (Flame 2027).
+  ``setPersistentMessage()`` and ``clearPersistentMessage()`` return
+  ``eMessageReplyFailed`` when the host refuses them (DaVinci Resolve,
+  Fusion 2026). In debug builds, the image
+  checks (``checkBadRenderScaleOrField()`` and the others) skip the field
+  in Resolve, and the render scale in Fusion and VEGAS, whose images have
+  wrong values there; the library doesn't correct them.
 
 Building a Plug-in
 ==================

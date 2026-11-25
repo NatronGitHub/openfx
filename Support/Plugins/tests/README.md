@@ -23,6 +23,7 @@ its docstring:
 | test_describe.py | contexts, clips, parameters and flags, from `describe()` |
 | test_tester.py | the host's report: the progress calls that reached the host |
 | test_ofx14.py | an OFX 1.4 host (hostDemo `--ofx14`): the plug-in's fallbacks for the OFX 1.5 features |
+| test_ofx11.py | an OFX 1.1 host such as VEGAS Pro (hostDemo `--ofx11`, subprocess only: `@pytest.mark.backends("subprocess", reason=...)`): the Support library without the OFX 1.2+ properties, with a single clip PAR |
 | test_entry_point.py | the C entry point called directly (ctypes, in a subprocess, so that a crash fails the test): a null action, an unknown action |
 
 The Tester sample only has describe checks (its render is an invert, and its push buttons

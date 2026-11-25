@@ -44,6 +44,7 @@ namespace MyHost
 { 
   Host::Host()
     : _ofx14(false)
+    , _ofx11(false)
     , _keepLoaded(false)
     , _normalisedDefaults(true)
   {
@@ -126,7 +127,8 @@ namespace MyHost
 
   // --ofx14: the suites of OFX 1.4 (the suite structs of the OFX 1.4 headers). Not the DrawSuite,
   // the OpenCL program suite (OFX 1.5), or the Natron, Nuke and Vegas extension suites.
-  static const struct { const char* name; int version; } kOFX14Suites[] = {
+  struct SuiteVersion { const char* name; int version; };
+  static const SuiteVersion kOFX14Suites[] = {
     { kOfxPropertySuite, 1 }, { kOfxMemorySuite, 1 }, { kOfxImageEffectSuite, 1 },
     { kOfxParameterSuite, 1 }, { kOfxParametricParameterSuite, 1 }, { kOfxInteractSuite, 1 },
     { kOfxMessageSuite, 1 }, { kOfxMessageSuite, 2 }, { kOfxProgressSuite, 1 }, { kOfxProgressSuite, 2 },
@@ -135,15 +137,51 @@ namespace MyHost
     { NULL, 0 }
   };
 
-  void Host::restrictToOFX14()
+  // --ofx11: the host descriptor properties of OFX 1.1, as kOFX14HostProps: those whose
+  // documentation says "Property Set - host descriptor" in the OFX 1.1 headers (tag
+  // OFX_Release_1_1_TAG), with kOfxPropType, kOfxPropName, kOfxPropLabel and
+  // kOfxImageEffectPropSupportedContexts, and kOfxPropAPIVersion: an OFX 1.2 property, but VEGAS
+  // Pro, the OFX 1.1 host this profile is modelled on, reports API version 1.1 with it
+  // (openfx-misc's README-hosts.txt). No kOfxPropVersion, kOfxPropVersionLabel, kOfxPropHostOSHandle,
+  // kOfxImageEffectInstancePropSequentialRender, kOfxParamHostPropSupportsParametricAnimation (OFX
+  // 1.2), kOfxImageEffectPropOpenGLRenderSupported (1.3), kOfxImageEffectPropRenderQualityDraft and
+  // kOfxImageEffectHostPropNativeOrigin (1.4).
+  static const char* const kOFX11HostProps[] = {
+    kOfxPropAPIVersion, kOfxPropType, kOfxPropName, kOfxPropLabel,
+    kOfxImageEffectHostPropIsBackground, kOfxImageEffectPropSupportsOverlays,
+    kOfxImageEffectPropSupportsMultiResolution, kOfxImageEffectPropSupportsTiles,
+    kOfxImageEffectPropTemporalClipAccess, kOfxImageEffectPropSupportedComponents,
+    kOfxImageEffectPropSupportedPixelDepths, kOfxImageEffectPropSupportedContexts,
+    kOfxImageEffectPropSupportsMultipleClipDepths, kOfxImageEffectPropSupportsMultipleClipPARs,
+    kOfxImageEffectPropSetableFrameRate, kOfxImageEffectPropSetableFielding,
+    kOfxParamHostPropSupportsCustomInteract, kOfxParamHostPropSupportsStringAnimation,
+    kOfxParamHostPropSupportsChoiceAnimation, kOfxParamHostPropSupportsBooleanAnimation,
+    kOfxParamHostPropSupportsCustomAnimation,
+    kOfxParamHostPropMaxParameters, kOfxParamHostPropMaxPages, kOfxParamHostPropPageRowColumnCount,
+    kOfxHostSupportHostPointer, // not an OFX property: HostSupport's fetchSuite needs it
+    NULL
+  };
+
+  // --ofx11: the suites of OFX 1.1, but the interact suite, which VEGAS doesn't have (it has no
+  // overlays and no custom interacts: README-hosts.txt), and with the message suite V2 (OFX 1.2),
+  // which VEGAS Pro 12 lists; its persistent messages are refused, as in DaVinci Resolve and
+  // Fusion 2026 (MyEffectInstance::setRefusePersistentMessages())
+  static const SuiteVersion kOFX11Suites[] = {
+    { kOfxPropertySuite, 1 }, { kOfxMemorySuite, 1 }, { kOfxImageEffectSuite, 1 },
+    { kOfxParameterSuite, 1 }, { kOfxMessageSuite, 1 }, { kOfxMessageSuite, 2 }, { kOfxProgressSuite, 1 },
+    { kOfxTimeLineSuite, 1 }, { kOfxMultiThreadSuite, 1 },
+    { NULL, 0 }
+  };
+
+  /// keep only the host properties of keepList
+  static void keepHostProperties(OFX::Host::Property::Set& properties, const char* const* keepList)
   {
-    _ofx14 = true;
     std::set<std::string> keep;
-    for (int i = 0; kOFX14HostProps[i]; ++i) {
-      keep.insert(kOFX14HostProps[i]);
+    for (int i = 0; keepList[i]; ++i) {
+      keep.insert(keepList[i]);
     }
     std::vector<std::string> extra;
-    const OFX::Host::Property::PropertyMap& props = _properties.getProperties();
+    const OFX::Host::Property::PropertyMap& props = properties.getProperties();
     for (OFX::Host::Property::PropertyMap::const_iterator it = props.begin(); it != props.end(); ++it) {
       if (!keep.count(it->first)) {
         extra.push_back(it->first);
@@ -153,19 +191,60 @@ namespace MyHost
     // or Bytes param (no kOfxParamHostPropSupportsStrChoice or kOfxHostSupportHostPropSupportsBytes)
     // returns kOfxStatErrUnknown, as for an unknown type
     for (size_t i = 0; i < extra.size(); ++i) {
-      _properties.removeProperty(extra[i]);
+      properties.removeProperty(extra[i]);
     }
+  }
+
+  void Host::restrictToOFX11()
+  {
+    _ofx11 = true;
+    keepHostProperties(_properties, kOFX11HostProps);
+    // VEGAS Pro 12's host description (README-hosts.txt): API version 1.1, no tiles, no
+    // multi-resolution, no overlays, 8-bit and float depths only, a single clip PAR
+    _properties.setIntProperty(kOfxPropAPIVersion, 1, 0);
+    _properties.setIntProperty(kOfxPropAPIVersion, 1, 1);
+    _properties.setIntProperty(kOfxImageEffectPropSupportsTiles, 0);
+    _properties.setIntProperty(kOfxImageEffectPropSupportsMultiResolution, 0);
+    _properties.setIntProperty(kOfxImageEffectPropSupportsOverlays, 0);
+    _properties.setIntProperty(kOfxParamHostPropSupportsCustomInteract, 0);
+    _properties.setIntProperty(kOfxImageEffectPropSupportsMultipleClipPARs, 0);
+    _properties.removeProperty(kOfxImageEffectPropSupportedPixelDepths);
+    const OFX::Host::Property::PropSpec depths = { kOfxImageEffectPropSupportedPixelDepths, OFX::Host::Property::eString, 0, true, "" };
+    _properties.createProperty(depths);
+    static const char* const depths11[] = { kOfxBitDepthByte, kOfxBitDepthFloat };
+    for (int i = 0; i < 2; ++i) {
+      _properties.setStringProperty(kOfxImageEffectPropSupportedPixelDepths, depths11[i], i);
+    }
+    // kOfxParamPropDefaultCoordinateSystem is OFX 1.2: as --no-normalised-defaults
+    _normalisedDefaults = false;
+  }
+
+  void Host::removeSequentialRender(OFX::Host::Property::Set& props) const
+  {
+    // --ofx11: kOfxImageEffectInstancePropSequentialRender is on the plug-in descriptor and
+    // instance in OFX 1.1, but Resolve and Nuke lack it on the descriptor (README-hosts.txt): a
+    // host without it, to test the Support library's fallbacks (the instance too)
+    if (_ofx11) {
+      props.removeProperty(kOfxImageEffectInstancePropSequentialRender);
+    }
+  }
+
+  void Host::restrictToOFX14()
+  {
+    _ofx14 = true;
+    keepHostProperties(_properties, kOFX14HostProps);
   }
 
   const void *Host::fetchSuite(const char *suiteName, int suiteVersion)
   {
-    if (_ofx14) {
+    if (_ofx14 || _ofx11) {
+      const SuiteVersion* suites = _ofx14 ? kOFX14Suites : kOFX11Suites;
       int i = 0;
-      while (kOFX14Suites[i].name &&
-             !(strcmp(suiteName, kOFX14Suites[i].name) == 0 && suiteVersion == kOFX14Suites[i].version)) {
+      while (suites[i].name &&
+             !(strcmp(suiteName, suites[i].name) == 0 && suiteVersion == suites[i].version)) {
         ++i;
       }
-      if (!kOFX14Suites[i].name) {
+      if (!suites[i].name) {
         return NULL;
       }
     }
@@ -177,13 +256,19 @@ namespace MyHost
                                                       OFX::Host::ImageEffect::Descriptor& desc,
                                                       const std::string& context)
   {
-    return new MyEffectInstance(plugin, desc, context);
+    MyEffectInstance* instance = new MyEffectInstance(plugin, desc, context);
+    removeSequentialRender(instance->getProps());
+    if (_ofx11) {
+      instance->setRefusePersistentMessages();
+    }
+    return instance;
   }
   
   /// Override this to create a descriptor, this makes the 'root' descriptor
   OFX::Host::ImageEffect::Descriptor *Host::makeDescriptor(OFX::Host::ImageEffect::ImageEffectPlugin* plugin)
   {
     OFX::Host::ImageEffect::Descriptor *desc = new OFX::Host::ImageEffect::Descriptor(plugin);
+    removeSequentialRender(desc->getProps());
     return desc;
   }
 
@@ -214,10 +299,9 @@ namespace MyHost
   OFX::Host::ImageEffect::Descriptor *Host::makeDescriptor(const OFX::Host::ImageEffect::Descriptor &rootContext, 
                                                            OFX::Host::ImageEffect::ImageEffectPlugin *plugin)
   {
-    if (!_normalisedDefaults) {
-      return new NoNormalisedDefaultsDescriptor(rootContext, plugin);
-    }
-    OFX::Host::ImageEffect::Descriptor *desc = new OFX::Host::ImageEffect::Descriptor(rootContext, plugin);
+    OFX::Host::ImageEffect::Descriptor *desc = _normalisedDefaults ?
+      new OFX::Host::ImageEffect::Descriptor(rootContext, plugin) : new NoNormalisedDefaultsDescriptor(rootContext, plugin);
+    removeSequentialRender(desc->getProps());
     return desc;
   }
   
@@ -226,6 +310,7 @@ namespace MyHost
                                                            OFX::Host::ImageEffect::ImageEffectPlugin *plugin)
   {
     OFX::Host::ImageEffect::Descriptor *desc = new OFX::Host::ImageEffect::Descriptor(bundlePath, plugin);
+    removeSequentialRender(desc->getProps());
     return desc;
   }
   

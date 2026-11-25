@@ -17,6 +17,13 @@
     plug-ins of the binary;
   - define*Param() throws OFX::Exception::TypeRequest when a param of the same name but another
     type was already defined (it returned NULL in release builds);
+  - the accessors of a property the host may not have (OFX::Private::propGetIntOr() and the
+    others, ofxsProperty.cpp): a property the host doesn't have gives the default, or writes
+    nothing; other failures throw;
+  - OFX::MultiThread::Processor::multiThread() and getNumCPUs() with a thread suite that lacks
+    multiThread or multiThreadNumCPUs: single-threaded, no crash;
+  - OFX::MultiThread::Mutex (built with OFX_USE_MULTITHREAD_MUTEX) without the host's mutex
+    functions: a lock count, nested in the holding thread, positive or negative initially;
   - with OFX_EXTENSIONS_NATRON, OFX::Private::decodeNativeOverlayHandle(), which decodes the host's
     kNatronOfxPropNativeOverlays strings (ofxNatron.h) into ImageEffectHostDescription::nativeInteracts.
 
@@ -27,6 +34,7 @@
 */
 
 #include <cstdio>
+#include <thread>
 #include <stdexcept>
 #include <string>
 
@@ -290,6 +298,163 @@ namespace {
     CHECK(thrown);
   }
 
+  // a property suite whose functions return gPropStatus (and 7, 0.5, "set" on success)
+  OfxStatus gPropStatus = kOfxStatOK;
+  int gPropSets = 0;
+  OfxStatus propSetInt(OfxPropertySetHandle, const char*, int, int) { ++gPropSets; return gPropStatus; }
+  OfxStatus propSetDouble(OfxPropertySetHandle, const char*, int, double) { ++gPropSets; return gPropStatus; }
+  OfxStatus propSetString(OfxPropertySetHandle, const char*, int, const char*) { ++gPropSets; return gPropStatus; }
+  OfxStatus propSetPointer(OfxPropertySetHandle, const char*, int, void*) { ++gPropSets; return gPropStatus; }
+  OfxStatus propGetInt(OfxPropertySetHandle, const char*, int, int* v) { *v = 7; return gPropStatus; }
+  OfxStatus propGetDouble(OfxPropertySetHandle, const char*, int, double* v) { *v = 0.5; return gPropStatus; }
+  OfxStatus propGetString(OfxPropertySetHandle, const char*, int, const char** v) { *v = "set"; return gPropStatus; }
+
+  void testPropertyDefaults()
+  {
+    OfxPropertySuiteV1 suite = OfxPropertySuiteV1();
+    suite.propSetInt = propSetInt;
+    suite.propSetDouble = propSetDouble;
+    suite.propSetString = propSetString;
+    suite.propSetPointer = propSetPointer;
+    suite.propGetInt = propGetInt;
+    suite.propGetDouble = propGetDouble;
+    suite.propGetString = propGetString;
+    OfxPropertySuiteV1* saved = OFX::Private::gPropSuite;
+    OFX::Private::gPropSuite = &suite;
+    int dummy = 0;
+    OFX::PropertySet props(reinterpret_cast<OfxPropertySetHandle>(&dummy));
+    using namespace OFX::Private;
+
+    // the host has it: its value, and the write
+    gPropStatus = kOfxStatOK;
+    CHECK(propGetIntOr(props, "p", 1) == 7);
+    CHECK(propGetDoubleOr(props, "p", 1.) == 0.5);
+    CHECK(propGetStringOr(props, "p", "default") == "set");
+    gPropSets = 0;
+    propSetIntOr(props, "p", 3, 1);
+    CHECK(gPropSets == 1);
+
+    // the host doesn't have it (kOfxStatErrUnknown, or kOfxStatErrUnsupported from some hosts): the
+    // default, and no exception, whatever the value written
+    for (OfxStatus st : {kOfxStatErrUnknown, kOfxStatErrUnsupported}) {
+      gPropStatus = st;
+      CHECK(propGetIntOr(props, "p", 1) == 1);
+      CHECK(propGetDoubleOr(props, "p", 2.) == 2.);
+      CHECK(propGetStringOr(props, "p", "default") == "default");
+      bool caught = false;
+      try {
+        propSetIntOr(props, "p", 1, 1);
+        propSetIntOr(props, "p", 3, 1);
+        propSetDoubleOr(props, "p", 3., 1.);
+        propSetStringOr(props, "p", "value", "");
+        propSetPointerOr(props, "p", &dummy, NULL);
+      } catch (...) {
+        caught = true;
+      }
+      CHECK(!caught);
+    }
+
+    // other failures throw, as in PropertySet
+    gPropStatus = kOfxStatErrValue;
+    bool caught = false;
+    try {
+      propSetIntOr(props, "p", 3, 1);
+    } catch (const OFX::Exception::PropertyValueIllegalToHost&) {
+      caught = true;
+    }
+    CHECK(caught);
+    gPropStatus = kOfxStatErrBadHandle;
+    caught = false;
+    try {
+      propGetIntOr(props, "p", 1);
+    } catch (const OFX::Exception::Suite&) {
+      caught = true;
+    }
+    CHECK(caught);
+
+    gPropStatus = kOfxStatOK;
+    OFX::Private::gPropSuite = saved;
+  }
+
+  OfxStatus numCPUs4(unsigned int* n) { *n = 4; return kOfxStatOK; }
+
+  struct CountingProcessor : public OFX::MultiThread::Processor {
+    int calls = 0;
+    unsigned int lastThreads = 0;
+    void multiThreadFunction(unsigned int /*threadID*/, unsigned int nThreads) override { ++calls; lastThreads = nThreads; }
+  };
+
+  void testThreadSuiteWithoutFunctions()
+  {
+    // the thread suite of a host that has only some of its functions (Sony Catalyst Edit has no
+    // mutex functions): multiThread() runs in the calling thread instead of calling NULL
+    OfxMultiThreadSuiteV1 suite = OfxMultiThreadSuiteV1();
+    OfxMultiThreadSuiteV1* saved = OFX::Private::gThreadSuite;
+    OFX::Private::gThreadSuite = &suite;
+    CHECK(OFX::MultiThread::getNumCPUs() == 1); // no multiThreadNumCPUs
+    CHECK(OFX::MultiThread::getThreadIndex() == 0); // no multiThreadIndex
+    CHECK(!OFX::MultiThread::isSpawnedThread());
+    suite.multiThreadNumCPUs = numCPUs4;
+    CHECK(OFX::MultiThread::getNumCPUs() == 4);
+    CountingProcessor p;
+    bool caught = false;
+    try {
+      p.multiThread(); // 4 CPUs, but no multiThread function
+    } catch (...) {
+      caught = true;
+    }
+    CHECK(!caught);
+    CHECK(p.calls == 1 && p.lastThreads == 1);
+    OFX::Private::gThreadSuite = saved;
+  }
+
+  // whether another thread gets the mutex with tryLock() (and then releases it)
+  bool otherThreadTryLock(OFX::MultiThread::Mutex& m)
+  {
+    bool got = false;
+    std::thread t([&] { got = m.tryLock(); if (got) { m.unlock(); } });
+    t.join();
+    return got;
+  }
+
+  void testMutexWithoutMutexFunctions()
+  {
+    // a thread suite without the mutex functions (Sony Catalyst Edit)
+    OfxMultiThreadSuiteV1 suite = OfxMultiThreadSuiteV1();
+    OfxMultiThreadSuiteV1* saved = OFX::Private::gThreadSuite;
+    OFX::Private::gThreadSuite = &suite;
+    {
+      OFX::MultiThread::Mutex m;
+      CHECK(otherThreadTryLock(m));
+      m.lock();
+      CHECK(m.tryLock()); // nested in the holding thread
+      CHECK(!otherThreadTryLock(m));
+      m.unlock();
+      CHECK(!otherThreadTryLock(m));
+      m.unlock();
+      CHECK(otherThreadTryLock(m));
+    }
+    {
+      OFX::MultiThread::Mutex p(1); // held by the creating thread
+      CHECK(!otherThreadTryLock(p));
+      p.unlock();
+      CHECK(otherThreadTryLock(p));
+    }
+    {
+      OFX::MultiThread::Mutex n(-1); // "This can be negative": free until the count is positive
+      n.lock(); // count 0
+      CHECK(otherThreadTryLock(n));
+      n.lock(); // count 1
+      CHECK(!otherThreadTryLock(n));
+      n.unlock();
+      n.unlock();
+    }
+    {
+      OFX::MultiThread::Mutex q(2); // destroyed while locked: harmless
+    }
+    OFX::Private::gThreadSuite = saved;
+  }
+
 #ifdef OFX_EXTENSIONS_NATRON
   typedef OFX::ImageEffectHostDescription::NativeOverlayHandle Handle;
 
@@ -363,6 +528,9 @@ int main()
   testEditBlock();
   testDefineParamTypeMismatchThrows();
   testLazyRegistration();
+  testPropertyDefaults();
+  testThreadSuiteWithoutFunctions();
+  testMutexWithoutMutexFunctions();
 #ifdef OFX_EXTENSIONS_NATRON
   testDecodeNativeOverlayHandle();
 #else
