@@ -909,7 +909,8 @@ namespace {
     check("getNthClip(-1) = NULL", instance->getNthClip(-1) == NULL);
     check("getNthClip(number of clips) = NULL", instance->getNthClip(nClips) == NULL);
 #ifdef OFX_EXTENSIONS_NUKE
-    // kFnOfxImageEffectPropComponentsPresent: the base ClipInstance::getComponentsPresent() of
+    // kFnOfxImageEffectPropComponentsPresent: the base ClipInstance::getComponentsPresent() is
+    // the colour plane whatever the components, none on a disconnected input (#342), and that of
     // one clip doesn't change with a query on another one
     ImageEffect::ClipInstance *source = instance->getClip(kOfxImageEffectSimpleSourceClipName);
     ImageEffect::ClipInstance *output = instance->getClip(kOfxImageEffectOutputClipName);
@@ -922,13 +923,33 @@ namespace {
       const char *s = NULL, *o = NULL;
       const OfxStatus ss = props->propGetString(source->getPropHandle(), kFnOfxImageEffectPropComponentsPresent, 0, &s);
       const OfxStatus os = props->propGetString(output->getPropHandle(), kFnOfxImageEffectPropComponentsPresent, 0, &o);
+      int sn = -1, on = -1;
+      props->propGetDimension(source->getPropHandle(), kFnOfxImageEffectPropComponentsPresent, &sn);
+      props->propGetDimension(output->getPropHandle(), kFnOfxImageEffectPropComponentsPresent, &on);
       check("kFnOfxImageEffectPropComponentsPresent of Source and Output", ss == kOfxStatOK && os == kOfxStatOK && s && o);
+      check("kFnOfxImageEffectPropComponentsPresent of Source and Output: dimension 1", sn == 1 && on == 1);
       if (s && o) {
-        check("kFnOfxImageEffectPropComponentsPresent of Source is still RGBA after that of Output (Alpha)",
-              std::strcmp(s, kOfxImageComponentRGBA) == 0 && std::strcmp(o, kOfxImageComponentAlpha) == 0 && s != o);
+        check("kFnOfxImageEffectPropComponentsPresent of Source and Output: the colour plane, whatever the components (RGBA, Alpha), one per clip",
+              std::strcmp(s, kFnOfxImagePlaneColour) == 0 && std::strcmp(o, kFnOfxImagePlaneColour) == 0 && s != o);
       }
       source->setComponents(sourceComponents);
       output->setComponents(outputComponents);
+      // a disconnected input: "the planes [...] that exist on the clip", none
+      MyHost::MyClipInstance *mySource = dynamic_cast<MyHost::MyClipInstance *>(source);
+      check("Source is a MyClipInstance", mySource != NULL);
+      if (mySource) {
+        const MyHost::InputSpec input = mySource->getInput();
+        MyHost::InputSpec none;
+        none.type = MyHost::InputSpec::eNone;
+        mySource->setInput(none);
+        int dn = -1;
+        const OfxStatus ds = props->propGetDimension(source->getPropHandle(), kFnOfxImageEffectPropComponentsPresent, &dn);
+        check("kFnOfxImageEffectPropComponentsPresent of a disconnected Source: dimension 0", ds == kOfxStatOK && dn == 0);
+        mySource->setInput(input);
+        dn = -1;
+        props->propGetDimension(source->getPropHandle(), kFnOfxImageEffectPropComponentsPresent, &dn);
+        check("kFnOfxImageEffectPropComponentsPresent of Source connected again: dimension 1", dn == 1);
+      }
     }
 #endif
   }

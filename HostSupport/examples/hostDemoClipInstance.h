@@ -322,7 +322,7 @@ namespace MyHost {
     virtual OFX::Host::ImageEffect::Image* getImagePlane(OfxTime time, int view, const std::string& plane,const OfxRectD *optionalBounds);
 
     /// kFnOfxImageEffectPropComponentsPresent: with setMultiPlane(), the planes of the clip: the
-    /// colour plane, then the extra planes of an input (else HostSupport's: the components)
+    /// colour plane, then the extra planes of an input (else HostSupport's: the colour plane)
     virtual const std::vector<std::string>& getComponentsPresent() const OFX_EXCEPTION_SPEC;
 
     /// override this to return the rod on the clip for the given view
