@@ -561,6 +561,7 @@ namespace OFX {
         std::string                                   _outputPreMultiplication;  ///< set by clip prefs
         std::string                                   _outputFielding;  ///< set by clip prefs
         double                                        _outputFrameRate; ///< set by clip prefs
+        double                                        _outputPixelAspectRatio; ///< set by clip prefs
 
       public:        
         /// constructor based on effect descriptor
@@ -610,6 +611,10 @@ namespace OFX {
 
         /// get the output frame rate, as set in the clip prefences action.
         double getOutputFrameRate() const {return _outputFrameRate;}
+
+        /// the output clip's pixel aspect ratio after the clip preferences action: the plug-in's
+        /// if it may set it (see setupClipPreferencesArgs()), else the inputs' or the project's.
+        double getOutputPixelAspectRatio() const {return _outputPixelAspectRatio;}
 
 
         /// called after construction to populate the various members

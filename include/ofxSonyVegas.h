@@ -11,9 +11,10 @@
     The names and values are those VEGAS Pro hosts use, for interoperability.
 
     The Support library uses them when it is built with OFX_EXTENSIONS_VEGAS, and HostSupport
-    implements some of them. This header does not include the OFX headers it builds on: include
-    ofxImageEffect.h first.
+    implements some of them.
 */
+
+#include "ofxImageEffect.h" /* OfxStatus, OfxImageClipHandle, OfxParamHandle, OfxInteractHandle, ... */
 
 
 /* ------------------------------------------------------------------------------------------ */

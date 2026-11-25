@@ -783,7 +783,6 @@ namespace MyHost {
     , _view(0)
 #endif
     , _inRoDAction(false)
-    , _multiPlane(false)
   {
   }
 
@@ -1062,6 +1061,14 @@ namespace MyHost {
   void MyClipInstance::setInputPlane(const InputPlane& plane)
   {
     _planes[plane.plane] = plane;
+#ifdef OFX_EXTENSIONS_NUKE
+    // "Property indicating the planes present on something" (nuke/fnOfxExtensions.h): the colour
+    // plane, then the extra planes of the input
+    _componentsPresent.assign(1, kFnOfxImagePlaneColour);
+    for (std::map<std::string, InputPlane>::const_iterator it = _planes.begin(); it != _planes.end(); ++it) {
+      _componentsPresent.push_back(it->first);
+    }
+#endif
   }
 
   MyImage* MyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds, const InputPlane* plane)
@@ -1187,18 +1194,8 @@ namespace MyHost {
 
   const std::vector<std::string>& MyClipInstance::getComponentsPresent() const OFX_EXCEPTION_SPEC
   {
-    if (!_multiPlane || !getConnected()) {
+    if (_planes.empty() || !getConnected()) {
       return OFX::Host::ImageEffect::ClipInstance::getComponentsPresent();
-    }
-    // "Property indicating the planes present on something" (nuke/fnOfxExtensions.h): the colour
-    // plane, then the extra planes of the input
-    std::vector<std::string> present(1, kFnOfxImagePlaneColour);
-    for (std::map<std::string, InputPlane>::const_iterator it = _planes.begin(); it != _planes.end(); ++it) {
-      present.push_back(it->first);
-    }
-    // (written only when it changed, as the base class's: a plug-in keeps the const char* of a value)
-    if (_componentsPresent != present) {
-      _componentsPresent = present;
     }
     return _componentsPresent;
   }

@@ -49,14 +49,15 @@ England
 */
 namespace OFX {
 
-  /** @brief fetch a pixel scale out of the property set */
+  /** @brief fetch the window rectangle out of the property set */
   static OfxRectI getWindowLocation(const PropertySet &props)
   {
+    // kOfxHWndInteractPropLocation is left, top, width, height (ofxSonyVegas.h)
     OfxRectI windowLoc;
     windowLoc.x1 = props.propGetInt(kOfxHWndInteractPropLocation, 0);
     windowLoc.y1 = props.propGetInt(kOfxHWndInteractPropLocation, 1);
-    windowLoc.x2 = props.propGetInt(kOfxHWndInteractPropLocation, 2);
-    windowLoc.y2 = props.propGetInt(kOfxHWndInteractPropLocation, 3);
+    windowLoc.x2 = windowLoc.x1 + props.propGetInt(kOfxHWndInteractPropLocation, 2);
+    windowLoc.y2 = windowLoc.y1 + props.propGetInt(kOfxHWndInteractPropLocation, 3);
     return windowLoc;
   }
 

@@ -266,7 +266,10 @@ static ImageStats computeStats(const MyHost::MyImage& im)
   const bool littleEndian = *reinterpret_cast<const unsigned char*>(&one) == 1;
   std::vector<unsigned char> row((size_t)(b.x2 - b.x1) * nComps * bpc);
   for (int y = b.y1; y < b.y2; ++y) {
-    std::memcpy(row.empty() ? NULL : &row[0], im.getPixelData(b.x1, y), row.size());
+    if (!row.empty()) {
+      // (memcpy with a null pointer is undefined, even for 0 bytes)
+      std::memcpy(row.data(), im.getPixelData(b.x1, y), row.size());
+    }
     if (!littleEndian && bpc > 1) {
       for (size_t i = 0; i + bpc <= row.size(); i += bpc) {
         std::reverse(row.begin() + i, row.begin() + i + bpc);
@@ -1723,9 +1726,6 @@ static int run(int argc, char **argv)
       const std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>& clips = myInstance->getClipInstances();
       for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
         MyHost::MyClipInstance* clip = dynamic_cast<MyHost::MyClipInstance*>(it->second);
-        if (clip && multiPlane) {
-          clip->setMultiPlane();
-        }
         if (clip && !clip->isOutput()) {
           clip->setUnmappedBitDepth(inputDepth);
         }

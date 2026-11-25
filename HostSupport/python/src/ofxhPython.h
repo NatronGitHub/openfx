@@ -430,6 +430,10 @@ private:
   nb::object _outputData;      ///< its ImageData
   // the strings returned by reference
   mutable std::string _unmappedDepth, _unmappedComponents, _premult, _fieldOrder;
+#ifdef OFX_EXTENSIONS_NUKE
+  /// storage for getComponentsPresent(), written under the GIL (a plug-in keeps the const char* of a value)
+  mutable std::vector<std::string> _componentsPresent;
+#endif
 };
 
 /// ofxh.ImageEffectInstance

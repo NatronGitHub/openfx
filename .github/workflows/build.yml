@@ -157,7 +157,7 @@ jobs:
             example-Invert-support example-Tester-support example-Retimer-support example-MultiBundle-support \
             example-Rectangle example-PropTester example-MultiplyGPU-support example-OpenGL
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test && Support/support-library-test)
-          # the HostSupport checks with the extensions (e.g. kFnOfxImageEffectPropComponentsPresent per clip)
+          # the HostSupport checks with the extensions (e.g. kFnOfxImageEffectPropComponentsPresent)
           SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
             build-ci-natron/HostSupport/examples/suiteHandleChecks > suitehandlechecks-natron.log 2>&1 \
             || { cat suitehandlechecks-natron.log; exit 1; }

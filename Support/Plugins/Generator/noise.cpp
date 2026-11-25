@@ -96,6 +96,7 @@ protected :
   OFX::Clip *dstClip_;
 
   OFX::DoubleParam  *noise_;
+  OFX::DoubleParam  *par_;
 
 public :
   /** @brief ctor */
@@ -103,9 +104,11 @@ public :
     : ImageEffect(handle)
     , dstClip_(NULL)
     , noise_(NULL)
+    , par_(NULL)
   {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     noise_   = fetchDoubleParam("Noise");
+    par_     = fetchDoubleParam("pixelAspectRatio");
   }
 
   /* Override the render */
@@ -159,6 +162,12 @@ void
 NoisePlugin::getClipPreferences(OFX::ClipPreferencesSetter &clipPreferences)
 {
   clipPreferences.setOutputFrameVarying(true);
+  // without an input, a host with multiple clip PARs lets a generator set its output PAR
+  // (test_profile.py::test_generator_output_par)
+  const double par = par_->getValue();
+  if (par > 0.) {
+    clipPreferences.setPixelAspectRatio(*dstClip_, par);
+  }
 }
 
 /** @brief The get RoD action.  We flag an infinite rod */
@@ -282,6 +291,16 @@ void NoiseExamplePluginFactory::describeInContext(OFX::ImageEffectDescriptor &de
   param->setDisplayRange(0, 1);
   param->setAnimates(true); // can animate
   param->setDoubleType(eDoubleTypeScale);
+  DoubleParamDescriptor *par = desc.defineDoubleParam("pixelAspectRatio");
+  par->setLabel("output PAR");
+  par->setHint("Pixel aspect ratio of the output, if the host lets the plug-in set it; 0 leaves it to the host. "
+               "Secret: it only drives a HostSupport test (test_profile.py::test_generator_output_par).");
+  par->setDefault(0.);
+  par->setRange(0, 10);
+  par->setDisplayRange(0, 3);
+  par->setAnimates(false);
+  par->setIsSecret(true);
+  desc.addClipPreferencesSlaveParam(*par);
   PageParamDescriptor *page = desc.definePageParam("Controls");
   page->addChild(*param);
 }

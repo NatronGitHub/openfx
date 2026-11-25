@@ -27,6 +27,8 @@
   - the double param descriptors' default coordinate system: no write while Plain or non-spatial;
     setDoubleType() to a spatial type writes the plug-in's setDefaultCoordinateSystem() choice,
     made before or after, or canonical, over a host's reset (Nuke: normalised);
+  - ClipPreferencesSetter::setPixelAspectRatio(): the host's PAR isn't written again, and a refused
+    or unknown PAR is a warning, not an exception;
   - with OFX_EXTENSIONS_NATRON, OFX::Private::decodeNativeOverlayHandle(), which decodes the host's
     kNatronOfxPropNativeOverlays strings (ofxNatron.h) into ImageEffectHostDescription::nativeInteracts.
 
@@ -496,6 +498,68 @@ namespace {
     void multiThreadFunction(unsigned int /*threadID*/, unsigned int nThreads) override { ++calls; lastThreads = nThreads; }
   };
 
+  // ClipPreferencesSetter::setPixelAspectRatio(): outArgs holds the host's PAR (1); the host
+  // answers a write with gParSetStatus
+  OfxStatus gParSetStatus = kOfxStatOK;
+  int gParSets = 0;
+  OfxStatus parGetDouble(OfxPropertySetHandle, const char*, int, double* v) { *v = 1.; return kOfxStatOK; }
+  OfxStatus parSetDouble(OfxPropertySetHandle, const char*, int, double) { ++gParSets; return gParSetStatus; }
+  OfxStatus parGetDimension(OfxPropertySetHandle, const char*, int*) { return kOfxStatErrUnknown; }
+
+  // the constructor is protected
+  struct TestClip : public OFX::Clip {
+    explicit TestClip(OfxPropertySetHandle h) : OFX::Clip(NULL, kOfxImageEffectOutputClipName, NULL, h) {}
+  };
+
+  void testSetPixelAspectRatio()
+  {
+    OfxPropertySuiteV1 suite = OfxPropertySuiteV1();
+    suite.propGetDouble = parGetDouble;
+    suite.propSetDouble = parSetDouble;
+    suite.propGetInt = propGetInt; // (for the clip property validation of debug builds)
+    suite.propGetString = propGetString;
+    suite.propGetDimension = parGetDimension;
+    OfxPropertySuiteV1* saved = OFX::Private::gPropSuite;
+    OFX::Private::gPropSuite = &suite;
+    int dummy = 0;
+    OfxPropertySetHandle h = reinterpret_cast<OfxPropertySetHandle>(&dummy);
+    TestClip clip(h);
+    std::map<std::string, std::string> none, pars;
+    pars[kOfxImageEffectOutputClipName] = "OfxImageClipPropPAR_Output";
+    OFX::ClipPreferencesSetter setter(OFX::PropertySet(h), none, none, pars);
+
+    // the host's PAR (openfx-io GenericReader's 1 in a host without multiple clip PARs): no write
+    gParSets = 0;
+    setter.setPixelAspectRatio(clip, 1.);
+    CHECK(gParSets == 0 && setter.didSomething());
+
+    // another PAR: written; refused (read-only) or unknown to the host, a warning, not an exception
+    for (OfxStatus st : {kOfxStatOK, kOfxStatErrValue, kOfxStatErrUnknown, kOfxStatErrUnsupported}) {
+      gParSetStatus = st;
+      gParSets = 0;
+      bool caught = false;
+      try {
+        setter.setPixelAspectRatio(clip, 2.);
+      } catch (...) {
+        caught = true;
+      }
+      CHECK(gParSets == 1 && !caught);
+    }
+
+    // other failures throw
+    gParSetStatus = kOfxStatErrBadHandle;
+    bool caught = false;
+    try {
+      setter.setPixelAspectRatio(clip, 2.);
+    } catch (const OFX::Exception::Suite&) {
+      caught = true;
+    }
+    CHECK(caught);
+
+    gParSetStatus = kOfxStatOK;
+    OFX::Private::gPropSuite = saved;
+  }
+
   void testThreadSuiteWithoutFunctions()
   {
     // the thread suite of a host that has only some of its functions (Sony Catalyst Edit has no
@@ -642,6 +706,7 @@ int main()
   testLazyRegistration();
   testPropertyDefaults();
   testDefaultCoordinateSystem();
+  testSetPixelAspectRatio();
   testThreadSuiteWithoutFunctions();
   testMutexWithoutMutexFunctions();
 #ifdef OFX_EXTENSIONS_NATRON

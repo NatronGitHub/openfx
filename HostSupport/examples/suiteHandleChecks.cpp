@@ -889,8 +889,8 @@ namespace {
     check("getNthClip(number of clips) = NULL", instance->getNthClip(nClips) == NULL);
 #ifdef OFX_EXTENSIONS_NUKE
     // kFnOfxImageEffectPropComponentsPresent: the base ClipInstance::getComponentsPresent() is
-    // the colour plane whatever the components, none on a disconnected input (#342), and that of
-    // one clip doesn't change with a query on another one
+    // the colour plane whatever the components, none on a disconnected input (#342), and the
+    // string a plug-in got stays valid across a disconnect and a reconnect
     ImageEffect::ClipInstance *source = instance->getClip(kOfxImageEffectSimpleSourceClipName);
     ImageEffect::ClipInstance *output = instance->getClip(kOfxImageEffectOutputClipName);
     const OfxPropertySuiteV1 *props = (const OfxPropertySuiteV1 *)Property::GetSuite(1);
@@ -908,8 +908,8 @@ namespace {
       check("kFnOfxImageEffectPropComponentsPresent of Source and Output", ss == kOfxStatOK && os == kOfxStatOK && s && o);
       check("kFnOfxImageEffectPropComponentsPresent of Source and Output: dimension 1", sn == 1 && on == 1);
       if (s && o) {
-        check("kFnOfxImageEffectPropComponentsPresent of Source and Output: the colour plane, whatever the components (RGBA, Alpha), one per clip",
-              std::strcmp(s, kFnOfxImagePlaneColour) == 0 && std::strcmp(o, kFnOfxImagePlaneColour) == 0 && s != o);
+        check("kFnOfxImageEffectPropComponentsPresent of Source and Output: the colour plane, whatever the components (RGBA, Alpha)",
+              std::strcmp(s, kFnOfxImagePlaneColour) == 0 && std::strcmp(o, kFnOfxImagePlaneColour) == 0);
       }
       source->setComponents(sourceComponents);
       output->setComponents(outputComponents);
@@ -928,6 +928,10 @@ namespace {
         dn = -1;
         props->propGetDimension(source->getPropHandle(), kFnOfxImageEffectPropComponentsPresent, &dn);
         check("kFnOfxImageEffectPropComponentsPresent of Source connected again: dimension 1", dn == 1);
+        // the const char* a plug-in kept stays valid: the same string after a disconnect and a reconnect
+        const char *again = NULL;
+        props->propGetString(source->getPropHandle(), kFnOfxImageEffectPropComponentsPresent, 0, &again);
+        check("kFnOfxImageEffectPropComponentsPresent of Source connected again: the same string", s && again == s);
       }
     }
 #endif

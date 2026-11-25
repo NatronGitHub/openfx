@@ -277,9 +277,6 @@ namespace OFX {
         , _isOutput(desc.isOutput())
         , _pixelDepth(kOfxBitDepthNone) 
         , _components(kOfxImageComponentNone)
-#ifdef OFX_EXTENSIONS_NUKE
-        , _componentsPresent(1, kFnOfxImagePlaneColour)
-#endif
       {
         // this will add parameters that are needed in an instance but not a
         // Descriptor
@@ -421,22 +418,15 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
       const std::vector<std::string>& ClipInstance::getComponentsPresent() const OFX_EXCEPTION_SPEC
       {
-          // per instance (a static vector was shared by all the clips of all the instances: the
-          // const char* a plug-in got for one clip changed with a query on another clip, and two
-          // threads raced on it). Written only when it changes, so that concurrent queries only
-          // read it. "Property indicating the planes present on something"
-          // (nuke/fnOfxExtensions.h), not components; "all the planes [...] that exist on the
-          // clip": none on a disconnected input, else the colour plane, the only one a host
-          // without multi-plane support has. A multi-plane host overrides this to add its other
-          // planes.
+          // The planes present ("all the planes [...] that exist on the clip", nuke/fnOfxExtensions.h):
+          // none on a disconnected input, else the colour plane; multi-plane hosts override this.
+          // Immutable statics: no race, and the const char* a plug-in keeps stays valid.
+          static const std::vector<std::string> none;
+          static const std::vector<std::string> colour(1, kFnOfxImagePlaneColour);
           if (!isOutput() && !getConnected()) {
-              if (!_componentsPresent.empty()) {
-                  _componentsPresent.clear();
-              }
-          } else if (_componentsPresent.size() != 1 || _componentsPresent[0] != kFnOfxImagePlaneColour) {
-              _componentsPresent.assign(1, kFnOfxImagePlaneColour);
+              return none;
           }
-          return _componentsPresent;
+          return colour;
       }
 #endif
 

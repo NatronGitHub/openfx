@@ -1067,6 +1067,8 @@ static void bindImageEffectInstance(nb::module_ &m)
     }, "Set by the clip preferences.")
     .def_prop_ro("output_fielding", [](InstanceBase &s) { return shortName("field", s.get()->getOutputFielding()); })
     .def_prop_ro("output_frame_rate", [](InstanceBase &s) { return s.get()->getOutputFrameRate(); })
+    .def_prop_ro("output_pixel_aspect_ratio", [](InstanceBase &s) { return s.get()->getOutputPixelAspectRatio(); },
+                 "The output PAR after the clip preferences (Instance::getOutputPixelAspectRatio()).")
     .def_prop_ro("output_continuous_samples", [](InstanceBase &s) { return s.get()->continuousSamples(); })
     .def_prop_ro("output_frame_varying", [](InstanceBase &s) { return s.get()->isFrameVarying(); })
     .def_prop_ro("clip_preferences_dirty", [](InstanceBase &s) { return s.get()->areClipPrefsDirty(); })

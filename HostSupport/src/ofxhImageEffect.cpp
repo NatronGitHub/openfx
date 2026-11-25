@@ -733,6 +733,7 @@ namespace OFX {
         , _continuousSamples(false)
         , _frameVarying(false)
         , _outputFrameRate(24)
+        , _outputPixelAspectRatio(1.)
       {
         int i = 0;
         
@@ -785,6 +786,7 @@ namespace OFX {
       , _outputPreMultiplication(other._outputPreMultiplication)
       , _outputFielding(other._outputFielding)
       , _outputFrameRate(other._outputFrameRate)
+      , _outputPixelAspectRatio(other._outputPixelAspectRatio)
       {
 
       }
@@ -2830,6 +2832,8 @@ namespace OFX {
         std::string deepestBitDepth = kOfxBitDepthNone;
         std::string mostComponents  = kOfxImageComponentNone;       
         double frameRate = getFrameRate(); //< default to the project frame rate
+        double par = getProjectPixelAspectRatio(); //< the first connected input's, else the project's
+        bool parSet = false;
         std::string premult;
         for(std::map<std::string, ClipInstance*>::iterator it=_clips.begin();
             it!=_clips.end();
@@ -2841,6 +2845,10 @@ namespace OFX {
              
             if (connected) {
               frameRate = Maximum(frameRate, clip->getFrameRate());
+              if (!parSet) {
+                par = clip->getAspectRatio();
+                parSet = true;
+              }
             }
 
             std::string rawComp  = clip->getUnmappedComponents();
@@ -2883,6 +2891,7 @@ namespace OFX {
 
         /// set some stuff up
         _outputFrameRate           = frameRate;
+        _outputPixelAspectRatio    = par;
         _outputFielding            = getDefaultOutputFielding();
         _continuousSamples         = false;
         _frameVarying              = false;
@@ -2994,11 +3003,9 @@ namespace OFX {
 
 
 
-        bool multipleClipsPAR = supportsMultipleClipPARs();
-        /// the plug-in may set the clip PARs iff the host and the plug-in both support multiple clip PARs
-        const bool pluginMaySetPARs =
-          gImageEffectHost->getProperties().getIntProperty(kOfxImageEffectPropSupportsMultipleClipPARs) != 0 &&
-          multipleClipsPAR;
+        const bool pluginMultipleClipPARs = supportsMultipleClipPARs();
+        const bool hostMultipleClipPARs =
+          gImageEffectHost->getProperties().getIntProperty(kOfxImageEffectPropSupportsMultipleClipPARs) != 0;
         /// get the PAR of inputs, if it has different PARs and the effect does not support multiple clips PAR, throw an exception
         double inputPar = 1.;
 
@@ -3008,7 +3015,7 @@ namespace OFX {
             if (!inputParSet) {
               inputPar = it2->second->getAspectRatio();
               inputParSet = true;
-            } else if (!multipleClipsPAR && inputPar != it2->second->getAspectRatio()) {
+            } else if (!pluginMultipleClipPARs && inputPar != it2->second->getAspectRatio()) {
               // We have several inputs with different aspect ratio, which should be forbidden by the host.
               throw Property::Exception(kOfxStatErrValue);
             }
@@ -3020,7 +3027,6 @@ namespace OFX {
 #endif
           }
         }
-
 
         for(std::map<std::string, ClipInstance*>::iterator it=_clips.begin();
             it!=_clips.end();
@@ -3043,25 +3049,29 @@ namespace OFX {
           Property::PropSpec specDep = {depthParamName.c_str(),       Property::eString, 1, !pluginMaySetDepths, clip->getPixelDepth().c_str()};
           outArgs.createProperty(specDep);
 
-          // Likewise for the PARs (ofxClipPreferences.rst: "If the host sets this to 0, then all effect's
-          // input and output clips will always have the same pixel aspect ratio, and the plugin may not
-          // remap them. [...] If *both* the plugin and host set this to 1, then the plugin can, during
-          // kOfxImageEffectActionGetClipPreferences, specify how the host is to map each clip").
-          Property::PropSpec specPAR = {parParamName.c_str(),         Property::eDouble, 1, !pluginMaySetPARs, "1"};
+          // The plug-in may set a clip's PAR if the host supports multiple clip PARs and either the
+          // plug-in does too, or the clip is the output and no input is connected (a generator).
+          // ofxImageEffect.h, kOfxImageEffectPropSupportsMultipleClipPARs: "it will allow the plugin
+          // to explicitly set the output clip's aspect ratio"; ofxClipPreferences.rst: "If *both* the
+          // plugin and host set this to 1, then the plugin can [...] specify how the host is to map
+          // each clip". With no input, there is no input PAR to match.
+          const bool pluginMaySetPAR =
+            hostMultipleClipPARs && (pluginMultipleClipPARs || (clip->isOutput() && !inputParSet));
+          Property::PropSpec specPAR = {parParamName.c_str(),         Property::eDouble, 1, !pluginMaySetPAR, "1"};
           outArgs.createProperty(specPAR);
           if (!clip->isOutput()) {
             // If the clip is input, use the same par for all inputs unless the plug-in supports multiple clips PAR
             double par;
-            if (!multipleClipsPAR && inputParSet) {
+            if (!pluginMultipleClipPARs && inputParSet) {
                 par = inputPar;
-            } else if (multipleClipsPAR) {
+            } else if (pluginMultipleClipPARs) {
                 par = clip->getAspectRatio();
             } else {
                 par = projectPAR;
             }
             outArgs.setDoubleProperty(parParamName, par);
           } else {
-            // If the clip is output we should propagate the pixel aspect ratio of the inputs
+            // the output: the inputs' PAR, else the project's
             outArgs.setDoubleProperty(parParamName, inputParSet ? inputPar : projectPAR);
           }
         }
@@ -3144,7 +3154,15 @@ namespace OFX {
 
             clip->setPixelDepth(outArgs.getStringProperty(depthParamName));
             clip->setComponents(outArgs.getStringProperty(componentParamName));
-            //clip->setPixelAspect(outArgs.getDoubleProperty(parParamName));
+            // only the output PAR is kept: the input PARs belong to the host (ClipInstance has no PAR
+            // setter). The PAR "must be set to a positive non zero double value" (ofxImageEffect.h):
+            // otherwise the default stays.
+            if (clip->isOutput()) {
+              const double par = outArgs.getDoubleProperty(parParamName);
+              if (par > 0. && !OFX::IsNaN(par) && !OFX::IsInfinite(par)) {
+                _outputPixelAspectRatio = par;
+              }
+            }
           }
 
         _outputFrameRate           = outArgs.getDoubleProperty(kOfxImageEffectPropFrameRate);

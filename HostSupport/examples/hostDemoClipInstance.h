@@ -176,7 +176,10 @@ namespace MyHost {
     int               _view; ///< view used by the last renderAction
 #endif
     mutable bool      _inRoDAction; ///< set while the output clip calls the effect's RoD action
-    bool              _multiPlane; ///< hostDemo --multiplane (getComponentsPresent())
+#ifdef OFX_EXTENSIONS_NUKE
+    /// storage for what getComponentsPresent() returns with extra planes (setInputPlane()); a plug-in keeps the const char* of a value
+    std::vector<std::string> _componentsPresent;
+#endif
 
   public:
     MyClipInstance(MyEffectInstance* effect, OFX::Host::ImageEffect::ClipDescriptor* desc);
@@ -194,8 +197,6 @@ namespace MyHost {
     /// set the depth returned by getUnmappedBitDepth() (byte, short or float)
     void setUnmappedBitDepth(const std::string& depth) { _unmappedDepth = depth; }
 
-    /// hostDemo --multiplane: kFnOfxImageEffectPropComponentsPresent lists the planes
-    void setMultiPlane() { _multiPlane = true; }
     /// add an extra plane to the input (-i Clip@Plane=spec), replacing the one of that plane
     void setInputPlane(const InputPlane& plane);
 
@@ -323,8 +324,8 @@ namespace MyHost {
     ///
     virtual OFX::Host::ImageEffect::Image* getImagePlane(OfxTime time, int view, const std::string& plane,const OfxRectD *optionalBounds);
 
-    /// kFnOfxImageEffectPropComponentsPresent: with setMultiPlane(), the planes of the clip: the
-    /// colour plane, then the extra planes of an input (else HostSupport's: the colour plane)
+    /// kFnOfxImageEffectPropComponentsPresent: with extra planes (setInputPlane()), the colour
+    /// plane, then the extra planes of the input (else HostSupport's)
     virtual const std::vector<std::string>& getComponentsPresent() const OFX_EXCEPTION_SPEC;
 
     /// override this to return the rod on the clip for the given view
