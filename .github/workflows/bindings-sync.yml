@@ -3,7 +3,7 @@ name: Bindings sync
 # A pull request that changes a virtual function of HostSupport/include must update the Python
 # bindings (HostSupport/python/src) or say why not in a "Bindings:" line of its description
 # (.github/scripts/check-bindings-sync.sh). A few seconds, no build; it runs again when the
-# description is edited, without the build workflow. It runs on drafts, like build.yml's Linux and Windows jobs:
+# description is edited, without the build workflow. It also runs on drafts (unlike build.yml):
 # a few seconds, and the author can fix the description before review.
 
 on:
