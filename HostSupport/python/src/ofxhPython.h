@@ -283,7 +283,10 @@ inline std::string depthName(const std::string &s) { return ofxName("depth", s);
 inline std::string componentsName(const std::string &s) { return ofxName("components", s); }
 inline std::string premultName(const std::string &s) { return ofxName("premult", s); }
 inline std::string fieldName(const std::string &s) { return ofxName("field", s.empty() ? std::string("none") : s); }
-int componentCount(const std::string &components); ///< 4, 3, 1, or 0 if unsupported
+int componentCount(const std::string &components); ///< 4, 3, 2 (Nuke planes), 1, or 0 if unsupported
+/// the components of the images of a plane other than the colour plane (an OFX name): those of the
+/// Nuke extension's motion vector and disparity planes, "" for the others (ofxh makes no image of them)
+std::string planeComponents(const std::string &plane);
 /// can ofxh make images of this (OFX) depth and these components?
 bool imageFormatSupported(const std::string &depth, const std::string &components);
 
@@ -369,9 +372,11 @@ public:
   /// releaseOutputImage(), and drop its ImageData: before a render
   void resetOutput();
   /// call the Python get_image() and make a C++ image from what it returns (nullptr if None). The
-  /// output image of a render is never nullptr (see fetchImage()).
-  OHIE::Image *fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds);
-  OHIE::Image *fetchFromPython(OfxTime time, int view, const OfxRectD *optionalBounds);
+  /// output image of a render is never nullptr (see fetchImage()). plane: "" for the colour plane,
+  /// else the OFX name of an input's plane that planeComponents() knows
+  OHIE::Image *fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds,
+                          const std::string &plane = std::string());
+  OHIE::Image *fetchFromPython(OfxTime time, int view, const OfxRectD *optionalBounds, const std::string &plane);
   /// the clip's RoD in canonical coordinates, from the Python region_of_definition()
   OfxRectD rod(OfxTime time, int view) const;
   /// the default RoD (hostDemo's): the effect's RoD for the output clip, the project for a
@@ -402,6 +407,8 @@ public:
   OHIE::Image *getImagePlane(OfxTime time, int view, const std::string &plane,
                              const OfxRectD *optionalBounds) override;
   OfxRectD getRegionOfDefinition(OfxTime time, int view) const override;
+  /// ClipInstance.components_present (kFnOfxImageEffectPropComponentsPresent)
+  const std::vector<std::string> &getComponentsPresent() const OFX_EXCEPTION_SPEC override;
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
   OHIE::Texture *loadTexture(OfxTime, const char *, const OfxRectD *) override { return nullptr; }
@@ -416,7 +423,7 @@ public:
 
 private:
   /// make the C++ image of what get_image() returned (raises if it isn't a valid image)
-  PyImage *makeImage(nb::object r, OfxTime time, int view);
+  PyImage *makeImage(nb::object r, OfxTime time, int view, const std::string &plane);
 
   int _view;                   ///< the view of getImage() (setView)
   PyImage *_outputImage;       ///< the output image of the current render (output clip only)

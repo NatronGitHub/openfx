@@ -8,9 +8,10 @@ A drop-in for the hostDemo binary in test scripts.
 
 It takes hostDemo's options with the same meaning and the same errors (see -h), writes the same
 files, the same --report and --describe JSON, prints the plug-ins' messages as hostDemo does, and
-exits with the same status. As hostDemo, it reads the whole command line before it imports ofxh,
-runs one command line per process, and unloads the plug-ins at the end. README.md lists the few
-differences; the batch mode (ofxhost._batch) runs many command lines in one Python.
+exits with the same status. As hostDemo, it reads the whole command line before it imports ofxh
+(but at --multiplane, which needs the Nuke extension), runs one command line per process, and
+unloads the plug-ins at the end. README.md lists the few differences; the batch mode
+(ofxhost._batch) runs many command lines in one Python.
 """
 
 from __future__ import annotations
@@ -64,7 +65,7 @@ hostDemo's command line, in-process on the HostSupport Python bindings (ofxhost.
   --opengl-describe  with --describe only: say the host supports OpenGL render
                      (kOfxImageEffectPropOpenGLRenderSupported "true"), to describe OpenGL-only plug-ins
   --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,
-                     the GetClipComponents action; Nuke-extension builds only): not in-process
+                     the GetClipComponents action; Nuke-extension builds only)
   --no-normalised-defaults  be a host without normalised parameter defaults: double params
                      have no kOfxParamPropDefaultCoordinateSystem, their defaults are canonical
   --no-std-paths     only look for plug-ins in OFX_PLUGIN_PATH
@@ -85,7 +86,7 @@ _VALUE_OPTIONS = ("-p", "-m", "-c", "-o", "-s", "-d", "-i", "--format", "--repor
 _FLAGS = {"--no-std-paths": ("std_paths", False), "--quiet": ("quiet", True),
           "--allow-unwritten": ("allow_unwritten", True), "--query": ("query", True), "--ofx14": ("ofx14", True),
           "--opengl-describe": ("opengl_describe", True), "--no-normalised-defaults": ("normalised_defaults", False),
-          "--no-cache": (None, None)}
+          "--multiplane": ("multiplane", True), "--no-cache": (None, None)}
 # -i Clip@Plane=spec: the planes (hostDemo's parseInputPlaneName: the kFnOfxImagePlane* names without
 # "uk.co.thefoundry.OfxImagePlane")
 _PLANES = ("ForwardMotionVector", "BackMotionVector", "StereoDisparityLeft", "StereoDisparityRight")
@@ -157,11 +158,12 @@ def scan_options(args: Sequence[str]) -> tuple[str, set]:
 
 
 def _parse_input_plane(o: dict, v: str) -> None:
-    """-i Clip@Plane=spec: checked as hostDemo checks it (the in-process backend has no planes: see _parse())."""
+    """-i Clip@Plane=spec, checked as hostDemo checks it: into o["planes"], (clip, plane, specs.Spec)."""
     from . import specs, split_components  # (not ofxh)
     at, eq = v.find("@"), v.find("=")
     clip, plane = v[:at], v[at + 1:eq]
     error = "no clip name"
+    spec = None
     if at > 0:
         error = ""
         if plane not in _PLANES:
@@ -170,16 +172,17 @@ def _parse_input_plane(o: dict, v: str) -> None:
             error = "a plane has no #rgb/#alpha/#rgba suffix"
         else:
             try:
-                if specs.parse_spec(v[eq + 1:]).type == "none":
+                spec = specs.parse_spec(v[eq + 1:])
+                if spec.type == "none":
                     error = "a plane can't be none"
             except specs.SpecError as e:
                 error = str(e)
     if error:
         _fail(f'Error: invalid input plane "{v}" ({error}), expected '
               "Clip@ForwardMotionVector|BackMotionVector|StereoDisparityLeft|StereoDisparityRight=spec")
-    if (clip, plane) in o["planes"]:
+    if any((c, p) == (clip, plane) for c, p, _ in o["planes"]):
         _fail(f'Error: input plane "{clip}@{plane}" given twice (-i)')
-    o["planes"].append((clip, plane))
+    o["planes"].append((clip, plane, spec))
 
 
 def _parse_input(o: dict, v: str, seen: set) -> None:
@@ -288,8 +291,9 @@ def _parse(argv: list[str], prog: str) -> dict:
     from .specs import CLIP_LENGTH  # (not ofxh: it is imported after the command line, as hostDemo loads plug-ins)
     o = {"plugin": _DEFAULT_PLUGIN, "major": -1, "context": kOfxImageEffectContextFilter, "prefix": "Output",
          "depth": "byte", "assignments": [], "inputs": [], "report": "", "describe": "", "std_paths": True,
-         "planes": [], "quiet": False, "ofx14": False, "opengl_describe": False, "normalised_defaults": True,
-         "allow_unwritten": False, "format": "ppm", "frames": None, "scale": (1., 1.), "window": None, "query": False}
+         "planes": [], "multiplane": False, "quiet": False, "ofx14": False, "opengl_describe": False,
+         "normalised_defaults": True, "allow_unwritten": False, "format": "ppm", "frames": None, "scale": (1., 1.),
+         "window": None, "query": False}
     seen: set = set()
     a = 0
     while a < len(argv):
@@ -298,9 +302,7 @@ def _parse(argv: list[str], prog: str) -> dict:
             sys.stdout.write(USAGE.format(prog=prog))
             raise _Exit(0)
         if arg == "--multiplane":
-            # (as a hostDemo built without OFX_EXTENSIONS_NUKE: README.md, what differs)
-            _fail("Error: --multiplane: the in-process backend has no multi-plane support (the ofxh bindings fetch and "
-                  "render the colour plane only): use hostDemo")
+            _check_multiplane()
         if arg in _FLAGS:
             key, value = _FLAGS[arg]
             if key is not None:
@@ -321,15 +323,28 @@ def _parse(argv: list[str], prog: str) -> dict:
         a += 1
     if o["frames"] is None:
         o["frames"] = [0., CLIP_LENGTH]
-    for _, spec in o["inputs"]:
+    for spec in [spec for _, spec in o["inputs"]] + [spec for _, _, spec in o["planes"]]:
         spec.scale = o["scale"]  # (the pixels of a file input are pixels at the render scale)
     if o["report"] and o["describe"]:
         _fail("Error: --report and --describe can't be used together (--describe creates no instance)")
     if o["opengl_describe"] and not o["describe"]:
         _fail("Error: --opengl-describe needs --describe (hostDemo can't render with OpenGL)")
-    if o["planes"]:
+    if o["planes"] and not o["multiplane"]:
         _fail("Error: -i Clip@Plane=spec needs --multiplane")
+    if o["multiplane"] and o["ofx14"]:
+        _fail("Error: --multiplane and --ofx14 can't be used together (OFX 1.4 has no plane suite)")
     return o
+
+
+def _check_multiplane() -> None:
+    """--multiplane needs the Nuke extension, checked at the option as hostDemo checks it (this imports ofxh)."""
+    from .build import OfxhNotFound, import_ofxh
+    try:
+        ofxh = import_ofxh(os.environ.get("OFX_PLUGIN_PATH", ""), for_cli=True)
+    except OfxhNotFound as e:
+        _fail(f"Error: {e}")
+    if not ofxh.build_config.get("OFX_EXTENSIONS_NUKE"):
+        _fail("Error: --multiplane needs a hostDemo built with OFX_EXTENSIONS_NUKE")
 
 
 def _dump(ofxh) -> None:
@@ -383,12 +398,14 @@ def run(argv: list[str], prog: str = "hostdemo", shutdown: bool = True) -> int:
         if o["describe"]:
             return _describe(ip, o, dirs, profile, keep)
         if not o["quiet"]:
-            ip.ensure_host(dirs, profile, keep, o["std_paths"], normalised_defaults=o["normalised_defaults"])
+            ip.ensure_host(dirs, profile, keep, o["std_paths"], normalised_defaults=o["normalised_defaults"],
+                           multiplane=o["multiplane"])
             _dump(ip.ofxh)
         job = ip.Job(o["plugin"], o["context"], o["inputs"], o["assignments"], o["depth"], o["frames"], o["scale"],
                      o["window"], query=o["query"], ofx14=o["ofx14"], allow_unwritten=o["allow_unwritten"],
                      major=o["major"], fmt=o["format"], prefix=o["prefix"], keep_loaded=keep,
-                     use_std_paths=o["std_paths"], normalised_defaults=o["normalised_defaults"])
+                     use_std_paths=o["std_paths"], normalised_defaults=o["normalised_defaults"],
+                     multiplane=o["multiplane"], planes=o["planes"])
         ret, report, _ = ip.run_job(dirs, job)
         report["ok"] = ret == 0  # (as hostDemo writes them in every report)
         report["exitStatus"] = ret
@@ -408,7 +425,7 @@ def _describe(ip, o: dict, dirs: tuple, profile: str, keep: bool) -> int:
         _err("Error: --opengl-describe: ofxh was built without OFX_SUPPORTS_OPENGLRENDER (no OpenGL render suite)")
         return 1
     ip.ensure_host(dirs, profile, keep, o["std_paths"], opengl_render=o["opengl_describe"],
-                   normalised_defaults=o["normalised_defaults"])
+                   normalised_defaults=o["normalised_defaults"], multiplane=o["multiplane"])
     if not o["quiet"]:
         _dump(ip.ofxh)
     plugin = ip.ofxh.get_plugin(o["plugin"], o["major"])

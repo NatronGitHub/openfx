@@ -5,6 +5,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/pair.h>
 
+#include <algorithm>
 #include <climits>
 #include <cmath>
 #include <cstdio>
@@ -372,8 +373,16 @@ static const NameEntry kNames[] = {
   {"param_type", "group", kOfxParamTypeGroup},
   {"param_type", "page", kOfxParamTypePage},
   {"param_type", "parametric", kOfxParamTypeParametric},
-  // (the Nuke extension's colour plane; the other planes keep their names)
+  // (the Nuke extension's planes: their names without "uk.co.thefoundry.OfxImagePlane", as
+  // hostDemo's -i Clip@Plane=spec; the other planes keep their names)
   {"plane", "Colour", "uk.co.thefoundry.OfxImagePlaneColour"},
+  {"plane", "ForwardMotionVector", "uk.co.thefoundry.OfxImagePlaneForwardMotionVector"},
+  {"plane", "BackMotionVector", "uk.co.thefoundry.OfxImagePlaneBackMotionVector"},
+  {"plane", "StereoDisparityLeft", "uk.co.thefoundry.OfxImagePlaneStereoDisparityLeft"},
+  {"plane", "StereoDisparityRight", "uk.co.thefoundry.OfxImagePlaneStereoDisparityRight"},
+  // (the components of their images, two: u and v, or x and y)
+  {"components", "motionvectors", "uk.co.thefoundry.OfxImageComponentMotionVectors"},
+  {"components", "disparity", "uk.co.thefoundry.OfxImageComponentStereoDisparity"},
   {nullptr, nullptr, nullptr}};
 
 /// other accepted spellings
@@ -427,7 +436,24 @@ int componentCount(const std::string &components)
   if (components == kOfxImageComponentRGBA) return 4;
   if (components == kOfxImageComponentRGB) return 3;
   if (components == kOfxImageComponentAlpha) return 1;
+#ifdef OFX_EXTENSIONS_NUKE
+  if (components == kFnOfxImageComponentMotionVectors) return 2;
+  if (components == kFnOfxImageComponentStereoDisparity) return 2;
+#endif
   return 0;
+}
+
+std::string planeComponents([[maybe_unused]] const std::string &plane)
+{
+#ifdef OFX_EXTENSIONS_NUKE
+  if (plane == kFnOfxImagePlaneForwardMotionVector || plane == kFnOfxImagePlaneBackwardMotionVector) {
+    return kFnOfxImageComponentMotionVectors;
+  }
+  if (plane == kFnOfxImagePlaneStereoDisparityLeft || plane == kFnOfxImagePlaneStereoDisparityRight) {
+    return kFnOfxImageComponentStereoDisparity;
+  }
+#endif
+  return std::string();
 }
 
 static int clampToInt(double v)
@@ -879,7 +905,7 @@ static void fillSentinel(unsigned char *data, long long rowBytes, int width, int
   }
 }
 
-PyImage *PyClipInstance::makeImage(nb::object r, OfxTime time, int view)
+PyImage *PyClipInstance::makeImage(nb::object r, OfxTime time, int view, const std::string &plane)
 {
   PyEffectInstance *const effect = _effect;
   if (isOutput() && _outputImage) {
@@ -898,7 +924,8 @@ PyImage *PyClipInstance::makeImage(nb::object r, OfxTime time, int view)
   const std::string where = "clip " + getName() + ": get_image(): ";
   const OfxRectI bounds = toRectI(d.bounds, "bounds");
   const std::string &depth = getPixelDepth();
-  const std::string &comps = getComponents();
+  // (a plane's images have its components)
+  const std::string comps = plane.empty() ? getComponents() : planeComponents(plane);
   const int nComps = componentCount(comps);
   nb::dlpack::dtype dt;
   const char *dtname = nullptr;
@@ -918,7 +945,8 @@ PyImage *PyClipInstance::makeImage(nb::object r, OfxTime time, int view)
       static_cast<long long>(a.shape(1)) != width || static_cast<int>(a.shape(2)) != nComps) {
     std::ostringstream ss;
     ss << where << "pixels must have the shape (y2-y1, x2-x1, " << nComps << ") = (" << height << ", "
-       << width << ", " << nComps << ") of the bounds and the clip's components ("
+       << width << ", " << nComps << ") of the bounds and the " << (plane.empty() ? "clip's" : "plane's")
+       << " components ("
        << shortName("components", comps) << "), not (";
     for (size_t i = 0; i < a.ndim(); ++i) {
       ss << (i ? ", " : "") << a.shape(i);
@@ -961,7 +989,8 @@ PyImage *PyClipInstance::makeImage(nb::object r, OfxTime time, int view)
   std::string uid = d.uniqueId;
   if (uid.empty()) {
     std::ostringstream ss;  // as hostDemo
-    ss << getName() << ":" << time << ":" << view << (isOutput() ? ":output" : "");
+    ss << getName() << ":" << time << ":" << view << (isOutput() ? ":output" : "") << (plane.empty() ? "" : ":")
+       << plane;
     uid = ss.str();
   }
   if (isOutput()) {
@@ -969,6 +998,11 @@ PyImage *PyClipInstance::makeImage(nb::object r, OfxTime time, int view)
   }
   PyImage *img = new PyImage(*this, nb::borrow(d.pixels), data, effect->renderScale(), bounds, rodPixels,
                              static_cast<int>(rowBytes), fieldName(d.field), uid);
+  if (!plane.empty()) {
+    // (as hostDemo's: the plane's components, and no alpha)
+    img->setStringProperty(kOfxImageEffectPropComponents, comps);
+    img->setStringProperty(kOfxImageEffectPropPreMultiplication, kOfxImageOpaque);
+  }
   if (isOutput()) {
     // the clip keeps a reference until the end of the render (releaseOutputImage)
     _outputImage = img;
@@ -978,9 +1012,10 @@ PyImage *PyClipInstance::makeImage(nb::object r, OfxTime time, int view)
   return img;
 }
 
-OHIE::Image *PyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds)
+OHIE::Image *PyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds,
+                                        const std::string &plane)
 {
-  OHIE::Image *img = fetchFromPython(time, view, optionalBounds);
+  OHIE::Image *img = fetchFromPython(time, view, optionalBounds, plane);
   if (img || !isOutput() || !_effect->rendering()) {
     return img;  // (an input may have no image: the plug-in checks)
   }
@@ -996,11 +1031,12 @@ OHIE::Image *PyClipInstance::fetchImage(OfxTime time, int view, const OfxRectD *
     d.bounds = nb::make_tuple(w.x1, w.y1, w.x2, w.y2);
     d.rod = nb::none();
     d.field = "none";
-    return makeImage(nb::cast(std::move(d)), time, view);
+    return makeImage(nb::cast(std::move(d)), time, view, std::string());
   });
 }
 
-OHIE::Image *PyClipInstance::fetchFromPython(OfxTime time, int view, const OfxRectD *optionalBounds)
+OHIE::Image *PyClipInstance::fetchFromPython(OfxTime time, int view, const OfxRectD *optionalBounds,
+                                             const std::string &plane)
 {
   return callPython(nullptr, [&]() -> PyImage * {
     if (isOutput() && _outputImage) {
@@ -1012,9 +1048,11 @@ OHIE::Image *PyClipInstance::fetchFromPython(OfxTime time, int view, const OfxRe
     nb::object b = optionalBounds ? nb::object(nb::make_tuple(optionalBounds->x1, optionalBounds->y1,
                                                               optionalBounds->x2, optionalBounds->y2))
                                   : nb::none();
-    // (ofxh renders the colour plane only, one plane per render action; get_image() takes the
-    // plane as a keyword, so that its signature doesn't depend on that)
-    nb::object r = _py.attr("get_image")(time, view, b, nb::arg("plane") = "Colour");
+    // (the plane as a keyword, its short name: the inputs may have other planes, see
+    // getImagePlane(); ofxh renders the colour plane only, one plane per render action)
+    nb::object r = _py.attr("get_image")(time, view, b,
+                                         nb::arg("plane") = plane.empty() ? std::string("Colour")
+                                                                          : shortName("plane", plane));
     if (isOutput() && _outputImage) {
       // (another thread's fetch made the render's output image meanwhile, still under the GIL
       // here: that one, see makeImage())
@@ -1024,7 +1062,7 @@ OHIE::Image *PyClipInstance::fetchFromPython(OfxTime time, int view, const OfxRe
     if (r.is_none()) {
       return nullptr;
     }
-    return makeImage(r, time, view);
+    return makeImage(r, time, view, plane);
   });
 }
 
@@ -1172,11 +1210,44 @@ OHIE::Image *PyClipInstance::getImage(OfxTime time, const OfxRectD *optionalBoun
 OHIE::Image *PyClipInstance::getImagePlane(OfxTime time, int view, const std::string &plane,
                                            const OfxRectD *optionalBounds)
 {
-  // ofxh renders the colour plane only (one plane per render action)
-  if (plane != kFnOfxImagePlaneColour) {
+  // the colour plane, or another plane of an input: one that it has (components_present), with
+  // images that ofxh can make (planeComponents()). The output has the colour plane only (ofxh
+  // renders one plane per render action).
+  if (plane == kFnOfxImagePlaneColour) {
+    return fetchImage(time, view < 0 ? _view : view, optionalBounds);
+  }
+  if (isOutput() || planeComponents(plane).empty()) {
     return nullptr;
   }
-  return fetchImage(time, view < 0 ? _view : view, optionalBounds);
+  const std::vector<std::string> &present = getComponentsPresent();
+  if (std::find(present.begin(), present.end(), plane) == present.end()) {
+    return nullptr;
+  }
+  return fetchImage(time, view < 0 ? _view : view, optionalBounds, plane);
+}
+
+const std::vector<std::string> &PyClipInstance::getComponentsPresent() const OFX_EXCEPTION_SPEC
+{
+  // (written only under the GIL, which serializes the writes, and only when it changes, as the base
+  // class's, since a plug-in keeps the const char* of a value; if components_present raises, the
+  // last good value)
+  using Planes = std::vector<std::string>;
+  const Planes *present = callPython(static_cast<const Planes *>(&_componentsPresent), [&]() -> const Planes * {
+    nb::object planes = _py.attr("components_present");
+    if (nb::isinstance<nb::str>(planes)) {
+      raiseError(PyExc_TypeError, "clip " + getName() + ": components_present must be a sequence of plane "
+                                  "names, not a str");
+    }
+    Planes v;
+    for (nb::handle h : planes) {
+      v.push_back(ofxName("plane", nb::cast<std::string>(h)));
+    }
+    if (_componentsPresent != v) {
+      _componentsPresent = std::move(v);
+    }
+    return &_componentsPresent;
+  });
+  return *present;
 }
 
 OfxRectD PyClipInstance::getRegionOfDefinition(OfxTime time, int view) const

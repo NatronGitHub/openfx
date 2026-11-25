@@ -35,7 +35,8 @@ import numpy as np
 from . import COMPONENTS, DEPTHS, OUTPUT_PREFIX, HostDemoError, Image, RenderResult, _format_value, _param_args
 from . import plugin_dirs, split_components, status, stdio
 from .build import import_ofxh
-from .constants import (kOfxBitDepthByte, kOfxBitDepthFloat, kOfxBitDepthNone, kOfxBitDepthShort,
+from .constants import (kFnOfxImageEffectPropComponentsPresent, kFnOfxImageEffectPropMultiPlanar, kOfxBitDepthByte,
+                        kOfxBitDepthFloat, kOfxBitDepthNone, kOfxBitDepthShort,
                         kOfxImageComponentAlpha, kOfxImageComponentNone, kOfxImageComponentRGB,
                         kOfxImageComponentRGBA, kOfxImageEffectContextFilter, kOfxImageEffectContextGeneral,
                         kOfxImageEffectOutputClipName, kOfxImageEffectPropOpenGLRenderSupported,
@@ -141,14 +142,19 @@ def _one_at_a_time(f):
 class _Host(ofxh.Host):
     """hostDemo's Host (hostDemoHostDescriptor.cpp): its messages go to stdout, questions are answered yes."""
 
-    def __init__(self, opengl_render: bool = False):
+    def __init__(self, opengl_render: bool = False, multiplane: bool = False):
         super().__init__()
         self.opengl_render = opengl_render
+        self.multiplane = multiplane
 
     def init_properties(self, props):
         # hostDemo --opengl-describe (an OFX 1.4 host property: also kept by profile="ofx14")
         if self.opengl_render:
             props[kOfxImageEffectPropOpenGLRenderSupported] = "true"
+        # hostDemo --multiplane (Nuke extension builds): "Indicates that a host or plugin can fetch more
+        # than a type of image from a clip"
+        if self.multiplane:
+            props[kFnOfxImageEffectPropMultiPlanar] = 1
         # hostDemo's depths (BYTES, DEPTHS): byte, short and float. ofxh's PyHost also lists half
         # (its images make float16 arrays), which this host's image code doesn't make. (Before the
         # OFX 1.4 restriction: it is an OFX 1.4 host property, kept by profile="ofx14".)
@@ -221,6 +227,7 @@ class _Clip(ofxh.ClipInstance):
         super().__init__()
         self.run = run
         self.spec = Spec()  # the input (hostDemo's -i; the default pattern if not given)
+        self.planes: dict[str, Spec] = {}  # its other planes (-i Clip@Plane=spec, --multiplane), by short name
 
     @property
     def connected(self):
@@ -251,6 +258,14 @@ class _Clip(ofxh.ClipInstance):
         if not self.is_output and self.spec.type == "file":
             return self.spec.file_format()
         return (0, 0, 720, 576)
+
+    @property
+    def components_present(self):
+        # --multiplane: the colour plane, then the other planes of an input (sorted, as hostDemo's map);
+        # else HostSupport's (and none on a disconnected input)
+        if not self.run.job.multiplane or not self.connected:
+            return super().components_present
+        return ["Colour", *sorted(self.planes)]
 
     def region_of_definition(self, time, view):
         if self.is_output:
@@ -294,6 +309,12 @@ class _Clip(ofxh.ClipInstance):
         b = self._input_bounds(rod_c, rod, rs, bounds)
         if b is None:
             return None
+        if plane != "Colour":
+            # another plane of the input (ofxh asks only for those of components_present): its two
+            # components are the first two of its spec's pattern, as hostDemo's
+            b = self._checked(b, time, depth, "rgba", 2)
+            rgba = pattern(self.planes[plane], time, view, b, rod, rs, vegas=_VEGAS)
+            return ofxh.ImageData(np.ascontiguousarray(to_depth(rgba, depth, "rgba")[..., :2]), b, rod=rod)
         b = self._checked(b, time, depth, comps)
         pixels = to_depth(from_components(pattern(self.spec, time, view, b, rod, rs, vegas=_VEGAS),
                                           self.spec.components), depth, comps)
@@ -344,10 +365,13 @@ class _Clip(ofxh.ClipInstance):
             b = intersect(b, inst.render_window)
         return None if is_empty(b) else b
 
-    def _checked(self, b, time, depth, comps):
-        """MyImage refuses images of more than 2^28 pixels (an image fetch error): empty bounds."""
+    def _checked(self, b, time, depth, comps, n_comps=None):
+        """MyImage refuses images of more than 2^28 pixels (an image fetch error): empty bounds.
+
+        n_comps: the number of components (None: those of comps).
+        """
         b = (b[0], b[1], max(b[2], b[0]), max(b[3], b[1]))
-        if not fits(b, NCOMPS[comps] * BYTES[depth]):
+        if not fits(b, (NCOMPS[comps] if n_comps is None else n_comps) * BYTES[depth]):
             # (each refused image is an error, as in hostDemo)
             self.run.err(f"Error: image of {b[2] - b[0]}x{b[3] - b[1]} pixels at time {_g(time)}: too large "
                          f"(more than {MAX_IMAGE_PIXELS} pixels)")
@@ -369,7 +393,7 @@ class Session:
     host: Any
     dirs: tuple
     profile: str
-    options: tuple = ()  # (keep_loaded, use_std_paths, opengl_render, normalised_defaults)
+    options: tuple = ()  # (keep_loaded, use_std_paths, opengl_render, normalised_defaults, multiplane)
 
 
 _session: Session | None = None
@@ -393,7 +417,7 @@ def shutdown() -> None:
 
 
 def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_paths: bool = False,
-                opengl_render: bool = False, normalised_defaults: bool = True) -> None:
+                opengl_render: bool = False, normalised_defaults: bool = True, multiplane: bool = False) -> None:
     """Make sure the backend's ofxh host is initialized with these settings.
 
     ofxh has one host per process: a new one replaces the backend's own, but not another one.
@@ -407,12 +431,15 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
             --opengl-describe; for describing only: the host renders without OpenGL).
         normalised_defaults: False: no kOfxParamPropDefaultCoordinateSystem (hostDemo's
             --no-normalised-defaults, see ofxh.init()).
+        multiplane: a multi-plane host (kFnOfxImageEffectPropMultiPlanar, hostDemo's --multiplane;
+            Nuke extension builds).
 
     Raises:
         RuntimeError: another ofxh host is initialized.
     """
     global _session
-    options = (bool(keep_loaded), bool(use_std_paths), bool(opengl_render), bool(normalised_defaults))
+    options = (bool(keep_loaded), bool(use_std_paths), bool(opengl_render), bool(normalised_defaults),
+               bool(multiplane))
     if _session is not None and ofxh.host() is not _session.host:
         _session = None  # (shut down by someone else)
     if _session is not None and (_session.dirs, _session.profile, _session.options) == (dirs, profile, options):
@@ -424,7 +451,7 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
                                "backend=\"subprocess\"")
         ofxh.shutdown()
         _session = None
-    host = _Host(opengl_render)
+    host = _Host(opengl_render, multiplane)
     ofxh.init(host, list(dirs), use_std_paths=use_std_paths, use_env_path=False, profile=profile,
               keep_loaded=keep_loaded, normalised_defaults=normalised_defaults)
     _session = Session(host, dirs, profile, options)
@@ -529,6 +556,9 @@ class Job:
     window: pixels at the render scale, or None. fmt: write the outputs to
     <prefix>.<t>[l|r].<fmt> ("ppm" or "pfm"), in out_dir (None: the current directory), or None:
     no files. keep_loaded, use_std_paths, normalised_defaults: of the host (see ofxh.init()).
+    multiplane: a multi-plane host (hostDemo's --multiplane, Nuke extension builds); planes: the
+    other planes of the inputs, [(clip, plane, specs.Spec)] (-i Clip@Plane=spec; plane: a short name,
+    e.g. BackMotionVector).
     """
     plugin_id: str
     context: str
@@ -548,6 +578,8 @@ class Job:
     keep_loaded: bool = False
     use_std_paths: bool = False
     normalised_defaults: bool = True
+    multiplane: bool = False
+    planes: list[tuple[str, str, Spec]] = dataclasses.field(default_factory=list)
 
 
 class _Run:
@@ -806,6 +838,9 @@ def _frame_queries(run: _Run, inst, t: float, av: int, render_window, r: dict) -
     id_j["time"] = idr.get("time") if identity else None
     if _NUKE:
         id_j["identityView"] = idr.get("view") if identity else None
+    if run.job.multiplane:
+        id_j["identityPlane"] = _ofx("plane", idr.get("plane")) if identity else None
+        _clip_components(run, inst, t, av, r)
     st, ranges = run.call2("getFramesNeeded", inst.get_frames_needed_action, t)
     fn = r["framesNeeded"] = _action(st)
     run.check(st, f"get frames needed action failed at time {_g(t)}")
@@ -819,6 +854,21 @@ def _frame_queries(run: _Run, inst, t: float, av: int, render_window, r: dict) -
     roi_j["regionOfInterest"] = list(roi)
     roi_j["clips"] = {c: list(v) for c, v in sorted(rois.items())}
     return rois
+
+
+def _clip_components(run: _Run, inst, t: float, view: int, r: dict) -> None:
+    """--multiplane: the planes the plug-in needs and produces, and its pass-through clip, into r.
+
+    (hostDemo renders the colour plane only.) Raises _Failed.
+    """
+    st, cc = run.call2("getClipComponents", inst.get_clip_components_action, t, view)
+    j = r["clipComponents"] = _action(st)
+    run.check(st, f"get clip components action failed at time {_g(t)}")
+    ok = int(st) == ofxh.Stat.OK
+    j["clips"] = {c: list(v) for c, v in sorted(cc.get("clips", {}).items())}  # (by clip name, as hostDemo)
+    j["passThroughClip"] = cc.get("pass_through_clip")
+    j["passThroughTime"] = cc.get("pass_through_time") if ok else None
+    j["passThroughView"] = cc.get("pass_through_view") if ok else None
 
 
 def _frame_render(run: _Run, inst, t: float, view: int, av: int, render_window, rod, rois: dict, sequential: bool,
@@ -938,7 +988,8 @@ def run_job(dirs: tuple, job: Job) -> tuple[int, dict, dict]:
     """
     run = _Run(job)
     profile = "ofx14" if job.ofx14 else "default"
-    ensure_host(dirs, profile, job.keep_loaded, job.use_std_paths, normalised_defaults=job.normalised_defaults)
+    ensure_host(dirs, profile, job.keep_loaded, job.use_std_paths, normalised_defaults=job.normalised_defaults,
+                multiplane=job.multiplane)
     plugin = ofxh.get_plugin(job.plugin_id, job.major)
     report: dict = {"schema": "hostDemo.report", "schemaVersion": 1, "ok": False, "plugin": {"id": job.plugin_id},
                     "context": job.context, "host": {"name": ofxh.host().props[kOfxPropName][0], "profile": profile},
@@ -998,14 +1049,26 @@ def _connect_inputs(run: _Run, inst, report: dict) -> None:
             failed = True
             break
         clip.spec = spec
+    if not failed:
+        for name, plane, spec in run.job.planes:
+            clip = clips.get(name)
+            if clip is None or clip.is_output:
+                run.err(f'Error: the plug-in has no input clip named "{name}". Its clips are:' +
+                        "".join(" " + c for c in clips))
+                failed = True
+                break
+            clip.planes[plane] = spec
     for name, clip in clips.items():
         if not clip.is_output:
-            report["inputs"][name] = {
+            j = report["inputs"][name] = {
                 "spec": clip.spec.text, "connected": clip.connected, "optional": clip.is_optional,
                 "isMask": clip.is_mask,
                 "unmappedDepth": _ofx("depth", run.job.depth) if clip.connected else kOfxBitDepthNone,
                 "unmappedComponents": _ofx("components", clip.spec.components) if clip.connected else
                 kOfxImageComponentNone}
+            if run.job.multiplane:
+                # (its -i Clip@Plane=spec, by plane, as hostDemo's map)
+                j["planes"] = {p: spec.text for c, p, spec in sorted(run.job.planes, key=lambda x: x[1]) if c == name}
     if failed:
         raise _Failed
     # "Any clip that is not optional will *always* be connected during a render action"
@@ -1051,6 +1114,11 @@ def _create(run: _Run, inst, report: dict) -> None:
         "outputFrameRate": inst.output_frame_rate,
         "continuousSamples": inst.output_continuous_samples,
         "frameVarying": inst.output_frame_varying}
+    if run.job.multiplane:
+        # the planes present, as a plug-in reads them
+        for name, c in inst.clips.items():
+            report["clipPreferences"]["clips"][name]["planesPresent"] = \
+                list(c.props[kFnOfxImageEffectPropComponentsPresent])
     if run.job.context == kOfxImageEffectContextGeneral:
         st, rng = run.call2("getTimeDomain", inst.get_time_domain_action)
         td = report["timeDomain"] = _action(st)

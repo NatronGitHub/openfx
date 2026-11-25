@@ -1344,6 +1344,47 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
       scope.check("getTimeDomain", &st);
       return nb::make_tuple(stat(st), Point(r.min, r.max));
     }, "Returns (Stat, (t1, t2)) (the general context only).")
+#ifdef OFX_EXTENSIONS_NUKE
+    .def("get_clip_components_action", [](InstanceBase &s, double time, int view) {
+      PyEffectInstance *p = s.get();
+      checkView(view, false);
+      OHIE::ComponentsMap components;
+      OHIE::ClipInstance *passThroughClip = nullptr;
+      OfxTime passThroughTime = time;
+      int passThroughView = view;
+      ActionScope scope;
+      OfxStatus st;
+      {
+        TimeLineScope tl(p, time);
+        st = withoutGil([&] {
+          return p->getClipComponentsAction(time, view, components, passThroughClip, passThroughTime, passThroughView);
+        });
+      }
+      scope.check("getClipComponents", &st);
+      // (by clip name: the map is ordered by the clips' addresses)
+      nb::dict clips;
+      for (const auto &[name, clip] : p->clips()) {
+        const OHIE::ComponentsMap::const_iterator found = components.find(clip);
+        if (found != components.end()) {
+          nb::list l;
+          for (const std::string &c : found->second) {
+            l.append(nb::str(c.c_str()));
+          }
+          clips[name.c_str()] = l;
+        }
+      }
+      nb::dict d;
+      d["clips"] = clips;
+      d["pass_through_clip"] = passThroughClip ? nb::object(nb::str(passThroughClip->getName().c_str())) : nb::none();
+      d["pass_through_time"] = passThroughTime;
+      d["pass_through_view"] = passThroughView;
+      return nb::make_tuple(stat(st), d);
+    }, "time"_a, "view"_a = 0,
+       "kFnOfxImageEffectActionGetClipComponents (Nuke extension builds): the planes the plug-in needs on each\n"
+       "clip and produces on the output, and the clip, time and view it passes the other planes through\n"
+       "from. Returns (Stat, {clips: {clip: [plane, ...]} (the plug-in's strings, empty unless Stat.OK),\n"
+       "pass_through_clip (None if none), pass_through_time, pass_through_view}).")
+#endif
     .def("begin_instance_changed_action", [](InstanceBase &s, const std::string &why) {
       PyEffectInstance *p = s.get();
       ActionScope scope;
@@ -1416,10 +1457,12 @@ static void bindClipInstance(nb::module_ &m)
   nb::class_<ClipBase> clip(m, "ClipInstance",
     "A clip of an instance. Subclass it, and return one from ImageEffectInstance.new_clip_instance().\n\n"
     "Callbacks (the defaults are hostDemo's): the methods get_image(time, view, bounds, plane=\"Colour\")\n"
-    "(ofxh passes \"Colour\": it renders the colour plane only, one plane per render action) and\n"
+    "(ofxh renders the colour plane only, one plane per render action; with the Nuke extension, a\n"
+    "plug-in may fetch another plane of an input, see components_present) and\n"
     "region_of_definition(time, view); and the values connected, unmapped_bit_depth,\n"
     "unmapped_components, premult, format, aspect_ratio, frame_rate, frame_range, field_order,\n"
-    "unmapped_frame_rate, unmapped_frame_range, continuous_samples, which may be overridden with a\n"
+    "unmapped_frame_rate, unmapped_frame_range, continuous_samples, components_present (Nuke extension\n"
+    "builds), which may be overridden with a\n"
     "property, a class attribute or an instance attribute. Depths, components, premultiplications and\n"
     "fields are short names (byte, rgba, premult, none...; the OFX strings are accepted too).\n\n"
     "The output clip gives one image per render action: the first one get_image() returns, to every\n"
@@ -1450,8 +1493,11 @@ static void bindClipInstance(nb::module_ &m)
     }, "time"_a, "view"_a, "bounds"_a.none(), "plane"_a = "Colour",
        "Return the image (an ofxh.ImageData, or None) at this time and view. bounds: the region the\n"
        "plug-in asked for, in canonical coordinates, or None. plane: \"Colour\" (the only one ofxh\n"
-       "renders). The default makes the output image (filled with a sentinel) over the render window,\n"
-       "and returns None for the inputs.")
+       "renders), or for an input a plane of its components_present with two components (Nuke\n"
+       "extension builds): ForwardMotionVector or BackMotionVector (components motionvectors),\n"
+       "StereoDisparityLeft or StereoDisparityRight (disparity); its image is (H, W, 2), and ofxh gives\n"
+       "it the plane's components and the premultiplication opaque. The default makes the output image\n"
+       "(filled with a sentinel) over the render window, and returns None for the inputs.")
     .def("region_of_definition", [](ClipBase &s, double time, int view) {
       PyClipInstance *c = s.get();
       return scoped("region_of_definition()", [&] { return tuple(c->defaultRoD(time, view)); });
@@ -1506,6 +1552,20 @@ static void bindClipInstance(nb::module_ &m)
     return nb::cast(scoped("unmapped_frame_range", [&] { return Point(0., e->getEffectDuration()); }));
   });
   overridable(clip, "continuous_samples", [](ClipBase &) { return nb::cast(false); });
+#ifdef OFX_EXTENSIONS_NUKE
+  overridable(clip, "components_present", [](ClipBase &s) {
+    PyClipInstance *c = s.get();
+    nb::list l;
+    const std::vector<std::string> present =
+      scoped("components_present", [&] { return c->OHIE::ClipInstance::getComponentsPresent(); });
+    for (const std::string &p : present) {
+      l.append(nb::str(shortName("plane", p).c_str()));
+    }
+    return nb::object(l);
+  }, "The planes of the clip (kFnOfxImageEffectPropComponentsPresent, Nuke extension builds), short names\n"
+     "or OFX names. The default, HostSupport's: Colour, none on a disconnected input. A multi-plane host\n"
+     "(kFnOfxImageEffectPropMultiPlanar) lists the other planes of an input, which get_image() gives.");
+#endif
   // --- information
   clip.def_prop_ro("alive", [](ClipBase &s) { checkThread("ofxh", false); return s.ref->p != nullptr; })
     .def_prop_ro("name", [](ClipBase &s) { return s.get()->getName(); })
