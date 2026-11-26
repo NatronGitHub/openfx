@@ -403,6 +403,7 @@ class HostOptions(NamedTuple):
     normalised_defaults: bool = True
     multiplane: bool = False
     components: tuple = HOST_COMPONENTS
+    gpu: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -436,7 +437,7 @@ def shutdown() -> None:
 
 def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_paths: bool = False,
                 opengl_render: bool = False, normalised_defaults: bool = True, multiplane: bool = False,
-                components: Sequence[str] = HOST_COMPONENTS) -> None:
+                components: Sequence[str] = HOST_COMPONENTS, gpu: bool = False) -> None:
     """Make sure the backend's ofxh host is initialized with these settings.
 
     ofxh has one host per process: a new one replaces the backend's own, but not another one.
@@ -454,6 +455,8 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
             Nuke extension builds).
         components: the host's kOfxImageEffectPropSupportedComponents, OFX names (hostDemo's
             --components).
+        gpu: an OpenGL context (hostDemo's --gpu=opengl, ofxh.init(opengl=True)): if it is made, the
+            host says it supports OpenGL render, and renders with it the plug-ins that can.
 
     Raises:
         RuntimeError: another ofxh host is initialized.
@@ -461,7 +464,7 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
     global _session
     options = HostOptions(keep_loaded=bool(keep_loaded), use_std_paths=bool(use_std_paths),
                           opengl_render=bool(opengl_render), normalised_defaults=bool(normalised_defaults),
-                          multiplane=bool(multiplane), components=tuple(components))
+                          multiplane=bool(multiplane), components=tuple(components), gpu=bool(gpu))
     if _session is not None and ofxh.host() is not _session.host:
         _session = None  # (shut down by someone else)
     if _session is not None and (_session.dirs, _session.profile, _session.options) == (dirs, profile, options):
@@ -475,7 +478,7 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
         _session = None
     host = _Host(opengl_render, multiplane, options.components)
     ofxh.init(host, list(dirs), use_std_paths=use_std_paths, use_env_path=False, profile=profile,
-              keep_loaded=keep_loaded, normalised_defaults=normalised_defaults)
+              keep_loaded=keep_loaded, normalised_defaults=normalised_defaults, opengl=bool(gpu))
     _session = Session(host, dirs, profile, options)
 
 
@@ -607,6 +610,7 @@ class Job:
     multiplane: bool = False
     planes: list[tuple[str, str, Spec]] = dataclasses.field(default_factory=list)
     components: tuple = HOST_COMPONENTS
+    gpu: bool = False  # hostDemo's --gpu=opengl
 
 
 class _Run:
@@ -911,15 +915,45 @@ def _frame_render(run: _Run, inst, t: float, view: int, av: int, render_window, 
     run.rendering, run.rois = True, dict(rois)
     run.render_rod = (t, av, tuple(rod))  # (the output's RoD during the render: see _Clip)
     errors = run.image_errors
+
+    def render(opengl: bool):
+        return run.call2("render", inst.render_action, t, render_window, run.job.scale, "none",
+                         sequential=sequential, interactive_render=False, draft=False,
+                         view=view if (_NUKE or _VEGAS) else 0, n_views=run.n_views if _VEGAS else 1,
+                         opengl=opengl)
+
+    used_gl = cpu_retry = False
     try:
-        st, planes = run.call2("render", inst.render_action, t, render_window, run.job.scale, "none",
-                               sequential=sequential, interactive_render=False, draft=False,
-                               view=view if (_NUKE or _VEGAS) else 0, n_views=run.n_views if _VEGAS else 1)
+        # hostDemo's renderFrame() with --gpu=opengl: OpenGL if the plug-in and the host can, the CPU if
+        # OpenGL failed and the plug-in can render on the CPU (see hostDemo's withOpenGL())
+        mode = inst.render_mode() if run.job.gpu else "cpu"
+        if mode == "opengl":
+            st, planes = render(True)
+            if inst.opengl_error:
+                run.err(f"Error: OpenGL render: {inst.opengl_error}")
+            result = inst.opengl_result
+            gl_failed = result != "ok"
+            used_gl = not gl_failed
+            # (ofxh's cpuRetryAllowed(): "retry"; not attached: if the plug-in can render on the CPU)
+            if result == "retry" or (result == "not_sent" and inst.render_mode(False) == "cpu"):
+                cpu_retry = True
+                st, planes = render(False)
+            elif gl_failed and int(st) == ofxh.Stat.OK:
+                st = ofxh.Stat.Failed
+        elif mode == "none":
+            run.err('Error: the plug-in needs OpenGL (kOfxImageEffectPropOpenGLRenderSupported "needed"), '
+                    "and hostDemo has no OpenGL context for it")
+            st, planes = ofxh.Stat.Failed, {}
+        else:
+            st, planes = render(False)
     finally:
         run.rendering, run.rois, run.render_rod = False, {}, None
     render_j = r["render"] = _action(st)
     render_j["ok"] = int(st) == ofxh.Stat.OK and run.image_errors == errors
     render_j["imageFetchErrors"] = run.image_errors - errors
+    if run.job.gpu:
+        render_j["openGL"] = used_gl
+        render_j["cpuRetry"] = cpu_retry
     r["output"] = None
     image = planes.get("Colour")
     if int(st) != ofxh.Stat.OK or image is None:
@@ -1016,7 +1050,11 @@ def run_job(dirs: tuple, job: Job) -> tuple[int, dict, dict]:
     run = _Run(job)
     profile = "ofx14" if job.ofx14 else "default"
     ensure_host(dirs, profile, job.keep_loaded, job.use_std_paths, normalised_defaults=job.normalised_defaults,
-                multiplane=job.multiplane, components=job.components)
+                multiplane=job.multiplane, components=job.components, gpu=job.gpu)
+    if job.gpu:
+        gl = ofxh.opengl_context() or {}
+        if "error" in gl:
+            run.err(f"Warning: --gpu=opengl: no OpenGL context ({gl['error']}): rendering on the CPU")
     plugin = ofxh.get_plugin(job.plugin_id, job.major)
     report: dict = {"schema": "hostDemo.report", "schemaVersion": 1, "ok": False, "plugin": {"id": job.plugin_id},
                     "context": job.context, "host": {"name": ofxh.host().props[kOfxPropName][0], "profile": profile},
@@ -1203,8 +1241,25 @@ def _render_sequence(run: _Run, inst, report: dict) -> None:
     seq = dict(step=step, interactive=False, render_scale=job.scale, sequential=sequential, interactive_render=False,
                draft=False, view=0)
     failed = False
+
+    seq_gl = False  # BeginSequenceRender ran with OpenGL: EndSequenceRender does the same (hostDemo)
+
+    def sequence(name: str, action, begin: bool):
+        # with OpenGL if the instance renders with it, else (or if it couldn't be attached) without.
+        # (If render_mode() changed between Begin and End, ofxh would refuse End with opengl=True, where
+        # hostDemo would send it: the plug-in's OpenGL support doesn't change during a sequence here.)
+        nonlocal seq_gl
+        if begin:
+            seq_gl = job.gpu and inst.render_mode() == "opengl"
+        if seq_gl:
+            st = run.call(name, action, first, last, opengl=True, **seq)
+            if inst.opengl_result != "not_sent":
+                return st
+            seq_gl = False
+        return run.call(name, action, first, last, **seq)
+
     if not job.query:
-        st = run.call("beginSequenceRender", inst.begin_sequence_render_action, first, last, **seq)
+        st = sequence("beginSequenceRender", inst.begin_sequence_render_action, True)
         report["actions"].append(_named("beginSequenceRender", _action(st)))
         if not status.succeeded(st):
             run.err(f"Error: begin render action failed (status {int(st)})")
@@ -1215,7 +1270,7 @@ def _render_sequence(run: _Run, inst, report: dict) -> None:
         except _Failed:
             failed = True
     if not job.query:
-        st = run.call("endSequenceRender", inst.end_sequence_render_action, first, last, **seq)
+        st = sequence("endSequenceRender", inst.end_sequence_render_action, False)
         report["actions"].append(_named("endSequenceRender", _action(st)))
         if not status.succeeded(st):
             run.err(f"Error: end render action failed (status {int(st)})")

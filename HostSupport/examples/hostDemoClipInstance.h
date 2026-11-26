@@ -312,7 +312,8 @@ namespace MyHost {
     /// on the effect instance. Outside a render call, the optionalBounds should
     /// be 'appropriate' for the.
     /// If bounds is not null, fetch the indicated section of the canonical image plane.
-    virtual OFX::Host::ImageEffect::Texture* loadTexture(OfxTime time, const char *format, const OfxRectD *optionalBounds) { return NULL; };
+    /// (--gpu=opengl: RenderSession::loadTexture() of the effect's OpenGL session; else NULL)
+    virtual OFX::Host::ImageEffect::Texture* loadTexture(OfxTime time, const char *format, const OfxRectD *optionalBounds);
 #endif
 
 #ifdef OFX_EXTENSIONS_NUKE

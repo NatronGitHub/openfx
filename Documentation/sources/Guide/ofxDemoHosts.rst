@@ -212,6 +212,33 @@ its own plug-in cache file, e.g.
 may describe itself differently to such a host. ``python -m
 ofxhost.hostdemo`` takes the same option.
 
+OpenGL Rendering: ``--gpu=opengl``
+----------------------------------
+
+With ``--gpu=opengl`` (builds with ``OFX_HOSTSUPPORT_OPENGL``), both hosts
+render on an offscreen OpenGL context of ``openfx::HostSupportOpenGL`` (see
+:ref:`hostSupportGuide`): EGL on Linux (Mesa's llvmpipe in CI), CGL on
+macOS, WGL on Windows (built by the Windows CI job, which runs the
+library's checks on WGL but not ``--gpu=opengl``). The host descriptor then says the host supports OpenGL render, and
+a plug-in that can (:c:macro:`kOfxImageEffectPropOpenGLRenderSupported`
+``"true"`` or ``"needed"``) renders with
+:c:macro:`kOfxImageEffectPropOpenGLEnabled` 1: it loads its images as
+textures, and its output texture is read back into the output image.
+Other plug-ins render on the CPU. Without a context, the hosts warn and
+render on the CPU, and a plug-in that needs OpenGL fails (its describe
+action returns :c:macro:`kOfxStatErrMissingHostFeature`, as the OpenGL
+example does). When an OpenGL render fails
+(:c:macro:`kOfxStatGPURenderFailed`, :c:macro:`kOfxStatGPUOutOfMemory`,
+:c:macro:`kOfxStatErrMemory`, or an input that couldn't be loaded as a
+texture), the frame is rendered again on the CPU if the plug-in can
+(``"true"``, and :c:macro:`kOfxImageEffectPropCPURenderSupported` not
+``"false"``): "the host should retry the render with OpenGL rendering
+disabled" (``ofxGPURender.h``). The report's renders then have ``openGL``
+(OpenGL rendered the frame) and ``cpuRetry``. GPUGain
+(``Support/Plugins/GPUGain``) has an OpenGL path for its scales in
+[0, 1], which gives the CPU render's pixels, and returns
+:c:macro:`kOfxStatGPURenderFailed` for the others.
+
 The Code, as an Example Host
 ----------------------------
 

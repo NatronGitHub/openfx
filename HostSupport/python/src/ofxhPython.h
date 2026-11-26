@@ -44,6 +44,11 @@
 #include <type_traits>
 #include <vector>
 
+#ifdef OFXH_OPENGL
+#include "ofxhOpenGLContext.h"
+#include "ofxhOpenGLRender.h"
+#endif
+
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
 #include "ofxhImageEffect.h"
@@ -308,6 +313,11 @@ public:
   /// ofxh.init(normalised_defaults=False), as hostDemo --no-normalised-defaults: the double param
   /// descriptors have no kOfxParamPropDefaultCoordinateSystem (makeDescriptor())
   bool _normalisedDefaults = true;
+#ifdef OFXH_OPENGL
+  /// ofxh.init(opengl=True): the OpenGL context (one render at a time), or the reason there is none
+  std::unique_ptr<OFX::Host::OpenGL::Context> _glContext;
+  std::string _glError;
+#endif
 
   PyHost(nb::object py, RefPtr ref);
   ~PyHost() override;
@@ -338,7 +348,8 @@ public:
                                  va_list args) override;
   OfxStatus clearPersistentMessage() override;
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-  OfxStatus flushOpenGLResources() const override { return kOfxStatFailed; }
+  /// "kOfxStatReplyDefault - nothing the host could do.." (flushResources): no GPU resources are kept
+  OfxStatus flushOpenGLResources() const override { return kOfxStatReplyDefault; }
 #endif
 };
 
@@ -414,7 +425,8 @@ public:
   const std::vector<std::string> &getComponentsPresent() const OFX_EXCEPTION_SPEC override;
 #endif
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-  OHIE::Texture *loadTexture(OfxTime, const char *, const OfxRectD *) override { return nullptr; }
+  /// in an OpenGL action of the instance: RenderSession::loadTexture(); else nullptr (kOfxStatFailed)
+  OHIE::Texture *loadTexture(OfxTime time, const char *format, const OfxRectD *region) override;
 #endif
 #ifdef OFX_EXTENSIONS_VEGAS
   OHIE::Image *getStereoscopicImage(OfxTime time, int view, const OfxRectD *optionalBounds) override;
@@ -472,6 +484,23 @@ public:
   bool takeOutputFailed() { return _outputFailed.exchange(false); }
   /// the kOfxActionInstanceChanged sent for parameters (counted by paramInstanceChangedAction())
   int paramChangedCount() const { return _paramChangedCount; }
+#ifdef OFXH_OPENGL
+  /// the OpenGL attachment (kOfxActionOpenGLContextAttached), made by the first OpenGL action
+  std::unique_ptr<OFX::Host::OpenGL::Attachment> _glAttachment;
+  /// the session of the OpenGL action in progress, which PyClipInstance::loadTexture() forwards to
+  OFX::Host::OpenGL::RenderSession *_glSession = nullptr;
+  /// the outcome of the last OpenGL action: "ok", "not_sent" (not attached) or "failed" (an input
+  /// texture failed, or the plug-in reported an OpenGL failure)
+  std::string _glResult;
+  /// the exception that stopped the last OpenGL action, "" if none
+  std::string _glError;
+  /// kOfxActionOpenGLContextDetached before kOfxActionDestroyInstance
+  OfxStatus destroyInstanceAction() override
+  {
+    _glAttachment.reset();
+    return OHIE::Instance::destroyInstanceAction();
+  }
+#endif
 
   const std::map<std::string, OHIE::ClipInstance *> &clips() const { return _clips; }
   /// the project rectangle in pixels at the given render scale

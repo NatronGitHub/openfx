@@ -39,6 +39,17 @@ namespace OFX {
         return RenderMode::None;
       }
 
+      bool openGLFailed(const RenderSession &session, OfxStatus st)
+      {
+        return session.inputFailed() || st == kOfxStatGLRenderFailed || st == kOfxStatGLOutOfMemory ||
+          st == kOfxStatErrMemory;
+      }
+
+      bool cpuRetryAllowed(const ImageEffect::Instance &effect, const RenderSession &session, OfxStatus st)
+      {
+        return openGLFailed(session, st) && chooseRenderMode(effect, false) == RenderMode::CPU;
+      }
+
       ////////////////////////////////////////////////////////////////////////////////
       // Attachment
 

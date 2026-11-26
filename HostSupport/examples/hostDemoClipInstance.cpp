@@ -1184,6 +1184,22 @@ namespace MyHost {
   /// on the effect instance. Outside a render call, the optionalBounds should
   /// be 'appropriate' for the.
   /// If bounds is not null, fetch the indicated section of the canonical image plane.
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+  OFX::Host::ImageEffect::Texture* MyClipInstance::loadTexture(OfxTime time, const char *format, const OfxRectD *optionalBounds)
+  {
+#ifdef HOSTDEMO_OPENGL
+    if (OFX::Host::OpenGL::RenderSession *session = _effect->getOpenGLSession()) {
+      return session->loadTexture(*this, time, format, optionalBounds);
+    }
+#endif
+    // no OpenGL render: clipLoadTexture returns kOfxStatFailed
+    (void)time;
+    (void)format;
+    (void)optionalBounds;
+    return NULL;
+  }
+#endif
+
   OFX::Host::ImageEffect::Image* MyClipInstance::getImage(OfxTime time, const OfxRectD *optionalBounds)
   {
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)

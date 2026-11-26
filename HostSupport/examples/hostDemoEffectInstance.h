@@ -9,6 +9,10 @@
 #include <string>
 #include <vector>
 
+#ifdef HOSTDEMO_OPENGL
+#include "ofxhOpenGLRender.h"
+#endif
+
 namespace MyHost {
 
   /// a message the plug-in sent (message suite or persistent message), for hostDemo --report
@@ -41,6 +45,9 @@ namespace MyHost {
     std::vector<ProgressRecord> _progress; ///< the progresses started by the plug-in, in order
     double _timeLineTime; ///< the time of the current action (timeLineGetTime)
     bool _refusePersistentMessages; ///< setRefusePersistentMessages()
+#ifdef HOSTDEMO_OPENGL
+    OFX::Host::OpenGL::RenderSession *_glSession = nullptr; ///< setOpenGLSession()
+#endif
 
     /// format, print (on stdout) and record a message
     OfxStatus recordMessage(const char* kind, const char* type, const char* id, const char* format, va_list args);
@@ -216,6 +223,13 @@ namespace MyHost {
     
     /// get the first and last times available on the effect's timeline
     virtual void timeLineGetBounds(double &t1, double &t2);    
+
+#ifdef HOSTDEMO_OPENGL
+    /// --gpu=opengl: the session of the OpenGL action in progress, which MyClipInstance::loadTexture()
+    /// forwards to (nullptr outside)
+    void setOpenGLSession(OFX::Host::OpenGL::RenderSession *session) { _glSession = session; }
+    OFX::Host::OpenGL::RenderSession *getOpenGLSession() const { return _glSession; }
+#endif
 
 #ifdef OFX_EXTENSIONS_NUKE
     /// Returns the number of views

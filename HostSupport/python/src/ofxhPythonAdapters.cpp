@@ -1271,6 +1271,21 @@ void PyClipInstance::getUnmappedFrameRange(double &unmappedStartFrame, double &u
 
 bool PyClipInstance::getContinuousSamples() const { return attrBool(_py, "continuous_samples", false); }
 
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+OHIE::Texture *PyClipInstance::loadTexture(OfxTime time, const char *format, const OfxRectD *region)
+{
+#ifdef OFXH_OPENGL
+  if (_effect->_glSession) {
+    return _effect->_glSession->loadTexture(*this, time, format, region);
+  }
+#endif
+  (void)time;
+  (void)format;
+  (void)region;
+  return nullptr;
+}
+#endif
+
 OHIE::Image *PyClipInstance::getImage(OfxTime time, const OfxRectD *optionalBounds)
 {
   return fetchImage(time, _view, optionalBounds);

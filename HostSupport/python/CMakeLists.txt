@@ -59,6 +59,11 @@ nanobind_add_module(ofxh NB_STATIC
   src/ofxhPythonModule.cpp
   src/ofxhPythonParams.cpp)
 target_link_libraries(ofxh PRIVATE OfxHost)
+if(TARGET OfxHostOpenGL)
+  # OpenGL renders (ofxh.init(opengl=True)): openfx::HostSupportOpenGL (OFX_HOSTSUPPORT_OPENGL)
+  target_link_libraries(ofxh PRIVATE OfxHostOpenGL)
+  target_compile_definitions(ofxh PRIVATE OFXH_OPENGL)
+endif()
 target_compile_features(ofxh PRIVATE cxx_std_17)
 set_target_properties(ofxh PROPERTIES
   CXX_VISIBILITY_PRESET hidden

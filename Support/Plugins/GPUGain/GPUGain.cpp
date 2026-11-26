@@ -4,6 +4,8 @@
 #include "GPUGain.h"
 
 #include <stdio.h>
+#include <cstdio>
+#include <cstring>
 #include <memory>
 
 #include "ofxsImageEffect.h"
@@ -11,6 +13,25 @@
 #include "ofxsProcessing.H"
 #include "ofxsLog.h"
 #include "ofxGPURender.h" // kOfxStatGPURenderFailed, kOfxStatGPUOutOfMemory
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h> // must precede GL/gl.h on Windows
+#endif
+#ifdef __APPLE__
+#ifndef GL_SILENCE_DEPRECATION
+#define GL_SILENCE_DEPRECATION
+#endif
+#include <OpenGL/gl.h>
+#else
+#include <GL/gl.h>
+#endif
+#endif
 
 // GPU render paths, each optional (the CPU path always works, also on OFX 1.4 hosts, which
 // have no GPU render properties): HAVE_CUDA (CudaKernel.cu), HAVE_OPENCL (OpenCLKernel.cpp),
@@ -246,6 +267,11 @@ public:
     /* Override the render */
     virtual void render(const OFX::RenderArguments& p_Args);
 
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+    /* the OpenGL render (kOfxImageEffectPropOpenGLEnabled) */
+    void renderOpenGL(const OFX::RenderArguments& p_Args);
+#endif
+
     /* Override is identity */
     virtual bool isIdentity(const OFX::IsIdentityArguments& p_Args, OFX::Clip*& p_IdentityClip, double& p_IdentityTime
 #ifdef OFX_EXTENSIONS_NUKE
@@ -297,6 +323,13 @@ GPUGain::GPUGain(OfxImageEffectHandle p_Handle)
 
 void GPUGain::render(const OFX::RenderArguments& p_Args)
 {
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+    if (p_Args.openGLEnabled)
+    {
+        renderOpenGL(p_Args);
+        return;
+    }
+#endif
     if ((m_DstClip->getPixelDepth() == OFX::eBitDepthFloat) && (m_DstClip->getPixelComponents() == OFX::ePixelComponentRGBA))
     {
         GainExample imageScaler(*this);
@@ -307,6 +340,112 @@ void GPUGain::render(const OFX::RenderArguments& p_Args)
         OFX::throwSuiteStatusException(kOfxStatErrUnsupported);
     }
 }
+
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+// The OpenGL render: the source texture drawn over the render window, modulated by the scales
+// (GL_MODULATE with a colour), with the fixed-function pipeline. A vertex colour is clamped to
+// [0, 1] there, so other scales are a "GPU render failed in a non-memory-related way"
+// (kOfxStatGPURenderFailed, ofxGPURender.h), and "the host should retry the render with OpenGL
+// rendering disabled". Values above 1 (in the source, or after the modulation) stay: the textures
+// are float (kOfxOpenGLPropPixelDepth float), and GL_CLAMP_FRAGMENT_COLOR's default, FIXED_ONLY,
+// clamps only fixed-point render targets. That needs OpenGL 3.0 or GL_ARB_color_buffer_float (the
+// macOS legacy profile has it), and the clamping left at FIXED_ONLY or FALSE: else the render
+// fails the same way, and the host renders on the CPU.
+void GPUGain::renderOpenGL(const OFX::RenderArguments& p_Args)
+{
+    double scales[4] = { 1., 1., 1., 1. };
+    if (m_ComponentScalesEnabled->getValueAtTime(p_Args.time))
+    {
+        scales[0] = m_ScaleR->getValueAtTime(p_Args.time);
+        scales[1] = m_ScaleG->getValueAtTime(p_Args.time);
+        scales[2] = m_ScaleB->getValueAtTime(p_Args.time);
+        scales[3] = m_ScaleA->getValueAtTime(p_Args.time);
+    }
+    const double scale = m_Scale->getValueAtTime(p_Args.time);
+    for (int c = 0; c < 3; ++c)
+    {
+        scales[c] *= scale;
+    }
+    for (int c = 0; c < 4; ++c)
+    {
+        if (!(scales[c] >= 0. && scales[c] <= 1.))
+        {
+            OFX::throwSuiteStatusException(kGPUGainStatGPUFailed);
+        }
+    }
+    {
+        const char* version = reinterpret_cast<const char*>(glGetString(GL_VERSION));
+        const char* extensions = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+        int major = 0;
+        if (version)
+        {
+            std::sscanf(version, "%d", &major);
+        }
+        const bool colorBufferFloat = major >= 3 || (extensions && std::strstr(extensions, "GL_ARB_color_buffer_float"));
+        GLint clamp = 1;
+        if (colorBufferFloat)
+        {
+            glGetIntegerv(0x891B /* GL_CLAMP_FRAGMENT_COLOR */, &clamp);
+        }
+        if (!colorBufferFloat || clamp == 1 /* GL_TRUE */)
+        {
+            OFX::throwSuiteStatusException(kGPUGainStatGPUFailed);
+        }
+    }
+    // the output texture is the render target, with the viewport on the render window
+    std::unique_ptr<OFX::Texture> dst(m_DstClip->loadTexture(p_Args.time));
+    if (!dst.get())
+    {
+        OFX::throwSuiteStatusException(kOfxStatFailed);
+    }
+    std::unique_ptr<OFX::Texture> src(m_SrcClip->isConnected() ? m_SrcClip->loadTexture(p_Args.time) : NULL);
+    const OfxRectI& rw = p_Args.renderWindow;
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    // "it is completely up to the effect to choose what OpenGL operations to render with, including
+    // projections and so on" (ofxGPURender.h): pixels from the bottom left of the render window
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+    glOrtho(0., rw.x2 - rw.x1, 0., rw.y2 - rw.y1, -1., 1.);
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+    glDisable(GL_BLEND);
+    glDisable(GL_SCISSOR_TEST);
+    // black where there is no source, as the CPU render
+    glClearColor(0.f, 0.f, 0.f, 0.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    if (src.get())
+    {
+        const OfxRectI& b = src->getBounds();
+        const GLenum target = static_cast<GLenum>(src->getTarget());
+        glEnable(target);
+        glBindTexture(target, static_cast<GLuint>(src->getIndex()));
+        glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        glColor4d(scales[0], scales[1], scales[2], scales[3]);
+        const float x1 = float(b.x1 - rw.x1), y1 = float(b.y1 - rw.y1), x2 = float(b.x2 - rw.x1), y2 = float(b.y2 - rw.y1);
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.f, 0.f); glVertex2f(x1, y1);
+        glTexCoord2f(1.f, 0.f); glVertex2f(x2, y1);
+        glTexCoord2f(1.f, 1.f); glVertex2f(x2, y2);
+        glTexCoord2f(0.f, 1.f); glVertex2f(x1, y2);
+        glEnd();
+        glBindTexture(target, 0);
+        glDisable(target);
+    }
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glPopMatrix();
+    glPopAttrib();
+    if (glGetError() == GL_OUT_OF_MEMORY)
+    {
+        OFX::throwSuiteStatusException(kGPUGainStatGPUOutOfMemory);
+    }
+}
+#endif
 
 bool GPUGain::isIdentity(const OFX::IsIdentityArguments& p_Args, OFX::Clip*& p_IdentityClip, double& p_IdentityTime
 #ifdef OFX_EXTENSIONS_NUKE
@@ -474,6 +613,13 @@ void GPUGainFactory::describe(OFX::ImageEffectDescriptor& p_Desc)
 #endif
 #ifdef HAVE_METAL
     p_Desc.setSupportsMetalRender(true);
+#endif
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+    // OpenGL, with a CPU path: "true" - "a host or plug-in can support OpenGL accelerated rendering,
+    // in the case of plug-ins this also means that it is capable of CPU based rendering in the
+    // absence of a GPU" (kOfxImageEffectPropOpenGLRenderSupported); float RGBA textures, as the CPU
+    p_Desc.setSupportsOpenGLRender(true);
+    p_Desc.addOpenGLBitDepth(OFX::eBitDepthFloat);
 #endif
 }
 

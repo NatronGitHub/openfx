@@ -6,6 +6,11 @@ add_executable(hostDemo
 	hostDemoHostDescriptor.cpp
 	hostDemoParamInstance.cpp)
 target_link_libraries(hostDemo PRIVATE OfxHost)
+if(OFX_HOSTSUPPORT_OPENGL)
+	# --gpu=opengl (openfx::HostSupportOpenGL)
+	target_link_libraries(hostDemo PRIVATE OfxHostOpenGL)
+	target_compile_definitions(hostDemo PRIVATE HOSTDEMO_OPENGL)
+endif()
 
 add_executable(cacheDemo cacheDemo.cpp)
 target_link_libraries(cacheDemo PRIVATE OfxHost)
