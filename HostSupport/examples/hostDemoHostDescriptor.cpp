@@ -43,8 +43,7 @@
 namespace MyHost
 { 
   Host::Host()
-    : _ofx14(false)
-    , _ofx11(false)
+    : _profile(Profile::eDefault)
     , _keepLoaded(false)
     , _normalisedDefaults(true)
   {
@@ -137,15 +136,12 @@ namespace MyHost
     { NULL, 0 }
   };
 
-  // --ofx11: the host descriptor properties of OFX 1.1, as kOFX14HostProps: those whose
-  // documentation says "Property Set - host descriptor" in the OFX 1.1 headers (tag
-  // OFX_Release_1_1_TAG), with kOfxPropType, kOfxPropName, kOfxPropLabel and
-  // kOfxImageEffectPropSupportedContexts, and kOfxPropAPIVersion: an OFX 1.2 property, but VEGAS
-  // Pro, the OFX 1.1 host this profile is modelled on, reports API version 1.1 with it
-  // (openfx-misc's README-hosts.txt). No kOfxPropVersion, kOfxPropVersionLabel, kOfxPropHostOSHandle,
-  // kOfxImageEffectInstancePropSequentialRender, kOfxParamHostPropSupportsParametricAnimation (OFX
-  // 1.2), kOfxImageEffectPropOpenGLRenderSupported (1.3), kOfxImageEffectPropRenderQualityDraft and
-  // kOfxImageEffectHostPropNativeOrigin (1.4).
+  // --ofx11 (Host::restrictToOFX11()): the host descriptor properties of OFX 1.1, found as for
+  // kOFX14HostProps in the OFX 1.1 headers (tag OFX_Release_1_1_TAG), plus kOfxPropAPIVersion: an
+  // OFX 1.2 property that VEGAS Pro reports (1.1). OFX 1.2 added kOfxPropVersion,
+  // kOfxPropVersionLabel, kOfxPropHostOSHandle, kOfxImageEffectInstancePropSequentialRender and
+  // kOfxParamHostPropSupportsParametricAnimation, 1.3 kOfxImageEffectPropOpenGLRenderSupported, 1.4
+  // kOfxImageEffectPropRenderQualityDraft and kOfxImageEffectHostPropNativeOrigin.
   static const char* const kOFX11HostProps[] = {
     kOfxPropAPIVersion, kOfxPropType, kOfxPropName, kOfxPropLabel,
     kOfxImageEffectHostPropIsBackground, kOfxImageEffectPropSupportsOverlays,
@@ -162,10 +158,8 @@ namespace MyHost
     NULL
   };
 
-  // --ofx11: the suites of OFX 1.1, but the interact suite, which VEGAS doesn't have (it has no
-  // overlays and no custom interacts: README-hosts.txt), and with the message suite V2 (OFX 1.2),
-  // which VEGAS Pro 12 lists; its persistent messages are refused, as in DaVinci Resolve and
-  // Fusion 2026 (MyEffectInstance::setRefusePersistentMessages())
+  // --ofx11 (Host::restrictToOFX11()): the suites of OFX 1.1 but the interact suite, plus the
+  // message suite V2 (OFX 1.2), as VEGAS Pro 12 lists them
   static const SuiteVersion kOFX11Suites[] = {
     { kOfxPropertySuite, 1 }, { kOfxMemorySuite, 1 }, { kOfxImageEffectSuite, 1 },
     { kOfxParameterSuite, 1 }, { kOfxMessageSuite, 1 }, { kOfxMessageSuite, 2 }, { kOfxProgressSuite, 1 },
@@ -195,9 +189,19 @@ namespace MyHost
     }
   }
 
+  const char* profileName(Profile profile)
+  {
+    switch (profile) {
+      case Profile::eOFX14: return "ofx14";
+      case Profile::eOFX11: return "ofx11";
+      case Profile::eDefault: break;
+    }
+    return "default";
+  }
+
   void Host::restrictToOFX11()
   {
-    _ofx11 = true;
+    _profile = Profile::eOFX11;
     keepHostProperties(_properties, kOFX11HostProps);
     // VEGAS Pro 12's host description (README-hosts.txt): API version 1.1, no tiles, no
     // multi-resolution, no overlays, 8-bit and float depths only, a single clip PAR
@@ -221,24 +225,22 @@ namespace MyHost
 
   void Host::removeSequentialRender(OFX::Host::Property::Set& props) const
   {
-    // --ofx11: kOfxImageEffectInstancePropSequentialRender is on the plug-in descriptor and
-    // instance in OFX 1.1, but Resolve and Nuke lack it on the descriptor (README-hosts.txt): a
-    // host without it, to test the Support library's fallbacks (the instance too)
-    if (_ofx11) {
+    // (as Resolve and Nuke: see restrictToOFX11())
+    if (_profile == Profile::eOFX11) {
       props.removeProperty(kOfxImageEffectInstancePropSequentialRender);
     }
   }
 
   void Host::restrictToOFX14()
   {
-    _ofx14 = true;
+    _profile = Profile::eOFX14;
     keepHostProperties(_properties, kOFX14HostProps);
   }
 
   const void *Host::fetchSuite(const char *suiteName, int suiteVersion)
   {
-    if (_ofx14 || _ofx11) {
-      const SuiteVersion* suites = _ofx14 ? kOFX14Suites : kOFX11Suites;
+    if (_profile != Profile::eDefault) {
+      const SuiteVersion* suites = _profile == Profile::eOFX14 ? kOFX14Suites : kOFX11Suites;
       int i = 0;
       while (suites[i].name &&
              !(strcmp(suiteName, suites[i].name) == 0 && suiteVersion == suites[i].version)) {
@@ -258,7 +260,7 @@ namespace MyHost
   {
     MyEffectInstance* instance = new MyEffectInstance(plugin, desc, context);
     removeSequentialRender(instance->getProps());
-    if (_ofx11) {
+    if (_profile == Profile::eOFX11) {
       instance->setRefusePersistentMessages();
     }
     return instance;

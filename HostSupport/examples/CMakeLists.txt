@@ -19,8 +19,7 @@ add_executable(propsetDump
 	hostDemoParamInstance.cpp)
 target_link_libraries(propsetDump PRIVATE OfxHost)
 
-# the param, progress and timeline suites reject NULL and descriptor handles
-# (run by .github/scripts/hostdemo-checks.sh)
+# unit checks of HostSupport on hostDemo's host classes (run by .github/scripts/hostdemo-checks.sh)
 add_executable(suiteHandleChecks
 	suiteHandleChecks.cpp
 	hostDemoClipInstance.cpp

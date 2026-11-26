@@ -2,11 +2,11 @@ name: Extended builds
 
 # Variants that must not run on every pull request (policy for all
 # Natron-related repos): CMake on Linux/macOS, MSVC, debug builds, extension
-# flags OFF, C++20 and C++23, and the ofxh module installed with pip on macOS
-# (MacPorts Python; with the ofxhost tests on both backends). Runs weekly (Saturday
-# 03:17 UTC, maintainer decision 2026-11-21) and on demand. Never skipped, even if master
-# didn't change: every job installs rolling toolchains (MacPorts, apt and MSVC on *-latest
-# images), so a week without commits still tests toolchain drift.
+# flags OFF, C++20 and C++23, the Makefile builds, and the ofxh module installed with pip on
+# macOS (MacPorts Python; with the ofxhost tests on both backends). Runs weekly (Saturday
+# 03:17 UTC) and on demand. Never skipped, even if master didn't change: every job installs
+# rolling toolchains (MacPorts, apt and MSVC on *-latest images), so a week without commits
+# still tests toolchain drift.
 
 on:
   schedule:
@@ -24,9 +24,16 @@ defaults:
   run:
     shell: bash -eo pipefail {0}
 
+env:
+  # for every step: pytest reads PYTEST_ADDOPTS, and only the tests read OFXH_REQUIRE (1: a missing
+  # ofxh module, plug-in or hostDemo fails the tests instead of skipping them)
+  PYTEST_ADDOPTS: -q -rs -p no:cacheprovider -o faulthandler_timeout=300
+  PYTHONFAULTHANDLER: '1'
+  OFXH_REQUIRE: '1'
+
 jobs:
-  # CMake, with each platform's default compiler (MSVC on Windows). The Makefile
-  # builds and the MSYS2 build run on every pull request (build.yml).
+  # CMake, with each platform's default compiler (MSVC on Windows). The MSYS2 build runs on
+  # every pull request (build.yml).
   cmake:
     name: CMake (${{ matrix.os }}, ${{ matrix.config }}, extensions ${{ matrix.extensions }}${{ matrix.cxx && format(', C++{0}', matrix.cxx) || '' }})
     runs-on: ${{ matrix.os }}
@@ -49,12 +56,10 @@ jobs:
           - {os: macos-latest, config: Release, extensions: 'ON', cxx: '23'}
           - {os: windows-latest, config: Release, extensions: 'ON', cxx: '20'}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Deployment target (the runner's macOS)
         if: runner.os == 'macOS'
-        # CI builds aren't shipped: they target the runner's macOS. The release bundles target
-        # macOS 14.0 (VFX Reference Platform CY2027) and are built on a macOS 14 machine.
-        run: echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion | cut -d. -f1).0" >> "$GITHUB_ENV"
+        run: .github/scripts/macos-deployment-target.sh
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev
@@ -95,7 +100,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev
       - name: Build and test
@@ -108,7 +113,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install MacPorts
         # Support/include/osxDeploy.sh (release bundles) needs GNU sed: gsed from MacPorts
         uses: melusina-org/setup-macports@v1
@@ -118,10 +123,7 @@ jobs:
         run: |
           echo "PATH=/opt/local/bin:/opt/local/sbin:$(echo "$PATH" | tr ':' '\n' | grep -v -e homebrew -e '^/usr/local/' | paste -sd: -)" >> "$GITHUB_ENV"
       - name: Deployment target (the runner's macOS)
-        # CI builds aren't shipped: they target the runner's macOS. The release bundles target
-        # macOS 14.0 (VFX Reference Platform CY2027) and are built on a macOS 14 machine.
-        # After the MacPorts install: the ports are MacPorts' binary archives for the runner's macOS.
-        run: echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion | cut -d. -f1).0" >> "$GITHUB_ENV"
+        run: .github/scripts/macos-deployment-target.sh
       - name: Toolchain
         run: |
           echo "PATH=$PATH"
@@ -141,7 +143,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install MacPorts
         uses: melusina-org/setup-macports@v1
         with:
@@ -150,10 +152,7 @@ jobs:
         run: |
           echo "PATH=/opt/local/bin:/opt/local/sbin:$(echo "$PATH" | tr ':' '\n' | grep -v -e homebrew -e '^/usr/local/' | paste -sd: -)" >> "$GITHUB_ENV"
       - name: Deployment target (the runner's macOS)
-        # CI builds aren't shipped: they target the runner's macOS. The release bundles target
-        # macOS 14.0 (VFX Reference Platform CY2027) and are built on a macOS 14 machine.
-        # After the MacPorts install: the ports are MacPorts' binary archives for the runner's macOS.
-        run: echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion | cut -d. -f1).0" >> "$GITHUB_ENV"
+        run: .github/scripts/macos-deployment-target.sh
       - name: Toolchain
         run: |
           ! command -v brew
@@ -176,13 +175,11 @@ jobs:
           (cd /tmp && "$GITHUB_WORKSPACE/venv/bin/python" -c "import ofxh; print(ofxh.__file__, ofxh.build_config)")
       - name: ofxh tests (HostSupport/python/tests) against the installed module
         run: |
-          # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
-          export OFXH_REQUIRE=1 OFX_TEST_PLUGIN_PATH="$PWD/build/Plugins" \
+          export OFX_TEST_PLUGIN_PATH="$PWD/build/Plugins" \
             OFXHOST_HOSTDEMO="$(find "$PWD/build/HostSupport/examples" -name hostDemo -type f -perm -u+x | head -1)"
-          venv/bin/python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
+          venv/bin/python -m pytest HostSupport/python/tests
       - name: ofxhost tests on both backends (hostDemo, and in-process on the installed module)
         run: |
-          export OFXH_REQUIRE=1 OFX_TEST_PLUGIN_PATH="$PWD/build/Plugins" \
+          export OFX_TEST_PLUGIN_PATH="$PWD/build/Plugins" \
             OFXHOST_HOSTDEMO="$(find "$PWD/build/HostSupport/examples" -name hostDemo -type f -perm -u+x | head -1)"
-          venv/bin/python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 \
-            HostSupport/examples/python/tests Support/Plugins/tests
+          venv/bin/python -m pytest HostSupport/examples/python/tests Support/Plugins/tests

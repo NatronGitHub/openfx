@@ -2,13 +2,15 @@
 
 This is the file to adapt when copying the tests to a plug-in repo: set OPENFX (the openfx
 checkout, usually a submodule) and BUNDLE_DIRS (the directories holding your .ofx.bundle
-directories). Tests that need hostDemo or the bundles are skipped if they aren't built.
+directories). Tests that need hostDemo or the bundles are skipped if they aren't built, or fail
+with OFXH_REQUIRE=1 (CI).
 
 The render and describe fixtures run each test on both ofxhost backends (ofxhost.testing's backend
 fixture): hostDemo in a subprocess, and in-process on the HostSupport Python bindings (the ofxh
-module: PYTHONPATH=<openfx build>/HostSupport/python). A backend that isn't built is skipped
-($OFXHOST_TEST_BACKENDS=subprocess runs only hostDemo). render and describe are function-scoped
-fixtures (the backend fixture is): a fixture that uses them must be function-scoped too.
+module: PYTHONPATH=<openfx build>/HostSupport/python). A backend that isn't built is skipped, or
+fails with OFXH_REQUIRE=1 ($OFXHOST_TEST_BACKENDS=subprocess runs only hostDemo). render and
+describe are function-scoped fixtures (the backend fixture is): a fixture that uses them must be
+function-scoped too.
 """
 
 import functools
@@ -37,12 +39,14 @@ from ofxhost.testing import backend, pytest_configure  # noqa: E402,F401  (each 
 
 @pytest.fixture(scope="session")
 def bundles():
-    """The plug-in directories (OFX_PLUGIN_PATH); skips the test if no bundle is built."""
+    """The plug-in directories (OFX_PLUGIN_PATH); skips the test if no bundle is built (fails with OFXH_REQUIRE=1)."""
     dirs = [d for d in BUNDLE_DIRS if any(d.glob("*.ofx.bundle"))]
     if not dirs:
-        pytest.skip(f"no .ofx.bundle in {REPO}/Support/Plugins/*/*-release or {REPO}/build*/Plugins: "
-                    "build them with make -C Support/Plugins CONFIG=release, or CMake, "
-                    "or set OFX_TEST_PLUGIN_PATH")
+        why = (f"no .ofx.bundle in {REPO}/Support/Plugins/*/*-release or {REPO}/build*/Plugins: "
+               "build them with make -C Support/Plugins CONFIG=release, or CMake, or set OFX_TEST_PLUGIN_PATH")
+        if os.environ.get("OFXH_REQUIRE") == "1":  # (CI: a missing build fails the tests)
+            pytest.fail(why + " (OFXH_REQUIRE=1)")
+        pytest.skip(why)
     return dirs
 
 

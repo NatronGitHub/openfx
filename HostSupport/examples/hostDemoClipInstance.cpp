@@ -371,23 +371,39 @@ namespace MyHost {
     return false;
   }
 
-  bool parseInputPlaneName(const std::string& name, InputPlane& plane)
+  bool parseInputPlaneArg(const std::string& arg, std::string& clip, std::string& name, InputPlane& plane, std::string& error)
   {
-    static const struct { const char* plane; const char* components; } kPlanes[] = {
-      { kFnOfxImagePlaneForwardMotionVector, kFnOfxImageComponentMotionVectors },
-      { kFnOfxImagePlaneBackwardMotionVector, kFnOfxImageComponentMotionVectors },
-      { kFnOfxImagePlaneStereoDisparityLeft, kFnOfxImageComponentStereoDisparity },
-      { kFnOfxImagePlaneStereoDisparityRight, kFnOfxImageComponentStereoDisparity },
-      { NULL, NULL }
+    // (the short names are those of ofxhost.hostdemo's _PLANES)
+    static const struct { const char* name; const char* plane; const char* components; } kPlanes[] = {
+      { "ForwardMotionVector", kFnOfxImagePlaneForwardMotionVector, kFnOfxImageComponentMotionVectors },
+      { "BackMotionVector", kFnOfxImagePlaneBackwardMotionVector, kFnOfxImageComponentMotionVectors },
+      { "StereoDisparityLeft", kFnOfxImagePlaneStereoDisparityLeft, kFnOfxImageComponentStereoDisparity },
+      { "StereoDisparityRight", kFnOfxImagePlaneStereoDisparityRight, kFnOfxImageComponentStereoDisparity },
     };
-    static const std::string prefix = "uk.co.thefoundry.OfxImagePlane";
-    for (int i = 0; kPlanes[i].plane; ++i) {
-      if (prefix + name == kPlanes[i].plane) {
-        plane.plane = kPlanes[i].plane;
-        plane.components = kPlanes[i].components;
+    const std::string::size_type at = arg.find('@');
+    const std::string::size_type eq = arg.find('=');
+    clip = arg.substr(0, at);
+    name = arg.substr(at + 1, eq - at - 1);
+    plane.text = arg.substr(eq + 1);
+    if (clip.empty()) {
+      error = "no clip name";
+      return false;
+    }
+    for (const auto& p : kPlanes) {
+      if (name == p.name) {
+        plane.plane = p.plane;
+        plane.components = p.components;
+        if (!parseInputSpec(plane.text, plane.spec, error, false)) {
+          return false;
+        }
+        if (plane.spec.type == InputSpec::eNone) {
+          error = "a plane can't be none";
+          return false;
+        }
         return true;
       }
     }
+    error = "unknown plane \"" + name + "\"";
     return false;
   }
 
@@ -523,11 +539,9 @@ namespace MyHost {
     if (components == kOfxImageComponentRGBA) return 4;
     if (components == kOfxImageComponentRGB) return 3;
     if (components == kOfxImageComponentAlpha) return 1;
-#ifdef OFX_EXTENSIONS_NUKE
     // the planes of these components have two (u and v, or x and y)
     if (components == kFnOfxImageComponentMotionVectors) return 2;
     if (components == kFnOfxImageComponentStereoDisparity) return 2;
-#endif
     return 0;
   }
 

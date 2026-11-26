@@ -81,12 +81,14 @@ namespace MyHost {
     std::string plane;      ///< kFnOfxImagePlaneForwardMotionVector, ...BackwardMotionVector, ...StereoDisparityLeft or ...Right
     std::string components; ///< its components: kFnOfxImageComponentMotionVectors or kFnOfxImageComponentStereoDisparity
     InputSpec   spec;       ///< its pixels: the first two components (r and g) of the spec's pattern
+    std::string text;       ///< the spec text, for --report
   };
 
-  /// the plane of a short plane name of -i Clip@Plane=spec: ForwardMotionVector, BackMotionVector,
-  /// StereoDisparityLeft or StereoDisparityRight (the plane names after "uk.co.thefoundry.OfxImagePlane").
-  /// Returns false if it is not one of them.
-  bool parseInputPlaneName(const std::string& name, InputPlane& plane);
+  /// parse the argument "Clip@Plane=spec" of -i (it has an '@' before its first '='), where Plane
+  /// is ForwardMotionVector, BackMotionVector, StereoDisparityLeft or StereoDisparityRight and spec
+  /// any input spec but none, without a components suffix. Returns false if invalid, with the reason
+  /// in error. clip and name are set in all cases.
+  bool parseInputPlaneArg(const std::string& arg, std::string& clip, std::string& name, InputPlane& plane, std::string& error);
 
   /// parse a finite decimal number (e.g. "0.5", "-2", "1e3"). Returns false for anything else,
   /// including nan, inf, hexadecimal and out-of-range (ERANGE) values, and surrounding spaces.

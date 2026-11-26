@@ -25,8 +25,7 @@ namespace MyHost {
     std::string id;
     int         updates;    ///< the number of progressUpdate calls
     double      lastValue;  ///< the last progressUpdate value (only meaningful if updates > 0)
-    bool        ended;      ///< progressEnd was called
-    int         ends;       ///< the number of progressEnd calls (a test hook: more than 1 is a plug-in bug)
+    int         ends;       ///< the number of progressEnd calls (more than 1 is a plug-in bug: test_tester.py checks 1)
   };
 
   // class definition
@@ -149,9 +148,8 @@ namespace MyHost {
     /// output gets the default depth (the -d option), instead of float
     virtual void setDefaultClipPreferences();
 
-    /// --ofx11: refuse the persistent messages (kOfxStatFailed, nothing recorded), as DaVinci
-    /// Resolve and Fusion 2026 do (https://github.com/creativevideotips/cvt-ltx-alpha-gen,
-    /// src/ofx/src/plugin.cpp)
+    /// --ofx11 (Host::restrictToOFX11()): refuse the persistent messages (kOfxStatFailed,
+    /// nothing recorded)
     void setRefusePersistentMessages() { _refusePersistentMessages = true; }
 
     /// the messages and progresses of the plug-in, for hostDemo --report

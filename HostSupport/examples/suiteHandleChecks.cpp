@@ -2,16 +2,10 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 ////////////////////////////////////////////////////////////////////////////////
-/// suiteHandleChecks: checks that the HostSupport param, progress and timeline suites, and the
-/// host's fetchSuite(), reject NULL and describe-time (descriptor) handles, NULL names and NULL
-/// return pointers with the statuses of the spec, instead of crashing; that Bytes params copy
-/// their default (descriptor and instance); that RGB and RGBA params have
-/// kOfxParamPropColourManagement; and that the render inArgs have the
-/// kOfxImageEffectPropBehaviourWhenUnlicensed the host sets; and the fixes of the HostSupport
-/// review: NULL pointer defaults, exact doubles, plug-in cache rescans and reads (also of a
-/// malformed cache), per-clip kFnOfxImageEffectPropComponentsPresent, and the host's plug-in
-/// directories (setPluginHostPath()). Run by .github/scripts/hostdemo-checks.sh and the Windows
-/// job of .github/workflows/build.yml; exits with 1 if a check fails.
+/// suiteHandleChecks: unit checks of HostSupport (the suites' handle and argument checks, property
+/// and plug-in cache behaviour, the image effect inArgs), on hostDemo's host classes. Each check*()
+/// function says what it checks. Run by .github/scripts/hostdemo-checks.sh and by
+/// .github/workflows/build.yml (Windows, and the extensions build); exits with 1 if a check fails.
 
 #include <cstdio>
 #include <cstring>
@@ -49,7 +43,7 @@
 #include "ofxhMemory.h"
 #include "ofxGPURender.h"
 
-// the HostSupport review fixes: properties and the plug-in cache
+// properties and the plug-in cache
 #include <cfloat>
 #include <climits>
 #include <sstream>
@@ -325,15 +319,24 @@ namespace {
     gDrawInteractHandle = gDrawDescriptorHandle = NULL;
   }
 
-  /// hostDemo's effect instance, with the statuses a host may throw (as Natron does): progressUpdate
-  /// and progressEnd without an ongoing progress throw kOfxStatErrBadHandle ("the progress handle
-  /// was invalid"); timeLineGotoTime throws kOfxStatErrValue for |t| > 1e9 (a time the host can't
-  /// go to), and kOfxStatErrFatal for t == 12345 (any other status)
-  class StatusEffectInstance : public MyHost::MyEffectInstance {
-    bool ongoing() const { return !_progress.empty() && !_progress.back().ended; }
+  /// hostDemo's effect instance, with test hooks:
+  /// - the statuses a host may throw (as Natron does): progressUpdate and progressEnd without an
+  ///   ongoing progress throw kOfxStatErrBadHandle ("the progress handle was invalid");
+  ///   timeLineGotoTime throws kOfxStatErrValue for |t| > 1e9 (a time the host can't go to), and
+  ///   kOfxStatErrFatal for t == 12345 (any other status);
+  /// - the inArgs of each action, recorded host-side (setCustomInArgs(), just before the action is
+  ///   passed to the plug-in): kOfxImageEffectPropThumbnailRender ("" if absent) and
+  ///   kOfxImageEffectPropBehaviourWhenUnlicensed ("absent" if absent);
+  /// - what getBehaviourWhenUnlicensed() and abort() return: unlicensedBehaviour and abortValue
+  class TestEffectInstance : public MyHost::MyEffectInstance {
+    bool ongoing() const { return !_progress.empty() && _progress.back().ends == 0; }
   public:
-    StatusEffectInstance(ImageEffect::ImageEffectPlugin *plugin, ImageEffect::Descriptor &desc, const std::string &context)
-      : MyHost::MyEffectInstance(plugin, desc, context) {}
+    std::map<std::string, std::string> thumbnailArg;
+    std::map<std::string, std::string> unlicensedArg;
+    std::string unlicensedBehaviour;
+    int abortValue; ///< what abort() returns; -1: it throws
+    TestEffectInstance(ImageEffect::ImageEffectPlugin *plugin, ImageEffect::Descriptor &desc, const std::string &context)
+      : MyHost::MyEffectInstance(plugin, desc, context), abortValue(0) {}
     virtual void progressEnd()
     {
       if (!ongoing()) {
@@ -358,20 +361,6 @@ namespace {
       }
       MyHost::MyEffectInstance::timeLineGotoTime(t);
     }
-  };
-
-  /// a StatusEffectInstance that also records, host-side (in setCustomInArgs(), just before the
-  /// action is passed to the plug-in), the kOfxImageEffectPropThumbnailRender of the inArgs of each
-  /// action ("" if absent), and their kOfxImageEffectPropBehaviourWhenUnlicensed ("absent" if
-  /// absent), which is getBehaviourWhenUnlicensed(): unlicensedBehaviour
-  class RecordingEffectInstance : public StatusEffectInstance {
-  public:
-    std::map<std::string, std::string> thumbnailArg;
-    std::map<std::string, std::string> unlicensedArg;
-    std::string unlicensedBehaviour;
-    int abortValue; ///< what abort() returns; -1: it throws
-    RecordingEffectInstance(ImageEffect::ImageEffectPlugin *plugin, ImageEffect::Descriptor &desc, const std::string &context)
-      : StatusEffectInstance(plugin, desc, context), abortValue(0) {}
     virtual std::string getBehaviourWhenUnlicensed() const { return unlicensedBehaviour; }
     virtual int abort()
     {
@@ -382,7 +371,7 @@ namespace {
     }
     virtual void setCustomInArgs(const std::string &action, Property::Set &inArgs)
     {
-      StatusEffectInstance::setCustomInArgs(action, inArgs);
+      MyHost::MyEffectInstance::setCustomInArgs(action, inArgs);
       thumbnailArg[action] = inArgs.fetchProperty(kOfxImageEffectPropThumbnailRender) ?
         inArgs.getStringProperty(kOfxImageEffectPropThumbnailRender) : std::string();
       unlicensedArg[action] = inArgs.fetchProperty(kOfxImageEffectPropBehaviourWhenUnlicensed) ?
@@ -390,13 +379,13 @@ namespace {
     }
   };
 
-  /// hostDemo's host, with RecordingEffectInstance (StatusEffectInstance) effect instances
+  /// hostDemo's host, with TestEffectInstance effect instances
   class TestHost : public MyHost::Host {
   public:
     virtual ImageEffect::Instance *newInstance(void *, ImageEffect::ImageEffectPlugin *plugin,
                                                ImageEffect::Descriptor &desc, const std::string &context)
     {
-      return new RecordingEffectInstance(plugin, desc, context);
+      return new TestEffectInstance(plugin, desc, context);
     }
   };
 
@@ -413,31 +402,22 @@ namespace {
   /// check their inArgs
   void beginEndSequenceRender(ImageEffect::Instance *instance)
   {
-    OfxPointD renderScale = { 1., 1. };
-    instance->beginRenderAction(0., 0., 1., false, renderScale, false, false,
+    const OfxPointD renderScale = { 1., 1. };
+    // (the same signature)
+    for (auto action : { &ImageEffect::Instance::beginRenderAction, &ImageEffect::Instance::endRenderAction }) {
+      (instance->*action)(0., 0., 1., false, renderScale, false, false,
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-                                false,
+                          false,
 # ifdef OFX_EXTENSIONS_NATRON
-                                NULL,
+                          NULL,
 # endif
 #endif
-                                false
+                          false
 #ifdef OFX_EXTENSIONS_NUKE
-                                , 0
+                          , 0
 #endif
-                                );
-    instance->endRenderAction(0., 0., 1., false, renderScale, false, false,
-#ifdef OFX_SUPPORTS_OPENGLRENDER
-                              false,
-# ifdef OFX_EXTENSIONS_NATRON
-                              NULL,
-# endif
-#endif
-                              false
-#ifdef OFX_EXTENSIONS_NUKE
-                              , 0
-#endif
-                              );
+                          );
+    }
   }
 
   /// a Render of the instance, at time 0, scale 1, on a 16x16 window (the status is not checked:
@@ -479,8 +459,7 @@ namespace {
   }
 
   /// setPluginHostPath(hostId) adds the host's own directories, .../OFX/hostId, and not the standard
-  /// one, .../OFX/Plugins (#324: on Windows, getStdOFXPluginPath() returned its first result for
-  /// every hostId)
+  /// one, .../OFX/Plugins, on every OS (#324)
   void checkPluginHostPath()
   {
     const auto endsWith = [](const std::string &s, const std::string &end) {
@@ -614,10 +593,10 @@ namespace {
     check("the properties are deleted with their sets", CountedInt::live == 0);
   }
 
-  /// HostSupport review fixes (properties): a pointer property defaults to NULL, whatever the
+  /// property values: a pointer property defaults to NULL, whatever the
   /// default string of its spec; doubles turn into strings that read back exactly (the plug-in
   /// cache, and the numeric param limits); a malformed property in the cache is an error
-  void checkPropertyFixes()
+  void checkPropertyValues()
   {
     static const Property::PropSpec pointerSpec[] = {
       { "TestPointerZero", Property::ePointer, 1, true, "0" },
@@ -720,41 +699,73 @@ namespace {
     return n;
   }
 
+  /// the plug-in cache the singleton writes, and its number of plug-ins with one identifier
+  struct CacheSnapshot {
+    std::string xml;
+    int nInvert = 0;
+  };
+
+  /// a PluginCache other than the singleton, with its image effect API cache (destroyed after the
+  /// plug-ins of cache). registerInCache() sets ImageEffect::gImageEffectHost: the destructor
+  /// restores it (the same host).
+  struct ScratchCache {
+    MyHost::Host &host;
+    ImageEffect::PluginCache effects;
+    PluginCache cache;
+    explicit ScratchCache(MyHost::Host &h) : host(h), effects(&h) { effects.registerInCache(cache); }
+    ~ScratchCache() { ImageEffect::gImageEffectHost = &host; }
+    ScratchCache(const ScratchCache &) = delete;
+    ScratchCache &operator=(const ScratchCache &) = delete;
+    /// readCache(text): false if it threw std::runtime_error (a malformed cache), whose message is
+    /// printed unless quiet
+    bool read(const std::string &text, bool quiet = false)
+    {
+      std::istringstream is(text);
+      try {
+        cache.readCache(is);
+      } catch (const std::runtime_error &e) {
+        if (!quiet) {
+          std::printf("suiteHandleChecks: readCache: %s\n", e.what());
+        }
+        return false;
+      }
+      return true;
+    }
+    /// writePluginCache()
+    std::string written()
+    {
+      std::ostringstream os;
+      cache.writePluginCache(os);
+      return os.str();
+    }
+  };
+
   /// a binary changed since the cache (another mtime) is loaded by the first scan, and not again
   /// by the second one: the plug-in stays the same, and isn't added twice. Run when no other plug-in
   /// cache has the binary loaded (two caches loading one library would share its Load/Unload state).
-  void checkChangedBinary(MyHost::Host &host, const std::string &cache, const std::string &pluginId, int nInvert)
+  void checkChangedBinary(MyHost::Host &host, const CacheSnapshot &snapshot, const std::string &pluginId)
   {
-    std::string changed = cache;
+    const int nInvert = snapshot.nInvert;
+    std::string changed = snapshot.xml;
     const size_t bundle = changed.find("example-Invert-support.ofx.bundle");
     const size_t mtime = bundle == std::string::npos ? bundle : changed.find("mtime=\"", bundle);
     const size_t end = mtime == std::string::npos ? mtime : changed.find('"', mtime + strlen("mtime=\""));
     check("the cache has the mtime of the Invert binary", end != std::string::npos);
     if (end != std::string::npos) {
       changed.replace(mtime, end + 1 - mtime, "mtime=\"1\"");
-      ImageEffect::PluginCache otherEffects(&host); // (destroyed after the plug-ins of other)
-      PluginCache other;
-      otherEffects.registerInCache(other);
-      std::istringstream is(changed);
-      bool ok = true;
-      try {
-        other.readCache(is);
-      } catch (const std::exception &e) {
-        std::printf("suiteHandleChecks: readCache: %s\n", e.what());
-        ok = false;
-      }
-      other.scanPluginFiles();
-      ImageEffect::ImageEffectPlugin *first = otherEffects.getPluginById(pluginId);
-      const size_t n = other.getPlugins().size();
+      ScratchCache other(host);
+      const bool ok = other.read(changed);
+      other.cache.scanPluginFiles();
+      ImageEffect::ImageEffectPlugin *first = other.effects.getPluginById(pluginId);
+      const size_t n = other.cache.getPlugins().size();
       check("a changed binary: the cache is read, the first scan loads its plug-in, and the cache is dirty",
-            ok && first != NULL && other.dirty() && countPlugins(other.getPlugins(), pluginId) == nInvert);
-      other.scanPluginFiles();
-      // otherEffects.getPlugins().size() == n holds because image effects are the only API registered here
+            ok && first != NULL && other.cache.dirty() && countPlugins(other.cache.getPlugins(), pluginId) == nInvert);
+      other.cache.scanPluginFiles();
+      // other.effects.getPlugins().size() == n holds because image effects are the only API registered here
       check("a changed binary: the second scan doesn't load it again (same plug-in, same count)",
-            otherEffects.getPluginById(pluginId) == first && other.getPlugins().size() == n &&
-            countPlugins(other.getPlugins(), pluginId) == nInvert && otherEffects.getPlugins().size() == n);
+            other.effects.getPluginById(pluginId) == first && other.cache.getPlugins().size() == n &&
+            countPlugins(other.cache.getPlugins(), pluginId) == nInvert && other.effects.getPlugins().size() == n);
     }
-    ImageEffect::gImageEffectHost = &host;
   }
 
   /// NatronGitHub/openfx#235: a binary of the plug-in cache that can't be stat()ed (e.g. removed)
@@ -788,34 +799,20 @@ namespace {
     }
     missing.replace(mtime, end - mtime, " mtime=\"0\" size=\"0\"");
     missing.replace(path, pathEnd + 1 - path, " path=\"/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx\"");
-    ImageEffect::PluginCache otherEffects(&host); // (destroyed after the plug-ins of other)
-    PluginCache other;
-    otherEffects.registerInCache(other);
-    std::istringstream is(missing);
-    bool ok = true;
-    try {
-      other.readCache(is);
-    } catch (const std::exception &e) {
-      std::printf("suiteHandleChecks: readCache: %s\n", e.what());
-      ok = false;
-    }
-    std::ostringstream rewritten;
-    other.writePluginCache(rewritten);
-    const std::string w = rewritten.str();
+    ScratchCache other(host);
+    const bool ok = other.read(missing);
+    const std::string w = other.written();
     const size_t wBundle = w.find("/nonexistent/x.ofx.bundle/Contents/MacOS/x.ofx");
     const size_t wEnd = wBundle == std::string::npos ? wBundle : w.find("</bundle>", wBundle);
     check("a cached binary that doesn't exist (mtime 0, size 0): its cached plug-ins are not read",
           ok && wEnd != std::string::npos && w.substr(wBundle, wEnd - wBundle).find("<plugin ") == std::string::npos);
-    ImageEffect::gImageEffectHost = &host;
   }
 
-  /// HostSupport review fixes (plug-in cache, clips): a rescan doesn't duplicate the plug-ins; the
-  /// cache reads into the PluginCache that reads it (not the singleton), and a malformed cache is
-  /// discarded; a plug-in's kFnOfxImageEffectPropComponentsPresent value belongs to its clip;
-  /// getNthClip() is bounds-checked
-  void checkCacheFixes(MyHost::Host &host, ImageEffect::PluginCache &imageEffectPluginCache,
-                       ImageEffect::Instance *instance, const std::string &pluginId,
-                       std::string &cacheOut, int &nInvertOut)
+  /// plug-in cache rescans and reads: a rescan doesn't duplicate the plug-ins; the cache reads into
+  /// the PluginCache that reads it (not the singleton), and a malformed cache is discarded.
+  /// Returns the cache the singleton writes, for checkChangedBinary() and checkCachedInvalidBinary().
+  CacheSnapshot checkPluginCacheRescanAndRead(MyHost::Host &host, ImageEffect::PluginCache &imageEffectPluginCache,
+                                              ImageEffect::Instance &instance, const std::string &pluginId)
   {
     PluginCache *pc = PluginCache::getPluginCache();
     const size_t nPlugins = pc->getPlugins().size();
@@ -823,11 +820,11 @@ namespace {
     const size_t nIds = imageEffectPluginCache.getPluginsByID().size();
     const int nInvert = countPlugins(pc->getPlugins(), pluginId);
     ImageEffect::ImageEffectPlugin *const before = imageEffectPluginCache.getPluginById(pluginId);
-    ImageEffect::ImageEffectPlugin *const instancePlugin = instance ? instance->getPlugin() : NULL;
+    ImageEffect::ImageEffectPlugin *const instancePlugin = instance.getPlugin();
     pc->scanPluginFiles();
     check("rescan: getPluginById() is the same plug-in", imageEffectPluginCache.getPluginById(pluginId) == before);
     check("rescan: the instance's plug-in is the one getPluginById() gives",
-          !instance || (instance->getPlugin() == instancePlugin && instancePlugin == before));
+          instance.getPlugin() == instancePlugin && instancePlugin == before);
     check("rescan: as many plug-ins (PluginCache::getPlugins())", pc->getPlugins().size() == nPlugins && countPlugins(pc->getPlugins(), pluginId) == nInvert);
     check("rescan: as many image effect plug-ins (ImageEffect::PluginCache::getPlugins())",
           imageEffectPluginCache.getPlugins().size() == nEffects && imageEffectPluginCache.getPluginsByID().size() == nIds);
@@ -838,33 +835,19 @@ namespace {
     std::ostringstream written;
     pc->writePluginCache(written);
     const std::string cache = written.str();
-    cacheOut = cache;
-    nInvertOut = nInvert;
     {
       // read into another PluginCache: the singleton doesn't change, and the other one writes
       // the same cache
-      ImageEffect::PluginCache otherEffects(&host); // (destroyed after the plug-ins of other)
-      PluginCache other;
-      otherEffects.registerInCache(other);
-      std::istringstream is(cache);
-      bool ok = true;
-      try {
-        other.readCache(is);
-      } catch (const std::exception &e) {
-        std::printf("suiteHandleChecks: readCache: %s\n", e.what());
-        ok = false;
-      }
-      std::ostringstream rewritten;
-      other.writePluginCache(rewritten);
+      ScratchCache other(host);
+      const bool ok = other.read(cache);
       std::ostringstream singleton;
       pc->writePluginCache(singleton);
-      check("readCache() on a PluginCache other than the singleton reads into it", ok && rewritten.str() == cache);
+      check("readCache() on a PluginCache other than the singleton reads into it", ok && other.written() == cache);
       check("readCache() on a PluginCache other than the singleton leaves the singleton", singleton.str() == cache && pc->getPlugins().size() == nPlugins);
-      other.scanPluginFiles();
+      other.cache.scanPluginFiles();
       ImageEffect::ImageEffectPlugin *a = imageEffectPluginCache.getPluginById(pluginId);
-      ImageEffect::ImageEffectPlugin *b = otherEffects.getPluginById(pluginId);
-      check("the plug-in read from the cache, after the scan", b != NULL && b != a && countPlugins(other.getPlugins(), pluginId) == nInvert);
-      ImageEffect::gImageEffectHost = &host; // (otherEffects set it: the same host)
+      ImageEffect::ImageEffectPlugin *b = other.effects.getPluginById(pluginId);
+      check("the plug-in read from the cache, after the scan", b != NULL && b != a && countPlugins(other.cache.getPlugins(), pluginId) == nInvert);
     }
     {
       // a malformed cache is discarded entirely (readCache() throws, nothing read is kept)
@@ -882,28 +865,24 @@ namespace {
       const std::string *bad[] = { &unknownElement, &hugeIndex };
       const char *what[] = { "an unknown element", "a value index of 2000000000 for a variable-dimension property" };
       for (int i = 0; i < 2; ++i) {
-        ImageEffect::PluginCache otherEffects(&host); // (destroyed after the plug-ins of other)
-        PluginCache other;
-        otherEffects.registerInCache(other);
-        std::istringstream is(*bad[i]);
-        bool refused = false;
-        try {
-          other.readCache(is);
-        } catch (const std::runtime_error &) {
-          refused = true;
-        }
-        std::ostringstream rewritten;
-        other.writePluginCache(rewritten);
+        ScratchCache other(host);
+        const bool refused = !other.read(*bad[i], true);
         check((std::string("readCache() of a cache with ") + what[i] + " fails, and keeps nothing").c_str(),
-              refused && rewritten.str().find("<bundle>") == std::string::npos);
-        ImageEffect::gImageEffectHost = &host;
+              refused && other.written().find("<bundle>") == std::string::npos);
       }
     }
 
-    if (!instance) {
-      return;
-    }
-    // getNthClip(): NULL out of range (it indexed the vector of clip descriptors)
+    CacheSnapshot snapshot;
+    snapshot.xml = cache;
+    snapshot.nInvert = nInvert;
+    return snapshot;
+  }
+
+  /// the clips of an instance: getNthClip() is NULL out of range, and the base class's
+  /// kFnOfxImageEffectPropComponentsPresent
+  void checkClips(ImageEffect::Instance *instance)
+  {
+    // getNthClip(): NULL out of range
     const int nClips = (int)instance->getDescriptor().getClipsByOrder().size();
     check("getNthClip(0) != NULL", nClips > 0 && instance->getNthClip(0) != NULL);
     check("getNthClip(-1) = NULL", instance->getNthClip(-1) == NULL);
@@ -1004,6 +983,70 @@ namespace {
     ImageEffect::gImageEffectHost = &host;
   }
 
+  /// the inArgs of the sequence render and render actions
+  void checkRenderInArgs(TestEffectInstance &instance)
+  {
+    // kOfxImageEffectPropThumbnailRender is in the inArgs of BeginSequenceRender and of
+    // EndSequenceRender (OFX 1.5.1), with the value of the ThumbnailRenderScope
+    beginEndSequenceRender(&instance);
+    check("Begin/EndSequenceRender inArgs: kOfxImageEffectPropThumbnailRender = \"false\"",
+          instance.thumbnailArg[kOfxImageEffectActionBeginSequenceRender] == "false" &&
+          instance.thumbnailArg[kOfxImageEffectActionEndSequenceRender] == "false");
+    {
+      ImageEffect::ThumbnailRenderScope thumbnail(true);
+      beginEndSequenceRender(&instance);
+    }
+    check("Begin/EndSequenceRender inArgs in a ThumbnailRenderScope: kOfxImageEffectPropThumbnailRender = \"true\"",
+          instance.thumbnailArg[kOfxImageEffectActionBeginSequenceRender] == "true" &&
+          instance.thumbnailArg[kOfxImageEffectActionEndSequenceRender] == "true");
+
+    // kOfxImageEffectPropBehaviourWhenUnlicensed (next OFX release) is in the inArgs of
+    // BeginSequenceRender and Render if the host sets a valid value
+    // (Instance::getBehaviourWhenUnlicensed()), never in those of EndSequenceRender, and absent
+    // by default: "not set (indicating the host has not implemented this functionality)"
+    static const struct { const char *value, *expected; } unlicensed[] = {
+      { "", "absent" },
+      { kOfxUnlicensedFail, kOfxUnlicensedFail },
+      { kOfxUnlicensedContinue, kOfxUnlicensedContinue },
+      { "OfxUnlicensedNoSuchValue", "absent" },
+    };
+    instance.getClipPreferences();
+    for (const auto &u : unlicensed) {
+      instance.unlicensedBehaviour = u.value;
+      beginEndSequenceRender(&instance);
+      render(&instance);
+      check((std::string("Begin/EndSequenceRender and Render inArgs, the host's behaviour \"") + u.value +
+             "\": kOfxImageEffectPropBehaviourWhenUnlicensed " + u.expected + " (EndSequenceRender: absent)").c_str(),
+            instance.unlicensedArg[kOfxImageEffectActionBeginSequenceRender] == u.expected &&
+            instance.unlicensedArg[kOfxImageEffectActionRender] == u.expected &&
+            instance.unlicensedArg[kOfxImageEffectActionEndSequenceRender] == "absent");
+    }
+    instance.unlicensedBehaviour.clear();
+  }
+
+  /// OfxImageEffectSuiteV1::abort: "0 if the effect should continue [...] 1 if the effect should
+  /// abort" (ofxImageEffect.h), whatever the host's Instance::abort() returns
+  void checkInstanceAbort(MyHost::Host &host, TestEffectInstance &instance)
+  {
+    const OfxImageEffectSuiteV1 *ies = (const OfxImageEffectSuiteV1 *)host.fetchSuite(kOfxImageEffectSuite, 1);
+    check("image effect suite (abort)", ies != NULL);
+    if (!ies) {
+      return;
+    }
+    // (Instance::abort(), -1: it throws; what the suite returns)
+    static const struct { int value, expected; const char *what; } aborts[] = {
+      { 0, 0, "abort(instance), Instance::abort() = 0: 0" },
+      { 1, 1, "abort(instance), Instance::abort() = 1: 1" },
+      { 2, 1, "abort(instance), Instance::abort() = 2: 1" },
+      { -1, 1, "abort(instance), Instance::abort() throws: 1" },
+    };
+    for (const auto &a : aborts) {
+      instance.abortValue = a.value;
+      check(a.what, ies->abort(instance.getHandle()) == a.expected);
+    }
+    instance.abortValue = 0;
+  }
+
   /// the progress and timeline suites on a valid effect instance handle: a real instance of a
   /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
   void checkEffectInstance(MyHost::Host &host)
@@ -1029,78 +1072,21 @@ namespace {
     ImageEffect::Instance *instance = plugin ? plugin->createInstance(kOfxImageEffectContextFilter, NULL) : NULL;
     MyHost::MyEffectInstance *myInstance = dynamic_cast<MyHost::MyEffectInstance *>(instance);
     check("createInstance", myInstance != NULL);
-    std::string cache; // written by checkCacheFixes(), for checkChangedBinary()
-    int nInvert = 0;
+    CacheSnapshot snapshot; // for checkChangedBinary() and checkCachedInvalidBinary()
     if (myInstance) {
       const OfxStatus stat = instance->createInstanceAction();
       check("createInstanceAction", stat == kOfxStatOK || stat == kOfxStatReplyDefault);
 
-      // the plug-in cache (rescan, readCache, malformed caches) and the clips
-      checkCacheFixes(host, imageEffectPluginCache, instance, pluginId, cache, nInvert);
+      snapshot = checkPluginCacheRescanAndRead(host, imageEffectPluginCache, *instance, pluginId);
+      checkClips(instance);
 
-      // kOfxImageEffectPropThumbnailRender is in the inArgs of BeginSequenceRender and of
-      // EndSequenceRender (OFX 1.5.1), with the value of the ThumbnailRenderScope
-      RecordingEffectInstance *rec = dynamic_cast<RecordingEffectInstance *>(instance);
-      check("RecordingEffectInstance", rec != NULL);
-      if (rec) {
-        beginEndSequenceRender(instance);
-        check("Begin/EndSequenceRender inArgs: kOfxImageEffectPropThumbnailRender = \"false\"",
-              rec->thumbnailArg[kOfxImageEffectActionBeginSequenceRender] == "false" &&
-              rec->thumbnailArg[kOfxImageEffectActionEndSequenceRender] == "false");
-        {
-          ImageEffect::ThumbnailRenderScope thumbnail(true);
-          beginEndSequenceRender(instance);
-        }
-        check("Begin/EndSequenceRender inArgs in a ThumbnailRenderScope: kOfxImageEffectPropThumbnailRender = \"true\"",
-              rec->thumbnailArg[kOfxImageEffectActionBeginSequenceRender] == "true" &&
-              rec->thumbnailArg[kOfxImageEffectActionEndSequenceRender] == "true");
-
-        // kOfxImageEffectPropBehaviourWhenUnlicensed (next OFX release) is in the inArgs of
-        // BeginSequenceRender and Render if the host sets it (Instance::getBehaviourWhenUnlicensed()),
-        // and absent by default: "not set (indicating the host has not implemented this
-        // functionality)"
-        instance->getClipPreferences();
-        beginEndSequenceRender(instance);
-        render(instance);
-        check("BeginSequenceRender and Render inArgs: no kOfxImageEffectPropBehaviourWhenUnlicensed by default",
-              rec->unlicensedArg[kOfxImageEffectActionBeginSequenceRender] == "absent" &&
-              rec->unlicensedArg[kOfxImageEffectActionRender] == "absent");
-        const char *const behaviours[] = { kOfxUnlicensedFail, kOfxUnlicensedContinue };
-        for (int i = 0; i < 2; ++i) {
-          rec->unlicensedBehaviour = behaviours[i];
-          beginEndSequenceRender(instance);
-          render(instance);
-          check((std::string("BeginSequenceRender and Render inArgs: kOfxImageEffectPropBehaviourWhenUnlicensed = ") + behaviours[i]).c_str(),
-                rec->unlicensedArg[kOfxImageEffectActionBeginSequenceRender] == behaviours[i] &&
-                rec->unlicensedArg[kOfxImageEffectActionRender] == behaviours[i]);
-          check("EndSequenceRender inArgs: no kOfxImageEffectPropBehaviourWhenUnlicensed",
-                rec->unlicensedArg[kOfxImageEffectActionEndSequenceRender] == "absent");
-        }
-        rec->unlicensedBehaviour = "OfxUnlicensedNoSuchValue";
-        beginEndSequenceRender(instance);
-        render(instance);
-        check("BeginSequenceRender and Render inArgs: no kOfxImageEffectPropBehaviourWhenUnlicensed for an invalid value",
-              rec->unlicensedArg[kOfxImageEffectActionBeginSequenceRender] == "absent" &&
-              rec->unlicensedArg[kOfxImageEffectActionRender] == "absent");
-        rec->unlicensedBehaviour.clear();
-
-        // OfxImageEffectSuiteV1::abort: "0 if the effect should continue [...] 1 if the effect
-        // should abort" (ofxImageEffect.h), whatever the host's Instance::abort() returns
-        const OfxImageEffectSuiteV1 *ies = (const OfxImageEffectSuiteV1 *)host.fetchSuite(kOfxImageEffectSuite, 1);
-        check("image effect suite (abort)", ies != NULL);
-        if (ies) {
-          const OfxImageEffectHandle ih = instance->getHandle();
-          rec->abortValue = 0;
-          check("abort(instance), Instance::abort() = 0: 0", ies->abort(ih) == 0);
-          rec->abortValue = 1;
-          check("abort(instance), Instance::abort() = 1: 1", ies->abort(ih) == 1);
-          rec->abortValue = 2;
-          check("abort(instance), Instance::abort() = 2: 1", ies->abort(ih) == 1);
-          rec->abortValue = -1;
-          check("abort(instance), Instance::abort() throws: 1", ies->abort(ih) == 1);
-          rec->abortValue = 0;
-        }
+      TestEffectInstance *test = dynamic_cast<TestEffectInstance *>(instance);
+      check("TestEffectInstance", test != NULL);
+      if (test) {
+        checkRenderInArgs(*test);
+        checkInstanceAbort(host, *test);
       }
+
       void *h = (void *)instance->getHandle();
       const OfxProgressSuiteV1 *progress1 = (const OfxProgressSuiteV1 *)host.fetchSuite(kOfxProgressSuite, 1);
       const OfxProgressSuiteV2 *progress2 = (const OfxProgressSuiteV2 *)host.fetchSuite(kOfxProgressSuite, 2);
@@ -1112,14 +1098,14 @@ namespace {
         // V1 and V2 share progressUpdate and progressEnd (so the checks below are for both)
         check("progress V1 and V2: the same progressUpdate and progressEnd",
               progress1->progressUpdate == progress2->progressUpdate && progress1->progressEnd == progress2->progressEnd);
-        // StatusEffectInstance throws kOfxStatErrBadHandle without an ongoing progress: the suite returns it
+        // TestEffectInstance throws kOfxStatErrBadHandle without an ongoing progress: the suite returns it
         check("progressUpdate(instance, no progress started) = kOfxStatErrBadHandle", progress2->progressUpdate(h, 0.5) == kOfxStatErrBadHandle);
         check("progressEnd(instance, no progress started) = kOfxStatErrBadHandle", progress2->progressEnd(h) == kOfxStatErrBadHandle);
         check("progressUpdate V1(instance, no progress started) = kOfxStatErrBadHandle", progress1->progressUpdate(h, 0.5) == kOfxStatErrBadHandle);
         check("progressStart V1(instance, NULL label) = kOfxStatOK",
               progress1->progressStart(h, NULL) == kOfxStatOK && myInstance->getProgress().size() == n + 1 &&
               myInstance->getProgress().back().message.empty() && myInstance->getProgress().back().id.empty());
-        check("progressEnd(instance) = kOfxStatOK", progress1->progressEnd(h) == kOfxStatOK && myInstance->getProgress().back().ended);
+        check("progressEnd(instance) = kOfxStatOK", progress1->progressEnd(h) == kOfxStatOK && myInstance->getProgress().back().ends > 0);
         check("progressStart V2(instance, NULL message, NULL messageId) = kOfxStatOK",
               progress2->progressStart(h, NULL, NULL) == kOfxStatOK && myInstance->getProgress().size() == n + 2 &&
               myInstance->getProgress().back().message.empty() && myInstance->getProgress().back().id.empty());
@@ -1150,9 +1136,9 @@ namespace {
     }
     delete instance;
     PluginCache::clearPluginCache();
-    if (!cache.empty()) {
-      checkChangedBinary(host, cache, pluginId, nInvert);
-      checkCachedInvalidBinary(host, cache);
+    if (!snapshot.xml.empty()) {
+      checkChangedBinary(host, snapshot, pluginId);
+      checkCachedInvalidBinary(host, snapshot.xml);
     }
     checkScanThrows(host);
   }
@@ -1254,6 +1240,180 @@ namespace {
     }
 #endif
   }
+  /// the "descriptor (read/write) and instance (read only)" properties are read-only on instances
+  /// (refused with kOfxStatErrValue: the default ePluginReadOnlyEnforce policy), but writable on
+  /// descriptors; kOfxParamPropGroupOpen stays writable on instances (ofxNatron.h, 4 and 9)
+  void checkParamInstanceReadOnly(const OfxParameterSuiteV1 *ps, const OfxPropertySuiteV1 *propSuite,
+                                  TestSetDescriptor &setDesc, TestSetInstance &setInst,
+                                  OfxParamHandle instParam, OfxParamHandle descParam)
+  {
+    OfxPropertySetHandle ip = NULL, dp = NULL;
+    check("paramGetPropertySet(instance), (descriptor)",
+          ps->paramGetPropertySet(instParam, &ip) == kOfxStatOK && ps->paramGetPropertySet(descParam, &dp) == kOfxStatOK);
+    if (ip && dp) {
+      check("propSetInt(descriptor, kOfxParamPropAnimates) = kOfxStatOK", propSuite->propSetInt(dp, kOfxParamPropAnimates, 0, 1) == kOfxStatOK);
+      int animates = -1;
+      check("propSetInt(instance, kOfxParamPropAnimates) = kOfxStatErrValue, unchanged",
+            propSuite->propSetInt(ip, kOfxParamPropAnimates, 0, 0) == kOfxStatErrValue &&
+            propSuite->propGetInt(ip, kOfxParamPropAnimates, 0, &animates) == kOfxStatOK && animates == 1);
+      check("propReset(instance, kOfxParamPropAnimates) = kOfxStatErrValue", propSuite->propReset(ip, kOfxParamPropAnimates) == kOfxStatErrValue);
+      check("propSetString(instance, kOfxParamPropScriptName) = kOfxStatErrValue", propSuite->propSetString(ip, kOfxParamPropScriptName, 0, "x") == kOfxStatErrValue);
+      check("propSetInt(instance, kOfxParamPropCanUndo) = kOfxStatErrValue", propSuite->propSetInt(ip, kOfxParamPropCanUndo, 0, 0) == kOfxStatErrValue);
+      check("propSetInt(instance, kOfxParamPropPersistent) = kOfxStatErrValue", propSuite->propSetInt(ip, kOfxParamPropPersistent, 0, 0) == kOfxStatErrValue);
+      check("propSetString(instance, kOfxParamPropParent) = kOfxStatErrValue", propSuite->propSetString(ip, kOfxParamPropParent, 0, "g") == kOfxStatErrValue);
+      check("propSetInt(instance, kOfxParamPropIsAnimating) = kOfxStatErrValue", propSuite->propSetInt(ip, kOfxParamPropIsAnimating, 0, 1) == kOfxStatErrValue);
+      // under ePluginReadOnlyWarn (Natron's policy), the write is accepted (with a warning)
+      const Property::PluginReadOnlyPolicyEnum policy = Property::getPluginReadOnlyPolicy();
+      Property::setPluginReadOnlyPolicy(Property::ePluginReadOnlyWarn);
+      check("ePluginReadOnlyWarn: propSetInt(instance, kOfxParamPropCanUndo) = kOfxStatOK",
+            propSuite->propSetInt(ip, kOfxParamPropCanUndo, 0, 0) == kOfxStatOK);
+      Property::setPluginReadOnlyPolicy(policy);
+      check("policy restored: propSetInt(instance, kOfxParamPropCanUndo) = kOfxStatErrValue",
+            propSuite->propSetInt(ip, kOfxParamPropCanUndo, 0, 1) == kOfxStatErrValue);
+      // the plug-in-writable instance properties stay writable
+      check("propSetInt(instance, kOfxParamPropEnabled) = kOfxStatOK", propSuite->propSetInt(ip, kOfxParamPropEnabled, 0, 1) == kOfxStatOK);
+      check("propSetString(instance, kOfxPropLabel) = kOfxStatOK", propSuite->propSetString(ip, kOfxPropLabel, 0, "label") == kOfxStatOK);
+      // the host's C++ setters are not restricted
+      Param::Instance *inst = setInst.getParams().find("i")->second;
+      inst->getProperties().setIntProperty(kOfxParamPropIsAnimating, 1);
+      check("host setIntProperty(instance, kOfxParamPropIsAnimating)", inst->getProperties().getIntProperty(kOfxParamPropIsAnimating) == 1);
+    }
+    // kOfxParamPropGroupOpen on a group instance: writable, and the host is told
+    Param::Descriptor *groupDesc = setDesc.paramDefine(kOfxParamTypeGroup, "group");
+    check("paramDefine(group)", groupDesc != NULL);
+    if (groupDesc) {
+      TestGroup group(*groupDesc, &setInst);
+      check("propSetInt(group instance, kOfxParamPropGroupOpen) = kOfxStatOK, setOpen() called",
+            propSuite->propSetInt(group.getPropHandle(), kOfxParamPropGroupOpen, 0, 0) == kOfxStatOK && group.opens == 1 &&
+            group.getProperties().getIntProperty(kOfxParamPropGroupOpen) == 0);
+      check("propSetString(group instance, kOfxParamPropParent) = kOfxStatErrValue",
+            propSuite->propSetString(group.getPropHandle(), kOfxParamPropParent, 0, "g") == kOfxStatErrValue);
+    }
+  }
+
+  /// kOfxParamPropColourManagement (next OFX release) on RGB and RGBA param descriptors, with a
+  /// host that opts in (TestHost, as hostDemo: Host::supportsParamColourManagement()): "It
+  /// defaults to ::kOfxParamColourManagementNone", and "A host that supports this property MUST
+  /// accept all three values"; "A plug-in MUST NOT change it on a parameter instance"; "The
+  /// property is ignored on parameter types other than RGB and RGBA"
+  void checkParamColourManagement(TestHost &host, const OfxParameterSuiteV1 *ps, const OfxPropertySuiteV1 *propSuite,
+                                  TestSetDescriptor &setDesc, TestSetInstance &setInst, OfxPropertySetHandle dp)
+  {
+    OfxParamSetHandle descSet = setDesc.getParamSetHandle();
+    check("TestHost::supportsParamColourManagement()", host.supportsParamColourManagement());
+    const char *const colourTypes[] = { kOfxParamTypeRGBA, kOfxParamTypeRGB };
+    const char *const colourNames[] = { "rgba", "rgb" };
+    const char *const managements[] = { kOfxParamColourManagementManaged, kOfxParamColourManagementSRGB,
+                                        kOfxParamColourManagementNone, kOfxParamColourManagementManaged };
+    for (int t = 0; t < 2; ++t) {
+      const std::string what = std::string("paramDefine(") + colourTypes[t] + ")";
+      OfxPropertySetHandle cp = NULL;
+      check((what + " = kOfxStatOK").c_str(), ps->paramDefine(descSet, colourTypes[t], colourNames[t], &cp) == kOfxStatOK && cp != NULL);
+      if (!cp) {
+        continue;
+      }
+      const char *value = NULL;
+      check((what + ": kOfxParamPropColourManagement = kOfxParamColourManagementNone").c_str(),
+            propSuite->propGetString(cp, kOfxParamPropColourManagement, 0, &value) == kOfxStatOK && value &&
+            std::string(value) == kOfxParamColourManagementNone);
+      for (int m = 0; m < 4; ++m) {
+        value = NULL;
+        check((what + ": propSetString(kOfxParamPropColourManagement, " + managements[m] + ") = kOfxStatOK, reads back").c_str(),
+              propSuite->propSetString(cp, kOfxParamPropColourManagement, 0, managements[m]) == kOfxStatOK &&
+              propSuite->propGetString(cp, kOfxParamPropColourManagement, 0, &value) == kOfxStatOK && value &&
+              std::string(value) == managements[m]);
+      }
+    }
+    Param::Descriptor *rgbaDesc = setDesc.getParams().count("rgba") ? setDesc.getParams().find("rgba")->second : NULL;
+    if (rgbaDesc) {
+      TestRGBA rgba(*rgbaDesc, &setInst);
+      const char *value = NULL;
+      check("RGBA instance: kOfxParamPropColourManagement = kOfxParamColourManagementManaged, from the descriptor",
+            propSuite->propGetString(rgba.getPropHandle(), kOfxParamPropColourManagement, 0, &value) == kOfxStatOK && value &&
+            std::string(value) == kOfxParamColourManagementManaged);
+      check("RGBA instance: propSetString(kOfxParamPropColourManagement) = kOfxStatErrValue",
+            propSuite->propSetString(rgba.getPropHandle(), kOfxParamPropColourManagement, 0, kOfxParamColourManagementSRGB) == kOfxStatErrValue);
+    }
+    const char *intValue = NULL;
+    check("integer descriptor: no kOfxParamPropColourManagement (kOfxStatErrUnknown)",
+          propSuite->propGetString(dp, kOfxParamPropColourManagement, 0, &intValue) == kOfxStatErrUnknown);
+
+    // a host that doesn't opt in (the HostSupport default): "A host that does not implement it
+    // will fail the set; in that case the plug-in MUST fall back to
+    // ::kOfxParamColourManagementNone behaviour"
+    {
+      NoParamColourManagementHost noColourHost;
+      ImageEffect::gImageEffectHost = &noColourHost;
+      const char *const noNames[] = { "rgbaNoCM", "rgbNoCM" };
+      for (int t = 0; t < 2; ++t) {
+        const std::string what = std::string("host without param colour management: paramDefine(") + colourTypes[t] + ")";
+        OfxPropertySetHandle cp = NULL;
+        check((what + " = kOfxStatOK").c_str(), ps->paramDefine(descSet, colourTypes[t], noNames[t], &cp) == kOfxStatOK && cp != NULL);
+        if (!cp) {
+          continue;
+        }
+        const char *value = NULL;
+        int dim = -1;
+        check((what + ": no kOfxParamPropColourManagement").c_str(),
+              propSuite->propGetString(cp, kOfxParamPropColourManagement, 0, &value) == kOfxStatErrUnknown &&
+              propSuite->propGetDimension(cp, kOfxParamPropColourManagement, &dim) == kOfxStatErrUnknown);
+        check((what + ": propSetString(kOfxParamPropColourManagement, Managed) = kOfxStatErrUnknown").c_str(),
+              propSuite->propSetString(cp, kOfxParamPropColourManagement, 0, kOfxParamColourManagementManaged) == kOfxStatErrUnknown);
+      }
+      ImageEffect::gImageEffectHost = &host;
+    }
+  }
+
+  /// OfxImageEffectSuiteV1::abort returns 0 or 1 ("1 if the effect should abort"), not a status: a
+  /// handle that is not an effect instance gives 1 (#232)
+  void checkAbort(MyHost::Host &host, OfxImageEffectHandle descriptor)
+  {
+    const OfxImageEffectSuiteV1 *ies = (const OfxImageEffectSuiteV1 *)host.fetchSuite(kOfxImageEffectSuite, 1);
+    check("image effect suite", ies != NULL);
+    if (ies) {
+      check("abort(NULL) = 1", ies->abort(NULL) == 1);
+      check("abort(descriptor) = 1", ies->abort(descriptor) == 1);
+    }
+  }
+
+  /// the memory suite: memoryFree of a pointer that memoryAlloc didn't return is kOfxStatErrBadHandle
+  void checkMemorySuite(MyHost::Host &host)
+  {
+    const OfxMemorySuiteV1 *mem = (const OfxMemorySuiteV1 *)host.fetchSuite(kOfxMemorySuite, 1);
+    check("memory suite", mem != NULL);
+    if (mem) {
+      void *p = NULL;
+      check("memoryAlloc(100) = kOfxStatOK", mem->memoryAlloc(NULL, 100, &p) == kOfxStatOK && p != NULL);
+      // "Allocated memory will be aligned for any use."
+      check("memoryAlloc: aligned for any use", p && (size_t)p % 16 == 0);
+      // the header is 64 bytes: the data pointer and malloc()'s pointer agree modulo 64, so a large
+      // block keeps the page (or 64-byte) alignment that malloc() gives it
+      void *big = NULL;
+      const size_t bigSize = 4 << 20;
+      check("memoryAlloc(4 MB) = kOfxStatOK", mem->memoryAlloc(NULL, bigSize, &big) == kOfxStatOK && big != NULL);
+      if (big) {
+        void *m = std::malloc(bigSize + 64); // what malloc() gives a block of that size
+        check("memoryAlloc(4 MB): the same alignment modulo 64 as malloc()", m && (size_t)big % 64 == (size_t)m % 64);
+        std::free(m);
+        check("memoryFree(4 MB) = kOfxStatOK", mem->memoryFree(big) == kOfxStatOK);
+      }
+      if (p) {
+        std::memset(p, 0, 100);
+        // 64 bytes into the block, not returned by memoryAlloc: its "header" is p[0..63], zeroed above
+        check("memoryFree(inside a block) = kOfxStatErrBadHandle", mem->memoryFree((char *)p + 64) == kOfxStatErrBadHandle);
+        check("memoryFree(memoryAlloc's pointer) = kOfxStatOK", mem->memoryFree(p) == kOfxStatOK);
+      }
+      p = NULL;
+      check("memoryAlloc(0) = kOfxStatOK", mem->memoryAlloc(NULL, 0, &p) == kOfxStatOK && p != NULL && mem->memoryFree(p) == kOfxStatOK);
+      p = &host;
+      check("memoryAlloc(too large) = kOfxStatErrMemory, NULL", mem->memoryAlloc(NULL, (size_t)-1, &p) == kOfxStatErrMemory && p == NULL);
+      check("memoryAlloc(NULL output) = kOfxStatErrBadHandle", mem->memoryAlloc(NULL, 1, NULL) == kOfxStatErrBadHandle);
+      check("memoryFree(NULL) = kOfxStatErrBadHandle", mem->memoryFree(NULL) == kOfxStatErrBadHandle);
+      // 64 bytes into a zeroed buffer: the 64-byte "header" before it is inside the buffer
+      std::vector<double> notABlock(16, 0.);
+      check("memoryFree(not from memoryAlloc) = kOfxStatErrBadHandle", mem->memoryFree(&notABlock[8]) == kOfxStatErrBadHandle);
+    }
+  }
 }
 
 int main()
@@ -1312,130 +1472,13 @@ int main()
   props = NULL;
   check("paramGetPropertySet(descriptor) = kOfxStatOK", ps->paramGetPropertySet(descParam, &props) == kOfxStatOK && props == intDesc->getPropHandle());
 
-  // the "descriptor (read/write) and instance (read only)" properties are read-only on instances
-  // (refused with kOfxStatErrValue: the default ePluginReadOnlyEnforce policy), but writable on
-  // descriptors; kOfxParamPropGroupOpen stays writable on instances (ofxNatron.h, 4 and 9)
-  {
-    const OfxPropertySuiteV1 *ps1 = (const OfxPropertySuiteV1 *)Property::GetSuite(1);
-    OfxPropertySetHandle ip = NULL, dp = NULL;
-    check("paramGetPropertySet(instance), (descriptor)", ps1 &&
-          ps->paramGetPropertySet(instParam, &ip) == kOfxStatOK && ps->paramGetPropertySet(descParam, &dp) == kOfxStatOK);
-    if (ps1 && ip && dp) {
-      check("propSetInt(descriptor, kOfxParamPropAnimates) = kOfxStatOK", ps1->propSetInt(dp, kOfxParamPropAnimates, 0, 1) == kOfxStatOK);
-      int animates = -1;
-      check("propSetInt(instance, kOfxParamPropAnimates) = kOfxStatErrValue, unchanged",
-            ps1->propSetInt(ip, kOfxParamPropAnimates, 0, 0) == kOfxStatErrValue &&
-            ps1->propGetInt(ip, kOfxParamPropAnimates, 0, &animates) == kOfxStatOK && animates == 1);
-      check("propReset(instance, kOfxParamPropAnimates) = kOfxStatErrValue", ps1->propReset(ip, kOfxParamPropAnimates) == kOfxStatErrValue);
-      check("propSetString(instance, kOfxParamPropScriptName) = kOfxStatErrValue", ps1->propSetString(ip, kOfxParamPropScriptName, 0, "x") == kOfxStatErrValue);
-      check("propSetInt(instance, kOfxParamPropCanUndo) = kOfxStatErrValue", ps1->propSetInt(ip, kOfxParamPropCanUndo, 0, 0) == kOfxStatErrValue);
-      check("propSetInt(instance, kOfxParamPropPersistent) = kOfxStatErrValue", ps1->propSetInt(ip, kOfxParamPropPersistent, 0, 0) == kOfxStatErrValue);
-      check("propSetString(instance, kOfxParamPropParent) = kOfxStatErrValue", ps1->propSetString(ip, kOfxParamPropParent, 0, "g") == kOfxStatErrValue);
-      check("propSetInt(instance, kOfxParamPropIsAnimating) = kOfxStatErrValue", ps1->propSetInt(ip, kOfxParamPropIsAnimating, 0, 1) == kOfxStatErrValue);
-      // under ePluginReadOnlyWarn (Natron's policy), the write is accepted (with a warning)
-      const Property::PluginReadOnlyPolicyEnum policy = Property::getPluginReadOnlyPolicy();
-      Property::setPluginReadOnlyPolicy(Property::ePluginReadOnlyWarn);
-      check("ePluginReadOnlyWarn: propSetInt(instance, kOfxParamPropCanUndo) = kOfxStatOK",
-            ps1->propSetInt(ip, kOfxParamPropCanUndo, 0, 0) == kOfxStatOK);
-      Property::setPluginReadOnlyPolicy(policy);
-      check("policy restored: propSetInt(instance, kOfxParamPropCanUndo) = kOfxStatErrValue",
-            ps1->propSetInt(ip, kOfxParamPropCanUndo, 0, 1) == kOfxStatErrValue);
-      // the plug-in-writable instance properties stay writable
-      check("propSetInt(instance, kOfxParamPropEnabled) = kOfxStatOK", ps1->propSetInt(ip, kOfxParamPropEnabled, 0, 1) == kOfxStatOK);
-      check("propSetString(instance, kOfxPropLabel) = kOfxStatOK", ps1->propSetString(ip, kOfxPropLabel, 0, "label") == kOfxStatOK);
-      // the host's C++ setters are not restricted
-      Param::Instance *inst = setInst.getParams().find("i")->second;
-      inst->getProperties().setIntProperty(kOfxParamPropIsAnimating, 1);
-      check("host setIntProperty(instance, kOfxParamPropIsAnimating)", inst->getProperties().getIntProperty(kOfxParamPropIsAnimating) == 1);
-    }
-    // kOfxParamPropGroupOpen on a group instance: writable, and the host is told
-    Param::Descriptor *groupDesc = setDesc.paramDefine(kOfxParamTypeGroup, "group");
-    check("paramDefine(group)", groupDesc != NULL);
-    if (ps1 && groupDesc) {
-      TestGroup group(*groupDesc, &setInst);
-      check("propSetInt(group instance, kOfxParamPropGroupOpen) = kOfxStatOK, setOpen() called",
-            ps1->propSetInt(group.getPropHandle(), kOfxParamPropGroupOpen, 0, 0) == kOfxStatOK && group.opens == 1 &&
-            group.getProperties().getIntProperty(kOfxParamPropGroupOpen) == 0);
-      check("propSetString(group instance, kOfxParamPropParent) = kOfxStatErrValue",
-            ps1->propSetString(group.getPropHandle(), kOfxParamPropParent, 0, "g") == kOfxStatErrValue);
-    }
-
-    // kOfxParamPropColourManagement (next OFX release) on RGB and RGBA param descriptors, with a
-    // host that opts in (TestHost, as hostDemo: Host::supportsParamColourManagement()): "It
-    // defaults to ::kOfxParamColourManagementNone", and "A host that supports this property MUST
-    // accept all three values"; "A plug-in MUST NOT change it on a parameter instance"; "The
-    // property is ignored on parameter types other than RGB and RGBA"
-    check("TestHost::supportsParamColourManagement()", host.supportsParamColourManagement());
-    const char *const colourTypes[] = { kOfxParamTypeRGBA, kOfxParamTypeRGB };
-    const char *const colourNames[] = { "rgba", "rgb" };
-    const char *const managements[] = { kOfxParamColourManagementManaged, kOfxParamColourManagementSRGB,
-                                        kOfxParamColourManagementNone, kOfxParamColourManagementManaged };
-    for (int t = 0; ps1 && t < 2; ++t) {
-      const std::string what = std::string("paramDefine(") + colourTypes[t] + ")";
-      OfxPropertySetHandle cp = NULL;
-      check((what + " = kOfxStatOK").c_str(), ps->paramDefine(descSet, colourTypes[t], colourNames[t], &cp) == kOfxStatOK && cp != NULL);
-      if (!cp) {
-        continue;
-      }
-      const char *value = NULL;
-      check((what + ": kOfxParamPropColourManagement = kOfxParamColourManagementNone").c_str(),
-            ps1->propGetString(cp, kOfxParamPropColourManagement, 0, &value) == kOfxStatOK && value &&
-            std::string(value) == kOfxParamColourManagementNone);
-      for (int m = 0; m < 4; ++m) {
-        value = NULL;
-        check((what + ": propSetString(kOfxParamPropColourManagement, " + managements[m] + ") = kOfxStatOK, reads back").c_str(),
-              ps1->propSetString(cp, kOfxParamPropColourManagement, 0, managements[m]) == kOfxStatOK &&
-              ps1->propGetString(cp, kOfxParamPropColourManagement, 0, &value) == kOfxStatOK && value &&
-              std::string(value) == managements[m]);
-      }
-    }
-    Param::Descriptor *rgbaDesc = setDesc.getParams().count("rgba") ? setDesc.getParams().find("rgba")->second : NULL;
-    if (ps1 && rgbaDesc) {
-      TestRGBA rgba(*rgbaDesc, &setInst);
-      const char *value = NULL;
-      check("RGBA instance: kOfxParamPropColourManagement = kOfxParamColourManagementManaged, from the descriptor",
-            ps1->propGetString(rgba.getPropHandle(), kOfxParamPropColourManagement, 0, &value) == kOfxStatOK && value &&
-            std::string(value) == kOfxParamColourManagementManaged);
-      check("RGBA instance: propSetString(kOfxParamPropColourManagement) = kOfxStatErrValue",
-            ps1->propSetString(rgba.getPropHandle(), kOfxParamPropColourManagement, 0, kOfxParamColourManagementSRGB) == kOfxStatErrValue);
-    }
-    if (ps1 && dp) {
-      const char *value = NULL;
-      check("integer descriptor: no kOfxParamPropColourManagement (kOfxStatErrUnknown)",
-            ps1->propGetString(dp, kOfxParamPropColourManagement, 0, &value) == kOfxStatErrUnknown);
-    }
-
-    // a host that doesn't opt in (the HostSupport default): "A host that does not implement it
-    // will fail the set; in that case the plug-in MUST fall back to
-    // ::kOfxParamColourManagementNone behaviour"
-    {
-      NoParamColourManagementHost noColourHost;
-      ImageEffect::gImageEffectHost = &noColourHost;
-      const char *const noNames[] = { "rgbaNoCM", "rgbNoCM" };
-      for (int t = 0; ps1 && t < 2; ++t) {
-        const std::string what = std::string("host without param colour management: paramDefine(") + colourTypes[t] + ")";
-        OfxPropertySetHandle cp = NULL;
-        check((what + " = kOfxStatOK").c_str(), ps->paramDefine(descSet, colourTypes[t], noNames[t], &cp) == kOfxStatOK && cp != NULL);
-        if (!cp) {
-          continue;
-        }
-        const char *value = NULL;
-        int dim = -1;
-        check((what + ": no kOfxParamPropColourManagement").c_str(),
-              ps1->propGetString(cp, kOfxParamPropColourManagement, 0, &value) == kOfxStatErrUnknown &&
-              ps1->propGetDimension(cp, kOfxParamPropColourManagement, &dim) == kOfxStatErrUnknown);
-        check((what + ": propSetString(kOfxParamPropColourManagement, Managed) = kOfxStatErrUnknown").c_str(),
-              ps1->propSetString(cp, kOfxParamPropColourManagement, 0, kOfxParamColourManagementManaged) == kOfxStatErrUnknown);
-      }
-      ImageEffect::gImageEffectHost = &host;
-    }
-  }
-
-  // Bytes params (OFX 1.5) copy their default, which the plug-in owns (#188 for the descriptor).
-  // The C++ API, as the param suite's paramDefine refuses Bytes if the host doesn't support them.
+  // the param properties, through the property suite
   const OfxPropertySuiteV1 *propSuite = (const OfxPropertySuiteV1 *)Property::GetSuite(1);
   check("property suite", propSuite != NULL);
   if (propSuite) {
+    checkParamInstanceReadOnly(ps, propSuite, setDesc, setInst, instParam, descParam);
+    checkParamColourManagement(host, ps, propSuite, setDesc, setInst, intDesc->getPropHandle());
+
     // propGetDimension checks the magic number of the set, as the other property functions do:
     // a handle that is not a property set (here zeroed memory) gives kOfxStatErrBadHandle
     std::vector<unsigned char> notASet(2 * sizeof(Property::Set), 0);
@@ -1449,6 +1492,9 @@ int main()
     check("propGetDimension(param descriptor, unknown property) = kOfxStatErrUnknown",
           propSuite->propGetDimension(intDesc->getPropHandle(), "OfxNoSuchProperty", &dim) == kOfxStatErrUnknown);
   }
+
+  // Bytes params (OFX 1.5) copy their default, which the plug-in owns (#188 for the descriptor).
+  // The C++ API, as the param suite's paramDefine refuses Bytes if the host doesn't support them.
   Param::Descriptor *bytesDesc = setDesc.paramDefine(kOfxParamTypeBytes, "bytes");
   check("paramDefine(Bytes)", bytesDesc != NULL);
   if (propSuite && bytesDesc) {
@@ -1502,14 +1548,7 @@ int main()
     }
   }
 
-  // OfxImageEffectSuiteV1::abort returns 0 or 1 ("1 if the effect should abort"), not a status:
-  // a handle that is not an effect instance gives 1 (it was kOfxStatErrBadHandle, #232)
-  const OfxImageEffectSuiteV1 *ies = (const OfxImageEffectSuiteV1 *)host.fetchSuite(kOfxImageEffectSuite, 1);
-  check("image effect suite", ies != NULL);
-  if (ies) {
-    check("abort(NULL) = 1", ies->abort(NULL) == 1);
-    check("abort(descriptor) = 1", ies->abort((OfxImageEffectHandle)effectDescHandle) == 1);
-  }
+  checkAbort(host, (OfxImageEffectHandle)effectDescHandle);
 
   // the interact suite and the DrawSuite (no plug-in needed: a test interact)
   checkInteractSuites();
@@ -1517,41 +1556,7 @@ int main()
   // std::bad_alloc in the image, image memory and texture functions (no plug-in needed: test clips)
   checkBadAlloc(host);
 
-  // the memory suite: memoryFree of a pointer that memoryAlloc didn't return is kOfxStatErrBadHandle
-  const OfxMemorySuiteV1 *mem = (const OfxMemorySuiteV1 *)host.fetchSuite(kOfxMemorySuite, 1);
-  check("memory suite", mem != NULL);
-  if (mem) {
-    void *p = NULL;
-    check("memoryAlloc(100) = kOfxStatOK", mem->memoryAlloc(NULL, 100, &p) == kOfxStatOK && p != NULL);
-    // "Allocated memory will be aligned for any use."
-    check("memoryAlloc: aligned for any use", p && (size_t)p % 16 == 0);
-    // the header is 64 bytes: the data pointer and malloc()'s pointer agree modulo 64, so a large
-    // block keeps the page (or 64-byte) alignment that malloc() gives it
-    void *big = NULL;
-    const size_t bigSize = 4 << 20;
-    check("memoryAlloc(4 MB) = kOfxStatOK", mem->memoryAlloc(NULL, bigSize, &big) == kOfxStatOK && big != NULL);
-    if (big) {
-      void *m = std::malloc(bigSize + 64); // what malloc() gives a block of that size
-      check("memoryAlloc(4 MB): the same alignment modulo 64 as malloc()", m && (size_t)big % 64 == (size_t)m % 64);
-      std::free(m);
-      check("memoryFree(4 MB) = kOfxStatOK", mem->memoryFree(big) == kOfxStatOK);
-    }
-    if (p) {
-      std::memset(p, 0, 100);
-      // 64 bytes into the block, not returned by memoryAlloc: its "header" is p[0..63], zeroed above
-      check("memoryFree(inside a block) = kOfxStatErrBadHandle", mem->memoryFree((char *)p + 64) == kOfxStatErrBadHandle);
-      check("memoryFree(memoryAlloc's pointer) = kOfxStatOK", mem->memoryFree(p) == kOfxStatOK);
-    }
-    p = NULL;
-    check("memoryAlloc(0) = kOfxStatOK", mem->memoryAlloc(NULL, 0, &p) == kOfxStatOK && p != NULL && mem->memoryFree(p) == kOfxStatOK);
-    p = &host;
-    check("memoryAlloc(too large) = kOfxStatErrMemory, NULL", mem->memoryAlloc(NULL, (size_t)-1, &p) == kOfxStatErrMemory && p == NULL);
-    check("memoryAlloc(NULL output) = kOfxStatErrBadHandle", mem->memoryAlloc(NULL, 1, NULL) == kOfxStatErrBadHandle);
-    check("memoryFree(NULL) = kOfxStatErrBadHandle", mem->memoryFree(NULL) == kOfxStatErrBadHandle);
-    // 64 bytes into a zeroed buffer: the 64-byte "header" before it is inside the buffer
-    std::vector<double> notABlock(16, 0.);
-    check("memoryFree(not from memoryAlloc) = kOfxStatErrBadHandle", mem->memoryFree(&notABlock[8]) == kOfxStatErrBadHandle);
-  }
+  checkMemorySuite(host);
 
   // the C fetchSuite of the host
   OfxHost *ofxHost = host.getHandle();
@@ -1570,7 +1575,7 @@ int main()
   }
 
   // pointer defaults, exact doubles, malformed properties in the plug-in cache
-  checkPropertyFixes();
+  checkPropertyValues();
 
   // the effect labels' fallbacks (#229)
   checkEffectLabels();
