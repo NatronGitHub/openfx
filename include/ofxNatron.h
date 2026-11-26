@@ -565,7 +565,7 @@ This is a property on parameters of type ::kOfxParamTypeChoice, and tells the ch
     7) A lot of overlay interacts require some sort of selection where the user can draw a rectangle to select specific items. Rather than re-create a new custom-looking selection rectangle, let the host make one for us through its own interact actions and notify us if needed.
         A new parameter with a special name can be used to let the host know we are interested in knowing the state of the selection.
  
-    8) Let the plug-in control the host application cursor: this is now the InteractCursor extension of ofxInteract.h (kOfxInteractPropCursor), proposed for standardization.
+    8) Let the plug-in control the host application cursor: see the InteractCursor extension of ofxInteract.h (kOfxInteractPropCursor), proposed for standardization.
     9) Add a way to show a custom dialog with fields represented as parameters. This is implemented as a property on a group parameter whether its content can be represented as a non-modal dialog or not.
     10) Plug-ins description (kOfxPropPluginDescription) and parameters hint (kOfxParamPropHint) may be written in markdown.
     11) A plug-in might want to be able to access the host undo/redo actions of the Edit menu when doing special actions from within the overlay interact actions not involving parameters.

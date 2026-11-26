@@ -5,8 +5,8 @@
   Self-test of Support library code that needs no host (target support-library-test, built with
   -DBUILD_EXAMPLE_PLUGINS=ON):
 
-  - a null action passed to the interact entry point returns kOfxStatFailed (it was turned into a
-    std::string, which is undefined behaviour);
+  - a null action passed to the interact entry point returns kOfxStatFailed (std::string(NULL) is
+    undefined behaviour);
   - OFX::MultiThread::AutoMutexT's destructor doesn't throw (std::terminate()) when the mutex's
     unlock() throws;
   - OFX::ParamSet::EditBlock's destructor doesn't throw (std::terminate()) when the host's
@@ -16,14 +16,15 @@
     initializer is called once, at the first OfxGetNumberOfPlugins(), and its factories are the
     plug-ins of the binary;
   - define*Param() throws OFX::Exception::TypeRequest when a param of the same name but another
-    type was already defined (it returned NULL in release builds);
+    type was already defined;
   - the accessors of a property the host may not have (OFX::Private::propGetIntOr() and the
     others, ofxsProperty.cpp): a property the host doesn't have gives the default, or writes
-    nothing; other failures throw;
+    nothing; other failures throw; propSetStringIfSupported() returns whether the host took it;
   - OFX::MultiThread::Processor::multiThread() and getNumCPUs() with a thread suite that lacks
     multiThread or multiThreadNumCPUs: single-threaded, no crash;
   - OFX::MultiThread::Mutex (built with OFX_USE_MULTITHREAD_MUTEX) without the host's mutex
-    functions: a lock count, nested in the holding thread, positive or negative initially;
+    functions: a lock count, nested in the holding thread, positive or negative initially, with
+    two threads that lock and unlock in turn, and destroyed while locked;
   - the double param descriptors' default coordinate system: no write while Plain or non-spatial;
     setDoubleType() to a spatial type writes the plug-in's setDefaultCoordinateSystem() choice,
     made before or after, or canonical, over a host's reset (Nuke: normalised);
@@ -38,6 +39,8 @@
   Prints one line per failed check, and exits with 0 if all passed.
 */
 
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -50,7 +53,7 @@
 #include "ofxsInteract.h"
 #include "ofxsMultiThread.h"
 
-static int gFailures = 0;
+static std::atomic<int> gFailures(0); // CHECK runs on worker threads too
 
 #define CHECK(cond) \
   do { \
@@ -379,6 +382,16 @@ namespace {
     }
     CHECK(caught);
 
+    // propSetStringIfSupported(): whether the host took the value, whatever the throw flag
+    for (bool throwOnUnsupported : {true, false}) {
+      OFX::PropertySet::setThrowOnUnsupportedProperties(throwOnUnsupported);
+      for (OfxStatus st : {kOfxStatOK, kOfxStatErrUnknown, kOfxStatErrValue, kOfxStatErrBadHandle}) {
+        gPropStatus = st;
+        CHECK(propSetStringIfSupported(props, "p", "value") == (st == kOfxStatOK));
+      }
+    }
+    OFX::PropertySet::setThrowOnUnsupportedProperties(true);
+
     gPropStatus = kOfxStatOK;
     OFX::Private::gPropSuite = saved;
   }
@@ -623,7 +636,30 @@ namespace {
       n.lock(); // count 1
       CHECK(!otherThreadTryLock(n));
       n.unlock();
-      n.unlock();
+      CHECK(otherThreadTryLock(n));
+      n.unlock(); // count -1
+      CHECK(n.tryLock()); // count 0: no lock taken
+      CHECK(otherThreadTryLock(n));
+    }
+    {
+      // two threads that each lock and unlock once, interleaved: A locks (count 0), B locks (1),
+      // A unlocks (0), B unlocks (-1); then the mutex is free for a third thread
+      OFX::MultiThread::Mutex t(-1);
+      std::atomic<int> step(0);
+      // wait for step s, at most 10 s (a step that never comes fails instead of hanging)
+      auto at = [&](int s) {
+        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (step.load() != s && std::chrono::steady_clock::now() < end) { std::this_thread::yield(); }
+        CHECK(step.load() == s);
+      };
+      std::thread a([&] { at(0); t.lock(); step = 1; at(2); t.unlock(); step = 3; });
+      std::thread b([&] { at(1); t.lock(); step = 2; at(3); t.unlock(); step = 4; });
+      a.join();
+      b.join();
+      CHECK(otherThreadTryLock(t)); // count -1: it only counts up
+      t.lock(); // count 0, no owner
+      CHECK(otherThreadTryLock(t)); // the other thread takes it (count 1), then releases it
+      t.unlock(); // count -1
     }
     {
       OFX::MultiThread::Mutex q(2); // destroyed while locked: harmless
@@ -715,7 +751,7 @@ int main()
   std::printf("support-library-test: OFX_EXTENSIONS_NATRON is off, decodeNativeOverlayHandle() not tested\n");
 #endif
   if (gFailures) {
-    std::printf("support-library-test: %d failed check(s)\n", gFailures);
+    std::printf("support-library-test: %d failed check(s)\n", gFailures.load());
     return 1;
   }
   std::printf("support-library-test: all checks passed\n");

@@ -450,21 +450,6 @@ namespace OFX {
 
   /** @brief ctor */
 
-  /// set a string property that the host may not know, and report whether the host accepted it
-  static bool propSetStringIfSupported(PropertySet &props, const char *property, const std::string &value)
-  {
-    try {
-      props.propSetString(property, value);
-      return true;
-    } catch (const OFX::Exception::PropertyUnknownToHost &) {
-      return false;
-    } catch (const OFX::Exception::PropertyValueIllegalToHost &) {
-      return false;
-    } catch (const OFX::Exception::Suite &) {
-      return false;
-    }
-  }
-
   static const char *mapInterpTypeEnumToStr(InterpTypeEnum v)
   {
     switch (v) {
@@ -504,15 +489,17 @@ namespace OFX {
   template <typename T>
   static void setSpecDefaultRange(PropertySet &props, int dimension)
   {
-    const char* const names[4] = { kOfxParamPropMin, kOfxParamPropMax, kOfxParamPropDisplayMin, kOfxParamPropDisplayMax };
-    const T lo = std::numeric_limits<T>::lowest();
-    const T hi = std::numeric_limits<T>::max();
-    for (int p = 0; p < 4; ++p) {
+    static const struct { const char* name; bool isMin; } ranges[] = {
+      { kOfxParamPropMin, true }, { kOfxParamPropMax, false },
+      { kOfxParamPropDisplayMin, true }, { kOfxParamPropDisplayMax, false },
+    };
+    for (const auto& r : ranges) {
+      const T v = r.isMin ? std::numeric_limits<T>::lowest() : std::numeric_limits<T>::max();
       for (int i = 0; i < dimension; ++i) {
         if constexpr (std::is_same<T, int>::value) {
-          props.propSetInt(names[p], (p % 2 == 0) ? lo : hi, i, false);
+          props.propSetInt(r.name, v, i, false);
         } else {
-          props.propSetDouble(names[p], (p % 2 == 0) ? lo : hi, i, false);
+          props.propSetDouble(r.name, v, i, false);
         }
       }
     }
@@ -524,10 +511,10 @@ namespace OFX {
     setSpecDefaultRange<int>(_paramProps, 1);
   }
 
-  /** @brief set the default interpolation (kOfxParamInterpType, next OFX release, after 1.5.1) */
+  /** @brief set the default interpolation (kOfxParamInterpType, not in OFX 1.5.1) */
   bool IntParamDescriptor::setInterpType(InterpTypeEnum v)
   {
-    return propSetStringIfSupported(_paramProps, kOfxParamInterpType, mapInterpTypeEnumToStr(v));
+    return OFX::Private::propSetStringIfSupported(_paramProps, kOfxParamInterpType, mapInterpTypeEnumToStr(v));
   }
 
   /** @brief set the default value, default is 0 */
@@ -805,10 +792,10 @@ namespace OFX {
     setSpecDefaultRange<double>(_paramProps, 1);
   }
 
-  /** @brief set the default interpolation (kOfxParamInterpType, next OFX release, after 1.5.1) */
+  /** @brief set the default interpolation (kOfxParamInterpType, not in OFX 1.5.1) */
   bool DoubleParamDescriptor::setInterpType(InterpTypeEnum v)
   {
-    return propSetStringIfSupported(_paramProps, kOfxParamInterpType, mapInterpTypeEnumToStr(v));
+    return OFX::Private::propSetStringIfSupported(_paramProps, kOfxParamInterpType, mapInterpTypeEnumToStr(v));
   }
 
   /** @brief set the default value, default is 0 */
@@ -976,11 +963,11 @@ namespace OFX {
   {
   }
 
-  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, next OFX release, after 1.5.1).
+  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, not in OFX 1.5.1).
    "A plug-in MUST check the status returned when setting this property", hence the return value. */
   bool RGBParamDescriptor::setColourManagement(ColourManagementEnum v)
   {
-    return propSetStringIfSupported(_paramProps, kOfxParamPropColourManagement, mapColourManagementEnumToStr(v));
+    return OFX::Private::propSetStringIfSupported(_paramProps, kOfxParamPropColourManagement, mapColourManagementEnumToStr(v));
   }
 
   /** @brief set the default value */
@@ -1050,11 +1037,11 @@ namespace OFX {
   {
   }
 
-  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, next OFX release, after 1.5.1).
+  /** @brief declare the encoding of the colour values (kOfxParamPropColourManagement, not in OFX 1.5.1).
    "A plug-in MUST check the status returned when setting this property", hence the return value. */
   bool RGBAParamDescriptor::setColourManagement(ColourManagementEnum v)
   {
-    return propSetStringIfSupported(_paramProps, kOfxParamPropColourManagement, mapColourManagementEnumToStr(v));
+    return OFX::Private::propSetStringIfSupported(_paramProps, kOfxParamPropColourManagement, mapColourManagementEnumToStr(v));
   }
 
   /** @brief set the default value */

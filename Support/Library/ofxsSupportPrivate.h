@@ -103,8 +103,13 @@ namespace OFX {
         is an OFX 1.1 host; openfx-misc's README-hosts.txt lists other gaps). The property suite
         returns kOfxStatErrUnknown (or kOfxStatErrUnsupported) for it: the getters then return the
         spec default, and the setters write nothing, since such a host behaves as with the default
-        value; a setter whose value isn't the default logs a warning, as the host ignores it. Other
-        failures (bad handle, bad index, illegal value) throw, as in the PropertySet functions. */
+        value; a setter whose value isn't the default logs a warning, as the host ignores it. The *Or
+        functions throw on the other failures (bad handle, bad index, illegal value), as the
+        PropertySet functions do.
+        propSetStringIfSupported() is for the setters whose result the plug-in needs to know (of
+        kOfxParamPropColourManagement, upstream main says "A plug-in MUST check the status returned
+        when setting this property"): it returns false on any status but kOfxStatOK, and throws
+        only on kOfxStatErrMemory. */
     //@{
     int propGetIntOr(const PropertySet& props, const char* property, int defaultValue, int idx = 0);
     double propGetDoubleOr(const PropertySet& props, const char* property, double defaultValue, int idx = 0);
@@ -114,6 +119,9 @@ namespace OFX {
     void propSetStringOr(PropertySet& props, const char* property, const std::string& value,
                          const std::string& defaultValue, int idx = 0);
     void propSetPointerOr(PropertySet& props, const char* property, void* value, void* defaultValue, int idx = 0);
+    /** @brief sets a string property and returns whether the host accepted it, whatever
+        PropertySet::setThrowOnUnsupportedProperties() says; throws std::bad_alloc on kOfxStatErrMemory */
+    bool propSetStringIfSupported(PropertySet& props, const char* property, const std::string& value, int idx = 0);
     //@}
 
 #ifdef OFX_EXTENSIONS_NATRON

@@ -4,7 +4,6 @@
 
 #include "MultiplyGPU.h"
 
-#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <cfloat> // DBL_MAX
@@ -13,6 +12,7 @@
 #endif
 
 #include "ofxsProcessing.H"
+#include "ofxsRenderMessage.H"
 #include "ofxGPURender.h" // kOfxStatGPURenderFailed
 
 using namespace OFX;
@@ -75,7 +75,7 @@ public:
 
 private:
 #if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
-  void checkGPUImages(int *width, int *height) const;
+  OfxPointI checkGPUImages() const; // the image size
 #endif
 #ifdef HAVE_CUDA
   virtual void processImagesCUDA();// OVERRIDE FINAL;
@@ -87,12 +87,11 @@ private:
 
 
 #if defined(HAVE_CUDA) || defined(HAVE_OPENCL)
-// The kernels process the whole image, one packed float RGBA pixel per work item: the source and
-// output must be packed float RGBA images of the same bounds. Other images, and a missing source,
-// fail with kOfxStatGPURenderFailed and no message, so that the host renders on the CPU instead
-// (ofxGPURender.h, for kOfxStatGLRenderFailed, the same value: "the host should retry the render
-// with OpenGL rendering disabled").
-void MultiplyProcessorBase::checkGPUImages(int *width, int *height) const
+// The kernels need packed float RGBA source and output images of the same bounds (one pixel per
+// work item). Other images, and a missing source, fail with kOfxStatGPURenderFailed and no
+// message: "the host should retry the render with OpenGL rendering disabled" (ofxGPURender.h, of
+// kOfxStatGLRenderFailed, the same value).
+OfxPointI MultiplyProcessorBase::checkGPUImages() const
 {
   if (!_srcImg || !_dstImg) {
     throwSuiteStatusException(kOfxStatGPURenderFailed);
@@ -108,38 +107,36 @@ void MultiplyProcessorBase::checkGPUImages(int *width, int *height) const
       dstBounds.y1 != srcBounds.y1 || dstBounds.y2 != srcBounds.y2) {
     throwSuiteStatusException(kOfxStatGPURenderFailed);
   }
-  *width = w;
-  *height = dstBounds.y2 - dstBounds.y1;
+  const OfxPointI size = { w, dstBounds.y2 - dstBounds.y1 };
+  return size;
 }
 #endif
 
 #ifdef HAVE_CUDA
 void MultiplyProcessorBase::processImagesCUDA()
 {
-  int width, height;
-  checkGPUImages(&width, &height);
+  const OfxPointI size = checkGPUImages();
 
   const float* input = static_cast<const float*>(_srcImg->getPixelData());
   float* output = static_cast<float*>(_dstImg->getPixelData());
   const float values[4] = { (float)_values[0], (float)_values[1], (float)_values[2], (float)_values[3] };
 
   // we could also pass x1,y1 if the effect were pixel-dependent
-  RunCUDAKernel(width, height, values, input, output);
+  RunCUDAKernel(size.x, size.y, values, input, output);
 }
 #endif
 
 #ifdef HAVE_OPENCL
 void MultiplyProcessorBase::processImagesOpenCL()
 {
-  int width, height;
-  checkGPUImages(&width, &height);
+  const OfxPointI size = checkGPUImages();
 
   const float* input = static_cast<const float*>(_srcImg->getPixelData());
   float* output = static_cast<float*>(_dstImg->getPixelData());
   const float values[4] = { (float)_values[0], (float)_values[1], (float)_values[2], (float)_values[3] };
 
   // we could also pass x1,y1 if the effect were pixel-dependent
-  RunOpenCLKernel(_pOpenCLCmdQ, width, height, values, input, output);
+  RunOpenCLKernel(_pOpenCLCmdQ, size.x, size.y, values, input, output);
 }
 #endif
 
@@ -233,7 +230,6 @@ public:
   , _dstClip(NULL)
   , _srcClip(NULL)
   , _value(NULL)
-  , _messagePosted(false)
   {
     _dstClip = fetchClip(kOfxImageEffectOutputClipName);
     assert(_dstClip);
@@ -251,14 +247,6 @@ private:
   /* set up and run a processor */
   void setupAndProcess(MultiplyProcessorBase &, const RenderArguments &args);
 
-  /* tell the user why the render fails, then fail with that status */
-  void renderError(const char *message, OfxStatus status)
-  {
-    setPersistentMessage(Message::eMessageError, "", message);
-    _messagePosted = true;
-    throwSuiteStatusException(status);
-  }
-
   virtual bool isIdentity(const IsIdentityArguments &args, Clip * &identityClip, double &identityTime
 #ifdef OFX_EXTENSIONS_NUKE
                           , int& view
@@ -275,9 +263,7 @@ private:
   Clip *_dstClip;
   Clip *_srcClip;
   RGBAParam *_value;
-  // an error message is shown: clear it once a render works again. Atomic, because the render is
-  // fully safe (kRenderThreadSafety, eRenderFullySafe): renders of one instance may run concurrently.
-  std::atomic<bool> _messagePosted;
+  RenderMessage _renderMessage;
 };
 
 
@@ -294,37 +280,19 @@ MultiplyPlugin::setupAndProcess(MultiplyProcessorBase &processor,
 {
   const double time = args.time;
 
-  auto_ptr<Image> dst( _dstClip->fetchImage(time) );
-
-  // NULL means the host has no output image, an error
-  if ( !dst.get() ) {
-    renderError("The host gave no output image", kOfxStatFailed);
-  }
-  // in all builds: render() chose the processor from the clip, which reads and writes the images with
-  // its number of components
-  BitDepthEnum dstBitDepth    = dst->getPixelDepth();
-  PixelComponentEnum dstComponents  = dst->getPixelComponents();
-  if ( ( dstBitDepth != _dstClip->getPixelDepth() ) ||
-      ( dstComponents != _dstClip->getPixelComponents() ) ) {
-    renderError("The host gave an output image with the wrong depth or components", kOfxStatFailed);
-  }
-  checkBadRenderScaleOrField(dst, args); // debug builds only (not the field in DaVinci Resolve)
+  // the output image: it must exist, with the clip's depth and components (render() chose the
+  // processor from the clip, which reads and writes the images with its number of components)
+  auto_ptr<Image> dst( _renderMessage.fetchOutput(*this, *_dstClip, args) );
   auto_ptr<const Image> src( ( _srcClip && _srcClip->isConnected() ) ?
                                  _srcClip->fetchImage(time) : 0 );
   if ( src.get() ) {
-    checkBadRenderScaleOrField(src, args); // debug builds only (not the field in DaVinci Resolve)
-    // in all builds: the processor reads the source with the output's number of components
-    BitDepthEnum srcBitDepth      = src->getPixelDepth();
-    PixelComponentEnum srcComponents = src->getPixelComponents();
-    if ( (srcBitDepth != dstBitDepth) || (srcComponents != dstComponents) ) {
-      renderError("The source and output images differ in depth or components", kOfxStatErrImageFormat);
-    }
+    checkBadRenderScaleOrField(src, args);
+    // the processor reads the source with the output's number of components
+    _renderMessage.checkSource(*this, *src, *dst);
   }
 
   // the images are right: remove the message of an earlier failed render
-  if ( _messagePosted.exchange(false) ) {
-    clearPersistentMessage();
-  }
+  _renderMessage.clear(*this);
 
   // set the images
   processor.setDstImg( dst.get() );
@@ -415,7 +383,7 @@ MultiplyPlugin::render(const RenderArguments &args)
         throwSuiteStatusException(kOfxStatErrUnsupported);
     }
   } else {
-    renderError("The output clip has unsupported components", kOfxStatErrUnsupported);
+    _renderMessage.fail(*this, "The output clip has unsupported components");
   }
 } // MultiplyPlugin::render
 

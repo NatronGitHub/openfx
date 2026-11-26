@@ -571,7 +571,7 @@ namespace OFX {
     ColourManagementStyleEnum colourManagementStyle; ///< kOfxImageEffectPropColourManagementStyle on the host (OFX 1.5); None if absent
     std::vector<std::string> colourManagementAvailableConfigs; ///< kOfxImageEffectPropColourManagementAvailableConfigs on the host (OFX 1.5)
 
-    bool supportsMetalTexture; ///< kOfxImageEffectPropMetalTextureSupported on the host (next OFX release, after 1.5.1); false if absent
+    bool supportsMetalTexture; ///< kOfxImageEffectPropMetalTextureSupported on the host (not in OFX 1.5.1); false if absent
 #ifdef OFX_EXTENSIONS_NATRON
     bool isNatron;
     bool supportsDynamicChoices;
@@ -877,7 +877,7 @@ namespace OFX {
     /** @brief Does the plugin support OpenCL Images render (kOfxImageEffectPropOpenCLSupported, OFX 1.5), defaults to false */
     void setSupportsOpenCLImagesRender(bool v);
 
-    /** @brief Does the plugin support Metal texture render (kOfxImageEffectPropMetalTextureSupported, next OFX release, after 1.5.1), defaults to false.
+    /** @brief Does the plugin support Metal texture render (kOfxImageEffectPropMetalTextureSupported, not in OFX 1.5.1), defaults to false.
      When the host also supports it, it MAY pass images as id<MTLTexture> (see RenderArguments::isEnabledMetalTextureRender).
      Ignored by hosts that don't know it. */
     void setSupportsMetalTextureRender(bool v);
@@ -1068,7 +1068,7 @@ namespace OFX {
 #endif
 
   /** @brief indicate that the plugin is obsolete, so that the host doesn't show it in its plugin browser, but still
-   loads it in existing projects (kOfxImageEffectPluginPropObsolete, next OFX release, after 1.5.1).
+   loads it in existing projects (kOfxImageEffectPluginPropObsolete, not in OFX 1.5.1).
    Upstream: the plugin is made obsolete by another version of the same plugin in the same bundle, and at least one
    version of the plugin in the bundle must not be obsolete. This fork relaxes that rule: a plugin superseded by
    another plugin or by a host-internal node may set it too, even if it is the only version of that plugin (e.g.
@@ -1123,8 +1123,8 @@ namespace OFX {
 
   private :
     // not copyable: the destructors of Image and Texture release the handle (C.21, R.1)
-    ImageBase(const ImageBase &); // not defined: not copyable
-    ImageBase &operator=(const ImageBase &); // not defined: not copyable
+    ImageBase(const ImageBase &) = delete;
+    ImageBase &operator=(const ImageBase &) = delete;
 
   public :
     /** @brief ctor */
@@ -1245,61 +1245,41 @@ namespace OFX {
     If the components are custom, then this will return NULL as the support code
     can't know the pixel size to do the work.
     */
-    void *getPixelAddress(int x, int y)
-    {
-      // inline: it is called per pixel
-      if (x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0) {
-        return 0;
-      }
-      return static_cast<char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
-    }
-
-    /** @brief return a pixel pointer, returns NULL if (x,y) is outside the image bounds
-
-    x and y are in pixel coordinates
-
-    If the components are custom, then this will return NULL as the support code
-    can't know the pixel size to do the work.
-    */
     const void *getPixelAddress(int x, int y) const
     {
+      // inline: it is called per pixel
       if (x < _bounds.x1 || x >= _bounds.x2 || y < _bounds.y1 || y >= _bounds.y2 || _pixelBytes == 0) {
         return 0;
       }
       return static_cast<const char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
     }
 
-    /** @brief return a pixel pointer, returns the nearest pixel if (x,y) is outside the image bounds
+    /** @brief as the const overload */
+    void *getPixelAddress(int x, int y)
+    {
+      return const_cast<void *>(static_cast<const Image &>(*this).getPixelAddress(x, y));
+    }
+
+    /** @brief return a pointer to the pixel nearest to (x,y) in the image bounds
 
     x and y are in pixel coordinates
 
-    If the components are custom, then this will return NULL as the support code
-    can't know the pixel size to do the work.
+    It never returns NULL: the image must not be empty, and its components not custom.
     */
-    void *getPixelAddressNearest(int x, int y)
+    const void *getPixelAddressNearest(int x, int y) const
     {
       // clamp to the bounds (no std::min/max: <algorithm> isn't needed here)
       x = (x < _bounds.x2 - 1) ? x : (_bounds.x2 - 1);
       x = (x > _bounds.x1) ? x : _bounds.x1;
       y = (y < _bounds.y2 - 1) ? y : (_bounds.y2 - 1);
       y = (y > _bounds.y1) ? y : _bounds.y1;
-      return static_cast<char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
+      return static_cast<const char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
     }
 
-    /** @brief return a pixel pointer, returns the nearest pixel if (x,y) is outside the image bounds
-
-    x and y are in pixel coordinates
-
-    If the components are custom, then this will return NULL as the support code
-    can't know the pixel size to do the work.
-    */
-    const void *getPixelAddressNearest(int x, int y) const
+    /** @brief as the const overload */
+    void *getPixelAddressNearest(int x, int y)
     {
-      x = (x < _bounds.x2 - 1) ? x : (_bounds.x2 - 1);
-      x = (x > _bounds.x1) ? x : _bounds.x1;
-      y = (y < _bounds.y2 - 1) ? y : (_bounds.y2 - 1);
-      y = (y > _bounds.y1) ? y : _bounds.y1;
-      return static_cast<const char *>(_pixelData) + pixelOffset(x, y, _bounds, _rowBytes, _pixelBytes);
+      return const_cast<void *>(static_cast<const Image &>(*this).getPixelAddressNearest(x, y));
     }
   };
 
@@ -1442,7 +1422,7 @@ namespace OFX {
     /** @brief get the frame rate, in frames per second on this clip, after any clip preferences have been applied */
     double getFrameRate(void) const;
 
-    /** @brief the frame number the host shows the user for time 0 (kOfxImageClipPropDisplayTimeOffset, next OFX release, after 1.5.1), 0 if the host doesn't set it.
+    /** @brief the frame number the host shows the user for time 0 (kOfxImageClipPropDisplayTimeOffset, not in OFX 1.5.1), 0 if the host doesn't set it.
      Add it to OFX times shown to the user, and subtract it from frame numbers entered by the user. */
     double getDisplayTimeOffset(void) const;
 
@@ -1645,8 +1625,8 @@ namespace OFX {
 
   private :
     // not copyable: the destructor frees the memory (C.21, R.1)
-    ImageMemory(const ImageMemory &); // not defined: not copyable
-    ImageMemory &operator=(const ImageMemory &); // not defined: not copyable
+    ImageMemory(const ImageMemory &) = delete;
+    ImageMemory &operator=(const ImageMemory &) = delete;
 
   public :
     /** @brief ctor */
@@ -1663,7 +1643,7 @@ namespace OFX {
   };
 
   ////////////////////////////////////////////////////////////////////////////////
-  /** @brief Host behaviour when the plug-in is unlicensed (kOfxImageEffectPropBehaviourWhenUnlicensed, next OFX release, after 1.5.1) */
+  /** @brief Host behaviour when the plug-in is unlicensed (kOfxImageEffectPropBehaviourWhenUnlicensed, not in OFX 1.5.1) */
   enum UnlicensedBehaviourEnum {
     eUnlicensedBehaviourNotSet,   /**< property absent: render (e.g. watermarked) and return kOfxStatOK */
     eUnlicensedBehaviourContinue, /**< kOfxUnlicensedContinue: render and return kOfxStatUnlicensed */
@@ -1704,8 +1684,8 @@ namespace OFX {
     std::list<std::string> planes;
 #endif
     bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
-    UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (next OFX release, after 1.5.1): eUnlicensedBehaviourNotSet if absent */
-    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (next OFX release, after 1.5.1): images are id<MTLTexture>. false if absent */
+    UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (not in OFX 1.5.1): eUnlicensedBehaviourNotSet if absent */
+    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (not in OFX 1.5.1): images are id<MTLTexture>. false if absent */
     bool      isNoSpatialAwareness;  /**< kOfxImageEffectPropNoSpatialAwareness (OFX 1.5.1): the host asks for a render without spatial effects (only if the plug-in declared setNoSpatialAwareness(true)). false if absent */
   };
 
@@ -1747,8 +1727,8 @@ namespace OFX {
     int view;
 #endif
     bool      isThumbnailRender;     /**< kOfxImageEffectPropThumbnailRender (OFX 1.5.1): the host considers this a "thumbnail" render. false if absent */
-    UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (next OFX release, after 1.5.1): eUnlicensedBehaviourNotSet if absent */
-    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (next OFX release, after 1.5.1): images are id<MTLTexture>. false if absent */
+    UnlicensedBehaviourEnum behaviourWhenUnlicensed; /**< kOfxImageEffectPropBehaviourWhenUnlicensed (not in OFX 1.5.1): eUnlicensedBehaviourNotSet if absent */
+    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (not in OFX 1.5.1): images are id<MTLTexture>. false if absent */
     bool      isNoSpatialAwareness;  /**< kOfxImageEffectPropNoSpatialAwareness (OFX 1.5.1): the host asks for a render without spatial effects (only if the plug-in declared setNoSpatialAwareness(true)). false if absent */
   };
 
@@ -1774,7 +1754,7 @@ namespace OFX {
 #ifdef OFX_EXTENSIONS_NUKE
     int view;
 #endif
-    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (next OFX release, after 1.5.1): images are id<MTLTexture>. false if absent */
+    bool      isEnabledMetalTextureRender; /**< kOfxImageEffectPropMetalTextureEnabled (not in OFX 1.5.1): images are id<MTLTexture>. false if absent */
   };
 
   /** @brief POD struct to pass arguments into  @ref OFX::ImageEffect::getRegionOfDefinition */
@@ -2120,18 +2100,6 @@ namespace OFX {
     int _modifierKeysDown;
 #endif
 
-    /** @brief the host is DaVinci Resolve: kOfxImagePropField is always kOfxImageFieldNone on its
-        images, regardless of the clip properties (see _ignoreImageField) */
-    bool _hostIsResolve;
-
-    /** @brief the host is Fusion: kOfxImageEffectPropRenderScale is 1/3. in the inArgs of a render,
-        but 3. on the images (see _ignoreImageRenderScale) */
-    bool _hostIsFusion;
-
-    /** @brief the host is Sony Vegas or VEGAS Pro: kOfxImageEffectPropRenderScale is <1 in the inArgs
-        of a downscaled render, but 1. on the images (see _ignoreImageRenderScale) */
-    bool _hostIsVegas;
-
     /** @brief the debug-build checks of the images (checkBadRenderScaleOrField(), checkBadRenderScale()
         and checkRenderScaleOne()) skip the image's render scale (Fusion, VEGAS). An exemption from
         the checks only: the Support library doesn't correct the host's values */
@@ -2307,7 +2275,7 @@ namespace OFX {
     std::string resolveColourspace(const std::string &colourspace) const;
     //@}
 
-    /** @brief Does this instance support Metal texture render (kOfxImageEffectPropMetalTextureSupported, next OFX release, after 1.5.1). Ignored by hosts that don't know it. */
+    /** @brief Does this instance support Metal texture render (kOfxImageEffectPropMetalTextureSupported, not in OFX 1.5.1). Ignored by hosts that don't know it. */
     void setSupportsMetalTextureRender(bool v);
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
@@ -2352,7 +2320,8 @@ namespace OFX {
     Camera* fetchCamera(const std::string& name);
 #endif
 
-    /** @brief Check that the render scale and the field of a fetched image corresponds to the render args
+    /** @brief Check that the render scale and the field of a fetched image corresponds to the render args.
+        Debug builds only (a no-op with NDEBUG).
     */
     template <typename T1>
     void

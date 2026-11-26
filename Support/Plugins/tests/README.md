@@ -17,7 +17,7 @@ its docstring:
 | test_retimer.py | a temporal effect: frames needed, output depending on time and speed, time domain |
 | test_transition.py | two inputs and a transition value |
 | test_field.py | unfielded rendering; the plug-in's stdout |
-| test_multiplygpu.py | the CPU path of a GPU-capable plug-in, with rounding at byte depth; an RGB input (in-process only: `components=`, `@pytest.mark.backends("inprocess", reason=...)`) |
+| test_multiplygpu.py | the CPU path of a GPU-capable plug-in, with rounding at byte depth; an RGB input (`components=`) |
 | test_gpugain.py | the CPU path of a plug-in with Metal, CUDA and OpenCL render, float only; an identity |
 | test_choiceparams.py | Choice values are indices whatever the option order; a StrChoice value is its enum |
 | test_describe.py | contexts, clips, parameters and flags, from `describe()` |

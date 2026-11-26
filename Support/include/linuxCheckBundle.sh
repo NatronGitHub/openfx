@@ -26,19 +26,11 @@
 # The libraries fall into three classes:
 # - system libraries, which must come from the system and must never be bundled (a file with
 #   such a name or soname anywhere in the bundle is a problem, versioned or not, e.g.
-#   libstdc++.so): glibc (libc, libm, libpthread, libdl, librt, libutil, libresolv, libmvec,
-#   libanl, libthread_db, ld-linux), libcrypt (libxcrypt, in EL9's minimal install), libstdc++,
-#   libgcc_s, libgomp, libatomic, GLVND (libGL, libGLX, libEGL, libGLdispatch, libOpenGL), libdrm,
-#   libdrm_*, and Mesa's libgbm and libglapi (used by the system's Mesa drivers, which a bundled
-#   older copy breaks; EL9's minimal install doesn't have them, as it doesn't have libGL),
-#   systemd's libudev (it reads the running udev's private database, whose format follows the
-#   system's udev), libselinux, the GPU drivers' libraries: libcuda, NVIDIA's libnvidia-* and
-#   libnvcuvid, and the OpenCL vendor ICDs (NVIDIA libnvidia-opencl, AMD libamdocl*, Intel
-#   libigdrcl and libintelocl, Mesa libMesaOpenCL and libRusticlOpenCL, PoCL libpocl): the OpenCL
-#   ICD loader only opens the ICDs named in /etc/OpenCL/vendors/*.icd, so a bundled copy would
-#   never be used; plus the sonames listed in OFX_ABI_SYSTEM_LIBS. The OpenCL ICD loader itself (libOpenCL.so.1: ocl-icd or the Khronos
-#   OpenCL-ICD-Loader) is not a system library: it is not in a default EL9 or Ubuntu install, so
-#   the installer bundles it (it finds the vendor ICDs itself) or lists it in OFX_ABI_OPTIONAL_LIBS;
+#   libstdc++.so): glibc, libcrypt, the C++/GCC runtime, GLVND and GLES, libdrm, Mesa's
+#   libgbm/libglapi, libudev, libselinux, the GPU drivers and the OpenCL vendor ICDs (the exact
+#   list is in system_lib()), plus the sonames listed in OFX_ABI_SYSTEM_LIBS. The OpenCL ICD
+#   loader itself (libOpenCL.so.1) is not one: it is not in a default EL9 or Ubuntu install, so the
+#   installer bundles it (it finds the vendor ICDs itself) or lists it in OFX_ABI_OPTIONAL_LIBS;
 # - optional libraries, which may come from the system or be bundled (OFX_ABI_OPTIONAL_LIBS,
 #   default: libz.so.1);
 # - all the other libraries (OIIO, OCIO, FFmpeg...), which the installer must bundle: each
@@ -153,11 +145,15 @@ system_lib() {
     libGLdispatch.so|libGLdispatch.so.*|libOpenGL.so|libOpenGL.so.*) return 0 ;;
     libGLESv1_CM.so|libGLESv1_CM.so.*|libGLESv2.so|libGLESv2.so.*) return 0 ;;
     libnsl.so.*|libnss_*.so.*|libBrokenLocale.so.*|libc_malloc_debug.so.*) return 0 ;;
+    # libudev reads the running udev's private database, whose format follows the system's udev
     libdrm.so|libdrm.so.*|libdrm_*.so|libdrm_*.so.*|libudev.so|libudev.so.*) return 0 ;;
+    # used by the system's Mesa drivers, which a bundled older copy breaks
     libgbm.so|libgbm.so.*|libglapi.so|libglapi.so.*) return 0 ;;
     libselinux.so|libselinux.so.*) return 0 ;;
     # GPU drivers (not libOpenCL.so.1, the vendor-neutral OpenCL ICD loader: it must be bundled)
     libcuda.so|libcuda.so.*|libnvidia-*.so|libnvidia-*.so.*|libnvcuvid.so|libnvcuvid.so.*) return 0 ;;
+    # OpenCL vendor ICDs: the ICD loader opens only those named in /etc/OpenCL/vendors/*.icd, so a
+    # bundled copy would never be used
     libamdocl*.so|libamdocl*.so.*|libigdrcl.so|libigdrcl.so.*|libintelocl.so|libintelocl.so.*) return 0 ;;
     libMesaOpenCL.so|libMesaOpenCL.so.*|libRusticlOpenCL.so|libRusticlOpenCL.so.*) return 0 ;;
     libpocl.so|libpocl.so.*) return 0 ;;

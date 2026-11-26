@@ -20,12 +20,13 @@ This support library skins the raw OFX C API with a set of C++ classes and funct
   isIdentity(), getRegionOfDefinition(), changedParam(), ...)
 - declare the plug-in factory with mDeclarePluginFactory(MyPluginFactory, {}, {}) (the last two
   arguments are the bodies of load() and unload()), and define its member functions:
-- void MyPluginFactory::describe(OFX::ImageEffectDescriptor &desc)
-- describes the plug-in to the host (labels, contexts, pixel depths, ...)
-- void MyPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, OFX::ContextEnum context)
-- defines the clips and the parameters for a context reported in describe()
-- OFX::ImageEffect* MyPluginFactory::createInstance(OfxImageEffectHandle handle, OFX::ContextEnum context)
-- called when a new instance of the plug-in is needed: new your OFX::ImageEffect subclass and return it
+  - void MyPluginFactory::describe(OFX::ImageEffectDescriptor &desc)
+    describes the plug-in to the host (labels, contexts, pixel depths, ...)
+  - void MyPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, OFX::ContextEnum context)
+    defines the clips and the parameters for a context reported in describe()
+  - OFX::ImageEffect* MyPluginFactory::createInstance(OfxImageEffectHandle handle, OFX::ContextEnum context)
+    called when a new instance of the plug-in is needed: new your OFX::ImageEffect subclass and
+    return it
 - register the factory, which gives the plug-in identifier and version:
   static MyPluginFactory p("com.example.myPlugin", 1, 0); mRegisterPluginFactoryInstance(p)
   (plug-ins only known at run time instead declare a static OFX::PluginFactories object with a
@@ -39,9 +40,9 @@ interact, go in one undo step with an edit block, which ends when it goes out of
 @code
 OFX::ParamSet::EditBlock eb(*this, "Reset center");
 @endcode
-To begin it only if a parameter actually changes, pass OFX::ParamSet::EditBlock::eBeginOnChange and call eb.open() before each change;
-eHostErrorsIgnore makes the changes without an edit block if the host refuses one. The destructor
-never throws (see OFX::ParamSet::EditBlock).
+To begin it only if a parameter actually changes, pass OFX::ParamSet::EditBlock::eBeginOnChange
+and call eb.open() before each change; eHostErrorsIgnore makes the changes without an edit block
+if the host refuses one. The destructor never throws (see OFX::ParamSet::EditBlock).
 
 <HR>
 
@@ -92,9 +93,9 @@ of the direct OFX objects and any library side only functions.
 #include <sstream>
 #include <memory>
 #if defined(_MSC_VER)
-#include <float.h> // kept for the code that relies on it (IsNaN no longer uses _isnan)
+#include <float.h> // for the plug-in code that relies on it
 #endif
-#include <cmath> // kept for the code that relies on it (IsNaN no longer uses std::isnan)
+#include <cmath> // for the plug-in code that relies on it
 #include <cstring> // memcpy (IsNaN, IsInfinite)
 
 #ifdef OFX_CLIENT_EXCEPTION_HEADER
@@ -300,8 +301,7 @@ namespace OFX {
 
   The prop* functions throw std::bad_alloc, OFX::Exception::PropertyUnknownToHost,
   OFX::Exception::PropertyValueIllegalToHost or OFX::Exception::Suite when the property suite
-  fails (the exceptions are documented here: the dynamic exception specifications that listed them
-  were removed, E.30). With throwOnFailure false, a failure of the host is not thrown, and the
+  fails. With throwOnFailure false, a failure of the host is not thrown, and the
   getters return 0, NULL or an empty value; the getters that fill the caller's array
   (propGetDoubleN(property, values, count) and propGetIntN(property, values, count)) leave it
   unchanged, or as the host wrote it. setThrowOnUnsupportedProperties(false) also suppresses

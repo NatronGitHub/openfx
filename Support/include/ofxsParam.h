@@ -98,14 +98,14 @@ namespace OFX {
 
 
     /** @brief Enumerates the different types of parameter */
-    /** @brief encoding of the values of a colour param (kOfxParamPropColourManagement, next OFX release, after 1.5.1) */
+    /** @brief encoding of the values of a colour param (kOfxParamPropColourManagement, not in OFX 1.5.1) */
     enum ColourManagementEnum {
         eColourManagementNone,    /**< kOfxParamColourManagementNone: legacy, unmanaged values (default) */
         eColourManagementManaged, /**< kOfxParamColourManagementManaged: ACES2065-1 (AP0) scene-linear values */
         eColourManagementSRGB     /**< kOfxParamColourManagementSRGB: sRGB values in [0..1], for UI/overlay colours */
     };
 
-    /** @brief default interpolation of a 1D int or double param (kOfxParamInterpType, next OFX release, after 1.5.1) */
+    /** @brief default interpolation of a 1D int or double param (kOfxParamInterpType, not in OFX 1.5.1) */
     enum InterpTypeEnum {
         eInterpTypeConstantStep, /**< kOfxParamInterpTypeConstantStep */
         eInterpTypeLinear,       /**< kOfxParamInterpTypeLinear (default) */
@@ -428,7 +428,7 @@ namespace OFX {
         friend class ParamSetDescriptor;
 
     public :
-        /** @brief set the default interpolation (kOfxParamInterpType, next OFX release, after 1.5.1), defaults to eInterpTypeLinear.
+        /** @brief set the default interpolation (kOfxParamInterpType, not in OFX 1.5.1), defaults to eInterpTypeLinear.
          Returns false if the host doesn't support it. */
         bool setInterpType(InterpTypeEnum v);
 
@@ -551,7 +551,7 @@ namespace OFX {
         friend class ParamSetDescriptor;
 
     public :
-        /** @brief set the default interpolation (kOfxParamInterpType, next OFX release, after 1.5.1), defaults to eInterpTypeLinear.
+        /** @brief set the default interpolation (kOfxParamInterpType, not in OFX 1.5.1), defaults to eInterpTypeLinear.
          Returns false if the host doesn't support it. */
         bool setInterpType(InterpTypeEnum v);
 
@@ -672,7 +672,7 @@ namespace OFX {
         // so it can make one
         friend class ParamSetDescriptor;
     public :
-        /** @brief declare how the values of this colour param are encoded (kOfxParamPropColourManagement, next OFX release, after 1.5.1).
+        /** @brief declare how the values of this colour param are encoded (kOfxParamPropColourManagement, not in OFX 1.5.1).
          Must be called at describe time. Returns false if the host doesn't support it: the plugin then
          MUST use eColourManagementNone (legacy, unmanaged) values. */
         bool setColourManagement(ColourManagementEnum v);
@@ -711,7 +711,7 @@ namespace OFX {
         // so it can make one
         friend class ParamSetDescriptor;
     public :
-        /** @brief declare how the values of this colour param are encoded (kOfxParamPropColourManagement, next OFX release, after 1.5.1).
+        /** @brief declare how the values of this colour param are encoded (kOfxParamPropColourManagement, not in OFX 1.5.1).
          Must be called at describe time. Returns false if the host doesn't support it: the plugin then
          MUST use eColourManagementNone (legacy, unmanaged) values. */
         bool setColourManagement(ColourManagementEnum v);
@@ -2501,16 +2501,8 @@ namespace OFX {
                 bool cond.) */
             EditBlock(ParamSet& paramSet, const std::string &name,
                       BeginEnum begin, HostErrorsEnum hostErrors = eHostErrorsThrow)
-            : _paramSet(paramSet)
-            , _name(name)
-            , _cond(true)
-            , _ignoreHostErrors(hostErrors == eHostErrorsIgnore)
-            , _opened(false)
-            , _begun(false)
+            : EditBlock(paramSet, name, true, begin, hostErrors)
             {
-                if (begin == eBeginNow) {
-                    open();
-                }
             }
 
             /** @brief ends the edit block if it was begun. It doesn't throw: an exception that leaves
@@ -2549,13 +2541,11 @@ namespace OFX {
 
         private:
             // not copyable: each copy would end the edit block (C.21, R.1)
-            EditBlock(const EditBlock &); // not defined: not copyable
-            EditBlock &operator=(const EditBlock &); // not defined: not copyable
-            // not defined: EditBlock(paramSet, name, eHostErrorsIgnore) and the swapped
-            // EditBlock(paramSet, name, eHostErrorsIgnore, eBeginOnChange) would convert the first
-            // enum to bool cond; pass the BeginEnum first
-            EditBlock(ParamSet& paramSet, const std::string &name, HostErrorsEnum hostErrors);
-            EditBlock(ParamSet& paramSet, const std::string &name, HostErrorsEnum hostErrors, BeginEnum begin);
+            EditBlock(const EditBlock &) = delete;
+            EditBlock &operator=(const EditBlock &) = delete;
+            // pass the BeginEnum first: these would convert the HostErrorsEnum to bool cond
+            EditBlock(ParamSet& paramSet, const std::string &name, HostErrorsEnum hostErrors) = delete;
+            EditBlock(ParamSet& paramSet, const std::string &name, HostErrorsEnum hostErrors, BeginEnum begin) = delete;
 
             ParamSet& _paramSet;
             const std::string _name;

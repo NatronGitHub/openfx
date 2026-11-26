@@ -20,10 +20,11 @@
 /* ------------------------------------------------------------------------------------------ */
 /* Host names (the kOfxPropName of the host) */
 
-/** @brief Host name of Sony Vegas Pro and of VEGAS Pro up to version 15 at least (versions 12 to 15 seen) */
+/** @brief Host name of Sony Vegas Pro and of VEGAS Pro up to version 15 at least (versions 12 to 15
+    seen: openfx-misc's README-hosts.txt, from the VEGAS Pro 15 host description) */
 #define kOfxSonyVegasHostName                    "com.sonycreativesoftware.vegas"
 
-/** @brief Host name of VEGAS Pro 19 (at least) */
+/** @brief Host name of VEGAS Pro 19 (at least; openfx-misc's README-hosts.txt, from its host description) */
 #define kOfxVegasProHostName                     "com.vegascreativesoftware.vegas"
 
 /** @brief Host name of Sony Vegas Movie Studio HD */

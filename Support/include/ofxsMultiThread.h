@@ -72,8 +72,8 @@ namespace OFX {
 
     private :
       // not copyable: the destructor destroys the mutex (C.21, R.1)
-      Mutex(const Mutex &); // not defined: not copyable
-      Mutex &operator=(const Mutex &); // not defined: not copyable
+      Mutex(const Mutex &) = delete;
+      Mutex &operator=(const Mutex &) = delete;
 
     public :
       /** @brief ctor */
@@ -107,8 +107,8 @@ namespace OFX {
       bool val;
 
       // not copyable: each copy would unlock the mutex (C.21, R.1)
-      AutoMutexT(const AutoMutexT &); // not defined: not copyable
-      AutoMutexT &operator=(const AutoMutexT &); // not defined: not copyable
+      AutoMutexT(const AutoMutexT &) = delete;
+      AutoMutexT &operator=(const AutoMutexT &) = delete;
     public :
       /// ctor, acquires the lock
       explicit AutoMutexT(M &m)
