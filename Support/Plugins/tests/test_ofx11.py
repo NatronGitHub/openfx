@@ -9,8 +9,9 @@ plug-in must work in such hosts. Tester sets the output PAR in its clip preferen
 a host doesn't let it do), writes kOfxImageEffectInstancePropSequentialRender when its instance
 is created, and reads the default coordinate system of a double param: none of these may fail.
 Its describe also orders its page, a property that hostDemo, as Flame 2027, doesn't have. The
-OFX 1.1 host refuses the persistent messages, as DaVinci Resolve and Fusion 2026 do. The
-in-process backend has no OFX 1.1 profile: these tests run on hostDemo only.
+OFX 1.1 host refuses the persistent messages, as DaVinci Resolve and Fusion 2026 do. --ofx11 is a
+hostDemo test hook, which the in-process backend (ofxh) doesn't have: these tests run on hostDemo
+only.
 """
 
 import numpy as np

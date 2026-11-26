@@ -8,6 +8,8 @@ import threading
 import numpy as np
 import pytest
 
+from ofxhost.testing import suite_function
+
 ofxh = pytest.importorskip("ofxh")
 
 INVERT = "net.sf.openfx.invertPlugin"
@@ -194,6 +196,7 @@ def test_no_calls_from_another_thread_during_an_action(plugin_dir):
 
 
 # OfxMessageSuiteV1.message, called as a plug-in's worker thread does (the text has no %)
+MESSAGE = 0  # the index of OfxMessageSuiteV1.message
 _MESSAGE = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p)
 
 
@@ -221,8 +224,7 @@ def test_plugin_worker_thread_may_call_back(plugin_dir):
                     seen.append((name, "worker thread" in str(e)))
 
     def fetched():
-        suite = ofxh.fetch_suite("OfxMessageSuite", 1)
-        message = _MESSAGE(ctypes.c_void_p.from_address(suite).value)
+        message = suite_function("OfxMessageSuite", 1, MESSAGE, _MESSAGE)
         handle = inst_ref[0].handle
 
         def worker():
@@ -325,8 +327,7 @@ def test_worker_errors_stay_in_their_thread(plugin_dir):
                 ev_b.set()
 
     def fetched():
-        suite = ofxh.fetch_suite("OfxMessageSuite", 1)
-        message = _MESSAGE(ctypes.c_void_p.from_address(suite).value)
+        message = suite_function("OfxMessageSuite", 1, MESSAGE, _MESSAGE)
         handle = inst_ref[0].handle
 
         def a():

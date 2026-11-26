@@ -87,21 +87,17 @@ def gen_constants(consts):
 
 
 def main():
-    check = "--check" in sys.argv[1:]
     consts, _ = constants()
-    files = {OUT / "constants.py": gen_constants(consts)}
-    stale = []
-    for path, text in files.items():
-        if check:
-            if not path.exists() or path.read_text() != text:
-                stale.append(path)
-        else:
-            path.write_text(text)
-            print(f"wrote {path.relative_to(SCRIPTS.parent)}")
-    if stale:
-        for p in stale:
-            print(f"{p.relative_to(SCRIPTS.parent)} is out of date: run scripts/gen-ofxhost-py.py", file=sys.stderr)
-        sys.exit(1)
+    path = OUT / "constants.py"
+    text = gen_constants(consts)
+    name = path.relative_to(SCRIPTS.parent)
+    if "--check" in sys.argv[1:]:
+        if not path.exists() or path.read_text() != text:
+            print(f"{name} is out of date: run scripts/gen-ofxhost-py.py", file=sys.stderr)
+            sys.exit(1)
+    else:
+        path.write_text(text)
+        print(f"wrote {name}")
 
 
 if __name__ == "__main__":

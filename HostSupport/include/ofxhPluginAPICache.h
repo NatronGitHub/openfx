@@ -69,6 +69,9 @@ namespace OFX
 
         virtual void confirmPlugin(Plugin *, const std::list<std::string>& pluginPath) = 0;
 
+        /// forget what confirmPlugin() stored: a scan confirms the plug-ins again
+        virtual void clearConfirmedPlugins() {}
+
         virtual bool pluginSupported(Plugin *, std::string &reason) const = 0;
 
         void registerInCache(OFX::Host::PluginCache &pluginCache);

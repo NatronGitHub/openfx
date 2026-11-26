@@ -91,6 +91,15 @@ namespace {
     virtual OfxStatus set(OfxTime, int) { return kOfxStatOK; }
   };
 
+  class TestChoice : public Param::ChoiceInstance {
+  public:
+    TestChoice(Param::Descriptor &d, Param::SetInstance *s) : Param::ChoiceInstance(d, s) {}
+    virtual OfxStatus get(int &v) { v = 0; return kOfxStatOK; }
+    virtual OfxStatus get(OfxTime, int &v) { v = 0; return kOfxStatOK; }
+    virtual OfxStatus set(int) { return kOfxStatOK; }
+    virtual OfxStatus set(OfxTime, int) { return kOfxStatOK; }
+  };
+
   /// a Bytes instance that records what setDefault() sees, as a host that overrides it (Natron)
   class TestBytes : public Param::BytesInstance {
   public:
@@ -489,6 +498,89 @@ namespace {
       }
     }
     check("setPluginHostPath(hostId) adds only .../OFX/hostId directories", allHost);
+  }
+
+  /// kOfxParamPropChoiceOrder as the plug-in sees it (ChoiceOrderHook)
+  std::vector<int> choiceOrder(const OfxPropertySuiteV1 *ps, OfxPropertySetHandle h)
+  {
+    int n = -1;
+    ps->propGetDimension(h, kOfxParamPropChoiceOrder, &n);
+    std::vector<int> order(n > 0 ? n : 0);
+    for (int i = 0; i < n; ++i) {
+      ps->propGetInt(h, kOfxParamPropChoiceOrder, i, &order[i]);
+    }
+    return order;
+  }
+
+  /// the spec's kOfxParamPropChoiceOrder: the options' length, an index for each entry nobody set
+  void checkChoiceOrder(const OfxPropertySuiteV1 *ps)
+  {
+    typedef std::vector<int> Order;
+    const char *const options[] = { "P", "Q", "R", "S" };
+    // a descriptor: the default, then a partial order set value by value (completed with the index)
+    Param::Descriptor natural(kOfxParamTypeChoice, "natural");
+    natural.addStandardParamProps(kOfxParamTypeChoice);
+    OfxPropertySetHandle h = natural.getPropHandle();
+    for (int i = 0; i < 3; ++i) {
+      ps->propSetString(h, kOfxParamPropChoiceOption, i, options[i]);
+    }
+    const int ordinal[] = { 0, 1, 2 }, partial[] = { 5, 1, 2 };
+    check("choice order: the default is 0..n-1", choiceOrder(ps, h) == Order(ordinal, ordinal + 3));
+    Param::Descriptor part(kOfxParamTypeChoice, "partial");
+    part.addStandardParamProps(kOfxParamTypeChoice);
+    h = part.getPropHandle();
+    for (int i = 0; i < 3; ++i) {
+      ps->propSetString(h, kOfxParamPropChoiceOption, i, options[i]);
+    }
+    ps->propSetInt(h, kOfxParamPropChoiceOrder, 0, 5);
+    ps->propSetInt(h, kOfxParamPropChoiceOrder, 1, 1);
+    check("choice order: a partial order is completed with the indexes", choiceOrder(ps, h) == Order(partial, partial + 3));
+    // A and B appended without an order, then C with the order 0: the duplicate is the plug-in's
+    Param::Descriptor mixed(kOfxParamTypeChoice, "mixed");
+    mixed.addStandardParamProps(kOfxParamTypeChoice);
+    h = mixed.getPropHandle();
+    for (int i = 0; i < 3; ++i) {
+      ps->propSetString(h, kOfxParamPropChoiceOption, i, options[i]);
+    }
+    ps->propSetInt(h, kOfxParamPropChoiceOrder, 2, 0);
+    const int dup[] = { 0, 1, 0 };
+    check("choice order: the plug-in's values are kept", choiceOrder(ps, h) == Order(dup, dup + 3));
+    // an instance: its descriptor's values; an option appended gets its index
+    Param::Descriptor ordered(kOfxParamTypeChoice, "ordered");
+    ordered.addStandardParamProps(kOfxParamTypeChoice);
+    h = ordered.getPropHandle();
+    for (int i = 0; i < 4; ++i) {
+      ps->propSetString(h, kOfxParamPropChoiceOption, i, options[i]);
+    }
+    const int explicitOrder[] = { 0, 10, 30, 20 }, appended[] = { 0, 10, 30, 20, 4 };
+    ps->propSetIntN(h, kOfxParamPropChoiceOrder, 4, explicitOrder);
+    TestChoice inst(ordered, NULL);
+    OfxPropertySetHandle ih = inst.getPropHandle();
+    check("choice order: the instance has the descriptor's", choiceOrder(ps, ih) == Order(explicitOrder, explicitOrder + 4));
+    ps->propSetString(ih, kOfxParamPropChoiceOption, 4, "Late");
+    check("choice order: an appended option gets its index", choiceOrder(ps, ih) == Order(appended, appended + 5));
+    ps->propSetInt(ih, kOfxParamPropChoiceOrder, 4, 15);
+    check("choice order: the plug-in's order of the appended option", choiceOrder(ps, ih)[4] == 15);
+    // options that shrink without a reset (as a host may set them) cut the order
+    const char *const two[] = { "A", "B" };
+    const int cut[] = { 0, 10 }, cutAppended[] = { 0, 10, 2 };
+    ps->propSetStringN(ih, kOfxParamPropChoiceOption, 2, two);
+    check("choice order: cut when the options shrink", choiceOrder(ps, ih) == Order(cut, cut + 2));
+    ps->propSetString(ih, kOfxParamPropChoiceOption, 2, "C");
+    check("choice order: then an appended option gets its index", choiceOrder(ps, ih) == Order(cutAppended, cutAppended + 3));
+    // a value set on a default instance changes that value only
+    TestChoice natInst(natural, NULL);
+    ih = natInst.getPropHandle();
+    ps->propSetInt(ih, kOfxParamPropChoiceOrder, 0, 5);
+    check("choice order: one value set on the default", choiceOrder(ps, ih) == Order(partial, partial + 3));
+    // resetting the order or the options goes back to the default
+    ps->propReset(ih, kOfxParamPropChoiceOrder);
+    check("choice order: reset of the order", choiceOrder(ps, ih) == Order(ordinal, ordinal + 3));
+    ps->propSetInt(ih, kOfxParamPropChoiceOrder, 0, 5);
+    ps->propReset(ih, kOfxParamPropChoiceOption);
+    check("choice order: reset with the options", choiceOrder(ps, ih).empty());
+    ps->propSetString(ih, kOfxParamPropChoiceOption, 0, "A");
+    check("choice order: then the default again", choiceOrder(ps, ih) == Order(1, 0));
   }
 
   /// the labels of an image effect fall back to the label, then to the name (#229: the short and
@@ -1583,6 +1675,11 @@ int main()
 
   // the effect labels' fallbacks (#229)
   checkEffectLabels();
+
+  // the default and the plug-in's kOfxParamPropChoiceOrder
+  if (propSuite) {
+    checkChoiceOrder(propSuite);
+  }
 
   // the host's plug-in directories (#324)
   checkPluginHostPath();

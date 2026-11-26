@@ -8,6 +8,8 @@ import sys
 import numpy as np
 import pytest
 
+from ofxhost.testing import suite_function
+
 ofxh = pytest.importorskip("ofxh")
 
 INVERT = "net.sf.openfx.invertPlugin"  # (Support/Plugins/Invert doesn't check that it got its output image)
@@ -44,14 +46,19 @@ def _press(inst, button):
         inst.end_instance_changed_action()
 
 
+# the indexes of the suite functions
+MESSAGE = 0  # OfxMessageSuiteV1.message
+CLIP_GET_HANDLE = 3  # OfxImageEffectSuiteV1.clipGetHandle
+CLIP_RELEASE_IMAGE = 6  # OfxImageEffectSuiteV1.clipReleaseImage
+CLIP_GET_IMAGE_PLANE = 0  # FnOfxImageEffectPlaneSuiteV2.clipGetImagePlane
+PROP_GET_STRING = 9  # OfxPropertySuiteV1.propGetString
+
 # OfxMessageSuiteV1.message, called as a plug-in does (no variadic arguments: the text has no %)
 _MESSAGE = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p)
 
 
 def _plugin_message(inst, message_type, text):
-    suite = ofxh.fetch_suite("OfxMessageSuite", 1)
-    assert suite
-    message = _MESSAGE(ctypes.c_void_p.from_address(suite).value)
+    message = suite_function("OfxMessageSuite", 1, MESSAGE, _MESSAGE)
     return message(inst.handle, message_type.encode(), b"test", text.encode())
 
 
@@ -228,31 +235,25 @@ _PROP_GET_STRING = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_char
                                     ctypes.POINTER(ctypes.c_char_p))
 
 
-def _suite_function(name, version, index, prototype):
-    suite = ofxh.fetch_suite(name, version)
-    assert suite
-    return prototype(ctypes.c_void_p.from_address(suite + index * ctypes.sizeof(ctypes.c_void_p)).value)
-
-
 def _image_plane(inst, clip, plane):
     """A plug-in's clipGetImagePlane (FnOfxImageEffectPlaneSuiteV2), at time 0, view 0: (status, image
     properties {components, premult} or None)."""
     handle = ctypes.c_void_p()
-    get_handle = _suite_function("OfxImageEffectSuite", 1, 3, _CLIP_GET_HANDLE)
+    get_handle = suite_function("OfxImageEffectSuite", 1, CLIP_GET_HANDLE, _CLIP_GET_HANDLE)
     assert get_handle(inst.handle, clip.encode(), ctypes.byref(handle), None) == ofxh.Stat.OK
     image = ctypes.c_void_p()
-    st = _suite_function("uk.co.thefoundry.FnOfxImageEffectPlaneSuite", 2, 0, _CLIP_GET_IMAGE_PLANE)(
+    st = suite_function("uk.co.thefoundry.FnOfxImageEffectPlaneSuite", 2, CLIP_GET_IMAGE_PLANE, _CLIP_GET_IMAGE_PLANE)(
         handle, 0., 0, plane.encode(), None, ctypes.byref(image))
     if st != ofxh.Stat.OK:
         return st, None
-    get_string = _suite_function("OfxPropertySuite", 1, 9, _PROP_GET_STRING)
+    get_string = suite_function("OfxPropertySuite", 1, PROP_GET_STRING, _PROP_GET_STRING)
     props = {}
     for key, name in (("components", "OfxImageEffectPropComponents"),
                       ("premult", "OfxImageEffectPropPreMultiplication"), ("uid", "OfxImagePropUniqueIdentifier")):
         v = ctypes.c_char_p()
         assert get_string(image, name.encode(), 0, ctypes.byref(v)) == ofxh.Stat.OK
         props[key] = v.value.decode()
-    assert _suite_function("OfxImageEffectSuite", 1, 6, _CLIP_RELEASE_IMAGE)(image) == ofxh.Stat.OK
+    assert suite_function("OfxImageEffectSuite", 1, CLIP_RELEASE_IMAGE, _CLIP_RELEASE_IMAGE)(image) == ofxh.Stat.OK
     return st, props
 
 

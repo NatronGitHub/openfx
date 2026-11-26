@@ -12,10 +12,9 @@ import pytest
 
 import ofxhost
 from ofxhost.graph import Files, Graph, Node, load
-from ofxhost.testing import assert_close, check_backend
+from ofxhost.testing import assert_close, check_backend, suite_function
 
 check_backend("inprocess")  # (the whole module: skipped, or failed with OFXH_REQUIRE=1)
-import ofxh  # noqa: E402
 from ofxhost import graphhost, inprocess  # noqa: E402
 
 pytestmark = pytest.mark.usefixtures("tmp_cwd")
@@ -191,21 +190,13 @@ _RELEASE = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p)
 _ROD = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_double, ctypes.POINTER(ctypes.c_double * 4))
 
 
-def _suite_function(index, proto):
-    """A function of OfxImageEffectSuiteV1 (getPropertySet, getParamSet, clipDefine, clipGetHandle,
-    clipGetPropertySet, clipGetImage, clipReleaseImage, clipGetRegionOfDefinition, ...)."""
-    suite = ofxh.fetch_suite("OfxImageEffectSuite", 1)
-    return proto(ctypes.c_void_p.from_address(suite + index * ctypes.sizeof(ctypes.c_void_p)).value)
-
-
 _PROP_GET_POINTER = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int,
                                      ctypes.POINTER(ctypes.c_void_p))
 
-
-def _prop_get_pointer():
-    """OfxPropertySuiteV1.propGetPointer (the 9th function)."""
-    suite = ofxh.fetch_suite("OfxPropertySuite", 1)
-    return _PROP_GET_POINTER(ctypes.c_void_p.from_address(suite + 8 * ctypes.sizeof(ctypes.c_void_p)).value)
+# the suites, and the indexes of their functions
+IMAGE_EFFECT, PROPERTY = "OfxImageEffectSuite", "OfxPropertySuite"
+CLIP_GET_HANDLE, CLIP_GET_IMAGE, CLIP_RELEASE_IMAGE, CLIP_GET_ROD = 3, 5, 6, 7  # (OfxImageEffectSuiteV1)
+PROP_GET_POINTER = 8  # (OfxPropertySuiteV1)
 
 
 @pytest.mark.parametrize("host", ["inprocess", "graphhost"])
@@ -230,22 +221,24 @@ def test_worker_threads_fetch_the_output_first(sample_plugins, monkeypatch, host
         main = threading.current_thread() is threading.main_thread()
         if self.is_output and main and not seen["images"]:
             handle = ctypes.c_void_p()
-            st = _suite_function(3, _CLIP_HANDLE)(ctypes.c_void_p(self.instance.handle), b"Output",
-                                                 ctypes.byref(handle), None)
+            get_handle = suite_function(IMAGE_EFFECT, 1, CLIP_GET_HANDLE, _CLIP_HANDLE)
+            st = get_handle(ctypes.c_void_p(self.instance.handle), b"Output", ctypes.byref(handle), None)
             assert st == 0
 
             def worker():
                 img = ctypes.c_void_p()
-                st = _suite_function(5, _GET_IMAGE)(handle, time, None, ctypes.byref(img))
+                st = suite_function(IMAGE_EFFECT, 1, CLIP_GET_IMAGE, _GET_IMAGE)(handle, time, None, ctypes.byref(img))
                 data = ctypes.c_void_p()
                 if st == 0:
-                    _prop_get_pointer()(img, b"OfxImagePropData", 0, ctypes.byref(data))
+                    get_pointer = suite_function(PROPERTY, 1, PROP_GET_POINTER, _PROP_GET_POINTER)
+                    get_pointer(img, b"OfxImagePropData", 0, ctypes.byref(data))
                 seen["images"].append((st, img.value))
                 seen["data"].append(data.value)
                 rod = (ctypes.c_double * 4)()
-                seen["rods"].append((_suite_function(7, _ROD)(handle, time, ctypes.byref(rod)), tuple(rod)))
+                get_rod = suite_function(IMAGE_EFFECT, 1, CLIP_GET_ROD, _ROD)
+                seen["rods"].append((get_rod(handle, time, ctypes.byref(rod)), tuple(rod)))
                 if st == 0:
-                    _suite_function(6, _RELEASE)(img)
+                    suite_function(IMAGE_EFFECT, 1, CLIP_RELEASE_IMAGE, _RELEASE)(img)
 
             threads = [threading.Thread(target=worker) for _ in range(n)]
             for t in threads:
@@ -335,7 +328,7 @@ def test_plan_bounded(sample_plugins, monkeypatch):
     assert [p for p in planned if p[0] == "x0"] == [("x0", 0., (0, 0, 720, 576))]
 
 
-def test_plan_union():
+def test_plan_union(monkeypatch):
     """_plan() plans a window inside the union of those planned at a (node, time) once, and the union
     when a window grows it; an empty window plans nothing and doesn't grow the union."""
     calls = []
@@ -346,13 +339,10 @@ def test_plan_union():
     def spy(r, ns, t, window, seen):
         calls.append(window)
 
-    old, graphhost._plan_window = graphhost._plan_window, spy
-    try:
-        seen = {}
-        for w in [(5, 5, 5, 9), (0, 0, 10, 10), (2, 2, 8, 8), (30, 30, 30, 30), (5, 5, 20, 12), (0, 0, 20, 12)]:
-            graphhost._plan(None, Ns(), 0., w, seen)
-    finally:
-        graphhost._plan_window = old
+    monkeypatch.setattr(graphhost, "_plan_window", spy)
+    seen = {}
+    for w in [(5, 5, 5, 9), (0, 0, 10, 10), (2, 2, 8, 8), (30, 30, 30, 30), (5, 5, 20, 12), (0, 0, 20, 12)]:
+        graphhost._plan(None, Ns(), 0., w, seen)
     assert calls == [(0, 0, 10, 10), (0, 0, 20, 12)]
     assert seen == {("n", 0.): (0, 0, 20, 12)}
 

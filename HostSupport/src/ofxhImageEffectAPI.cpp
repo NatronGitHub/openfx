@@ -461,23 +461,13 @@ namespace OFX {
       /// pick the highest found version.
       ImageEffectPlugin *PluginCache::getPluginById(const std::string &id, int vermaj, int vermin)
       {
-        // any version: the highest, kept by confirmPlugin() (the first one confirmed among equal
-        // versions, as the scan below)
-        if (vermaj == -1 && vermin == -1) {
-          std::map<std::string, ImageEffectPlugin *>::const_iterator found = _pluginsByID.find(id);
-          return found == _pluginsByID.end() ? NULL : found->second;
-        }
-
         // return the highest version one, which fits the pattern provided
         ImageEffectPlugin *sofar = 0;
-        std::string identifier = id;
-
-        // (the identifier is compared as is: the spec doesn't say that it is case-insensitive)
 
         for (std::vector<ImageEffectPlugin *>::iterator i=_plugins.begin();i!=_plugins.end();i++) {
           ImageEffectPlugin *p = *i;
 
-          if (p->getIdentifier() != identifier) {
+          if (p->getIdentifier() != id) {
             continue;
           }
 

@@ -279,11 +279,11 @@ def test_project_load_and_push_buttons(sample_plugins, tmp_path):
     assert [(a["param"], a["time"], a["ok"]) for a in presses] == [("analyseButton", 0., True), ("pbButton", 0., True)]
     assert [m["text"] for m in n["messages"]] == ["Push Button Pressed - TestPassed!"]
     p = n["params"]
-    assert p["keysDouble"] == {"keys": [[0., 1.], [10., 3.]], "interpolation": "linear"}
+    assert p["keysDouble"] == {"keys": [[0., 1.], [10., 3.]]}
     assert p["keysChoice"] == 2 and p["messageText"] == "hi"
     # the analyse button fetched the Source at the frames of its range, the sequence's (1 to 5: the
     # Tester's loop stops before the last)
-    assert p["analysisParam"] == {"keys": [[f, f] for f in (1., 2., 3., 4.)], "interpolation": "linear"}
+    assert p["analysisParam"] == {"keys": [[f, f] for f in (1., 2., 3., 4.)]}
 
 
 def test_time_domains_and_sequences(sample_plugins, tmp_path):
@@ -531,6 +531,30 @@ def test_sequence_renders(sample_plugins, tmp_path):
     assert src_renders[0] == (1., True) and (2., False) in src_renders  # (2 again for t=4: not in sequence)
     ends = [a for n in ("src", "ret") for a in r.report["nodes"][n]["actions"] if a["action"] == "endSequenceRender"]
     assert len(ends) == 2
+
+
+def test_sequence_frames_are_not_kept(sample_plugins, tmp_path, monkeypatch):
+    """The frames read from a sequence are kept for the current frame only: each one is read twice, to plan
+    the renders (its region of definition) and to render (the first one also when the sequence is opened)."""
+    seq = sequence(tmp_path, range(1, 6))
+    sizes = []
+    reads = []
+    spec, read = graphhost._Files.spec, graphhost._Files._read
+
+    def spy(self, time):
+        s = spec(self, time)
+        sizes.append(len(self._specs))
+        return s
+
+    def counted(path):
+        reads.append(os.path.basename(path))
+        return read(path)
+
+    monkeypatch.setattr(graphhost._Files, "spec", spy)
+    monkeypatch.setattr(graphhost._Files, "_read", staticmethod(counted))
+    run(Graph.of(Node(INVERT, inputs={"Source": Files(seq)}), frames=[1, 2, 3, 4, 5]), sample_plugins)
+    assert sizes and max(sizes) == 1
+    assert {f: reads.count(f) for f in set(reads)} == {f"in.{f:04d}.pfm": 3 if f == 1 else 2 for f in range(1, 6)}
 
 
 def test_time_domain_clamp():

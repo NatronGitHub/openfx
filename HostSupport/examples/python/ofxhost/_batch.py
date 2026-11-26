@@ -19,11 +19,13 @@ from __future__ import annotations
 import argparse
 import ctypes
 import dataclasses
+import faulthandler
 import json
 import os
 import queue
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -34,7 +36,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 
 from . import stdio
-from .hostdemo import is_batch, scan_options
+from .hostdemo import host_dirs, is_batch, scan_options
 
 __all__ = ["run_batch", "parse_batch", "parse_command", "Command", "BatchSyntaxError", "OnRecordError", "HOSTS",
            "main", "BATCH_USAGE"]
@@ -209,12 +211,12 @@ def _host_key(flags: set) -> tuple:
         The (dirs, profile, options) that ofxhost.hostdemo.run() would give the host, in the current
         directory and environment.
     """
-    dirs = [d for d in os.environ.get("OFX_PLUGIN_PATH", "").split(os.pathsep) if d]
-    dirs_t = tuple(dict.fromkeys(os.path.abspath(d) for d in dirs if os.path.isdir(d)))
-    return (dirs_t, "ofx14" if "--ofx14" in flags else "default",
-            (os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1", "--no-std-paths" not in flags,
-             "--opengl-describe" in flags,
-             "--no-normalised-defaults" not in flags, "--multiplane" in flags))
+    from .inprocess import HostOptions  # (lazy: inprocess imports ofxh)
+    return (host_dirs(), "ofx14" if "--ofx14" in flags else "default",
+            HostOptions(keep_loaded=os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1",
+                        use_std_paths="--no-std-paths" not in flags, opengl_render="--opengl-describe" in flags,
+                        normalised_defaults="--no-normalised-defaults" not in flags,
+                        multiplane="--multiplane" in flags))
 
 
 _hosts: list = []  # (the test hook "host": the hosts seen, kept so that their ids aren't reused)
@@ -248,7 +250,6 @@ def _test_hook(name: str, state: dict) -> None:
     os.write(1, f"batch test hook: {name}\n".encode())
     os.write(2, f"batch test hook: {name} (stderr)\n".encode())
     if name == "segv":
-        import faulthandler
         faulthandler._sigsegv()
     elif name == "kill":
         os.kill(os.getpid(), 9)  # (SIGKILL; on Windows, TerminateProcess with exit code 9)
@@ -291,7 +292,6 @@ def _run_command(req: dict, state: dict) -> int:
 
     Its exit status (1 after a bug of the Python host, with a traceback, as a separate run).
     """
-    import faulthandler
 
     from .hostdemo import run
     if req.get("timeout"):  # (the Python threads' stacks, on the command's stderr, before the kill)
@@ -389,7 +389,6 @@ def worker_main() -> int:
 
     Between the commands, fds 1 and 2 go to the worker's stderr, and fd 0 is null.
     """
-    import faulthandler
     rd = os.fdopen(os.dup(0), "r", encoding="utf-8")
     wr = os.fdopen(os.dup(1), "w", encoding="utf-8")
     null = os.open(os.devnull, os.O_RDONLY)
@@ -498,7 +497,6 @@ class _Worker:
     def kill(self):
         """Kill the worker and its process group (POSIX) or tree (Windows), then wait for it."""
         if os.name == "posix":  # (also after the worker died: the helpers it started in its group)
-            import signal
             try:
                 os.killpg(self.proc.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
@@ -854,7 +852,6 @@ def main(argv: Sequence[str]) -> int:
     def stop(signum, frame):  # (SIGTERM, SIGHUP: run_batch kills the workers, which have their own group)
         raise SystemExit(128 + signum)
 
-    import signal
     for name in ("SIGTERM", "SIGHUP"):
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), stop)

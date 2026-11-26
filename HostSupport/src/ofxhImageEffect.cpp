@@ -186,11 +186,9 @@ namespace OFX {
         return _properties;
       }
 
-      /// short label of the effect: kOfxPropShortLabel, else its label (getLabel()), as ClipBase does.
-      /// ofxCore.h: the short label is "a shorter version of the label", and setting kOfxPropLabel
-      /// "will also reset ::kOfxPropShortLabel and ::kOfxPropLongLabel": a plug-in that only sets
-      /// the label expects it everywhere. (The old code tested the label, then returned the empty
-      /// short label.)
+      // The labels fall back as in ClipBase: short and long to the label, the label to the name
+      // ("setting kOfxPropLabel will also reset ::kOfxPropShortLabel and ::kOfxPropLongLabel", ofxCore.h).
+
       const std::string &Base::getShortLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropShortLabel);
@@ -200,7 +198,6 @@ namespace OFX {
         return s;
       }
         
-      /// label of the effect: kOfxPropLabel, else its name (kOfxPropName)
       const std::string &Base::getLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLabel);
@@ -210,11 +207,6 @@ namespace OFX {
         return s;
       }
         
-      /// long label of the effect: kOfxPropLongLabel, else its label (getLabel()), as ClipBase does.
-      /// ofxCore.h: the long label is "a longer version of the label", and setting kOfxPropLabel
-      /// "will also reset ::kOfxPropShortLabel and ::kOfxPropLongLabel": a plug-in that only sets
-      /// the label expects it everywhere. (The old code tested the label, then returned the empty
-      /// long label.)
       const std::string &Base::getLongLabel() const
       {
         const std::string &s = _properties.getStringProperty(kOfxPropLongLabel);
@@ -568,13 +560,7 @@ namespace OFX {
       // Instance
       //
 
-      /// kOfxImageEffectPropThumbnailRender, in the inArgs of actions: OFX 1.5.1 lists
-      /// GetRegionOfDefinition, GetRegionsOfInterest, GetFramesNeeded, IsIdentity,
-      /// BeginSequenceRender, Render and EndSequenceRender (and GetClipPreferences,
-      /// inconsistently: its inArgs are NULL); upstream main adds BeginInstanceChanged and
-      /// InstanceChanged, and drops EndSequenceRender. HostSupport sets it in all of them but
-      /// GetClipPreferences.
-      /// Hosts that do thumbnail renders set it to "true".
+      /// see ThumbnailRenderScope (ofxhImageEffect.h)
       static const Property::PropSpec ofx15ThumbnailRenderArgs[] = {
         { kOfxImageEffectPropThumbnailRender, Property::eString, 1, true, "false" },
         Property::propSpecEnd
@@ -649,11 +635,6 @@ namespace OFX {
         return std::string();
       }
 
-      /// next OFX release (after 1.5.1): kOfxImageEffectPropBehaviourWhenUnlicensed is in the
-      /// inArgs of BeginSequenceRender and Render only if the host sets it: "If
-      /// kOfxImageEffectPropBehaviourWhenUnlicensed is not set (indicating the host has not
-      /// implemented this functionality): plug-in should render an image (typically watermarked
-      /// or a placeholder) and return kOfxStatOK."
       static const Property::PropSpec unlicensedBehaviourArgs[] = {
         { kOfxImageEffectPropBehaviourWhenUnlicensed, Property::eString, 1, true, "" },
         Property::propSpecEnd
@@ -1715,11 +1696,7 @@ namespace OFX {
         };
 
         Property::Set inArgs(inStuff);
-        // OFX 1.5.1 ofxImageEffect.h, EndSequenceRender inArgs: "kOfxImageEffectPropThumbnailRender
-        // (optional) if the host considers this render a "thumbnail"". The value is
-        // isThumbnailRender() when End is called: it is the value of the BeginSequenceRender only if
-        // the host keeps the same answer from Begin to End (by default, if its ThumbnailRenderScope
-        // spans Begin...End, in the same thread)
+        // kOfxImageEffectPropThumbnailRender (1.5.1 EndSequenceRender inArgs): see ThumbnailRenderScope
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
         setThumbnailRenderArg(inArgs, this);
         inArgs.addProperties(ofx15MetalTextureArgs);
@@ -2298,7 +2275,7 @@ namespace OFX {
           };
           Property::Set inArgs(inStuff);
           inArgs.setDoubleProperty(kOfxPropTime,time);
-          inArgs.setIntProperty(kFnOfxImageEffectPropView, view); // (it was always 0)
+          inArgs.setIntProperty(kFnOfxImageEffectPropView, view);
           
           
           Property::PropSpec outStuff[] = {
@@ -3763,7 +3740,8 @@ namespace OFX {
         return kOfxStatOK;
         } catch (const std::bad_alloc&) {
           // "::kOfxStatErrMemory - the host had not enough memory to complete the operation, plugin
-          // should abort whatever it was doing." (ofxImageEffect.h, clipGetImage)
+          // should abort whatever it was doing." (ofxImageEffect.h, clipGetImage); the other suite
+          // functions below do the same
           *h3 = NULL;
 
           return kOfxStatErrMemory;
@@ -3807,9 +3785,7 @@ namespace OFX {
 
         return kOfxStatOK;
         } catch (const std::bad_alloc&) {
-          // as clipGetImage (ofxSonyVegas.h documents no statuses): "::kOfxStatErrMemory - the host
-          // had not enough memory to complete the operation, plugin should abort whatever it was
-          // doing." (ofxImageEffect.h)
+          // kOfxStatErrMemory (see clipGetImage; ofxSonyVegas.h documents no statuses)
           *h3 = NULL;
 
           return kOfxStatErrMemory;
@@ -3914,8 +3890,7 @@ namespace OFX {
 
         return kOfxStatOK;
         } catch (const std::bad_alloc&) {
-          // "::kOfxStatErrMemory - the host had not enough memory to complete the operation, plugin
-          // should abort whatever it was doing." (ofxImageEffect.h, clipGetRegionOfDefinition)
+          // kOfxStatErrMemory (see clipGetImage)
           return kOfxStatErrMemory;
         } catch (...) {
           return kOfxStatErrBadHandle;
@@ -3926,9 +3901,8 @@ namespace OFX {
       // should continue whatever processing it is doing - 1 if the effect should abort whatever
       // processing it is doing" (ofxImageEffect.h). The result is not an OfxStatus: a handle that
       // is not an image effect instance (NULL, a descriptor, garbage), or an exception from the
-      // host's Instance::abort(), gives 1, so that the plug-in stops (it used to be
-      // kOfxStatErrBadHandle, which a plug-in also read as "abort", being non-zero). Named
-      // effectAbort, not abort, so that it doesn't hide ::abort() in this file.
+      // host's Instance::abort(), gives 1, so that the plug-in stops. Named effectAbort, not
+      // abort, so that it doesn't hide ::abort() in this file.
       static int effectAbort(OfxImageEffectHandle imageEffect)
       {
         try {
@@ -4113,9 +4087,7 @@ namespace OFX {
 
 
         } catch (const std::bad_alloc&) {
-          // "::kOfxStatErrMemory - the host had not enough memory to complete the operation,
-          // plugin should abort whatever it was doing." (nuke/fnOfxExtensions.h, clipGetImagePlane,
-          // the same text as clipGetImage in ofxImageEffect.h)
+          // kOfxStatErrMemory (see clipGetImage; nuke/fnOfxExtensions.h has the same text)
           *imageHandle = NULL;
           return kOfxStatErrMemory;
         } catch (...) {
@@ -4167,8 +4139,7 @@ namespace OFX {
 
           return kOfxStatOK;
         } catch (const std::bad_alloc&) {
-          // as clipGetRegionOfDefinition: "::kOfxStatErrMemory - the host had not enough memory to
-          // complete the operation, plugin should abort whatever it was doing." (ofxImageEffect.h)
+          // kOfxStatErrMemory (see clipGetImage)
           return kOfxStatErrMemory;
         } catch (...) {
           return kOfxStatErrBadHandle;
@@ -4564,6 +4535,12 @@ namespace OFX {
         }
       }
       
+      /// the status of a host's exception if the suite function documents it, else kOfxStatFailed
+      static OfxStatus documentedOrFailed(const Property::Exception &e, OfxStatus documented)
+      {
+        return e.getStatus() == documented ? documented : kOfxStatFailed;
+      }
+
       /// finish progressing
       static OfxStatus ProgressEnd(void *effectInstance)
       {
@@ -4575,10 +4552,8 @@ namespace OFX {
           me->progressEnd();
           return kOfxStatOK;
         } catch (const OFX::Host::Property::Exception& e) {
-          // a host's progressEnd() may throw kOfxStatErrBadHandle, e.g. when no progress was
-          // started: "kOfxStatErrBadHandle - the progress handle was invalid" (ofxProgress.h). The
-          // spec lists no other error status: any other one is kOfxStatFailed, as below
-          return e.getStatus() == kOfxStatErrBadHandle ? kOfxStatErrBadHandle : kOfxStatFailed;
+          // e.g. no progress was started: "kOfxStatErrBadHandle - the progress handle was invalid" (ofxProgress.h)
+          return documentedOrFailed(e, kOfxStatErrBadHandle);
         } catch (...) {
           // C++ exceptions must not propagate into the plug-in
           return kOfxStatFailed;
@@ -4596,11 +4571,8 @@ namespace OFX {
           bool v = me->progressUpdate(progress);
           return v ? kOfxStatOK : kOfxStatReplyNo;
         } catch (const OFX::Host::Property::Exception& e) {
-          // a host's progressUpdate() may throw kOfxStatErrBadHandle, e.g. when no progress was
-          // started: "kOfxStatErrBadHandle - the progress handle was invalid" (ofxProgress.h), not
-          // kOfxStatReplyNo, which tells the plug-in to abort. The spec lists no other error
-          // status: any other one is kOfxStatFailed, as below
-          return e.getStatus() == kOfxStatErrBadHandle ? kOfxStatErrBadHandle : kOfxStatFailed;
+          // as ProgressEnd (not kOfxStatReplyNo, which tells the plug-in to abort)
+          return documentedOrFailed(e, kOfxStatErrBadHandle);
         } catch (...) {
           // C++ exceptions must not propagate into the plug-in
           return kOfxStatFailed;
@@ -4656,9 +4628,8 @@ namespace OFX {
           me->timeLineGotoTime(time);
           return kOfxStatOK;
         } catch (const OFX::Host::Property::Exception& e) {
-          // a host's timeLineGotoTime() may throw kOfxStatErrValue for a time it can't go to
-          // (e.g. out of the range of its frame numbers); any other status is kOfxStatFailed
-          return e.getStatus() == kOfxStatErrValue ? kOfxStatErrValue : kOfxStatFailed;
+          // e.g. a time the host can't go to: "kOfxStatErrValue - the time was an illegal value"
+          return documentedOrFailed(e, kOfxStatErrValue);
         } catch (...) {
           // "kOfxStatFailed - the change failed for some host specific reason"
           return kOfxStatFailed;

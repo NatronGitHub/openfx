@@ -19,13 +19,16 @@ from typing import Any
 
 import numpy as np
 
-from . import Image, resolve_file_spec, split_components
+from . import Image, _time_name, resolve_file_spec, split_components
+from .constants import kOfxImageEffectContextFilter, kOfxImageEffectContextGeneral
 from .pfm import merge_alpha, read_pfm
 from .pixels import check_array, to_rgba
-from .rects import INT_MAX, INT_MIN
+from .rects import INT_MAX, INT_MIN, MAX_IMAGE_PIXELS
 
-__all__ = ["CLIP_LENGTH", "Spec", "SpecError", "parse_double", "parse_int", "parse_bool", "parse_n", "parse_spec",
-           "array_spec", "input_spec", "resolve_spec", "read_file", "pattern", "from_components"]
+__all__ = ["CLIP_LENGTH", "CONTEXTS", "INPUT_FORMS", "SCALE_EXPECTED", "WINDOW_EXPECTED", "not_found", "valid_scale",
+           "valid_window", "frame_named_twice", "Spec", "SpecError", "parse_double", "parse_int", "parse_bool",
+           "parse_n", "parse_spec", "array_spec", "input_spec", "resolve_spec", "read_file", "pattern",
+           "from_components"]
 
 CLIP_LENGTH = 1.0  # (hostDemo's OFXHOSTDEMOCLIPLENGTH: the default input is black at t=0, white at t=1)
 _MAX_FLOAT32 = 3.4028234663852886e38
@@ -77,6 +80,47 @@ def parse_n(s: str, n: int, parse: Callable[[str], Any]) -> list | None:
         return None
     r = [parse(x) for x in v]
     return None if any(x is None for x in r) else r
+
+
+# --- hostDemo's checks of its options (the messages end with these) ---------------------------
+
+# -c: the short and the OFX names of the contexts
+CONTEXTS = {"filter": kOfxImageEffectContextFilter, kOfxImageEffectContextFilter: kOfxImageEffectContextFilter,
+            "general": kOfxImageEffectContextGeneral, kOfxImageEffectContextGeneral: kOfxImageEffectContextGeneral}
+SCALE_EXPECTED = "expected s or sx,sy in (0,1]"
+# -i: the forms of an input spec
+INPUT_FORMS = ("Clip=default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none|file:rgb.pfm[+alpha.pfm][@x1,y1]"
+               "[#premult|#unpremult|#opaque]")
+WINDOW_EXPECTED = ("expected x1,y1,x2,y2 with x1<x2 and y1<y2, at most 1000000 pixels wide or high and 2^28 "
+                   "pixels in all")
+
+
+def not_found(plugin: str, major: int = -1) -> str:
+    """hostDemo's message for a plug-in it doesn't find (major: -1 for any version)."""
+    return (f'Error: plug-in "{plugin}"' + (f" with major version {major}" if major >= 0 else "") +
+            " not found. Check that OFX_PLUGIN_PATH contains the folder of its .ofx.bundle.")
+
+
+def valid_scale(s: Sequence[float]) -> bool:
+    """--scale sx,sy: both in (0,1]."""
+    return all(0. < x <= 1. for x in s)
+
+
+def valid_window(w: Sequence[int] | None) -> bool:
+    """--window x1,y1,x2,y2: not empty, and at most 1000000 pixels wide or high and MAX_IMAGE_PIXELS in all."""
+    return bool(w) and len(w) == 4 and w[0] < w[2] and w[1] < w[3] and w[2] - w[0] <= 1000000 and \
+        w[3] - w[1] <= 1000000 and (w[2] - w[0]) * (w[3] - w[1]) <= MAX_IMAGE_PIXELS
+
+
+def frame_named_twice(frames: Sequence[float]) -> str | None:
+    """The first time of frames that another one has to 12 significant digits (the output file names)."""
+    names: set = set()
+    for f in frames:
+        n = _time_name(f)
+        if n in names:
+            return n
+        names.add(n)
+    return None
 
 
 # --- the input specs ---------------------------------------------------------------------------

@@ -28,23 +28,14 @@ namespace OFX {
     ////////////////////////////////////////////////////////////////////////////////
     /// simple memory suite 
     namespace Memory {
-      // Each block starts with a header that holds a magic number, so that memoryFree() can return
-      // "::kOfxStatErrBadHandle allocatedData was not a valid pointer returned by
-      // OfxMemorySuiteV1::memoryAlloc" (ofxMemory.h) instead of passing any pointer to free().
-      // memoryFree(NULL) is kOfxStatErrBadHandle too: NULL is never returned by memoryAlloc.
-      // A plug-in that frees memoryAlloc's memory with free() (which was already wrong) now passes
-      // a pointer that malloc() didn't return. As with the magic number of property sets, a pointer
-      // that is not a block is still read (the header before it). A double free is not
-      // detected (reading the freed header is undefined behaviour anyway): the header is not
-      // cleared on free, as a store just before free() may be optimised away.
-      //
-      // The header is 64 bytes (or alignof(std::max_align_t), if larger). The data pointer is
-      // malloc()'s pointer + the header, so it keeps any alignment of malloc()'s result up to 64
-      // bytes: blocks that malloc() aligns to a page or to 64 bytes (e.g. large blocks on macOS)
-      // stay cache-line and AVX-512 aligned, as they were before the header. Small blocks keep
-      // malloc()'s usual alignment (16 on 64-bit systems, at least alignof(std::max_align_t)), which
-      // satisfies "Allocated memory will be aligned for any use." (ofxMemory.h). The cost is 64
-      // bytes per block.
+      // Each block starts with a 64-byte header (alignof(std::max_align_t) if larger) that holds a
+      // magic number, so that memoryFree() returns kOfxStatErrBadHandle for a pointer memoryAlloc
+      // didn't return ("allocatedData was not a valid pointer returned by OfxMemorySuiteV1::memoryAlloc",
+      // ofxMemory.h) instead of passing it to free(). memoryFree(NULL) is kOfxStatErrBadHandle too.
+      // A non-block pointer is still read (as the property sets' magic); a double free is not
+      // detected. A plug-in that frees this memory with free() passes a pointer that malloc() didn't
+      // return (already undefined behaviour). The header keeps malloc()'s alignment up to 64 bytes:
+      // "Allocated memory will be aligned for any use." (ofxMemory.h)
       static const size_t kMemoryHeaderSize = alignof(std::max_align_t) > 64 ? alignof(std::max_align_t) : 64;
       static_assert(kMemoryHeaderSize % alignof(std::max_align_t) == 0,
                     "the memory suite header must keep the alignment of malloc()");

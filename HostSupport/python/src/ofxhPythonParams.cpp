@@ -492,10 +492,8 @@ protected:
 };
 
 // The overrides of each arity, which call getAt() and setAt() (and derive and integrate the
-// curve, for the double ones, as hostDemo; the integer ones keep HostSupport's defaults). Macros,
-// for brevity: partial specializations of a template on N could declare them too, but that takes
-// 3 specializations here and 3 for the Python parameters (OFXH_PY_N), plus a chain of aliases,
-// against these twelve one-line uses. #undef'd after their last use.
+// curve, for the double ones, as hostDemo; the integer ones keep HostSupport's defaults). Macros:
+// one line per class; #undef'd after use.
 #define OFXH_STORED_N(Name, Base, T, N, interpolation, DERIVE)                                        \
   class Name : public StoredN<Base, T, N> {                                                          \
   public:                                                                                            \

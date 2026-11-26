@@ -17,13 +17,13 @@ unloads the plug-ins at the end. README.md lists the few differences; the batch 
 from __future__ import annotations
 
 import ctypes
-import json
 import os
 import sys
 from collections.abc import Sequence
 
-from .constants import (kOfxBitDepthByte, kOfxBitDepthFloat, kOfxBitDepthShort, kOfxImageEffectContextFilter,
-                        kOfxImageEffectContextGeneral)
+from . import specs, split_components, write_json
+from .constants import kOfxBitDepthByte, kOfxBitDepthFloat, kOfxBitDepthShort, kOfxImageEffectContextFilter
+from .specs import CLIP_LENGTH, parse_double, parse_int, parse_n
 
 __all__ = ["main", "run", "run_batch", "is_batch", "scan_options", "USAGE"]
 
@@ -90,9 +90,6 @@ _FLAGS = {"--no-std-paths": ("std_paths", False), "--quiet": ("quiet", True),
           "--multiplane": ("multiplane", True), "--no-cache": (None, None)}
 # -i Clip@Plane=spec: the short plane names (the kPlanes table of hostDemo's parseInputPlaneArg())
 _PLANES = ("ForwardMotionVector", "BackMotionVector", "StereoDisparityLeft", "StereoDisparityRight")
-_CONTEXTS = {"filter": kOfxImageEffectContextFilter, "general": kOfxImageEffectContextGeneral,
-             kOfxImageEffectContextFilter: kOfxImageEffectContextFilter,
-             kOfxImageEffectContextGeneral: kOfxImageEffectContextGeneral}
 _DEPTHS = {"byte": "byte", "short": "short", "float": "float", kOfxBitDepthByte: "byte", kOfxBitDepthShort: "short",
            kOfxBitDepthFloat: "float"}
 
@@ -118,9 +115,7 @@ def _fail(text: str) -> None:
 def _write_json(path: str, doc: dict) -> bool:
     """writeJson: False (after an error message) if it couldn't be written."""
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(doc, f, indent=2, allow_nan=False)
-            f.write("\n")
+        write_json(path, doc)
         return True
     except (OSError, ValueError):
         _err(f"Error: cannot write {path}")
@@ -134,6 +129,12 @@ def _preload() -> None:
                 ctypes.CDLL(lib, mode=getattr(ctypes, "RTLD_GLOBAL", 0))
             except OSError as e:
                 _err(f"Warning: OFXHOST_PRELOAD: cannot load {lib} ({e})")
+
+
+def host_dirs() -> tuple:
+    """The plug-in directories of $OFX_PLUGIN_PATH that exist (hostDemo ignores the others), absolute."""
+    dirs = [d for d in os.environ.get("OFX_PLUGIN_PATH", "").split(os.pathsep) if d]
+    return tuple(dict.fromkeys(os.path.abspath(d) for d in dirs if os.path.isdir(d)))
 
 
 def scan_options(args: Sequence[str]) -> tuple[str, set]:
@@ -159,7 +160,6 @@ def scan_options(args: Sequence[str]) -> tuple[str, set]:
 
 def _parse_input_plane(o: dict, v: str) -> None:
     """-i Clip@Plane=spec, checked as hostDemo checks it: into o["planes"], (clip, plane, specs.Spec)."""
-    from . import specs, split_components  # (not ofxh)
     at, eq = v.find("@"), v.find("=")
     clip, plane = v[:at], v[at + 1:eq]
     error = "no clip name"
@@ -187,7 +187,6 @@ def _parse_input_plane(o: dict, v: str) -> None:
 
 def _parse_input(o: dict, v: str, seen: set) -> None:
     """-i Clip=spec"""
-    from . import specs  # (not ofxh)
     if "=" in v and v.find("@") != -1 and v.find("@") < v.find("="):
         _parse_input_plane(o, v)
         return
@@ -200,9 +199,7 @@ def _parse_input(o: dict, v: str, seen: set) -> None:
         except specs.SpecError as e:
             error = str(e)
     if spec is None:
-        _fail(f'Error: invalid input "{v}" ({error}), expected Clip=default|solid:r,g,b,a|ramp|checker:N|'
-              "rod:x1,y1,x2,y2|none|file:rgb.pfm[+alpha.pfm][@x1,y1][#premult|#unpremult|#opaque], then optionally "
-              "#rgb|#alpha|#rgba")
+        _fail(f'Error: invalid input "{v}" ({error}), expected {specs.INPUT_FORMS}, then optionally #rgb|#alpha|#rgba')
     if v[:eq] in seen:
         _fail(f'Error: input clip "{v[:eq]}" given twice (-i)')
     seen.add(v[:eq])
@@ -211,47 +208,37 @@ def _parse_input(o: dict, v: str, seen: set) -> None:
 
 def _parse_frames(v: str) -> list[float]:
     """--frames t0,t1,...: distinct times, also in the output file names (12 significant digits)."""
-    from .specs import parse_double
     frames: list[float] = []
     for x in v.split(","):
         f = parse_double(x)
         if f is None or f in frames:
             _fail(f'Error: invalid frames "{v}", expected distinct times t0,t1,...')
         frames.append(f)
-    names: set = set()
-    for f in frames:
-        n = f"{f:.12g}"
-        if n in names:
-            _fail(f'Error: invalid frames "{v}": {n} is given twice to 12 significant digits (the output file names)')
-        names.add(n)
+    n = specs.frame_named_twice(frames)
+    if n is not None:
+        _fail(f'Error: invalid frames "{v}": {n} is given twice to 12 significant digits (the output file names)')
     return frames
 
 
 def _parse_scale(v: str) -> tuple:
     """--scale s[,sy], in (0,1]"""
-    from .specs import parse_double, parse_n
     s = parse_n(v, 1, parse_double)
     s = s * 2 if s else parse_n(v, 2, parse_double)
-    if not s or not all(0. < x <= 1. for x in s):
-        _fail(f'Error: invalid render scale "{v}", expected s or sx,sy in (0,1]')
+    if not s or not specs.valid_scale(s):
+        _fail(f'Error: invalid render scale "{v}", {specs.SCALE_EXPECTED}')
     return (s[0], s[1])
 
 
 def _parse_window(v: str) -> tuple:
     """--window x1,y1,x2,y2"""
-    from .rects import MAX_IMAGE_PIXELS
-    from .specs import parse_int, parse_n
     w = parse_n(v, 4, parse_int)
-    if not w or w[0] >= w[2] or w[1] >= w[3] or w[2] - w[0] > 1000000 or w[3] - w[1] > 1000000 or \
-            (w[2] - w[0]) * (w[3] - w[1]) > MAX_IMAGE_PIXELS:
-        _fail(f'Error: invalid render window "{v}", expected x1,y1,x2,y2 with x1<x2 and y1<y2, at most '
-              "1000000 pixels wide or high and 2^28 pixels in all")
+    if not specs.valid_window(w):
+        _fail(f'Error: invalid render window "{v}", {specs.WINDOW_EXPECTED}')
     return tuple(w)
 
 
 def _parse_value(o: dict, arg: str, v: str, seen: set) -> None:
     """The value v of the option arg (one of _VALUE_OPTIONS), into o."""
-    from .specs import parse_int
     if arg in ("-p", "-o", "--report", "--describe"):
         o[{"-p": "plugin", "-o": "prefix", "--report": "report", "--describe": "describe"}[arg]] = v
     elif arg == "-s":
@@ -262,9 +249,9 @@ def _parse_value(o: dict, arg: str, v: str, seen: set) -> None:
             _fail(f'Error: invalid major version "{v}"')
         o["major"] = m
     elif arg == "-c":
-        if v not in _CONTEXTS:
+        if v not in specs.CONTEXTS:
             _fail(f'Error: unsupported context "{v}", expected filter or general')
-        o["context"] = _CONTEXTS[v]
+        o["context"] = specs.CONTEXTS[v]
     elif arg == "--format":
         if v not in ("ppm", "pfm"):
             _fail(f'Error: unsupported format "{v}", expected ppm or pfm')
@@ -288,7 +275,6 @@ def _parse(argv: list[str], prog: str) -> dict:
 
     Raises _Exit (after the help, or a usage error).
     """
-    from .specs import CLIP_LENGTH  # (not ofxh: it is imported after the command line, as hostDemo loads plug-ins)
     o = {"plugin": _DEFAULT_PLUGIN, "major": -1, "context": kOfxImageEffectContextFilter, "prefix": "Output",
          "depth": "byte", "assignments": [], "inputs": [], "report": "", "describe": "", "std_paths": True,
          "planes": [], "multiplane": False, "quiet": False, "ofx14": False, "opengl_describe": False,
@@ -385,18 +371,16 @@ def run(argv: list[str], prog: str = "hostdemo", shutdown: bool = True) -> int:
         o = _parse(argv, prog)  # (-h and the usage errors without ofxh, as hostDemo's)
     except _Exit as e:
         return e.status
-    dirs = [d for d in os.environ.get("OFX_PLUGIN_PATH", "").split(os.pathsep) if d]
     from .build import OfxhNotFound, import_ofxh
     try:
-        import_ofxh(os.pathsep.join(dirs), for_cli=True)
+        import_ofxh(os.environ.get("OFX_PLUGIN_PATH", ""), for_cli=True)
     except OfxhNotFound as e:
         _err(f"Error: {e}")
         return 1
     _preload()
     from . import inprocess as ip
     keep = os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1"
-    # (the plug-in directories that exist: hostDemo ignores the others)
-    dirs = tuple(dict.fromkeys(os.path.abspath(d) for d in dirs if os.path.isdir(d)))
+    dirs = host_dirs()
     profile = "ofx14" if o["ofx14"] else "default"
     try:
         if o["describe"]:
@@ -411,8 +395,6 @@ def run(argv: list[str], prog: str = "hostdemo", shutdown: bool = True) -> int:
                      use_std_paths=o["std_paths"], normalised_defaults=o["normalised_defaults"],
                      multiplane=o["multiplane"], planes=o["planes"])
         ret, report, _ = ip.run_job(dirs, job)
-        report["ok"] = ret == 0  # (as hostDemo writes them in every report)
-        report["exitStatus"] = ret
         if o["report"] and not _write_json(o["report"], report):
             ret = 1
         return ret
@@ -434,8 +416,7 @@ def _describe(ip, o: dict, dirs: tuple, profile: str, keep: bool) -> int:
         _dump(ip.ofxh)
     plugin = ip.ofxh.get_plugin(o["plugin"], o["major"])
     if plugin is None:
-        _err(f'Error: plug-in "{o["plugin"]}"' + (f' with major version {o["major"]}' if o["major"] >= 0 else "")
-             + " not found. Check that OFX_PLUGIN_PATH contains the folder of its .ofx.bundle.")
+        _err(specs.not_found(o["plugin"], o["major"]))
         return 1
     d = ip.ofxh.describe(plugin, None)
     ret = 0 if d.get("ok") else 1

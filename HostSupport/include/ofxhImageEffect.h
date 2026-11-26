@@ -1156,22 +1156,11 @@ namespace OFX {
         /// to isNoSpatialAwarenessRender() and the plug-in descriptor.
         void setNoSpatialAwarenessArg(Property::Set &inArgs) const;
 
-        /// next OFX release (after 1.5.1): the host's behaviour when the plug-in is unlicensed,
-        /// kOfxImageEffectPropBehaviourWhenUnlicensed in the inArgs of BeginSequenceRender and Render:
-        /// kOfxUnlicensedContinue ("render an image (typically watermarked or a placeholder) and
-        /// return kOfxStatUnlicensed") or kOfxUnlicensedFail ("return kOfxStatUnlicensed and may do
-        /// this without any rendering, because it knows the host will fail the render").
-        ///
-        /// Called by beginRenderAction() and renderAction() each time they build their inArgs, so
-        /// it may be called from render threads, concurrently: it must be thread-safe. The
-        /// default returns "": the property is then not in the inArgs, which the spec allows ("not
-        /// set (indicating the host has not implemented this functionality)": the plug-in "should
-        /// render an image (typically watermarked or a placeholder) and return kOfxStatOK"). Hosts
-        /// override it, e.g. to return kOfxUnlicensedFail for offline renders. Any other value is
-        /// not sent either. A host that returns kOfxUnlicensedContinue or kOfxUnlicensedFail must
-        /// handle kOfxStatUnlicensed from beginRenderAction() and renderAction(): with Continue,
-        /// the plug-in rendered (e.g. a watermarked image), so the host may warn the user or fail
-        /// an offline render; with Fail, the plug-in may not have rendered anything.
+        /// kOfxImageEffectPropBehaviourWhenUnlicensed for the inArgs of BeginSequenceRender and Render
+        /// (next OFX release, after 1.5.1): kOfxUnlicensedContinue, kOfxUnlicensedFail, or "" (the
+        /// default, and any other value: not sent, which the spec allows). Called from render threads:
+        /// must be thread-safe. A host that returns Continue or Fail must handle kOfxStatUnlicensed
+        /// from beginRenderAction() and renderAction().
         virtual std::string getBehaviourWhenUnlicensed() const;
 
         /// add kOfxImageEffectPropBehaviourWhenUnlicensed to inArgs if getBehaviourWhenUnlicensed()

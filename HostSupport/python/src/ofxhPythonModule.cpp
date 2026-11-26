@@ -125,8 +125,7 @@ def _raise_callback_error(where, exc, status=None):
 
 struct State {
   bool initialized = false;
-  std::string profile;  ///< "default" or "ofx14" (ofxh.init()), "" when not initialized
-  bool keepLoaded = false;  ///< ofxh.init(keep_loaded=...)
+  std::string profile;  ///< ofxh.init()'s "default" or "ofx14", set before init_properties(); "" when not initialized
   std::unique_ptr<PyHost> host;  ///< (HostSupport keeps a raw pointer to it: gImageEffectHost)
   std::unique_ptr<OHIE::PluginCache> pluginCache;  ///< (registered in HostSupport's plug-in cache)
   unsigned generation = 0;  ///< incremented by shutdown(): Plugin views become invalid
@@ -469,7 +468,6 @@ static void shutdown()
   std::unique_ptr<PyHost> host = std::move(st.host);
   st.initialized = false;
   st.profile.clear();
-  st.keepLoaded = false;
   ++st.generation;
   host.reset();
   scope.check("shutdown");
@@ -542,7 +540,6 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
   st.host->_normalisedDefaults = normalisedDefaults;
   st.initialized = true;
   st.profile = profile;
-  st.keepLoaded = keepLoaded;
   try {
     {
       ActionScope scope;
@@ -1616,7 +1613,8 @@ static void bindFunctions(nb::module_ &m)
         "Host.init_properties(), only the OFX 1.4 host properties remain (a plug-in reading another one, e.g.\n"
         "kOfxParamHostPropSupportsStrChoice, gets kOfxStatErrUnknown), fetch_suite() gives only the OFX 1.4\n"
         "suites, OfxSetHost isn't called, and paramDefine of a StrChoice or Bytes parameter fails. One\n"
-        "view: the ofxhost in-process backend renders one view in this profile, whatever the build.\n"
+        "view: the ofxhost in-process backend renders one view in this profile, whatever the build. There is\n"
+        "no OFX 1.1 profile: hostDemo --ofx11 is a hostDemo test hook.\n"
         "keep_loaded: keep the scanned plug-ins loaded (Host::keepPluginsLoadedAfterScan(), as hostDemo with\n"
         "OFX_HOSTDEMO_KEEP_LOADED=1): one kOfxActionLoad and Describe per plug-in, and Unload at shutdown().\n"
         "By default the scan sends Load, Describe and Unload and unloads the binary, and the first use of a\n"
@@ -1632,7 +1630,8 @@ static void bindFunctions(nb::module_ &m)
     return state().initialized ? nb::object(nb::str(state().profile.c_str())) : nb::none();
   }, "The profile of the initialized host (\"default\" or \"ofx14\", see init()), or None.");
   m.def("keep_loaded", []() -> nb::object {
-    return state().initialized ? nb::object(nb::bool_(state().keepLoaded)) : nb::none();
+    const State &st = state();
+    return st.host ? nb::object(nb::bool_(st.host->_keepLoaded)) : nb::none();
   }, "Whether the initialized host keeps the scanned plug-ins loaded (see init()), or None.");
   m.def("host", []() -> nb::object { return state().host ? state().host->_py : nb::none(); });
   m.def("plugins", []() {

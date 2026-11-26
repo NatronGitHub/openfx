@@ -15,7 +15,7 @@ import pytest
 
 import ofxhost
 from ofxhost import constants as k
-from ofxhost.testing import backend_available
+from ofxhost.testing import check_backend
 
 PYDIR = Path(__file__).resolve().parents[1]  # HostSupport/examples/python
 
@@ -33,11 +33,7 @@ OPENGL = "com.genarts:OpenGLSamplePlugin"
 def hosts(sample_plugins):
     """(hostDemo, the ofxh module's directory): both are needed (OFXH_REQUIRE=1: fail if not)."""
     for b in ofxhost.BACKENDS:
-        why = backend_available(b)
-        if why is not None:
-            if os.environ.get("OFXH_REQUIRE") == "1":
-                pytest.fail(f"backend {b}: {why} (OFXH_REQUIRE=1)")
-            pytest.skip(f"backend {b}: {why}")
+        check_backend(b)
     import ofxh
     return ofxhost.find_hostdemo(), Path(ofxh.__file__).resolve().parent
 
