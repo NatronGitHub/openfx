@@ -11,6 +11,7 @@
 #include "ofxCore.h"
 
 #include <algorithm>
+#include <cstring>
 #include <functional>
 #include <string>
 #include <utility>
@@ -124,6 +125,18 @@ namespace OFX {
           return r;
         }
 
+        /// name is in list, an extension string (space-separated names; list may be null)
+        inline bool hasExtension(const char *list, const char *name)
+        {
+          const size_t n = std::strlen(name);
+          for (const char *p = list; p && (p = std::strstr(p, name)) != nullptr; p += n) {
+            if ((p == list || p[-1] == ' ') && (p[n] == ' ' || p[n] == '\0')) {
+              return true;
+            }
+          }
+          return false;
+        }
+
         /// runs call through hooks.driverCall, or directly if the host gave none
         template <typename F>
         void driverCall(const Hooks &hooks, F &&call)
@@ -139,7 +152,7 @@ namespace OFX {
         /// missing function) if a required one is missing
         bool loadGLFunctions(const Context &context, GLFunctions &gl, std::string *missing);
 
-        /// The backends (ofxhOpenGLEGL.cpp, ofxhOpenGLCGL.cpp): the renderer IDs (RendererInfo::id)
+        /// The backends (ofxhOpenGLEGL.cpp, ofxhOpenGLCGL.cpp, ofxhOpenGLWGL.cpp): the renderer IDs (RendererInfo::id)
         /// of backend, and a context on one of them; nullptr and *error if it fails
         std::vector<int> rendererIds(const Hooks &hooks, Backend backend);
         std::unique_ptr<Context> createBackendContext(const Hooks &hooks, Backend backend, int rendererId,

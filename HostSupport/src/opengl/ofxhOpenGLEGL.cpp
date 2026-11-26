@@ -4,14 +4,13 @@
 // The EGL backends of ofxhOpenGLContext.h (Linux and BSD): EGL_MESA_platform_surfaceless and
 // EGL_EXT_platform_device. libEGL is loaded at run time, so the library needs neither EGL headers
 // nor libEGL to build, and runs without them (then these backends fail and the next one is tried).
-// The macOS backend is ofxhOpenGLCGL.cpp.
+// The macOS backend is ofxhOpenGLCGL.cpp, the Windows one ofxhOpenGLWGL.cpp.
 
 #include "ofxhOpenGLContext.h"
 #include "ofxhOpenGLFunctions.h"
 
 #if !defined(__APPLE__) && !defined(_WIN32)
 
-#include <cstring>
 #include <dlfcn.h>
 
 namespace OFX {
@@ -63,17 +62,6 @@ namespace OFX {
           std::string clientExtensions;
 
           bool hasClientExtension(const char *name) const { return hasExtension(clientExtensions.c_str(), name); }
-
-          static bool hasExtension(const char *list, const char *name)
-          {
-            const size_t n = std::strlen(name);
-            for (const char *p = list; p && (p = std::strstr(p, name)) != nullptr; p += n) {
-              if ((p == list || p[-1] == ' ') && (p[n] == ' ' || p[n] == '\0')) {
-                return true;
-              }
-            }
-            return false;
-          }
 
           bool load(std::string &error)
           {
@@ -185,7 +173,7 @@ namespace OFX {
               native = devices[index];
               platform = kEGLPlatformDeviceEXT;
               const char *ext = _egl.QueryDeviceStringEXT ? _egl.QueryDeviceStringEXT(native, kEGLExtensions) : nullptr;
-              software = EGLLibrary::hasExtension(ext, "EGL_MESA_device_software");
+              software = hasExtension(ext, "EGL_MESA_device_software");
             }
             bool ok = false;
             driverCall([&] { ok = createOn(platform, native, error); });
@@ -266,7 +254,7 @@ namespace OFX {
               return false;
             }
             const char *ext = _egl.QueryString(_display, kEGLExtensions);
-            if (!EGLLibrary::hasExtension(ext, "EGL_KHR_surfaceless_context")) {
+            if (!hasExtension(ext, "EGL_KHR_surfaceless_context")) {
               error = "EGL_KHR_surfaceless_context not supported";
               return false;
             }

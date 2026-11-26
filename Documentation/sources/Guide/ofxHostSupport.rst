@@ -429,7 +429,7 @@ don't have their own:
 
 -  ``ofxhOpenGLContext.h``: offscreen contexts, with backends chosen at
    run time (EGL surfaceless and EGL devices on Linux and BSD, CGL on
-   macOS; none yet on Windows), the renderers they offer, a context pool
+   macOS, WGL on Windows), the renderers they offer, a context pool
    (one context per render tree) and ``CurrentContext``, which makes a
    context current on the calling thread. The host may give its own
    OpenGL loader, a logger, and a wrapper for driver calls (for example

@@ -31,7 +31,8 @@ add_library(openfx::HostSupport ALIAS OfxHost)
 
 # openfx::HostSupportOpenGL: offscreen OpenGL contexts, textures and renders (ofxhOpenGLContext.h,
 # ofxhOpenGLTexture.h, ofxhOpenGLRender.h). Backends: EGL on Linux and BSD (libEGL is loaded at
-# run time: no build dependency), CGL on macOS, none yet on Windows.
+# run time: no build dependency), CGL on macOS, WGL on Windows (opengl32, gdi32 and user32, system
+# libraries).
 if(OFX_HOSTSUPPORT_OPENGL)
 	if(NOT OFX_SUPPORTS_OPENGLRENDER)
 		message(FATAL_ERROR "OFX_HOSTSUPPORT_OPENGL needs OFX_SUPPORTS_OPENGLRENDER")
@@ -45,6 +46,8 @@ if(OFX_HOSTSUPPORT_OPENGL)
 	target_link_libraries(OfxHostOpenGL PUBLIC OfxHost Threads::Threads)
 	if(APPLE)
 		target_link_libraries(OfxHostOpenGL PRIVATE "-framework OpenGL")
+	elseif(WIN32)
+		target_link_libraries(OfxHostOpenGL PRIVATE opengl32 gdi32 user32)
 	elseif(UNIX)
 		target_link_libraries(OfxHostOpenGL PRIVATE ${CMAKE_DL_LIBS})
 	endif()
