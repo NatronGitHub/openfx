@@ -324,6 +324,10 @@ struct MyInstanceData {
   OfxParamHandle inputSpaceParam;
   OfxParamHandle fallbackInputSpaceParam;
   OfxParamHandle outputSpaceParam;
+
+  // a render error was posted (ofxuPostRenderError()): clear it after the next render that works.
+  // Renders of an instance may be concurrent.
+  std::atomic<bool> renderErrorPosted{false};
 };
 
 // The white level and the pixel type for each bit depth
@@ -804,7 +808,8 @@ static OfxStatus render( OfxImageEffectHandle  instance,
 
     // see if they have the same depths and components
     if(srcBitDepth != dstBitDepth || srcIsAlpha != dstIsAlpha || dstIsAlpha) {
-      throw OfxuStatusException(kOfxStatErrImageFormat);
+      ofxuPostRenderError(instance, myData->renderErrorPosted, "The Source and Output images are not RGBA images of the same depth");
+      throw OfxuStatusException(kOfxStatFailed);
     }
 
     // Lay out the text from the top-left corner of the source RoD (in canonical
@@ -847,7 +852,8 @@ static OfxStatus render( OfxImageEffectHandle  instance,
       copyImage<float>(src, srcRect, srcRowBytes, dst, dstRect, dstRowBytes, renderWindow);
       break;
     default:
-      throw OfxuStatusException(kOfxStatErrImageFormat);
+      ofxuPostRenderError(instance, myData->renderErrorPosted, "Unsupported image depth");
+      throw OfxuStatusException(kOfxStatFailed);
     }
     const std::string lines[] = {
       stringPrintf("Image: %dx%d, depth=%d, scale=%.2fx%.2f",
@@ -862,11 +868,14 @@ static OfxStatus render( OfxImageEffectHandle  instance,
         ystart -= lineHeight;
       }
     }
+    // the render worked: clear the error of an earlier one
+    ofxuClearRenderError(instance, myData->renderErrorPosted);
   }
   catch(OfxuNoImageException &) {
     // if we were interrupted, the failed fetch is fine, just return kOfxStatOK
     // otherwise, something weird happened
     if(!gEffectHost->abort(instance)) {
+      ofxuPostRenderError(instance, myData->renderErrorPosted, "The host gave no source or output image");
       status = kOfxStatFailed;
     }
   }

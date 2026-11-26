@@ -36,7 +36,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 
 from . import stdio
-from .hostdemo import host_dirs, is_batch, scan_options
+from .hostdemo import host_components, host_dirs, is_batch, scan_options
 
 __all__ = ["run_batch", "parse_batch", "parse_command", "Command", "BatchSyntaxError", "OnRecordError", "HOSTS",
            "main", "BATCH_USAGE"]
@@ -204,7 +204,7 @@ def _shutdown_host(state: dict) -> None:
     sys.modules["ofxhost.inprocess"].shutdown()
 
 
-def _host_key(flags: set) -> tuple:
+def _host_key(flags: set, args: Sequence[str]) -> tuple:
     """The in-process backend's host settings that a command line needs.
 
     Returns:
@@ -216,7 +216,7 @@ def _host_key(flags: set) -> tuple:
             HostOptions(keep_loaded=os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1",
                         use_std_paths="--no-std-paths" not in flags, opengl_render="--opengl-describe" in flags,
                         normalised_defaults="--no-normalised-defaults" not in flags,
-                        multiplane="--multiplane" in flags))
+                        multiplane="--multiplane" in flags, components=host_components(args)))
 
 
 _hosts: list = []  # (the test hook "host": the hosts seen, kept so that their ids aren't reused)
@@ -280,7 +280,7 @@ def _prepare_host(req: dict, state: dict) -> None:
     need = mode == "per-plugin" and state.get("plugin") not in (None, plugin)
     session = _session()
     if mode != "fresh" and session is not None and \
-            _host_key(flags) != (session.dirs, session.profile, session.options):
+            _host_key(flags, req["args"]) != (session.dirs, session.profile, session.options):
         need = True
     if need:
         _shutdown_host(state)

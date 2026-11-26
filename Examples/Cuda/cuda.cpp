@@ -85,6 +85,10 @@ struct MyInstanceData {
   OfxParamHandle rGainParam;
   OfxParamHandle gGainParam;
   OfxParamHandle bGainParam;
+
+  // a render error was posted (ofxuPostRenderError()): clear it after the next render that works.
+  // Renders of an instance may be concurrent.
+  std::atomic<bool> renderErrorPosted{false};
 };
 
 // Convenience wrapper to get private data
@@ -403,8 +407,11 @@ static OfxStatus render( OfxImageEffectHandle  instance,
   // get the images (there is no source image if the clip is not connected)
   Image dst, src;
   fetchImage(myData->outputClip, time, dst);
-  if(!dst.props)
+  if(!dst.props) {
+    if(!gEffectHost->abort(instance))
+      ofxuPostRenderError(instance, myData->renderErrorPosted, "The host gave no output image");
     return kOfxStatFailed;
+  }
   fetchImage(myData->sourceClip, time, src);
 
   // render the part of the window that is in the output image
@@ -422,7 +429,9 @@ static OfxStatus render( OfxImageEffectHandle  instance,
     status = (src.props ? renderCuda(cudaStream, window, src, dst, gain) : kOfxStatGPURenderFailed);
   }
   else if(!dst.data || !dst.isFloatRGBA || (src.props && (!src.data || !src.isFloatRGBA))) {
-    status = kOfxStatErrImageFormat; // only float RGBA is declared in describe
+    // only float RGBA is declared in describe
+    ofxuPostRenderError(instance, myData->renderErrorPosted, "The images are not float RGBA images");
+    status = kOfxStatFailed;
   }
   else {
     status = renderCPU(instance, window, src, dst, gain);
@@ -430,6 +439,8 @@ static OfxStatus render( OfxImageEffectHandle  instance,
 
   releaseImage(src);
   releaseImage(dst);
+  if(status == kOfxStatOK)
+    ofxuClearRenderError(instance, myData->renderErrorPosted);
   return status;
 }
 

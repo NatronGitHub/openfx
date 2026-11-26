@@ -761,6 +761,8 @@ static void usage(const char* prog)
     "                     kOfxImageEffectInstancePropSequentialRender, as --no-normalised-defaults, one view\n"
     "  --opengl-describe  with --describe only: say the host supports OpenGL render\n"
     "                     (kOfxImageEffectPropOpenGLRenderSupported \"true\"), to describe OpenGL-only plug-ins\n"
+    "  --components c,... the host's supported components (kOfxImageEffectPropSupportedComponents):\n"
+    "                     distinct rgba, rgb or alpha, in order (default: rgba,alpha)\n"
     "  --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,\n"
     "                     the GetClipComponents action; Nuke-extension builds only)\n"
     "  --no-normalised-defaults  be a host without normalised parameter defaults: double params\n"
@@ -1321,6 +1323,8 @@ static int run(int argc, char **argv)
   bool ofx14And11 = false;     ///< both --ofx14 and --ofx11
   bool openglDescribe = false; ///< --opengl-describe
   bool multiPlane = false;     ///< --multiplane
+  /// --components: kOfxImageEffectPropSupportedComponents of the host descriptor, and their short names
+  std::vector<std::string> hostComponents, hostComponentNames;
   /// -i Clip@Plane=spec: by clip, then by short plane name
   std::map<std::string, std::map<std::string, MyHost::InputPlane> > inputPlanes;
   bool normalisedDefaults = true; ///< --no-normalised-defaults
@@ -1367,7 +1371,7 @@ static int run(int argc, char **argv)
       normalisedDefaults = false;
     } else if (arg == "-p" || arg == "-m" || arg == "-c" || arg == "-o" || arg == "-s" ||
                arg == "-d" || arg == "-i" || arg == "--format" ||
-               arg == "--report" || arg == "--describe" ||
+               arg == "--report" || arg == "--describe" || arg == "--components" ||
                arg == "--frames" || arg == "--scale" || arg == "--window") {
       if (a + 1 >= argc) {
         std::cerr << "Error: option " << arg << " requires an argument" << std::endl;
@@ -1444,6 +1448,24 @@ static int run(int argc, char **argv)
         }
         inputs.push_back(std::make_pair(optarg.substr(0, eq), spec));
         inputSpecs[optarg.substr(0, eq)] = optarg.substr(eq + 1);
+      } else if (arg == "--components") {
+        // the names of the components, and their OFX names
+        static const char* const kComponents[3][2] = {
+          {"rgba", kOfxImageComponentRGBA}, {"rgb", kOfxImageComponentRGB}, {"alpha", kOfxImageComponentAlpha}};
+        hostComponents.clear();
+        hostComponentNames.clear();
+        for (const std::string& c : splitValues(optarg)) {
+          int k = 0;
+          while (k < 3 && c != kComponents[k][0]) {
+            ++k;
+          }
+          if (k == 3 || std::find(hostComponentNames.begin(), hostComponentNames.end(), kComponents[k][0]) != hostComponentNames.end()) {
+            std::cerr << "Error: invalid components \"" << optarg << "\", expected distinct rgba, rgb or alpha, comma-separated" << std::endl;
+            return 1;
+          }
+          hostComponentNames.push_back(kComponents[k][0]);
+          hostComponents.push_back(kComponents[k][1]);
+        }
       } else if (arg == "--report") {
         reportPath = optarg;
       } else if (arg == "--describe") {
@@ -1569,10 +1591,18 @@ static int run(int argc, char **argv)
 
   // set the version label in the global cache
   // (the plug-ins may describe themselves differently to an OFX 1.4 host, to a host with
-  // OpenGL render, or to a multi-plane host: another cache)
+  // OpenGL render, to a multi-plane host, or to a host with other components: another cache)
+  std::string componentsSuffix;
+  if (!hostComponentNames.empty() &&
+      hostComponentNames != std::vector<std::string>{"rgba", "alpha"}) {
+    componentsSuffix = "-components";
+    for (const std::string& c : hostComponentNames) {
+      componentsSuffix += "-" + c;
+    }
+  }
   const std::string cacheSuffix =
     (profile == MyHost::Profile::eDefault ? std::string() : std::string("-") + MyHost::profileName(profile)) +
-    (openglDescribe ? "-opengl" : "") + (multiPlane ? "-multiplane" : "");
+    (openglDescribe ? "-opengl" : "") + (multiPlane ? "-multiplane" : "") + componentsSuffix;
   OFX::Host::PluginCache::getPluginCache()->setCacheVersion("hostDemoV1" + cacheSuffix);
   const std::string cachePath = "hostDemoPluginCache" + cacheSuffix + ".xml";
 
@@ -1588,6 +1618,21 @@ static int run(int argc, char **argv)
   if (openglDescribe) {
     // (an OFX 1.4 host property: also with --ofx14)
     myHost.getProperties().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "true");
+  }
+  if (!hostComponents.empty()) {
+    // "This list of strings indicate what component types are supported by a host" (an OFX 1.4
+    // host property: also with --ofx14 and --ofx11). The images themselves may have any of the
+    // three, whatever this says.
+    std::vector<const char*> v;
+    for (const std::string& c : hostComponents) {
+      v.push_back(c.c_str());
+    }
+    OFX::Host::Property::String* p = myHost.getProperties().fetchStringProperty(kOfxImageEffectPropSupportedComponents);
+    if (p == NULL) { // (a property of every image effect host descriptor: ofxhImageEffect.cpp)
+      std::cerr << "Error: --components: the host descriptor has no kOfxImageEffectPropSupportedComponents" << std::endl;
+      return 1;
+    }
+    p->setValueN(v.data(), (int)v.size());
   }
 #ifdef OFX_EXTENSIONS_NUKE
   if (multiPlane) {

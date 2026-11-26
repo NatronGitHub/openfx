@@ -97,6 +97,7 @@ protected :
 
   OFX::DoubleParam  *noise_;
   OFX::DoubleParam  *par_;
+  OFX::BooleanParam *rgbOutput_;
 
 public :
   /** @brief ctor */
@@ -105,10 +106,12 @@ public :
     , dstClip_(NULL)
     , noise_(NULL)
     , par_(NULL)
+    , rgbOutput_(NULL)
   {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     noise_   = fetchDoubleParam("Noise");
     par_     = fetchDoubleParam("pixelAspectRatio");
+    rgbOutput_ = fetchBooleanParam("rgbOutput");
   }
 
   /* Override the render */
@@ -168,6 +171,13 @@ NoisePlugin::getClipPreferences(OFX::ClipPreferencesSetter &clipPreferences)
   if (par > 0.) {
     clipPreferences.setPixelAspectRatio(*dstClip_, par);
   }
+  // an RGB output if the host supports it ("the components supported by a clip or host",
+  // kOfxImageEffectPropSupportedComponents), in the general context, the only one where the output
+  // components may be remapped (ofxClipPreferences.rst)
+  if (rgbOutput_->getValue() && getContext() == OFX::eContextGeneral &&
+      OFX::getImageEffectHostDescription()->supportsPixelComponent(OFX::ePixelComponentRGB)) {
+    clipPreferences.setClipComponents(*dstClip_, OFX::ePixelComponentRGB);
+  }
 }
 
 /** @brief The get RoD action.  We flag an infinite rod */
@@ -189,7 +199,29 @@ NoisePlugin::render(const OFX::RenderArguments &args)
   OFX::PixelComponentEnum dstComponents  = dstClip_->getPixelComponents();
 
   // do the rendering
-  if(dstComponents == OFX::ePixelComponentRGBA) {
+  if(dstComponents == OFX::ePixelComponentRGB) {
+    switch(dstBitDepth)
+    {
+    case OFX::eBitDepthUByte : {
+      NoiseGenerator<unsigned char, 3, 255> fred(*this);
+      setupAndProcess(fred, args);
+    }
+      break;
+    case OFX::eBitDepthUShort : {
+      NoiseGenerator<unsigned short, 3, 65535> fred(*this);
+      setupAndProcess(fred, args);
+    }
+      break;
+    case OFX::eBitDepthFloat : {
+      NoiseGenerator<float, 3, 1> fred(*this);
+      setupAndProcess(fred, args);
+    }
+      break;
+    default :
+      OFX::throwSuiteStatusException(kOfxStatErrUnsupported);
+    }
+  }
+  else if(dstComponents == OFX::ePixelComponentRGBA) {
     switch(dstBitDepth) 
     {
     case OFX::eBitDepthUByte : {      
@@ -278,6 +310,7 @@ void NoiseExamplePluginFactory::describeInContext(OFX::ImageEffectDescriptor &de
 
   ClipDescriptor *dstClip = desc.defineClip(kOfxImageEffectOutputClipName);
   dstClip->addSupportedComponent(ePixelComponentRGBA);
+  dstClip->addSupportedComponent(ePixelComponentRGB);
   dstClip->addSupportedComponent(ePixelComponentAlpha);
   dstClip->setSupportsTiles(true);
   dstClip->setFieldExtraction(eFieldExtractSingle);
@@ -301,6 +334,14 @@ void NoiseExamplePluginFactory::describeInContext(OFX::ImageEffectDescriptor &de
   par->setAnimates(false);
   par->setIsSecret(true);
   desc.addClipPreferencesSlaveParam(*par);
+  BooleanParamDescriptor *rgbOutput = desc.defineBooleanParam("rgbOutput");
+  rgbOutput->setLabel("RGB output");
+  rgbOutput->setHint("In the general context, an RGB output if the host supports RGB, else RGBA. "
+                     "Secret: it only drives a hostDemo test (test_generator.py::test_rgb_output).");
+  rgbOutput->setDefault(false);
+  rgbOutput->setAnimates(false);
+  rgbOutput->setIsSecret(true);
+  desc.addClipPreferencesSlaveParam(*rgbOutput);
   PageParamDescriptor *page = desc.definePageParam("Controls");
   page->addChild(*param);
 }

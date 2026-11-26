@@ -25,7 +25,7 @@ from . import specs, split_components, write_json
 from .constants import kOfxBitDepthByte, kOfxBitDepthFloat, kOfxBitDepthShort, kOfxImageEffectContextFilter
 from .specs import CLIP_LENGTH, parse_double, parse_int, parse_n
 
-__all__ = ["main", "run", "run_batch", "is_batch", "scan_options", "USAGE"]
+__all__ = ["main", "run", "run_batch", "is_batch", "scan_options", "host_components", "USAGE"]
 
 _DEFAULT_PLUGIN = "net.sf.openfx.invertPlugin"
 
@@ -65,6 +65,8 @@ hostDemo's command line, in-process on the HostSupport Python bindings (ofxhost.
   --ofx11            (hostDemo only: an OFX 1.1 host such as VEGAS Pro; refused here)
   --opengl-describe  with --describe only: say the host supports OpenGL render
                      (kOfxImageEffectPropOpenGLRenderSupported "true"), to describe OpenGL-only plug-ins
+  --components c,... the host's supported components (kOfxImageEffectPropSupportedComponents):
+                     distinct rgba, rgb or alpha, in order (default: rgba,alpha)
   --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,
                      the GetClipComponents action; Nuke-extension builds only)
   --no-normalised-defaults  be a host without normalised parameter defaults: double params
@@ -81,8 +83,8 @@ Batch mode: --batch FILE|- [-j N] [--timeout SECONDS] [--reuse-host|--fresh-host
 Formats and JSON schemas: HostSupport/examples/python/README.md. Exit status: 0 on success.
 """
 
-_VALUE_OPTIONS = ("-p", "-m", "-c", "-o", "-s", "-d", "-i", "--format", "--report", "--describe", "--frames",
-                  "--scale", "--window")
+_VALUE_OPTIONS = ("-p", "-m", "-c", "-o", "-s", "-d", "-i", "--format", "--report", "--describe", "--components",
+                  "--frames", "--scale", "--window")
 # the options without a value: (the key in _parse()'s result, its value); --no-cache is a no-op
 _FLAGS = {"--no-std-paths": ("std_paths", False), "--quiet": ("quiet", True),
           "--allow-unwritten": ("allow_unwritten", True), "--query": ("query", True), "--ofx14": ("ofx14", True),
@@ -156,6 +158,23 @@ def scan_options(args: Sequence[str]) -> tuple[str, set]:
             flags.add(args[i])
         i += 1
     return plugin, flags
+
+
+def host_components(args: Sequence[str]) -> tuple[str, ...]:
+    """The host's supported components that a command line gives (OFX names).
+
+    Its last --components that isn't the value of another option, else the default (also for an
+    invalid value: the command then fails).
+    """
+    comps = specs.HOST_COMPONENTS
+    i = 0
+    while i < len(args):
+        if args[i] in _VALUE_OPTIONS:
+            if args[i] == "--components" and i + 1 < len(args):
+                comps = specs.parse_host_components(args[i + 1]) or specs.HOST_COMPONENTS
+            i += 1  # (a value, which may be "--components")
+        i += 1
+    return comps
 
 
 def _parse_input_plane(o: dict, v: str) -> None:
@@ -260,6 +279,11 @@ def _parse_value(o: dict, arg: str, v: str, seen: set) -> None:
         if v not in _DEPTHS:
             _fail(f'Error: unsupported depth "{v}", expected byte, short or float')
         o["depth"] = _DEPTHS[v]
+    elif arg == "--components":
+        comps = specs.parse_host_components(v)
+        if comps is None:
+            _fail(f'Error: invalid components "{v}", {specs.COMPONENTS_EXPECTED}')
+        o["components"] = comps
     elif arg == "-i":
         _parse_input(o, v, seen)
     elif arg == "--frames":
@@ -279,7 +303,7 @@ def _parse(argv: list[str], prog: str) -> dict:
          "depth": "byte", "assignments": [], "inputs": [], "report": "", "describe": "", "std_paths": True,
          "planes": [], "multiplane": False, "quiet": False, "ofx14": False, "opengl_describe": False,
          "normalised_defaults": True, "allow_unwritten": False, "format": "ppm", "frames": None, "scale": (1., 1.),
-         "window": None, "query": False}
+         "window": None, "query": False, "components": specs.HOST_COMPONENTS}
     seen: set = set()
     a = 0
     while a < len(argv):
@@ -387,13 +411,13 @@ def run(argv: list[str], prog: str = "hostdemo", shutdown: bool = True) -> int:
             return _describe(ip, o, dirs, profile, keep)
         if not o["quiet"]:
             ip.ensure_host(dirs, profile, keep, o["std_paths"], normalised_defaults=o["normalised_defaults"],
-                           multiplane=o["multiplane"])
+                           multiplane=o["multiplane"], components=o["components"])
             _dump(ip.ofxh)
         job = ip.Job(o["plugin"], o["context"], o["inputs"], o["assignments"], o["depth"], o["frames"], o["scale"],
                      o["window"], query=o["query"], ofx14=o["ofx14"], allow_unwritten=o["allow_unwritten"],
                      major=o["major"], fmt=o["format"], prefix=o["prefix"], keep_loaded=keep,
                      use_std_paths=o["std_paths"], normalised_defaults=o["normalised_defaults"],
-                     multiplane=o["multiplane"], planes=o["planes"])
+                     multiplane=o["multiplane"], planes=o["planes"], components=o["components"])
         ret, report, _ = ip.run_job(dirs, job)
         if o["report"] and not _write_json(o["report"], report):
             ret = 1
@@ -411,7 +435,8 @@ def _describe(ip, o: dict, dirs: tuple, profile: str, keep: bool) -> int:
         _err("Error: --opengl-describe: ofxh was built without OFX_SUPPORTS_OPENGLRENDER (no OpenGL render suite)")
         return 1
     ip.ensure_host(dirs, profile, keep, o["std_paths"], opengl_render=o["opengl_describe"],
-                   normalised_defaults=o["normalised_defaults"], multiplane=o["multiplane"])
+                   normalised_defaults=o["normalised_defaults"], multiplane=o["multiplane"],
+                   components=o["components"])
     if not o["quiet"]:
         _dump(ip.ofxh)
     plugin = ip.ofxh.get_plugin(o["plugin"], o["major"])

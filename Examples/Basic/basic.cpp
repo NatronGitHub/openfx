@@ -64,6 +64,10 @@ struct MyInstanceData {
   OfxParamHandle scaleGParam;
   OfxParamHandle scaleBParam;
   OfxParamHandle scaleAParam;
+
+  // a render error was posted (ofxuPostRenderError()): clear it after the next render that works.
+  // Renders of an instance may be concurrent.
+  std::atomic<bool> renderErrorPosted{false};
 };
 
 /* mandatory function to set up the host structures */
@@ -656,7 +660,8 @@ static OfxStatus render( OfxImageEffectHandle  instance,
         if(maskImg != NULL) {                        
           // and see that it is a single component
           if(!maskIsAlpha || maskBitDepth != srcBitDepth) {
-            throw OfxuStatusException(kOfxStatErrImageFormat);
+            ofxuPostRenderError(instance, myData->renderErrorPosted, "The Mask is not an Alpha image of the Source's depth");
+            throw OfxuStatusException(kOfxStatFailed);
           }  
         }
       }
@@ -664,7 +669,8 @@ static OfxStatus render( OfxImageEffectHandle  instance,
 
     // see if they have the same depths and bytes and all
     if(srcBitDepth != dstBitDepth || srcIsAlpha != dstIsAlpha) {
-      throw OfxuStatusException(kOfxStatErrImageFormat);
+      ofxuPostRenderError(instance, myData->renderErrorPosted, "The Source and Output images have different depths or components");
+      throw OfxuStatusException(kOfxStatFailed);
     }
 
     // are we component scaling
@@ -750,11 +756,14 @@ static OfxStatus render( OfxImageEffectHandle  instance,
         break;
       }
     }
+    // the render worked: clear the error of an earlier one
+    ofxuClearRenderError(instance, myData->renderErrorPosted);
   }
   catch(OfxuNoImageException &ex) {
     // if we were interrupted, the failed fetch is fine, just return kOfxStatOK
     // otherwise, something weird happened
     if(!gEffectHost->abort(instance)) {
+      ofxuPostRenderError(instance, myData->renderErrorPosted, "The host gave no source or output image");
       status = kOfxStatFailed;
     }
   }

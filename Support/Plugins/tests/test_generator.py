@@ -45,3 +45,24 @@ def test_noise_level(render):
     assert 0 <= default.output.min() and default.output.max() < 0.2
     assert_close(one.output, 5 * default.output, rtol=1e-6)
     assert noise(render, Noise=0.0).output.max() == 0
+
+
+def test_rgb_output(render):
+    """An RGB output when the host supports RGB (hostDemo --components).
+
+    --components sets the host's kOfxImageEffectPropSupportedComponents ("the components
+    supported by a clip or host"). With rgbOutput, Noise asks for an RGB output in the general
+    context if the host supports RGB: it gets RGB with --components rgba,rgb,alpha, and RGBA with
+    the default (RGBA and Alpha). Its RGB noise is the RGB of its RGBA noise.
+    """
+    host_rgb = ["--components", "rgba,rgb,alpha"]
+    rgb = render(PLUGIN, context="general", inputs=INPUTS, params={"rgbOutput": True}, frames=[0],
+                 extra_args=host_rgb)
+    rgba = render(PLUGIN, context="general", inputs=INPUTS, params={"rgbOutput": True}, frames=[0])
+    assert rgb.report["clipPreferences"]["clips"]["Output"]["components"] == "OfxImageComponentRGB"
+    assert rgba.report["clipPreferences"]["clips"]["Output"]["components"] == "OfxImageComponentRGBA"
+    assert rgb.output.shape == (576, 720, 3) and rgba.output.shape == (576, 720, 4)
+    assert np.array_equal(rgb.output, rgba.output[..., :3])
+    # without rgbOutput, the host's components don't change the output
+    plain = render(PLUGIN, context="general", inputs=INPUTS, frames=[0], extra_args=host_rgb)
+    assert np.array_equal(plain.output, rgba.output)
