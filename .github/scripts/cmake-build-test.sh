@@ -16,6 +16,7 @@ opencl=OFF
 if [ "$(uname -s)" = Darwin ]; then opencl=ON; fi
 cmake -S . -B "$build" -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON -DOFX_SUPPORTS_OPENCLRENDER=$opencl \
+  -DOFX_HOSTSUPPORT_OPENGL=ON \
   -DOFX_EXTENSIONS_NATRON=OFF -DOFX_EXTENSIONS_NUKE=OFF -DOFX_EXTENSIONS_VEGAS=OFF \
   -DOFX_EXTENSIONS_TUTTLE=OFF -DOFX_EXTENSIONS_RESOLVE=OFF \
   -DPLUGIN_INSTALLDIR="$build/install/OFX/Plugins" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"} \
@@ -34,6 +35,13 @@ test -n "$slt" || { echo "support-library-test was not built"; exit 1; }
 dct=$(find "$build" -name drawcontext-opengl-test -type f -perm -u+x | head -1)
 test -n "$dct" || { echo "drawcontext-opengl-test was not built"; exit 1; }
 (cd "$build" && "$dct")  # (writes ofxPluginLog.txt)
+# openfx::HostSupportOpenGL (HostSupport/examples/openglRenderChecks.cpp): Linux with EGL
+# (Mesa llvmpipe in CI), macOS with CGL. It skips its OpenGL checks without a context, unless
+# OFXH_REQUIRE=1, which build.yml sets for all jobs: the macOS job (not required for merging)
+# then needs a CGL context too (the runners have Apple's software renderer)
+grc=$(find "$build" -name openglRenderChecks -type f -perm -u+x | head -1)
+test -n "$grc" || { echo "openglRenderChecks was not built"; exit 1; }
+(cd "$build" && OFX_PLUGIN_PATH="$build/Plugins" "$grc")
 cmake --install "$build" --prefix "$build/install"
 # Linux: linuxCheckBundle.sh on the installed examples. They need only system libraries, so the
 # full check (no system library bundled, no other library needed) applies; the symbol-version

@@ -69,7 +69,8 @@ jobs:
           cache-dependency-path: .github/workflows/build.yml
       - name: Install dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev
+          # (libegl1, libegl-mesa0, libgl1-mesa-dri: EGL and llvmpipe for openglRenderChecks)
+          sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev libegl1 libegl-mesa0 libgl1-mesa-dri
           pip install pyyaml "nanobind>=2.0,<4" numpy pytest "ruff~=0.17.0"
       - name: Python lint (ruff, with the rules of HostSupport/python/pyproject.toml)
         run: |
@@ -150,13 +151,15 @@ jobs:
           # or Vegas; the other ofxhost tests expect one)
           set -eo pipefail
           cmake -S . -B build-ci-natron -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLE_PLUGINS=ON \
-            -DBUILD_EXAMPLE_HOSTS=ON $OFX_EXT_CMAKE \
+            -DBUILD_EXAMPLE_HOSTS=ON -DOFX_HOSTSUPPORT_OPENGL=ON $OFX_EXT_CMAKE \
             -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
           cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test support-library-test ofxh \
             hostDemo suiteHandleChecks example-Basic-support example-ChoiceParams-support example-Generator-support \
             example-Invert-support example-Tester-support example-Retimer-support example-MultiBundle-support \
-            example-Rectangle example-PropTester example-MultiplyGPU-support example-OpenGL
+            example-Rectangle example-PropTester example-MultiplyGPU-support example-OpenGL openglRenderChecks
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test && Support/support-library-test)
+          # openfx::HostSupportOpenGL with the Natron context data (EGL, Mesa llvmpipe; OFXH_REQUIRE=1)
+          OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/examples/openglRenderChecks
           # the HostSupport checks with the extensions (e.g. kFnOfxImageEffectPropComponentsPresent)
           SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
             build-ci-natron/HostSupport/examples/suiteHandleChecks > suitehandlechecks-natron.log 2>&1 \
@@ -257,7 +260,7 @@ jobs:
         run: |
           set -eo pipefail
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON $OFX_EXT_CMAKE \
+            -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON -DOFX_HOSTSUPPORT_OPENGL=ON $OFX_EXT_CMAKE \
             -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins" \
             -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
             -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF
@@ -287,6 +290,12 @@ jobs:
           slt=$(find build -name support-library-test.exe -type f | head -1)
           test -n "$slt" || { echo "support-library-test was not built"; exit 1; }
           "$slt"
+      - name: openfx::HostSupportOpenGL without a context backend (openglRenderChecks skips the OpenGL checks)
+        run: |
+          set -eo pipefail
+          grc=$(find build -name openglRenderChecks.exe -type f | head -1)
+          test -n "$grc" || { echo "openglRenderChecks was not built"; exit 1; }
+          OFXH_REQUIRE=0 "$grc"
       - name: HostSupport checks (suiteHandleChecks), with the Windows plug-in search path
         run: |
           set -eo pipefail

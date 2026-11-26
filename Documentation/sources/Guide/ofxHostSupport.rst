@@ -415,6 +415,63 @@ threads must:
    ``createInstance()`` from several threads at once: they aren't
    thread-safe.
 
+OpenGL Rendering
+----------------
+
+HostSupport implements the OpenGL render suite
+(``OfxImageEffectOpenGLRenderSuiteV1``) and sends
+:c:macro:`kOfxActionOpenGLContextAttached` and
+:c:macro:`kOfxActionOpenGLContextDetached`, but the contexts and the
+textures are the host's: ``ClipInstance::loadTexture()`` is pure
+virtual. The optional library ``openfx::HostSupportOpenGL`` (CMake option
+``OFX_HOSTSUPPORT_OPENGL``, off by default) provides them for hosts that
+don't have their own:
+
+-  ``ofxhOpenGLContext.h``: offscreen contexts, with backends chosen at
+   run time (EGL surfaceless and EGL devices on Linux and BSD, CGL on
+   macOS; none yet on Windows), the renderers they offer, a context pool
+   (one context per render tree) and ``CurrentContext``, which makes a
+   context current on the calling thread. The host may give its own
+   OpenGL loader, a logger, and a wrapper for driver calls (for example
+   to mask floating-point exceptions);
+-  ``ofxhOpenGLTexture.h``: textures of OFX image rectangles, with upload,
+   readback and the render target;
+-  ``ofxhOpenGLRender.h``: ``chooseRenderMode()`` (OpenGL, CPU, or
+   neither, from :c:macro:`kOfxImageEffectPropOpenGLRenderSupported` and
+   :c:macro:`kOfxImageEffectPropCPURenderSupported`), ``Attachment``
+   (the context an instance is attached to, and its context data), and
+   ``RenderSession``, which attaches the instance, loads the textures of
+   the clips of a render, frees the textures the plug-in did not free,
+   and reads the output back. The host still overrides
+   ``ClipInstance::loadTexture()``: its override forwards to
+   ``RenderSession::loadTexture()`` of the render running on the
+   calling thread.
+
+The host still decides when to render with OpenGL: it sets
+:c:macro:`kOfxImageEffectPropOpenGLRenderSupported` to ``"true"`` on its
+descriptor, passes ``openGLRender`` to the render actions inside a
+``RenderSession``, and renders again on the CPU when the plug-in returns
+:c:macro:`kOfxStatGPURenderFailed`, or when ``RenderSession::inputFailed()``
+says an input couldn't be given as a texture, if the plug-in can render
+on the CPU.
+
+A context serves one render action at a time: effects "can use the
+graphics context as they see fit", with render passes "interleaved with
+passes performed on the CPU" (``ofxGPURender.h``), so its OpenGL state must
+last for the whole action of the plug-in. While ``RenderSession::loadTexture()`` calls
+``ClipInstance::getImage()``, the context is suspended (current nowhere) but
+reserved to the render. A render that the fetch starts on another thread
+(for example the tiles of an input rendered on demand) gets its context
+with ``ContextPool::tryAcquire()`` and a key of its own, which never waits:
+with no context available, it renders on the CPU if the plug-in can, and
+fails otherwise. A render nested on the same thread may use the reserved
+context. A host whose own ``ClipInstance::getImage()`` may render during an
+OpenGL render (a plug-in fetching a CPU image in OpenGL mode) does the
+same: ``suspend()`` the session's ``CurrentContext`` before rendering, and
+``resume()`` it after. The header
+of ``ofxhOpenGLRender.h`` shows the sequence, and
+``HostSupport/examples/openglRenderChecks.cpp`` runs it.
+
 Building a Host with HostSupport
 ================================
 
