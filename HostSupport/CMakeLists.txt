@@ -29,6 +29,28 @@ target_include_directories(OfxHost PUBLIC
 
 add_library(openfx::HostSupport ALIAS OfxHost)
 
+# openfx::HostSupportOpenGL: offscreen OpenGL contexts, textures and renders (ofxhOpenGLContext.h,
+# ofxhOpenGLTexture.h, ofxhOpenGLRender.h). Backends: EGL on Linux and BSD (libEGL is loaded at
+# run time: no build dependency), CGL on macOS, none yet on Windows.
+if(OFX_HOSTSUPPORT_OPENGL)
+	if(NOT OFX_SUPPORTS_OPENGLRENDER)
+		message(FATAL_ERROR "OFX_HOSTSUPPORT_OPENGL needs OFX_SUPPORTS_OPENGLRENDER")
+	endif()
+	find_package(Threads REQUIRED)
+	file(GLOB OFX_HOSTSUPPORT_OPENGL_FILES "${OFX_HOSTSUPPORT_LIBRARY_DIR}/opengl/*.cpp" "${OFX_HOSTSUPPORT_LIBRARY_DIR}/opengl/*.h")
+	add_library(OfxHostOpenGL STATIC ${OFX_HOSTSUPPORT_OPENGL_FILES})
+	set_target_properties(OfxHostOpenGL PROPERTIES
+		POSITION_INDEPENDENT_CODE ON
+		EXPORT_NAME HostSupportOpenGL)
+	target_link_libraries(OfxHostOpenGL PUBLIC OfxHost Threads::Threads)
+	if(APPLE)
+		target_link_libraries(OfxHostOpenGL PRIVATE "-framework OpenGL")
+	elseif(UNIX)
+		target_link_libraries(OfxHostOpenGL PRIVATE ${CMAKE_DL_LIBS})
+	endif()
+	add_library(openfx::HostSupportOpenGL ALIAS OfxHostOpenGL)
+endif()
+
 if(BUILD_EXAMPLE_HOSTS)
 	if(OFX_SUPPORTS_MULTITHREAD)
 		# hostDemo and cacheDemo don't implement the multi-thread suite functions that

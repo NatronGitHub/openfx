@@ -95,9 +95,12 @@ set(OFX_EXTRA_DEFINITIONS "" CACHE STRING
 option(BUILD_EXAMPLE_PLUGINS "Build the example plug-ins (Examples/, Support/Plugins/, Support/PropTester/)" OFF)
 option(BUILD_EXAMPLE_HOSTS "Build the example hosts (HostSupport/examples: hostDemo, cacheDemo, propsetDump, suiteHandleChecks)" OFF)
 option(OFX_PYTHON_BINDINGS "HostSupport Python bindings (nanobind)" OFF)
+# openfx::HostSupportOpenGL (HostSupport/include/ofxhOpenGL*.h): offscreen OpenGL contexts, textures
+# and renders for hosts that implement the OpenGL render suite. Needs OFX_SUPPORTS_OPENGLRENDER.
+option(OFX_HOSTSUPPORT_OPENGL "HostSupport: offscreen OpenGL rendering (openfx::HostSupportOpenGL)" OFF)
 # the example hosts and the Python bindings need HostSupport, also when openfx is used with
 # add_subdirectory()
-if((BUILD_EXAMPLE_HOSTS OR OFX_PYTHON_BINDINGS) AND NOT OFX_BUILD_HOSTSUPPORT)
+if((BUILD_EXAMPLE_HOSTS OR OFX_PYTHON_BINDINGS OR OFX_HOSTSUPPORT_OPENGL) AND NOT OFX_BUILD_HOSTSUPPORT)
   set(OFX_BUILD_HOSTSUPPORT ON CACHE BOOL "Build the HostSupport library (needs expat)" FORCE)
 endif()
 set(PLUGIN_INSTALLDIR "" CACHE STRING "Where the OFX bundles are installed (relative: to CMAKE_INSTALL_PREFIX; default depends on OS)")
@@ -218,7 +221,13 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 install(DIRECTORY include/ DESTINATION include
         FILES_MATCHING PATTERN "*.h" PATTERN "DocSrc" EXCLUDE)
-install(DIRECTORY HostSupport/include/ DESTINATION include/HostSupport FILES_MATCHING PATTERN "*.h")
+if(OFX_HOSTSUPPORT_OPENGL)
+  install(DIRECTORY HostSupport/include/ DESTINATION include/HostSupport FILES_MATCHING PATTERN "*.h")
+else()
+  # without openfx::HostSupportOpenGL, not its headers
+  install(DIRECTORY HostSupport/include/ DESTINATION include/HostSupport FILES_MATCHING PATTERN "*.h"
+          PATTERN "ofxhOpenGLContext.h" EXCLUDE PATTERN "ofxhOpenGLTexture.h" EXCLUDE PATTERN "ofxhOpenGLRender.h" EXCLUDE)
+endif()
 install(DIRECTORY Support/include/ DESTINATION include/Support FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY Support/Plugins/include/ DESTINATION include/Support/Plugins
         FILES_MATCHING PATTERN "*.h" PATTERN "*.H")
@@ -227,6 +236,9 @@ install(PROGRAMS Support/include/osxDeploy.sh Support/include/linuxCheckBundle.s
 set(_ofx_export_targets OfxApi OfxSupport)
 if(OFX_BUILD_HOSTSUPPORT)
   list(APPEND _ofx_export_targets OfxHost)
+  if(OFX_HOSTSUPPORT_OPENGL)
+    list(APPEND _ofx_export_targets OfxHostOpenGL)
+  endif()
 endif()
 install(TARGETS ${_ofx_export_targets} EXPORT openfxTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
