@@ -59,7 +59,9 @@ namespace MyHost
     _properties.setStringProperty(kOfxPropVersionLabel, "1.0");
     _properties.setIntProperty(kOfxImageEffectHostPropIsBackground, 0);
     _properties.setIntProperty(kOfxImageEffectPropSupportsOverlays, 0);
-    _properties.setIntProperty(kOfxImageEffectPropSupportsMultiResolution, 0);
+    // images of any size and offset; the inputs of a plug-in that doesn't support them are cropped
+    // and padded to the project extent (MyClipInstance::fetchImage())
+    _properties.setIntProperty(kOfxImageEffectPropSupportsMultiResolution, 1);
     _properties.setIntProperty(kOfxImageEffectPropSupportsTiles, true);
     _properties.setIntProperty(kOfxImageEffectPropTemporalClipAccess, true);
     _properties.setStringProperty(kOfxImageEffectPropSupportedComponents,  kOfxImageComponentRGBA, 0);

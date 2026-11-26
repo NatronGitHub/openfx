@@ -578,7 +578,8 @@ PyHost::PyHost(nb::object py, RefPtr ref)
   _properties.setStringProperty(kOfxPropVersionLabel, "1.0");
   _properties.setIntProperty(kOfxImageEffectHostPropIsBackground, 0);
   _properties.setIntProperty(kOfxImageEffectPropSupportsOverlays, 0);
-  _properties.setIntProperty(kOfxImageEffectPropSupportsMultiResolution, 0);
+  // (the inputs of a plug-in without multiple resolutions are cropped and padded: fetchFromPython())
+  _properties.setIntProperty(kOfxImageEffectPropSupportsMultiResolution, 1);
   _properties.setIntProperty(kOfxImageEffectPropSupportsTiles, true);
   _properties.setIntProperty(kOfxImageEffectPropTemporalClipAccess, true);
   _properties.setStringProperty(kOfxImageEffectPropSupportedComponents, kOfxImageComponentRGBA, 0);
@@ -908,7 +909,8 @@ static void fillSentinel(unsigned char *data, long long rowBytes, int width, int
   }
 }
 
-PyImage *PyClipInstance::makeImage(nb::object r, OfxTime time, int view, const std::string &plane)
+PyImage *PyClipInstance::makeImage(nb::object r, OfxTime time, int view, const std::string &plane,
+                                   const OfxRectI *frame, const OfxRectI *frameBounds)
 {
   PyEffectInstance *const effect = _effect;
   if (isOutput() && _outputImage) {
@@ -999,8 +1001,37 @@ PyImage *PyClipInstance::makeImage(nb::object r, OfxTime time, int view, const s
   if (isOutput()) {
     fillSentinel(static_cast<unsigned char *>(data), rowBytes, width, height, nComps, depth);
   }
-  PyImage *img = new PyImage(*this, nb::borrow(d.pixels), data, effect->renderScale(), bounds, rodPixels,
-                             static_cast<int>(rowBytes), fieldName(d.field), uid);
+  nb::object pixels = nb::borrow(d.pixels);
+  OfxRectI imageBounds = bounds, imageRoD = rodPixels;
+  long long imageRowBytes = rowBytes;
+  if (frame) {
+    // cropped and padded to the frame (fetchFromPython()): the image's pixels in frameBounds, black
+    // and transparent (zeros at every depth) elsewhere
+    imageRoD = *frame;
+    if (bounds.x1 != frameBounds->x1 || bounds.y1 != frameBounds->y1 || bounds.x2 != frameBounds->x2 ||
+        bounds.y2 != frameBounds->y2) {
+      const long long fw = frameBounds->x2 - frameBounds->x1, fh = frameBounds->y2 - frameBounds->y1;
+      const long long pixelBytes = static_cast<long long>(nComps) * static_cast<long long>(a.itemsize());
+      nb::object p = numpy().attr("zeros")(nb::make_tuple(fh, fw, nComps), dtname);
+      unsigned char *pdata = static_cast<unsigned char *>(nb::cast<nb::ndarray<>>(p).data());
+      const OfxRectI kept = intersect(bounds, *frameBounds);
+      for (int y = kept.y1; y < kept.y2 && kept.x1 < kept.x2; ++y) {
+        std::memcpy(pdata + (y - frameBounds->y1) * fw * pixelBytes + (kept.x1 - frameBounds->x1) * pixelBytes,
+                    static_cast<const unsigned char *>(data) + (y - bounds.y1) * rowBytes +
+                      (kept.x1 - bounds.x1) * pixelBytes,
+                    static_cast<size_t>((kept.x2 - kept.x1) * pixelBytes));
+      }
+      pixels = std::move(p);
+      data = pdata;
+      imageBounds = *frameBounds;
+      imageRowBytes = fw * pixelBytes;
+      if (imageRowBytes > INT_MAX) {
+        raiseError(PyExc_ValueError, where + "the rows of the frame are too large");
+      }
+    }
+  }
+  PyImage *img = new PyImage(*this, std::move(pixels), data, effect->renderScale(), imageBounds, imageRoD,
+                             static_cast<int>(imageRowBytes), fieldName(d.field), uid);
   if (!plane.empty()) {
     // (as hostDemo's: the plane's components, and no alpha)
     img->setStringProperty(kOfxImageEffectPropComponents, comps);
@@ -1048,9 +1079,33 @@ OHIE::Image *PyClipInstance::fetchFromPython(OfxTime time, int view, const OfxRe
       _outputImage->addReference();
       return _outputImage;
     }
-    nb::object b = optionalBounds ? nb::object(nb::make_tuple(optionalBounds->x1, optionalBounds->y1,
-                                                              optionalBounds->x2, optionalBounds->y2))
-                                  : nb::none();
+    // An input of an effect with a single-resolution frame, as hostDemo's (MyClipInstance::fetchImage(),
+    // which quotes the spec): the image is the frame, cropped and padded, cropped to optionalBounds if
+    // the plug-in supports tiles. get_image() is asked for those bounds (canonical), so that the
+    // padding is only what lies outside the input's RoD.
+    OfxRectD frameCanonical;
+    const bool cropsAndPads = !isOutput() && _effect->getSingleResolutionFrame(frameCanonical);
+    OfxRectI frame = {0, 0, 0, 0}, fb = frame;
+    OfxRectD fetch = optionalBounds ? *optionalBounds : emptyRectD();
+    const OfxPointD &rs = _effect->renderScale();
+    const double par = getAspectRatio();
+    if (cropsAndPads) {
+      frame = canonicalToPixelEnclosing(frameCanonical, rs, par);
+      fb = frame;
+      if (optionalBounds && _effect->supportsTiles() && supportsTiles()) {
+        fb = intersect(canonicalToPixelEnclosing(*optionalBounds, rs, par), frame);
+      }
+      if (fb.x2 <= fb.x1 || fb.y2 <= fb.y1 || !getConnected()) {
+        return nullptr;
+      }
+      fetch.x1 = fb.x1 * par / rs.x;
+      fetch.y1 = fb.y1 / rs.y;
+      fetch.x2 = fb.x2 * par / rs.x;
+      fetch.y2 = fb.y2 / rs.y;
+    }
+    nb::object b = (optionalBounds || cropsAndPads)
+                     ? nb::object(nb::make_tuple(fetch.x1, fetch.y1, fetch.x2, fetch.y2))
+                     : nb::none();
     // (the plane as a keyword, its short name: the inputs may have other planes, see
     // getImagePlane(); ofxh renders the colour plane only, one plane per render action)
     nb::object r = _py.attr("get_image")(time, view, b,
@@ -1062,10 +1117,22 @@ OHIE::Image *PyClipInstance::fetchFromPython(OfxTime time, int view, const OfxRe
       _outputImage->addReference();
       return _outputImage;
     }
-    if (r.is_none()) {
-      return nullptr;
+    if (!cropsAndPads) {
+      return r.is_none() ? nullptr : makeImage(r, time, view, plane);
     }
-    return makeImage(r, time, view, plane);
+    // black and transparent where get_image() gave nothing (a region in the padding only)
+    nb::dlpack::dtype dt;
+    const char *dtname = nullptr;
+    const int nComps = componentCount(plane.empty() ? getComponents() : planeComponents(plane));
+    if (r.is_none() && dtypeOf(getPixelDepth(), dt, dtname) && nComps > 0) {
+      ImageData d;
+      d.pixels = numpy().attr("zeros")(nb::make_tuple(fb.y2 - fb.y1, fb.x2 - fb.x1, nComps), dtname);
+      d.bounds = nb::make_tuple(fb.x1, fb.y1, fb.x2, fb.y2);
+      d.rod = nb::none();
+      d.field = "none";
+      r = nb::cast(std::move(d));
+    }
+    return r.is_none() ? nullptr : makeImage(r, time, view, plane, &frame, &fb);
   });
 }
 
@@ -1254,7 +1321,7 @@ const std::vector<std::string> &PyClipInstance::getComponentsPresent() const OFX
 
 OfxRectD PyClipInstance::getRegionOfDefinition(OfxTime time, int view) const
 {
-  return rod(time, view < 0 ? _view : view);
+  return pluginRoD(time, view < 0 ? _view : view);
 }
 #endif
 
@@ -1276,7 +1343,16 @@ void PyClipInstance::setView(int view)
 }
 #endif
 
-OfxRectD PyClipInstance::getRegionOfDefinition(OfxTime time) const { return rod(time, _view); }
+OfxRectD PyClipInstance::getRegionOfDefinition(OfxTime time) const { return pluginRoD(time, _view); }
+
+OfxRectD PyClipInstance::pluginRoD(OfxTime time, int view) const
+{
+  OfxRectD frame;
+  if (!isOutput() && getConnected() && _effect->getSingleResolutionFrame(frame)) {
+    return frame;
+  }
+  return rod(time, view);
+}
 
 // ---------------------------------------------------------------------------------------------
 // PyEffectInstance

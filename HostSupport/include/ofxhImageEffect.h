@@ -730,6 +730,18 @@ namespace OFX {
         // project would have an extent of 768, 576. 
         virtual void getProjectExtent(double& xSize, double& ySize) const = 0;
 
+        /// Return true if the host crops and pads the input images of a plug-in that doesn't support
+        /// multiple resolutions (or of every plug-in, if the host doesn't) to one frame, that of
+        /// getSingleResolutionFrame(). HostSupport then gives the output that frame as its RoD, and
+        /// crops the regions of interest to it. The host gives the input clips that frame as their RoD
+        /// (getRegionOfDefinition()), and their images cropped and padded to it. Default: false.
+        virtual bool cropsAndPadsImages() const { return false; }
+
+        /// If cropsAndPadsImages() and the plug-in or the host doesn't support multiple resolutions,
+        /// set frame to the project extent, rooted at the origin (canonical coordinates), and return
+        /// true. Else return false.
+        bool getSingleResolutionFrame(OfxRectD& frame) const;
+
         // The pixel aspect ratio of the current project 
         virtual double getProjectPixelAspectRatio() const = 0;
 

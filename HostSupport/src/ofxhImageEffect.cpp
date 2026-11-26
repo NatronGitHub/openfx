@@ -2083,6 +2083,11 @@ namespace OFX {
 #                                                                          endif
                                                                            );
         }
+        OfxRectD frame;
+        if ((stat == kOfxStatOK || stat == kOfxStatReplyDefault) && getSingleResolutionFrame(frame)) {
+          // the output has the frame of its inputs (getSingleResolutionFrame())
+          rod = frame;
+        }
 
 
 #       ifdef OFX_DEBUG_ACTIONS
@@ -2130,6 +2135,8 @@ namespace OFX {
         // Same goes for the input clips: if an input clip does not support tiles, then set the default
         // RoI for this clip to its RoD, but still call action and let the effect have the final decision.
         bool supportstiles = supportsTiles();
+        OfxRectD frame;
+        const bool hasFrame = getSingleResolutionFrame(frame);
 
         /// set up the in args 
         static const Property::PropSpec inStuff[] = {
@@ -2242,6 +2249,12 @@ namespace OFX {
               // which would result in a wrong clipping. Unfortunately only the implementation of
               // the host can do the correct clipping.
               //thisRoi = Clamp(thisRoi, rod);
+              // The single-resolution frame is the same at every time and view: an input's RoI is
+              // the frame, cropped to the region the plug-in asked for if it supports tiles. An empty
+              // RoI (the input isn't needed) stays empty.
+              if (hasFrame && !it->second->isOutput() && thisRoi.x1 < thisRoi.x2 && thisRoi.y1 < thisRoi.y2) {
+                thisRoi = (supportstiles && it->second->supportsTiles()) ? Clamp(thisRoi, frame) : frame;
+              }
               rois[it->second] = thisRoi;
             }
           }
@@ -2252,6 +2265,26 @@ namespace OFX {
         // e.g. the plug-in returned NaN values in outArgs (Set::getDoubleProperty() throws
         // kOfxStatErrValue): the action failed, but the exception must not reach the host
         return kOfxStatFailed;
+      }
+
+      bool Instance::getSingleResolutionFrame(OfxRectD& frame) const
+      {
+        // kOfxImageEffectPropSupportsMultiResolution: "Multiple resolution images mean... input
+        // and output images can be of any size; input and output images can be offset from the
+        // origin". ofxProcessingArch.rst: "some plugin effects cannot handle sub RoD images, or
+        // even images not rooted at the origin", and "The simplest systems... The RoDs, RoIs,
+        // images and project sizes in such systems are exactly the same, always." The frame is
+        // the project extent, which "is always rooted at 0,0" (kOfxImageEffectPropProjectExtent),
+        // not the project size, which "is a sub set of the kOfxImageEffectPropProjectExtent" (e.g.
+        // a letter-box) at the project offset, so not always at the origin.
+        if (!cropsAndPadsImages() ||
+            (supportsMultiResolution() &&
+             gImageEffectHost->getProperties().getIntProperty(kOfxImageEffectPropSupportsMultiResolution) != 0)) {
+          return false;
+        }
+        frame.x1 = frame.y1 = 0.;
+        getProjectExtent(frame.x2, frame.y2);
+        return true;
       }
 
 #ifdef OFX_EXTENSIONS_NUKE
