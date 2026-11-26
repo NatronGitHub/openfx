@@ -1,6 +1,7 @@
 """The OFX 1.4 host profile (ofxh.init(profile="ofx14"), as hostDemo --ofx14), the one host per
-process, PropertySet.__delitem__, ImageEffectInstance.param_props(), default_output_depth, and a host
-without normalised defaults (ofxh.init(normalised_defaults=False))."""
+process, PropertySet.__delitem__, ImageEffectInstance.param_props(), default_output_depth, a
+generator's output PAR in a host with multiple clip PARs, and a host without normalised defaults
+(ofxh.init(normalised_defaults=False))."""
 
 import json
 import os
@@ -207,6 +208,33 @@ def test_default_output_depth(plugin_dir, depth, expected):
         assert inst.create_instance_action() in (ofxh.Stat.OK, ofxh.Stat.ReplyDefault)
         assert inst.get_clip_preferences_action() == ofxh.Stat.OK
         assert inst.clip("Output").pixel_depth == expected
+
+
+@pytest.mark.parametrize("host_pars, is_connected, expected", [(1, False, 2.), (0, False, 768. / 720.), (1, True, 0.9)],
+                         ids=["generator", "host without multiple PARs", "connected input"])
+def test_generator_output_par(plugin_dir, host_pars, is_connected, expected):
+    """Noise doesn't support multiple clip PARs, but may set its output PAR when no input is connected,
+    if the host supports multiple clip PARs (see Instance::setupClipPreferencesArgs())."""
+
+    class Host(ofxh.Host):
+        def init_properties(self, props):
+            props[k.kOfxImageEffectPropSupportsMultipleClipPARs] = host_pars
+
+    class Clip(ofxh.ClipInstance):
+        connected = is_connected
+        aspect_ratio = 0.9  # the input's PAR (the project's: 768/720)
+
+    class Instance(ofxh.ImageEffectInstance):
+        def new_clip_instance(self, desc, index):
+            return ofxh.ClipInstance() if desc.is_output else Clip()
+
+    ofxh.init(Host(), [plugin_dir], use_env_path=False)
+    inst = ofxh.create_instance(ofxh.get_plugin(NOISE), "general", Instance())
+    with inst:
+        inst.set_param("pixelAspectRatio", 2.)
+        assert inst.create_instance_action() in (ofxh.Stat.OK, ofxh.Stat.ReplyDefault)
+        assert inst.get_clip_preferences_action() == ofxh.Stat.OK
+        assert inst.output_pixel_aspect_ratio == pytest.approx(expected)
 
 
 def test_default_output_depth_invalid(plugin_dir):

@@ -4334,26 +4334,30 @@ namespace OFX {
   void ClipPreferencesSetter::setPixelAspectRatio(Clip &clip, double PAR)
   {
     const std::string& propName = extractValueForName(clipPARPropNames_, clip.name());
-    // ofxClipPreferences.rst: "If the host sets this [kOfxImageEffectPropSupportsMultipleClipPARs]
-    // to 0, then all effect's input and output clips will always have the same pixel aspect ratio,
-    // and the plugin may not remap them. [...] If *both* the plugin and host set this to 1, then
-    // the plugin can [...] specify how the host is to map each clip". A conforming host then refuses
-    // the write, and a host without the property (VEGAS, an OFX 1.1 host) doesn't know it: log it
-    // instead of failing the whole action, as setClipBitDepth does. The write is still made when
-    // the host reports 0: some accept it (e.g. a reader's output PAR, openfx-io GenericReader).
     doneSomething_ = true;
-    try {
-      outArgs_.propSetDouble(propName.c_str(), PAR);
-    } catch (const OFX::Exception::PropertyValueIllegalToHost&) {
-      // kOfxStatErrValue: the property is read-only
-      OFX::Log::warning(true, "setPixelAspectRatio(%s, %g): the host refused to set %s: the plug-in may only "
-                        "set clip PARs if it and the host both support multiple clip PARs",
+    // outArgs holds the host's PAR: writing the same one changes nothing and logs nothing (e.g. a
+    // reader's 1 where the default is 1). A host lets a plug-in set clip PARs if both support
+    // multiple clip PARs (if the host doesn't, "the plugin may not remap them",
+    // ofxClipPreferences.rst), and some hosts (HostSupport) let a generator set its output PAR. A
+    // different PAR is still written when the host reports 0, since some accept it. The raw suite
+    // is used, so that a refused or unknown property logs one warning, not an error.
+    OfxPropertySetHandle h = outArgs_.propSetHandle();
+    double current = 0.;
+    if (OFX::Private::gPropSuite->propGetDouble(h, propName.c_str(), 0, &current) == kOfxStatOK && current == PAR) {
+      return;
+    }
+    const OfxStatus stat = OFX::Private::gPropSuite->propSetDouble(h, propName.c_str(), 0, PAR);
+    if (stat == kOfxStatErrValue) { // read-only
+      OFX::Log::warning(true, "setPixelAspectRatio(%s, %g): the host refused to set %s: a plug-in may set clip PARs only if "
+                        "the host supports multiple clip PARs, and, but for a generator's output in some hosts, if the plug-in does too",
                         clip.name().c_str(), PAR, propName.c_str());
-    } catch (const OFX::Exception::PropertyUnknownToHost&) {
+    } else if (stat == kOfxStatErrUnknown || stat == kOfxStatErrUnsupported) {
       OFX::Log::warning(true, "setPixelAspectRatio(%s, %g): the host does not support setting %s",
                         clip.name().c_str(), PAR, propName.c_str());
+    } else if (stat != kOfxStatOK) {
+      // other failures (bad handle, bad index: OFX::Exception::Suite; kOfxStatErrMemory: std::bad_alloc) propagate
+      throwSuiteStatusException(stat);
     }
-    // other failures (bad handle, bad index: OFX::Exception::Suite; kOfxStatErrMemory: std::bad_alloc) propagate
   }
 
   /** @brief Allows an effect to change the output frame rate */

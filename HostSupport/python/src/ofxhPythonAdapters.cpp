@@ -810,6 +810,9 @@ PyClipInstance::PyClipInstance(PyEffectInstance *effect, OHIE::ClipDescriptor &d
   , _ref(std::move(ref))
   , _view(0)
   , _outputImage(nullptr)
+#ifdef OFX_EXTENSIONS_NUKE
+  , _componentsPresent(1, kFnOfxImagePlaneColour)  // (the fallback if components_present raises)
+#endif
 {
   _ref->p = this;
 }
@@ -1228,9 +1231,8 @@ OHIE::Image *PyClipInstance::getImagePlane(OfxTime time, int view, const std::st
 
 const std::vector<std::string> &PyClipInstance::getComponentsPresent() const OFX_EXCEPTION_SPEC
 {
-  // (written only under the GIL, which serializes the writes, and only when it changes, as the base
-  // class's, since a plug-in keeps the const char* of a value; if components_present raises, the
-  // last good value)
+  // (written only under the GIL, which serializes the writes, and only when it changes, since a
+  // plug-in keeps the const char* of a value; if components_present raises, the last good value)
   using Planes = std::vector<std::string>;
   const Planes *present = callPython(static_cast<const Planes *>(&_componentsPresent), [&]() -> const Planes * {
     nb::object planes = _py.attr("components_present");
