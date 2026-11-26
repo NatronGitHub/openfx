@@ -32,16 +32,18 @@ is the Support version of the :ref:`invert example <invertExample>`. It
 also has two boolean parameters, ``supportsTiles`` and ``testSmallRoI``.
 They are used to test hosts; a real plug-in wouldn't have them.
 
-It includes the image effect header, and the samples' processing helper:
+It includes the image effect header, and two helpers of the samples (image
+processing and render errors):
 
 .. literalinclude:: ../../../Support/Plugins/Invert/invert.cpp
    :language: c++
    :start-at: #include "ofxsImageEffect.h"
-   :end-at: #include "ofxsProcessing.H"
+   :end-at: #include "ofxsRenderMessage.H"
 
 ``ofxsImageEffect.h`` also includes ``ofxsParam.h``, ``ofxsInteract.h``
-and ``ofxsCore.h``. ``ofxsProcessing.H`` is in ``Support/Plugins/include``,
-which ``openfx::Support`` and ``Makefile.master`` put on the include path.
+and ``ofxsCore.h``. ``ofxsProcessing.H`` and ``ofxsRenderMessage.H`` are in
+``Support/Plugins/include``, which ``openfx::Support`` and ``Makefile.master``
+put on the include path.
 
 Describing the Plug-in
 ----------------------
@@ -113,6 +115,14 @@ time, checks them, and runs the processor on the render window:
 - ``checkBadRenderScaleOrField()`` checks, in debug builds, that the
   host gave the render scale and field of the render arguments.
 
+The samples do the output checks in ``renderMessage_.fetchOutput()``:
+
+.. literalinclude:: ../../../Support/Plugins/include/ofxsRenderMessage.H
+   :language: c++
+   :start-at: auto_ptr<Image> fetchOutput
+   :end-before: /** @brief a source image
+   :dedent: 4
+
 The ``OFX::auto_ptr`` objects (``std::unique_ptr``) release
 the images to the host when they go out of scope:
 
@@ -142,15 +152,19 @@ Errors
 The plug-in reports an error by throwing
 ``OFX::throwSuiteStatusException(status)``; the dispatcher returns that
 status to the host (see :ref:`supportWhatItDoes`), so no action needs a
-``try`` block just to return a status. For the render action the
-specification lists :c:macro:`kOfxStatFailed` as "something wrong, but no
-error code appropriate, plugin to post message": tell the user why first,
-with ``setPersistentMessage(OFX::Message::eMessageError, "", reason)``,
-and call ``clearPersistentMessage()`` once the instance works again
-(Invert's ``renderError()`` and ``setupAndProcess()`` do this, clearing
-only a message they posted, so that a working render makes no message
-suite call). ``render()`` throws
-:c:macro:`kOfxStatErrUnsupported` for a depth it doesn't handle.
+``try`` block just to return a status. The render action
+returns :c:macro:`kOfxStatOK`, :c:macro:`kOfxStatErrMemory`,
+:c:macro:`kOfxStatFailed` ("something wrong, but no error code
+appropriate, plugin to post message") or :c:macro:`kOfxStatErrFatal`: on
+a failure, tell the user why first, with
+``setPersistentMessage(OFX::Message::eMessageError, "", reason)``, and
+call ``clearPersistentMessage()`` once the instance works again
+(``OFX::RenderMessage`` does this: ``fail()`` posts the message and
+throws :c:macro:`kOfxStatFailed`, and ``clear()`` removes only a message
+that ``fail()`` posted, so that a working render makes no message suite
+call). The samples' ``render()`` keeps upstream's
+:c:macro:`kOfxStatErrUnsupported` for a depth it doesn't handle: one that
+``describe()`` didn't declare, which a host doesn't ask for.
 
 Catch the exceptions of the libraries the plug-in calls: they would reach
 the dispatcher as :c:macro:`kOfxStatFailed`, with no message. A
@@ -623,10 +637,11 @@ The library throws exceptions of namespace ``OFX::Exception``. A plug-in
 may throw too: ``OFX::throwSuiteStatusException(status)`` makes the
 action return ``status``.
 
-The headers ``ofxsProcessing.H`` and ``ofxsImageBlender.H`` in
-``Support/Plugins/include`` are not part of the library. They are helpers
-of the samples: ``OFX::ImageProcessor`` splits a render window between
-threads with ``OFX::MultiThread::Processor``. The
+The headers ``ofxsProcessing.H``, ``ofxsImageBlender.H`` and
+``ofxsRenderMessage.H`` in ``Support/Plugins/include`` are not part of the
+library. They are helpers of the samples: ``OFX::ImageProcessor`` splits a
+render window between threads with ``OFX::MultiThread::Processor``, and
+``OFX::RenderMessage`` reports the render errors. The
 `openfx-supportext <https://github.com/NatronGitHub/openfx-supportext>`__
 repository has many more helpers (pixel processors, overlays, macros),
 used by openfx-misc, openfx-io and openfx-arena.

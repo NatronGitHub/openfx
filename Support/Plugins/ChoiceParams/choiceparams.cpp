@@ -19,6 +19,7 @@
 #include "ofxsImageEffect.h"
 
 #include "ofxsProcessing.H"
+#include "ofxsRenderMessage.H"
 
 // Choice params with an option order (kOfxParamPropChoiceOrder, OFX 1.5), and a StrChoice param
 // (OFX 1.5). Both are optional: on hosts without them (e.g. OFX 1.4), the order is ignored and the
@@ -198,6 +199,7 @@ protected :
   OFX::ChoiceParam  *red_choice_;
   OFX::ChoiceParam  *green_choice_;
   OFX::StrChoiceParam  *blue_choice_;
+  OFX::RenderMessage renderMessage_;
 
 public :
   /** @brief ctor */
@@ -260,25 +262,18 @@ public :
 void
 ChoiceParamsPlugin::setupAndProcess(ImageScalerBase &processor, const OFX::RenderArguments &args)
 {
-  // get a dst image
-  std::unique_ptr<OFX::Image> dst(dstClip_->fetchImage(args.time));
-  if(!dst.get())
-    OFX::throwSuiteStatusException(kOfxStatFailed);
-  OFX::BitDepthEnum dstBitDepth       = dst->getPixelDepth();
-  OFX::PixelComponentEnum dstComponents  = dst->getPixelComponents();
+  // the output image: it must exist, with the clip's depth and components
+  std::unique_ptr<OFX::Image> dst(renderMessage_.fetchOutput(*this, *dstClip_, args));
 
   // fetch main input image (none if disconnected: the output is then black)
   std::unique_ptr<OFX::Image> src(srcClip_->isConnected() ? srcClip_->fetchImage(args.time) : NULL);
-
-  // make sure bit depths are sane
   if(src.get()) {
-    OFX::BitDepthEnum    srcBitDepth      = src->getPixelDepth();
-    OFX::PixelComponentEnum srcComponents = src->getPixelComponents();
-
-    // see if they have the same depths and bytes and all
-    if(srcBitDepth != dstBitDepth || srcComponents != dstComponents)
-      OFX::throwSuiteStatusException(kOfxStatErrImageFormat);
+    renderMessage_.checkSource(*this, *src, *dst);
+    checkBadRenderScaleOrField(src, args);
   }
+
+  // the images are right: remove the message of an earlier failed render
+  renderMessage_.clear(*this);
 
   std::unique_ptr<OFX::Image> mask;
 
@@ -455,7 +450,7 @@ ChoiceParamsPlugin::changedClip(const OFX::InstanceChangedArgs &/*args*/, const 
 // draw the interact
 bool ChoiceParamsInteract::draw(const OFX::DrawArgs &args)
 {
-  OfxRGBColourF col;
+  OfxRGBColourF col = { 0.f, 0.f, 0.f };
   switch(_state) 
   {
   case eInActive : col.r = col.g = col.b = 0.0f; break;

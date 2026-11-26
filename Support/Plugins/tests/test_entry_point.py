@@ -2,8 +2,7 @@
 
 Pattern: a call that no host makes, and that could crash the plug-in: it runs in a subprocess, so
 that a crash fails the test instead of killing pytest.
-- a null action returns kOfxStatFailed (the Support library turned it into a std::string,
-  undefined behaviour, before checking it);
+- a null action returns kOfxStatFailed (std::string(NULL) would be undefined behaviour);
 - an action the plug-in doesn't know returns kOfxStatReplyDefault: "the value kOfxStatReplyDefault
   is returned if the plug-in does not trap the action" (Reference/ofxCoreAPI.rst).
 Neither needs OfxSetHost or the load action: the Support library checks the action first.

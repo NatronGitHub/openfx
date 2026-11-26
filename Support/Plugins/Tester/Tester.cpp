@@ -21,6 +21,7 @@
 #include "ofxsInteract.h"
 
 #include "../include/ofxsProcessing.H"
+#include "../include/ofxsRenderMessage.H"
 
 static const OfxPointD kBoxSize = {5, 5};
 
@@ -68,7 +69,7 @@ public :
 
 bool PositionInteract::draw(const OFX::DrawArgs &args)
 {
-  OfxRGBColourF col;
+  OfxRGBColourF col = { 0.f, 0.f, 0.f };
   switch(_state) 
   {
   case eInActive : col.r = col.g = col.b = 0.0f; break;
@@ -195,7 +196,7 @@ class ImageGenericTester : public GenericTestBase
 {
 public :
   ImageGenericTester(OFX::ImageEffect &instance) : GenericTestBase(instance){}
-  void multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& renderScale)
+  void multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& /*renderScale*/)
   {
     for(int y = procWindow.y1; y < procWindow.y2; y++) 
     {
@@ -245,15 +246,12 @@ class GenericTestPlugin : public OFX::ImageEffect
 protected :
   OFX::Clip *dstClip_;
   OFX::Clip *srcClip_;
-  // an error message of setupAndProcess() is shown: clear it once a render works again. Render
-  // calls on one instance aren't concurrent (the default render thread safety, instance safe), so
-  // it needs no lock.
-  bool messagePosted_;
+  OFX::RenderMessage renderMessage_;
 
 public :
   double nestedTime_; ///< the time of the last plug-in edit of keysDouble (keysTest)
 
-  GenericTestPlugin(OfxImageEffectHandle handle) : ImageEffect(handle), dstClip_(NULL), srcClip_(NULL), messagePosted_(false), nestedTime_(0.)
+  GenericTestPlugin(OfxImageEffectHandle handle) : ImageEffect(handle), dstClip_(NULL), srcClip_(NULL), nestedTime_(0.)
   {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
@@ -263,15 +261,14 @@ public :
     setSequentialRender(false);
   }
 
-  /* a test of the Support library: the output PAR is the source's, which a host that doesn't
-     support multiple clip PARs (kOfxImageEffectPropSupportsMultipleClipPARs 0, e.g. VEGAS and
-     hostDemo) doesn't let the plug-in set ("the plugin may not remap them"): this must not fail
-     the action. Nor must reading the default coordinate system of widgetPos
-     (kOfxParamPropDefaultCoordinateSystem, OFX 1.2) in a host without it (hostDemo --ofx11 or
-     --no-normalised-defaults): it is canonical there */
+  /* two tests of the Support library in hosts that lack a feature: neither may fail the action */
   virtual void getClipPreferences(OFX::ClipPreferencesSetter &clipPreferences)
   {
+    // the output PAR is the source's: a host without multiple clip PARs
+    // (kOfxImageEffectPropSupportsMultipleClipPARs 0, e.g. VEGAS and hostDemo) refuses it
     clipPreferences.setPixelAspectRatio(*dstClip_, srcClip_->getPixelAspectRatio());
+    // kOfxParamPropDefaultCoordinateSystem (OFX 1.2) is canonical in a host without it
+    // (hostDemo --ofx11 or --no-normalised-defaults)
     OFX::DefaultCoordinateSystemEnum coords;
     fetchDouble2DParam("widgetPos")->getDefaultCoordinateSystem(coords);
     (void)coords;
@@ -279,14 +276,6 @@ public :
 
   virtual void render(const OFX::RenderArguments &args);
   void setupAndProcess(GenericTestBase &, const OFX::RenderArguments &args);
-
-  /* tell the user why the render fails, then fail with that status */
-  void renderError(const char *message, OfxStatus status)
-  {
-    setPersistentMessage(OFX::Message::eMessageError, "", message);
-    messagePosted_ = true;
-    OFX::throwSuiteStatusException(status);
-  }
 
   // A test of the host's keyframe functions (paramSetValueAtTime, paramGetNumKeys, paramGetKeyTime,
   // paramGetKeyIndex, paramDeleteKey, paramDeleteAllKeys, paramGetValueAtTime, paramGetDerivative,
@@ -512,37 +501,17 @@ public :
 
 void GenericTestPlugin::setupAndProcess(GenericTestBase &processor, const OFX::RenderArguments &args)
 {
-  // NULL means the host has no output image, an error
-  OFX::auto_ptr<OFX::Image> dst(dstClip_->fetchImage(args.time));
-  if (!dst.get()) {
-    renderError("The host gave no output image", kOfxStatFailed);
-  }
-  OFX::BitDepthEnum dstBitDepth       = dst->getPixelDepth();
-  OFX::PixelComponentEnum dstComponents  = dst->getPixelComponents();
-  // render() chose the processor from the clip: the image must match it
-  if (dstBitDepth != dstClip_->getPixelDepth() || dstComponents != dstClip_->getPixelComponents()) {
-    renderError("The host gave an output image with the wrong depth or components", kOfxStatFailed);
-  }
-  checkBadRenderScaleOrField(dst, args); // debug builds only
+  // the output image: it must exist, with the clip's depth and components
+  OFX::auto_ptr<OFX::Image> dst(renderMessage_.fetchOutput(*this, *dstClip_, args));
   OFX::auto_ptr<OFX::Image> src(srcClip_->fetchImage(args.time));
 
-  if(src.get()) 
-  {
-    OFX::BitDepthEnum    srcBitDepth      = src->getPixelDepth();
-    OFX::PixelComponentEnum srcComponents = src->getPixelComponents();
-
-    // see if they have the same depths and bytes and all
-    if(srcBitDepth != dstBitDepth || srcComponents != dstComponents) {
-      renderError("The source and output images differ in depth or components", kOfxStatErrImageFormat);
-    }
-    checkBadRenderScaleOrField(src, args); // debug builds only
+  if(src.get()) {
+    renderMessage_.checkSource(*this, *src, *dst);
+    checkBadRenderScaleOrField(src, args);
   }
 
   // the images are right: remove the message of an earlier failed render
-  if (messagePosted_) {
-    clearPersistentMessage();
-    messagePosted_ = false;
-  }
+  renderMessage_.clear(*this);
 
   processor.setDstImg(dst.get());
   processor.setSrcImg(src.get());
@@ -557,8 +526,9 @@ void GenericTestPlugin::render(const OFX::RenderArguments &args)
   {
     OFX::DoubleParam* keysDouble = fetchDoubleParam("keysDouble");
     if (std::fabs(keysDouble->getValue() - keysDouble->getValueAtTime(args.time)) > 1e-9) {
+      // (clear an earlier render error first: otherwise setupAndProcess() would remove this message)
+      renderMessage_.clear(*this);
       setPersistentMessage(OFX::Message::eMessageError, "", "render: paramGetValue isn't the value at the render's time");
-      messagePosted_ = false; // it replaced any message of setupAndProcess(): keep it
     }
   }
   // a test of the Support library, intentional: the progressUpdate() and progressEnd() after

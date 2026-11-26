@@ -358,9 +358,8 @@ OR:
     \ref kOfxPropChangeReason = \ref kOfxChangePluginEdited, and ensure that
     \ref OfxImageEffectSuiteV1::clipGetRegionOfDefinition works in that action.
 
- Fork note (NatronGitHub/openfx): this fork uses \ref kOfxChangePluginEdited in both notes, here and in
- \ref kOfxActionInstanceChanged (upstream main has \ref kOfxChangeUserEdited
- here), as proposed in upstream openfx#294; this is what Natron does.
+ Fork note (NatronGitHub/openfx): \ref kOfxChangePluginEdited here, as in
+ \ref kOfxActionInstanceChanged (upstream has \ref kOfxChangeUserEdited here; upstream openfx#294).
 
  @param  handle handle to the plug-in instance, cast to an \ref OfxImageEffectHandle
  @param  inArgs is redundant and is set to NULL
@@ -449,9 +448,6 @@ OR:
  property \ref kOfxPropType = \ref kOfxTypeClip and \ref kOfxPropChangeReason =
  \ref kOfxChangePluginEdited, and ensure that \ref OfxImageEffectSuiteV1::clipGetRegionOfDefinition works in
  this action.
-
- Fork note (NatronGitHub/openfx): this fork follows upstream openfx#294: the same reason as in the
- \ref kOfxActionCreateInstance note.
 
  @param  handle handle to the plug-in instance, cast to an \ref OfxImageEffectHandle
  @param  inArgs has the following properties
@@ -1109,10 +1105,8 @@ General status codes start at 1 and continue until 999
 /*@}*/
 
 
-/** @name Additions of the next OFX release (after 1.5.1)
- Imported from the AcademySoftwareFoundation/openfx standard (main 4249fe1b).
- Values are identical to upstream, so that plug-ins and hosts built against
- either header set interoperate.
+/** @name Additions from upstream main (not in OFX 1.5.1)
+ Imported from AcademySoftwareFoundation/openfx main 4249fe1b, with the same values.
  @{
 */
 

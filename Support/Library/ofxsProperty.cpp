@@ -489,6 +489,19 @@ namespace OFX {
       throwPropertyException(stat, property);
     }
 
+    bool propSetStringIfSupported(PropertySet& props, const char* property, const std::string& value, int idx)
+    {
+      assert(props.propSetHandle() != 0);
+      OfxStatus stat = gPropSuite->propSetString(props.propSetHandle(), property, idx, value.c_str());
+      if (stat == kOfxStatErrMemory) {
+        throw std::bad_alloc();
+      }
+      Log::error(stat != kOfxStatOK && !hostLacksProperty(stat),
+                 "Failed on setting string property %s[%d] to %s, host returned status %s;",
+                 property, idx, value.c_str(), mapStatusToString(stat));
+      return stat == kOfxStatOK;
+    }
+
   } // namespace Private
 
 }

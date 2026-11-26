@@ -1699,13 +1699,10 @@ changes a keyframe.  The keyframe indices will not change within a single action
  } OfxParameterSuiteV1;
 
 
-/** @name OFX 1.5 and next-release additions
+/** @name Additions from OFX 1.5 and upstream main
  Bytes, StrChoice, kOfxParamPropChoiceOrder and kOfxParamPropPersistant are in OFX 1.5;
- kOfxParamPropColourManagement and kOfxParamInterpType are for the next OFX
- release (after 1.5.1).
- Imported from the AcademySoftwareFoundation/openfx standard (main 4249fe1b).
- Values are identical to upstream, so that plug-ins and hosts built against
- either header set interoperate.
+ kOfxParamPropColourManagement and kOfxParamInterpType are not in OFX 1.5.1.
+ Imported from AcademySoftwareFoundation/openfx main 4249fe1b, with the same values.
  @{
 */
 
@@ -1853,8 +1850,6 @@ display-referred user-interface colours such as Draw Suite overlays. */
 #define kOfxParamColourManagementSRGB "OfxParamColourManagementSRGB"
 
 /** @brief Sets the default interpolation type of a Integer or Double parameter.
-
-   Not in OFX 1.5 or 1.5.1: upstream main (c91cce7b), for the next release.
 
    - Type - C string X 1
    - Default - ::kOfxParamInterpTypeLinear

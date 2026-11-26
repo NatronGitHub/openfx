@@ -12,15 +12,12 @@ if(BUILD_EXAMPLE_PLUGINS)
   add_executable(drawsuite-opengl-test tests/DrawSuiteOpenGLTest.cpp)
   target_include_directories(drawsuite-opengl-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include"
                              "${CMAKE_CURRENT_SOURCE_DIR}/../HostSupport/include")
-  # self-test of Support code that needs no host (Support/tests/SupportLibraryTest.cpp): the null
-  # action of the interact entry point, ~AutoMutexT(), define*Param() on a type mismatch, and
-  # (with OFX_EXTENSIONS_NATRON) the decoding of kNatronOfxPropNativeOverlays. Exits with 0 if all
-  # passed (.github/scripts/cmake-build-test.sh runs it).
-  # It also compiles Library/ofxsMultiThread.cpp with OFX_USE_MULTITHREAD_MUTEX (which OfxSupport
-  # doesn't define: the plug-ins that use OFX::MultiThread::Mutex do), to test the Mutex used when
-  # the host has no mutex functions; its definitions take the place of OfxSupport's. This links a
-  # second copy of ofxsMultiThread.cpp, which works only because OfxSupport is a static library:
-  # the linker then never pulls in OfxSupport's ofxsMultiThread object.
+  # self-test of Support code that needs no host (the list is at the top of
+  # tests/SupportLibraryTest.cpp). Exits with 0 if all passed (.github/scripts/cmake-build-test.sh
+  # runs it).
+  # OfxSupport is built without OFX_USE_MULTITHREAD_MUTEX: the test compiles its own
+  # Library/ofxsMultiThread.cpp with it, which the linker takes instead of OfxSupport's (a static
+  # library), to test OFX::MultiThread::Mutex without the host's mutex functions.
   add_executable(support-library-test tests/SupportLibraryTest.cpp Library/ofxsMultiThread.cpp)
   target_compile_definitions(support-library-test PRIVATE OFX_USE_MULTITHREAD_MUTEX)
   target_include_directories(support-library-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Library")

@@ -26,7 +26,7 @@
 #endif
 #include "ofxGPURender.h" // OFX 1.5 GPU render extension properties
 #include "ofxColour.h" // OFX 1.5 colour management
-#include "ofxSonyVegas.h" // the VEGAS host names (_hostIsVegas), with or without OFX_EXTENSIONS_VEGAS
+#include "ofxSonyVegas.h" // the VEGAS host names (hostIsVegas), with or without OFX_EXTENSIONS_VEGAS
 #include "ofxsCore.h"
 
 #if defined __APPLE__ || defined __linux__ || defined __FreeBSD__
@@ -995,7 +995,8 @@ namespace OFX {
     // the short and long labels follow the label unless setLabels() set them, as OFX 1.4 ofxCore.h
     // says of kOfxPropShortLabel and kOfxPropLongLabel: "Default - initially kOfxPropName, but will
     // be reset if kOfxPropLabel is changed". Not all hosts do it: DaVinci Resolve 21.0.4's Cut page
-    // shows only the long label (https://github.com/ntsc-rs/ntsc-rs/issues/875). Optional properties
+    // shows only the long label (https://github.com/ntsc-rs/ntsc-rs/issues/875). Not every host has
+    // them: no throw
     if (!_shortAndLongLabelsSet) {
       _effectProps.propSetString(kOfxPropShortLabel, label, false);
       _effectProps.propSetString(kOfxPropLongLabel, label, false);
@@ -1868,7 +1869,7 @@ namespace OFX {
   }
 #endif
 
-  /** @brief indicate that the plugin is obsolete (next OFX release, after 1.5.1): made obsolete by another version
+  /** @brief indicate that the plugin is obsolete (not in OFX 1.5.1): made obsolete by another version
    in the same bundle or, in this fork, superseded by another plugin or by a host-internal node (see the header) */
   void ImageEffectDescriptor::setIsObsolete(bool v)
   {
@@ -1876,7 +1877,7 @@ namespace OFX {
     _effectProps.propSetInt(kOfxImageEffectPluginPropObsolete, int(v), false);
   }
 
-  /** @brief Does the plugin support Metal texture render (next OFX release, after 1.5.1) */
+  /** @brief Does the plugin support Metal texture render (not in OFX 1.5.1) */
   void ImageEffectDescriptor::setSupportsMetalTextureRender(bool v)
   {
     // host may not know this property: don't throw
@@ -2379,7 +2380,7 @@ namespace OFX {
   }
 
   /** @brief get the frame rate, in frames per second on this clip, after any clip preferences have been applied */
-  /** @brief kOfxImageClipPropDisplayTimeOffset (next OFX release, after 1.5.1), 0 if the host doesn't set it */
+  /** @brief kOfxImageClipPropDisplayTimeOffset (not in OFX 1.5.1), 0 if the host doesn't set it */
   double Clip::getDisplayTimeOffset(void) const
   {
     return _clipProps.propGetDouble(kOfxImageClipPropDisplayTimeOffset, false);
@@ -2870,15 +2871,16 @@ namespace OFX {
     }
 
     const ImageEffectHostDescription &hostDescription = *getImageEffectHostDescription();
-    _hostIsResolve = (hostDescription.hostName.rfind("DaVinciResolve", 0) == 0);  // the field of Resolve's images is always None
-    _hostIsFusion = (hostDescription.hostName == "com.eyeonline.Fusion") || (hostDescription.hostName == "com.blackmagicdesign.Fusion"); // Fusion gives inverse RS props in inargs and on the images
-    // Vegas, and probably VegasMovieStudio, always use renderScale, and do not set it in the image props, see https://github.com/NatronGitHub/openfx-misc/issues/66#issuecomment-562783481
-    // VEGAS Pro 19 reports com.vegascreativesoftware.vegas, VEGAS Pro 12 to 15 com.sonycreativesoftware.vegas
-    // (openfx-misc's README-hosts.txt, the VEGAS Pro 15 and 19 host descriptions)
-    _hostIsVegas = starts_with(hostDescription.hostName, kOfxSonyVegasHostName) ||
-                   starts_with(hostDescription.hostName, kOfxVegasProHostName);
-    _ignoreImageRenderScale = _hostIsFusion || _hostIsVegas;
-    _ignoreImageField = _hostIsResolve;
+    // kOfxImagePropField is always kOfxImageFieldNone on Resolve's images, whatever the clip properties
+    const bool hostIsResolve = starts_with(hostDescription.hostName, "DaVinciResolve");
+    // Fusion: kOfxImageEffectPropRenderScale is 1/3. in the render inArgs, but 3. on the images
+    const bool hostIsFusion = (hostDescription.hostName == "com.eyeonline.Fusion") || (hostDescription.hostName == "com.blackmagicdesign.Fusion");
+    // Vegas, and probably VegasMovieStudio, always use renderScale, and do not set it in the image props
+    // (<1 in the inArgs of a downscaled render, 1. on the images), see https://github.com/NatronGitHub/openfx-misc/issues/66#issuecomment-562783481
+    const bool hostIsVegas = starts_with(hostDescription.hostName, kOfxSonyVegasHostName) ||
+                             starts_with(hostDescription.hostName, kOfxVegasProHostName);
+    _ignoreImageRenderScale = hostIsFusion || hostIsVegas;
+    _ignoreImageField = hostIsResolve;
   }
 
   /** @brief dtor */
@@ -3062,30 +3064,15 @@ namespace OFX {
     return eColourManagementStyleNone; // absent, empty or unknown
   }
 
-  /// set a property that the host may not know, and report whether the host accepted it
-  static bool colourPropSetString(PropertySet &props, const char *property, const std::string &value, int idx = 0)
-  {
-    try {
-      props.propSetString(property, value, idx);
-      return true;
-    } catch (const OFX::Exception::PropertyUnknownToHost &) {
-      return false;
-    } catch (const OFX::Exception::PropertyValueIllegalToHost &) {
-      return false;
-    } catch (const OFX::Exception::Suite &) {
-      return false;
-    }
-  }
-
   bool ImageEffectDescriptor::setColourManagementStyle(ColourManagementStyleEnum v)
   {
-    return colourPropSetString(_effectProps, kOfxImageEffectPropColourManagementStyle, mapColourManagementStyleEnumToStr(v));
+    return OFX::Private::propSetStringIfSupported(_effectProps, kOfxImageEffectPropColourManagementStyle, mapColourManagementStyleEnumToStr(v));
   }
 
   bool ImageEffectDescriptor::setColourManagementAvailableConfigs(const std::vector<std::string> &configs)
   {
     for (std::size_t i = 0; i < configs.size(); ++i) {
-      if (!colourPropSetString(_effectProps, kOfxImageEffectPropColourManagementAvailableConfigs, configs[i], (int)i)) {
+      if (!OFX::Private::propSetStringIfSupported(_effectProps, kOfxImageEffectPropColourManagementAvailableConfigs, configs[i], (int)i)) {
         return false;
       }
     }
@@ -3167,7 +3154,7 @@ namespace OFX {
   {
     const std::string propName = std::string(kOfxImageClipPropPreferredColourspaces) + "_" + clip.name();
     for (std::size_t i = 0; i < colourspaces.size(); ++i) {
-      if (!colourPropSetString(outArgs_, propName.c_str(), colourspaces[i], (int)i)) {
+      if (!OFX::Private::propSetStringIfSupported(outArgs_, propName.c_str(), colourspaces[i], (int)i)) {
         return false;
       }
     }
@@ -3283,7 +3270,7 @@ namespace OFX {
   }
 #endif
 
-  /** @brief Does this instance support Metal texture render (next OFX release, after 1.5.1) */
+  /** @brief Does this instance support Metal texture render (not in OFX 1.5.1) */
   void ImageEffect::setSupportsMetalTextureRender(bool v)
   {
     // host may not know this property: don't throw
@@ -4597,7 +4584,7 @@ namespace OFX {
           }
         }
 
-        // next OFX release, after 1.5.1, host optional
+        // not in OFX 1.5.1, host optional
         gHostDescription.supportsMetalTexture = hostProps.propGetString(kOfxImageEffectPropMetalTextureSupported, 0, false) == "true";
         {
             std::string originStr = hostProps.propGetString(kOfxImageEffectHostPropNativeOrigin, false); // appeared in OFX 1.4
@@ -4633,7 +4620,7 @@ namespace OFX {
         gHostDescription.canTransform               = hostProps.propGetInt(kFnOfxImageEffectCanTransform, false) != 0;
         gHostDescription.isMultiPlanar              = hostProps.propGetInt(kFnOfxImageEffectPropMultiPlanar, false) != 0;
 #endif
-        gHostDescription.maxParameters              = OFX::Private::propGetIntOr(hostProps, kOfxParamHostPropMaxParameters, -1); // "-1 implies unlimited"
+        gHostDescription.maxParameters              = OFX::Private::propGetIntOr(hostProps, kOfxParamHostPropMaxParameters, -1); // -1: unlimited
         gHostDescription.maxPages                   = hostProps.propGetInt(kOfxParamHostPropMaxPages, false);
         gHostDescription.pageRowCount               = hostProps.propGetInt(kOfxParamHostPropPageRowColumnCount, 0, false);
         gHostDescription.pageColumnCount            = hostProps.propGetInt(kOfxParamHostPropPageRowColumnCount, 1, false);
@@ -4952,7 +4939,7 @@ namespace OFX {
       return inArgs.propGetString(kOfxImageEffectPropNoSpatialAwareness, 0, false) == "true";
     }
 
-    /** @brief kOfxImageEffectPropBehaviourWhenUnlicensed (next OFX release, after 1.5.1, optional in the inArgs) */
+    /** @brief kOfxImageEffectPropBehaviourWhenUnlicensed (not in OFX 1.5.1, optional in the inArgs) */
     static UnlicensedBehaviourEnum
       getBehaviourWhenUnlicensed(const OFX::PropertySet &inArgs)
     {
@@ -4972,7 +4959,7 @@ namespace OFX {
       args.isThumbnailRender = getIsThumbnailRender(inArgs);
       args.isNoSpatialAwareness = getIsNoSpatialAwareness(inArgs);
       args.behaviourWhenUnlicensed = getBehaviourWhenUnlicensed(inArgs);
-      // Metal textures (next OFX release, after 1.5.1): "This property is in the inArgs of kOfxImageEffectActionRender,
+      // Metal textures (not in OFX 1.5.1): "This property is in the inArgs of kOfxImageEffectActionRender,
       // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
       args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
       args.time = inArgs.propGetDouble(kOfxPropTime);
@@ -5036,7 +5023,6 @@ namespace OFX {
         args.fieldToRender = mapStrToFieldEnum(str);
       }
       catch (const std::invalid_argument&) {
-        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
       }
 
@@ -5082,8 +5068,7 @@ namespace OFX {
       args.isThumbnailRender = getIsThumbnailRender(inArgs);
       args.isNoSpatialAwareness = getIsNoSpatialAwareness(inArgs);
       args.behaviourWhenUnlicensed = getBehaviourWhenUnlicensed(inArgs);
-      // Metal textures (next OFX release, after 1.5.1): "This property is in the inArgs of kOfxImageEffectActionRender,
-      // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
+      // Metal textures: as in the Render inArgs
       args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
 
       args.frameRange.min = args.frameRange.max = 0.;
@@ -5134,8 +5119,7 @@ namespace OFX {
       ImageEffect *effectInstance = retrieveImageEffectPointer(handle);
 
       EndSequenceRenderArguments args;
-      // Metal textures (next OFX release, after 1.5.1): "This property is in the inArgs of kOfxImageEffectActionRender,
-      // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender."
+      // Metal textures: as in the Render inArgs
       args.isEnabledMetalTextureRender = inArgs.propGetInt(kOfxImageEffectPropMetalTextureEnabled, false) != 0;
 
       args.isEnabledOpenCLRender = inArgs.propGetInt(kOfxImageEffectPropOpenCLEnabled, false) != 0;
@@ -5197,7 +5181,6 @@ namespace OFX {
         args.fieldToRender = mapStrToFieldEnum(str);
       }
       catch (const std::invalid_argument&) {
-        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
       }
     }
@@ -5724,7 +5707,6 @@ namespace OFX {
         args.fieldToRender = eFieldBoth;
         args.fieldToRender = mapStrToFieldEnum(str);
       } catch (const std::invalid_argument&) {
-        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
       }
 
@@ -5767,7 +5749,6 @@ namespace OFX {
         args.fieldToRender = eFieldBoth;
         args.fieldToRender = mapStrToFieldEnum(str);
       } catch (const std::invalid_argument&) {
-        // an invalid value from the host: log it, and go on with the default set above
         OFX::Log::error(true, "Unknown field to render '%s'", str.c_str());
       }
 

@@ -80,7 +80,7 @@ template <class PIX, int nComponents, int max>
 class DotGenerator : public DotGeneratorBase {
 public :
   DotGenerator(OFX::ImageEffect &instance): DotGeneratorBase(instance){}
-  void multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& renderScale)
+  void multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& /*renderScale*/)
   {
     float radiusSq = _radius * _radius;
     for(int y = procWindow.y1; y < procWindow.y2; y++) 
@@ -236,7 +236,7 @@ void DotExamplePlugin::render(const OFX::RenderArguments &args)
 
 bool DotExampleInteract::draw(const OFX::DrawArgs &args)
 {
-  OfxRGBColourF col;
+  OfxRGBColourF col = { 0.f, 0.f, 0.f };
   col.r = 0.5f;
   col.g = 0.0f;
 

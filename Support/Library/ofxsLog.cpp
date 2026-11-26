@@ -83,8 +83,8 @@ namespace OFX {
         char buffer[2048];
         char *answer = getcwd(buffer, sizeof(buffer));
         std::cout << "INFO: OFX Log is \"" << logFileName() << "\", working directory is \"" << answer << '\"' << std::endl;
-        // append (upstream 1.5.1): each plug-in binary has its own copy of this code, so "w" made
-        // the first log of one plug-in erase what the others had written
+        // append: each plug-in binary has its own copy of this code and log file handle; "w" would
+        // erase the other plug-ins' logs
         gLogFP = fopen(logFileName().c_str(), "a");
         if (!gLogFP) {
           std::cout << "INFO: Failed to open OFX Log for writing" << std::endl;

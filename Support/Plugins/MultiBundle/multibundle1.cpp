@@ -16,6 +16,7 @@
 #include "ofxsImageEffect.h"
 #include "ofxsMultiThread.h"
 #include "../include/ofxsProcessing.H"
+#include "../include/ofxsRenderMessage.H"
 
 static const OfxPointD kBoxSize = {20, 20};
 class GammaInteract : public OFX::OverlayInteract 
@@ -87,7 +88,7 @@ class ImageScaler : public ImageScalerBase
 public :
   ImageScaler(OFX::ImageEffect &instance): ImageScalerBase(instance)
   {}
-  void multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& renderScale)
+  void multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& /*renderScale*/)
   {
     float scales[4];
     scales[0] = nComponents == 1 ? (float)_aScale : (float)_rScale;
@@ -153,10 +154,10 @@ protected :
   OFX::DoubleParam  *bScale_;
   OFX::DoubleParam  *aScale_;
   OFX::BooleanParam *componentScalesEnabled_;
-  bool messagePosted_; // an error message is shown (render is instance safe: no lock)
+  OFX::RenderMessage renderMessage_;
 public :
   GammaPlugin(OfxImageEffectHandle handle): ImageEffect(handle), dstClip_(NULL), srcClip_(NULL), scale_(NULL)
-    , rScale_(NULL), gScale_(NULL), bScale_(NULL), aScale_(NULL), componentScalesEnabled_(NULL), messagePosted_(false)
+    , rScale_(NULL), gScale_(NULL), bScale_(NULL), aScale_(NULL), componentScalesEnabled_(NULL)
   {
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
@@ -181,38 +182,18 @@ public :
   virtual bool getRegionOfDefinition(const OFX::RegionOfDefinitionArguments &args, OfxRectD &rod);
   virtual void getRegionsOfInterest(const OFX::RegionsOfInterestArguments &args, OFX::RegionOfInterestSetter &rois);
   void setupAndProcess(ImageScalerBase &, const OFX::RenderArguments &args);
-  void renderError(const char *message, OfxStatus status)
-  {
-    setPersistentMessage(OFX::Message::eMessageError, "", message);
-    messagePosted_ = true;
-    OFX::throwSuiteStatusException(status);
-  }
 };
 
 void GammaPlugin::setupAndProcess(ImageScalerBase &processor, const OFX::RenderArguments &args)
 {
-  OFX::auto_ptr<OFX::Image> dst(dstClip_->fetchImage(args.time));
-  if(!dst.get())
-    renderError("The host gave no output image", kOfxStatFailed);
-  OFX::BitDepthEnum dstBitDepth       = dst->getPixelDepth();
-  OFX::PixelComponentEnum dstComponents  = dst->getPixelComponents();
-  if(dstBitDepth != dstClip_->getPixelDepth() || dstComponents != dstClip_->getPixelComponents())
-    renderError("The host gave an output image with the wrong depth or components", kOfxStatFailed);
-  checkBadRenderScaleOrField(dst, args);
+  OFX::auto_ptr<OFX::Image> dst(renderMessage_.fetchOutput(*this, *dstClip_, args));
   OFX::auto_ptr<OFX::Image> src(srcClip_->fetchImage(args.time));
   if(src.get()) 
   {
-    OFX::BitDepthEnum    srcBitDepth      = src->getPixelDepth();
-    OFX::PixelComponentEnum srcComponents = src->getPixelComponents();
-    if(srcBitDepth != dstBitDepth || srcComponents != dstComponents)
-      renderError("The source and output images differ in depth or components", kOfxStatErrImageFormat);
+    renderMessage_.checkSource(*this, *src, *dst);
     checkBadRenderScaleOrField(src, args);
   }
-  if(messagePosted_)
-  {
-    clearPersistentMessage();
-    messagePosted_ = false;
-  }
+  renderMessage_.clear(*this);
   OFX::auto_ptr<OFX::Image> mask(getContext() != OFX::eContextFilter ? maskClip_->fetchImage(args.time) : 0);
   if(getContext() != OFX::eContextFilter) 
   {
@@ -353,7 +334,7 @@ void GammaPlugin::changedClip(const OFX::InstanceChangedArgs &/*args*/, const st
 
 bool GammaInteract::draw(const OFX::DrawArgs &args)
 {
-  OfxRGBColourF col;
+  OfxRGBColourF col = { 0.f, 0.f, 0.f };
   switch(_state) {
 case eInActive : 
   col.r = col.g = col.b = 0.0f; 

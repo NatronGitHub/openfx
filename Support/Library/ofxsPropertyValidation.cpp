@@ -306,9 +306,9 @@ namespace OFX {
     //   (Documentation/ofxPropertiesByObject.xml, Documentation/apiChanges_1_2_Chapter.xml, the
     //   "V1.4:" notes of the 1.4 headers, the "since Version 1.5" notes of the 1.5 headers).
     //   Without eDescIntroduced: OFX 1.0.
-    // The properties of the next OFX release (after 1.5.1, not released yet, so no version number
-    // to compare kOfxPropAPIVersion with) are eDescHostOptional: they are validated only if the
-    // host has them.
+    // The properties that are not in OFX 1.5.1 (upstream main, not released: no version number to
+    // compare kOfxPropAPIVersion with) are eDescHostOptional without eDescIntroduced: they are
+    // validated only if the host has them.
 
     /** @brief A list of properties of the host, that will be validated against. None of these has a default. */
     static PropertyDescription gHostProps[ ] =
@@ -337,7 +337,7 @@ namespace OFX {
       PropertyDescription(kOfxParamHostPropMaxParameters,                OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxParamHostPropMaxPages,                     OFX::eInt, 1, eDescFinished),
 
-      // next OFX release: "The host sets it on the host descriptor" (host_optional=true)
+      // "The host sets it on the host descriptor" (host_optional=true)
       PropertyDescription(kOfxImageEffectPropMetalTextureSupported,      OFX::eString, 1, eDescHostOptional, eDescFinished),
 
       // variable multi dimensional string properties
@@ -384,7 +384,6 @@ namespace OFX {
       PropertyDescription(kOfxImageEffectPluginPropOverlayInteractV1,      OFX::ePointer, 1, eDescDefault, NULLPTR, eDescFinished),
       PropertyDescription(kOfxImageEffectPluginPropOverlayInteractV2,      OFX::ePointer, 1, eDescDefault, NULLPTR, eDescIntroduced, 1, 5, eDescFinished),
 
-      // next OFX release (after 1.5.1)
       // kOfxImageEffectPluginPropObsolete: "0 - the host will show the plugin in its OFX browser UI"
       PropertyDescription(kOfxImageEffectPluginPropObsolete,               OFX::eInt,    1, eDescDefault, 0, eDescHostOptional, eDescFinished),
       // kOfxImageEffectPropMetalTextureSupported: "it defaults to "false"" (host_optional=true)
@@ -495,7 +494,7 @@ namespace OFX {
       PropertyDescription(kOfxImageEffectPropFrameRange,         OFX::eDouble, 2, eDescFinished),
       PropertyDescription(kOfxImageEffectPropUnmappedFrameRate,  OFX::eDouble, 1, eDescFinished),
       PropertyDescription(kOfxImageEffectPropUnmappedFrameRange, OFX::eDouble, 2, eDescFinished),
-      // next OFX release (after 1.5.1): "Default - 0", the frame number the host shows for time 0
+      // "Default - 0", the frame number the host shows for time 0
       PropertyDescription(kOfxImageClipPropDisplayTimeOffset,    OFX::eDouble, 1, eDescHostOptional, eDescFinished),
     };
 
@@ -631,10 +630,10 @@ namespace OFX {
       PropertyDescription(kOfxImageEffectPropInteractiveRenderStatus, OFX::eInt,    1, eDescIntroduced, 1, 2, eDescFinished),
       // "If an host does not support that property a value of 0 is assumed."
       PropertyDescription(kOfxImageEffectPropRenderQualityDraft,      OFX::eInt,    1, eDescIntroduced, 1, 4, eDescHostOptional, eDescFinished),
-      // next OFX release (after 1.5.1): "This property is in the inArgs of kOfxImageEffectActionRender,
+      // "This property is in the inArgs of kOfxImageEffectActionRender,
       // kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionEndSequenceRender"
       PropertyDescription(kOfxImageEffectPropMetalTextureEnabled,     OFX::eInt,    1, eDescHostOptional, eDescFinished),
-      // next OFX release: "If kOfxImageEffectPropBehaviourWhenUnlicensed is not set (indicating the
+      // "If kOfxImageEffectPropBehaviourWhenUnlicensed is not set (indicating the
       // host has not implemented this functionality)", so it may be absent
       PropertyDescription(kOfxImageEffectPropBehaviourWhenUnlicensed, OFX::eString, 1, eDescHostOptional, eDescFinished),
     };
@@ -653,7 +652,7 @@ namespace OFX {
       PropertyDescription(kOfxPropIsInteractive,          OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxImageEffectPropSequentialRenderStatus,  OFX::eInt,    1, eDescIntroduced, 1, 2, eDescFinished),
       PropertyDescription(kOfxImageEffectPropInteractiveRenderStatus, OFX::eInt,    1, eDescIntroduced, 1, 2, eDescFinished),
-      // next OFX release (after 1.5.1), as in the Render inArgs
+      // as in the Render inArgs
       PropertyDescription(kOfxImageEffectPropMetalTextureEnabled,     OFX::eInt,    1, eDescHostOptional, eDescFinished),
       PropertyDescription(kOfxImageEffectPropBehaviourWhenUnlicensed, OFX::eString, 1, eDescHostOptional, eDescFinished),
     };
@@ -672,7 +671,7 @@ namespace OFX {
       PropertyDescription(kOfxPropIsInteractive,          OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxImageEffectPropSequentialRenderStatus,  OFX::eInt,    1, eDescIntroduced, 1, 2, eDescFinished),
       PropertyDescription(kOfxImageEffectPropInteractiveRenderStatus, OFX::eInt,    1, eDescIntroduced, 1, 2, eDescFinished),
-      // next OFX release (after 1.5.1), as in the Render inArgs
+      // as in the Render inArgs
       PropertyDescription(kOfxImageEffectPropMetalTextureEnabled,     OFX::eInt,    1, eDescHostOptional, eDescFinished),
     };
 
@@ -893,7 +892,7 @@ namespace OFX {
       PropertyDescription(kOfxParamPropDisplayMin,           OFX::eDouble, 3, eDescDefault, 0., 0., 0., eDescFinished),
       PropertyDescription(kOfxParamPropDisplayMax,           OFX::eDouble, 3, eDescDefault, 1., 1., 1., eDescFinished),
       PropertyDescription(kOfxParamPropDimensionLabel,       OFX::eString, 3, eDescDefault, "r", "g", "b", eDescFinished),
-      // next OFX release (after 1.5.1): "It defaults to ::kOfxParamColourManagementNone"
+      // "It defaults to ::kOfxParamColourManagementNone"
       PropertyDescription(kOfxParamPropColourManagement,     OFX::eString, 1, eDescDefault, kOfxParamColourManagementNone, eDescHostOptional, eDescFinished),
     };
 
@@ -908,7 +907,7 @@ namespace OFX {
       PropertyDescription(kOfxParamPropDisplayMin,           OFX::eDouble, 4, eDescDefault, 0., 0., 0., 0., eDescFinished),
       PropertyDescription(kOfxParamPropDisplayMax,           OFX::eDouble, 4, eDescDefault, 1., 1., 1., 1., eDescFinished),
       PropertyDescription(kOfxParamPropDimensionLabel,       OFX::eString, 4, eDescDefault, "r", "g", "b", "a", eDescFinished),
-      // next OFX release (after 1.5.1): "It defaults to ::kOfxParamColourManagementNone"
+      // "It defaults to ::kOfxParamColourManagementNone"
       PropertyDescription(kOfxParamPropColourManagement,     OFX::eString, 1, eDescDefault, kOfxParamColourManagementNone, eDescHostOptional, eDescFinished),
     };
 
@@ -946,7 +945,7 @@ namespace OFX {
       PropertyDescription(kOfxParamPropDisplayMin,           OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxParamPropDisplayMax,           OFX::eInt, 1, eDescFinished),
       PropertyDescription(kOfxParamPropAnimates,             OFX::eInt, 1, eDescDefault, 1, eDescFinished),
-      // next OFX release (after 1.5.1): "Default - ::kOfxParamInterpTypeLinear"
+      // "Default - ::kOfxParamInterpTypeLinear"
       PropertyDescription(kOfxParamInterpType,               OFX::eString, 1, eDescDefault, kOfxParamInterpTypeLinear, eDescHostOptional, eDescFinished),
     };
 
@@ -993,7 +992,7 @@ namespace OFX {
       PropertyDescription(kOfxParamPropDisplayMin,           OFX::eDouble, 1, eDescFinished),
       PropertyDescription(kOfxParamPropDisplayMax,           OFX::eDouble, 1, eDescFinished),
       PropertyDescription(kOfxParamPropShowTimeMarker,       OFX::eInt,    1, eDescDefault, 0, eDescFinished),
-      // next OFX release (after 1.5.1): "Default - ::kOfxParamInterpTypeLinear"
+      // "Default - ::kOfxParamInterpTypeLinear"
       PropertyDescription(kOfxParamInterpType,               OFX::eString, 1, eDescDefault, kOfxParamInterpTypeLinear, eDescHostOptional, eDescFinished),
     };
 
@@ -1436,10 +1435,9 @@ namespace OFX {
     void
       initialise(void)
     {
-      // Nothing to do. It used to add, to the String, Custom, Choice, StrChoice and Boolean
-      // parameter sets, a kOfxParamPropAnimates default equal to the host's
-      // kOfxParamHostPropSupports*Animation. But the spec says (Parameters, "Parameter
-      // Animation"): "The following may animate, depending on the host. Properties exist on the
+      // Nothing to do. The kOfxParamPropAnimates default of the String, Custom, Choice, StrChoice
+      // and Boolean parameter sets doesn't depend on the host's kOfxParamHostPropSupports*Animation
+      // (Parameters, "Parameter Animation"): "The following may animate, depending on the host. Properties exist on the
       // host to check this. If the host does support animation on them, then they do *not*
       // animate by default.": the default is 0, as in their static property descriptions.
     }

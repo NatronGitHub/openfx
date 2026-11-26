@@ -54,8 +54,7 @@ Natron-specific extensions, among them:
 The header itself has the complete description of each extension.
 
 Plug-ins that are superseded (by a newer version, by another plug-in, or by
-a host-internal node) set the standard ``kOfxImageEffectPluginPropObsolete``;
-the former Natron ``NatronOfxImageEffectPropDeprecated`` extension was removed.
+a host-internal node) set the standard ``kOfxImageEffectPluginPropObsolete``.
 
 Plug-ins control the host cursor with the proposed :doc:`interact cursors
 <ofxInteractCursors>` extension.

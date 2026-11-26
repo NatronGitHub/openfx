@@ -53,7 +53,7 @@ public :
   {}
 
   // and do some processing
-  void multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& renderScale)
+  void multiThreadProcessImages(const OfxRectI& procWindow, const OfxPointD& /*renderScale*/)
   {
     // Distribution is from 0 to pixel max level times noise level
     double scale = max * _noiseLevel;

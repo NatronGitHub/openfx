@@ -2619,12 +2619,9 @@ They range from 1000 until 1999
 /*@}*/
 
 
-/** @name OFX 1.5.1 and next-release additions
- kOfxImageEffectPropThumbnailRender is in OFX 1.5.1; the other ones are for the
- next OFX release (after 1.5.1).
- Imported from the AcademySoftwareFoundation/openfx standard (main 4249fe1b).
- Values are identical to upstream, so that plug-ins and hosts built against
- either header set interoperate.
+/** @name Additions from OFX 1.5.1 and upstream main
+ kOfxImageEffectPropThumbnailRender is in OFX 1.5.1; the others are not.
+ Imported from AcademySoftwareFoundation/openfx main 4249fe1b, with the same values.
  @{
 */
 
@@ -2632,7 +2629,7 @@ They range from 1000 until 1999
 
 If set to 1, this indicates the plugin has been made obsolete by a different version of the same plugin contained in the same bundle (i.e. same pluginIdentifier but different pluginVersionMajor and/or pluginVersionMinor). At least one version of the plugin in the bundle (typically the newest) must have this property omitted or set to 0.
 
-Fork note (NatronGitHub/openfx): this fork relaxes the rule above that "At least one version of the plugin in the bundle (typically the newest) must have this property omitted or set to 0". In this fork, a plugin that is superseded by another plugin (with a different pluginIdentifier), or by a node that is internal to the host, may also set it, even if it is the only version of that plugin (for example openfx-io's ReadEXR, superseded by ReadOIIO), as discussed in upstream openfx#221: the host hides it in its OFX browser UI, but still loads it in existing projects. It replaces the former Natron extension NatronOfxImageEffectPropDeprecated.
+Fork note (NatronGitHub/openfx): a plugin superseded by another plugin or by a host-internal node may set it even if it is its only version (for example openfx-io's ReadEXR, superseded by ReadOIIO; upstream openfx#221). The host hides it in its OFX browser UI and still loads it in existing projects.
 
    - Valid Values -
        - 0 - the host will show the plugin in its OFX browser UI,
