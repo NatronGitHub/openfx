@@ -238,6 +238,68 @@ namespace OFX {
         return false;
       }
 
+      namespace {
+        /// sets a flag for its lifetime, also if an exception leaves the scope (E.19)
+        class FlagScope {
+          bool &_flag;
+        public:
+          explicit FlagScope(bool &flag) : _flag(flag) { _flag = true; }
+          ~FlagScope() { _flag = false; }
+          FlagScope(const FlagScope &) = delete;
+          FlagScope &operator=(const FlagScope &) = delete;
+        };
+      }
+
+      ChoiceOrderHook::ChoiceOrderHook(Property::Set &props)
+        : _props(props)
+        , _nOptions(props.getDimension(kOfxParamPropChoiceOption))
+        , _syncing(false)
+      {
+      }
+
+      void ChoiceOrderHook::listen()
+      {
+        _props.addNotifyHook(kOfxParamPropChoiceOption, this);
+        _props.addNotifyHook(kOfxParamPropChoiceOrder, this);
+      }
+
+      void ChoiceOrderHook::notify(const std::string &name, bool /*single*/, int /*num*/) OFX_EXCEPTION_SPEC
+      {
+        if (_syncing) {
+          return;
+        }
+        bool cut = false;
+        if (name == kOfxParamPropChoiceOption) {
+          const int nOptions = _props.getDimension(kOfxParamPropChoiceOption);
+          // the options shrank, or were reset (nOptions == 0: also an order set while there were no
+          // options)
+          cut = nOptions < _nOptions || nOptions == 0;
+          _nOptions = nOptions;
+        }
+        update(cut);
+      }
+
+      /// complete the order with the indexes of the options it lacks, and cut it to their number if cut
+      void ChoiceOrderHook::update(bool cut)
+      {
+        const int nOptions = _props.getDimension(kOfxParamPropChoiceOption);
+        std::vector<int> order(_props.getDimension(kOfxParamPropChoiceOrder));
+        _props.getIntPropertyN(kOfxParamPropChoiceOrder, order.data(), (int)order.size());
+        const size_t n = order.size();
+        if (cut && (int)n > nOptions) {
+          order.resize(nOptions);
+        }
+        for (int i = (int)order.size(); i < nOptions; ++i) {
+          order.push_back(i);
+        }
+        if (order.size() == n) {
+          return; // (unchanged: the host's hooks aren't called)
+        }
+        // (the other hooks of the order run too, e.g. the host's, and may throw)
+        const FlagScope syncing(_syncing);
+        _props.setIntPropertyN(kOfxParamPropChoiceOrder, order.data(), (int)order.size());
+      }
+
       /// make a parameter, with the given type and name
       Descriptor::Descriptor(const std::string &type, 
                              const std::string &name) : Base(name, type)
@@ -303,8 +365,7 @@ namespace OFX {
           { kNatronOfxParamPropChoiceCascading,         Property::eInt, 1,    false,    "0"},
           { kNatronOfxParamPropChoiceHostCanAddOptions, Property::eInt, 1,    false,    "0"},
 #endif
-          // OFX 1.5: UI order of the options; "if not set, the host will present the
-          // options in their natural order"
+          // OFX 1.5: UI order of the options (see ChoiceOrderHook)
           { kOfxParamPropChoiceOrder,    Property::eInt,       0,    false,    "" },
           Property::propSpecEnd
         };
@@ -385,6 +446,11 @@ namespace OFX {
 
         if (type == kOfxParamTypeStrChoice) {
           _properties.addProperties(allStrChoice);
+        }
+
+        if ((type == kOfxParamTypeChoice || type == kOfxParamTypeStrChoice) && !_choiceOrderHook.get()) {
+          _choiceOrderHook.reset(new ChoiceOrderHook(_properties));
+          _choiceOrderHook->listen();
         }
 
         if (type == kOfxParamTypeCustom) {
@@ -558,10 +624,8 @@ namespace OFX {
       /// add standard properties to a value holding param
       void Descriptor::addNumericParamProps(const std::string &type, Property::TypeEnum valueType, int dim)
       {
-        // (not static: describe actions may run on several threads)
-        // -DBL_MAX: not a bug, @see kOfxParamPropDisplayMin. castToString() gives enough digits to
-        // read back exactly: atof(dbl_maxstr) == DBL_MAX (the default precision of 6 gave
-        // 1.79769e+308, which is not DBL_MAX)
+        // (computed per call: describe actions may run on several threads) -DBL_MAX: not a bug,
+        // @see kOfxParamPropDisplayMin
         const std::string dbl_minstr = Property::castToString(-std::numeric_limits<double>::max());
         const std::string dbl_maxstr = Property::castToString(std::numeric_limits<double>::max());
         const std::string int_minstr = Property::castToString(INT_MIN);
@@ -672,15 +736,8 @@ namespace OFX {
             _properties.setStringProperty(kOfxParamPropDimensionLabel, "a", 3);
           }
 
-          /// kOfxParamPropColourManagement (next OFX release, after 1.5.1), only if the host opts
-          /// in (ImageEffect::Host::supportsParamColourManagement()): "A host that does not
-          /// implement it will fail the set; in that case the plug-in MUST fall back to
-          /// ::kOfxParamColourManagementNone behaviour". If it does: "A host that supports this
-          /// property MUST accept all three values" (kOfxParamColourManagementNone, Managed and
-          /// SRGB; like the other string properties, the value is not checked), and "It defaults
-          /// to ::kOfxParamColourManagementNone, so existing plug-ins are unaffected." "The
-          /// property is ignored on parameter types other than RGB and RGBA": it is only on these.
-          /// Hosts that convert colours read it from the param descriptor or instance.
+          /// kOfxParamPropColourManagement: only if the host opts in (Host::supportsParamColourManagement());
+          /// default None, any value accepted ("MUST accept all three values")
           if (ImageEffect::gImageEffectHost && ImageEffect::gImageEffectHost->supportsParamColourManagement()) {
             static const Property::PropSpec colourManagement[] = {
               { kOfxParamPropColourManagement, Property::eString, 1, false, kOfxParamColourManagementNone },
@@ -752,24 +809,12 @@ namespace OFX {
 
       /// The parameter properties that OFX 1.5.1 ofxParam.h and ofxParametricParam.h document as
       /// "plugin parameter descriptor (read/write) and instance (read only)", or "plugin parameter
-      /// instance (read only)" (kOfxParamPropInteractSize, kOfxParamPropIsAnimating,
-      /// kOfxParamPropIsAutoKeying, which the host sets). 1.5.1 is the authority: upstream main
-      /// dropped the per-property "Property Set" lines. An instance copies them from its
-      /// descriptor, where the plug-in may write them, and they are read-only for the plug-in on
-      /// the instance. What a plug-in write through the property suite does is decided by
-      /// Property::PluginReadOnlyPolicyEnum (refused with kOfxStatErrValue by default); the host's
-      /// C++ setters are not restricted. kOfxParamPropType is not listed: it is read-only on the
-      /// descriptor too. Two more properties are documented the same way in this fork's headers:
-      /// kOfxParamInterpType (not in OFX 1.5 or 1.5.1; upstream main c91cce7b, for the next
-      /// release) and kOfxParamParametricInterpolationCustomInterpCallbackV1 (Natron's parametric
-      /// suite V2, only defined with OFX_SUPPORTS_PARAMETRIC_V2). kOfxParamPropColourManagement
-      /// (next release) has no "Property Set" line, but the spec says "A plug-in MUST NOT change
-      /// it on a parameter instance".
-      /// kOfxParamPropGroupOpen is also "descriptor (read/write) and instance (read only)", but it
-      /// stays writable on instances: the Natron toolbar and dialog extensions (ofxNatron.h,
-      /// extensions 4 and 9) let plug-ins open or close a group instance, e.g. openfx-misc's
-      /// Shadertoy with the Support library's OFX::GroupParam::setOpen(); the host is told through
-      /// the notify hook, GroupInstance::setOpen().
+      /// instance (read only)", plus kOfxParamInterpType, kOfxParamParametricInterpolationCustomInterpCallbackV1
+      /// and kOfxParamPropColourManagement ("A plug-in MUST NOT change it on a parameter instance"). An
+      /// instance copies them from its descriptor; a plug-in write on the instance is handled by
+      /// Property::PluginReadOnlyPolicyEnum. kOfxParamPropGroupOpen is also "instance (read only)", but
+      /// stays writable: the Natron toolbar and dialog extensions (ofxNatron.h, extensions 4 and 9) let
+      /// plug-ins open or close a group instance (GroupInstance::setOpen()).
       static const char* const gInstanceReadOnlyProps[] = {
         kOfxParamPropInteractV1,
         kOfxParamPropInteractSize,
@@ -1073,8 +1118,10 @@ namespace OFX {
       /// make a parameter, with the given type and name
       ChoiceInstance::ChoiceInstance(Descriptor& descriptor, Param::SetInstance* instance)
         : Instance(descriptor,instance)
+        , _choiceOrder(_properties)
       {
         _properties.addNotifyHook(kOfxParamPropChoiceOption, this);
+        _choiceOrder.listen();
       }
 
       // callback which should set option as appropriate
@@ -1150,9 +1197,11 @@ namespace OFX {
       /// make a parameter, with the given type and name
       StrChoiceInstance::StrChoiceInstance(Descriptor& descriptor, Param::SetInstance* instance)
         : Instance(descriptor,instance)
+        , _choiceOrder(_properties)
       {
         _properties.addNotifyHook(kOfxParamPropChoiceOption, this);
         _properties.addNotifyHook(kOfxParamPropChoiceEnum, this);
+        _choiceOrder.listen();
       }
 
       std::string StrChoiceInstance::getDefaultEnum() const

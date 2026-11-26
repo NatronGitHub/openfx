@@ -307,6 +307,35 @@ def test_param_values_and_descriptor(plugin_dir):
         assert inst.param_initial("widgetPos") == (384., 288.) == inst.get_param("widgetPos")
 
 
+ORDER, OPTION, ENUM = "OfxParamPropChoiceOrder", "OfxParamPropChoiceOption", "OfxParamPropChoiceEnum"
+
+
+def test_choice_order_follows_the_options(plugin_dir):
+    """kOfxParamPropChoiceOrder: "Default - Zero-based ordinal list of same length as OfxParamPropChoiceOption"
+    (OFX 1.5.1 ofxParam.h). An option appended gets its index, the plug-in's values are kept, and resetting the options
+    resets the order."""
+    _init(plugin_dir)
+    plugin = ofxh.get_plugin("org.openeffects.support.choiceParamsPlugin")
+    desc = {p.name: p for p in plugin.descriptor("filter").params}
+    assert desc["red_choice"].props[ORDER] == (0, 1, 2)  # (no order: the default)
+    assert desc["green_choice"].props[ORDER] == (0, 2, 1)  # (the plug-in's)
+    obj = Recorder(python=("red_choice", "green_choice", "blue_choice"), param_class=Value)
+    with ofxh.create_instance(plugin, "filter", obj) as inst:
+        red, green, blue = inst.param("red_choice"), inst.param("green_choice"), inst.param("blue_choice")
+        assert red.props[ORDER] == (0, 1, 2) and green.props[ORDER] == (0, 2, 1) and blue.props[ORDER] == (0, 1, 2)
+        red.props[OPTION] = (*red.props[OPTION], "red: more")
+        assert red.props[ORDER] == (0, 1, 2, 3)
+        green.props[OPTION] = (*green.props[OPTION], "green: more")
+        assert green.props[ORDER] == (0, 2, 1, 3)
+        blue.props[ENUM] = (*blue.props[ENUM], "blue_2.0")
+        blue.props[OPTION] = (*blue.props[OPTION], "blue: more")
+        assert blue.props[ORDER] == (0, 1, 2, 3)
+        green.props[OPTION] = ()
+        assert green.props[ORDER] == ()
+        green.props[OPTION] = ("a", "b")
+        assert green.props[ORDER] == (0, 1)
+
+
 def test_strchoice_values_are_checked(plugin_dir):
     _init(plugin_dir)
     plugin = ofxh.get_plugin("org.openeffects.support.choiceParamsPlugin")

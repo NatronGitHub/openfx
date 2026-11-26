@@ -88,6 +88,9 @@ namespace OFX {
 
         virtual void saveXML(std::ostream &os);
 
+        /// the contexts, as read from the plug-in cache: they may be stale (see PluginHandle). A
+        /// context that the plug-in no longer supports still gets kOfxImageEffectActionDescribeInContext:
+        /// if it fails, getContext() returns NULL. New contexts stay hidden until the cache is cleared.
         const std::set<std::string>& getContexts() const;
 
         /// Load the plug-in, if it isn't yet: load the binary if needed (with its OfxSetHost), then
@@ -179,15 +182,6 @@ namespace OFX {
         /// pointer to our image effect host
         OFX::Host::ImageEffect::Host* _host;
 
-        /// forget the plug-ins of confirmPlugin(): OFX::Host::PluginCache::scanPluginFiles()
-        /// confirms them all again
-        friend class OFX::Host::PluginCache;
-        void clearConfirmedPlugins() {
-          _plugins.clear();
-          _pluginsByID.clear();
-          _pluginsByIDMajor.clear();
-        }
-
       public:  
 
         explicit PluginCache(OFX::Host::ImageEffect::Host* host);
@@ -236,6 +230,12 @@ namespace OFX {
         virtual void saveXML(Plugin *ip, std::ostream &os) const;
 
         void confirmPlugin(Plugin *p, const std::list<std::string>& pluginPath);
+
+        virtual void clearConfirmedPlugins() {
+          _plugins.clear();
+          _pluginsByID.clear();
+          _pluginsByIDMajor.clear();
+        }
 
         virtual bool pluginSupported(Plugin *p, std::string &reason) const;
 

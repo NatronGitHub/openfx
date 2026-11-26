@@ -12,7 +12,7 @@ import pytest
 
 import ofxhost
 from ofxhost import constants as k
-from ofxhost.testing import backend_available, check_backend
+from ofxhost.testing import check_backend
 
 INVERT = "net.sf.openfx.invertPlugin"
 BASIC = "net.sf.openfx.basicPlugin"
@@ -28,11 +28,7 @@ MULTIPLY = "net.sf.openfx.MultiplyGPU"
 def both(sample_plugins):
     """Both backends must be available (OFXH_REQUIRE=1: fail if one isn't)."""
     for b in ofxhost.BACKENDS:
-        why = backend_available(b)
-        if why is not None:
-            if os.environ.get("OFXH_REQUIRE") == "1":
-                pytest.fail(f"backend {b}: {why} (OFXH_REQUIRE=1)")
-            pytest.skip(f"backend {b}: {why}")
+        check_backend(b)
     return sample_plugins
 
 
@@ -76,9 +72,7 @@ def _same_numbers(a, b):
             _same_numbers(x, y)
     elif isinstance(a, bool) or isinstance(b, bool):
         assert a is b, (a, b)
-    elif isinstance(a, (int, float)) and isinstance(b, (int, float)):
-        assert a == b, (a, b)
-    else:
+    else:  # (1 == 1.0)
         assert a == b, (a, b)
 
 

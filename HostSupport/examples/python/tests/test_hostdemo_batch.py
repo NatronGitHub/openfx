@@ -8,15 +8,17 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from ofxhost import _batch
 from ofxhost.hostdemo import is_batch, run_batch, scan_options
-from ofxhost.testing import backend_available
+from ofxhost.testing import check_backend
 
 PYDIR = Path(__file__).resolve().parents[1]  # HostSupport/examples/python
 
@@ -109,16 +111,12 @@ def test_cli_help(tmp_path):
 
 @pytest.fixture(scope="module")
 def ofxh_dir(sample_plugins):
-    why = backend_available("inprocess")
-    if why is not None:
-        if os.environ.get("OFXH_REQUIRE") == "1":
-            pytest.fail(f"backend inprocess: {why} (OFXH_REQUIRE=1)")
-        pytest.skip(f"backend inprocess: {why}")
+    check_backend("inprocess")
     import ofxh
     return Path(ofxh.__file__).resolve().parent
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def env(sample_plugins, ofxh_dir):
     e = dict(os.environ)
     e["OFX_PLUGIN_PATH"] = os.pathsep.join(str(p) for p in sample_plugins)
@@ -149,21 +147,22 @@ LINES = [
 ]
 
 
-def _single(tmp_path, env, lines):
-    """Each line in its own process (python -m ofxhost.hostdemo), all in one directory."""
-    d = tmp_path / "single"
-    d.mkdir()
-    return d, [_cli(a, d, env) for a in lines]
+@pytest.fixture(scope="module")
+def single_runs(tmp_path_factory, env):
+    """Each line of LINES in its own process (python -m ofxhost.hostdemo), all in one directory: (the
+    directory, the processes). Run once for the parametrizations of test_same_as_single_runs."""
+    d = tmp_path_factory.mktemp("single")
+    return d, [_cli(a, d, env) for a in LINES]
 
 
 @pytest.mark.parametrize("opts", [[], ["-j", "3"], ["--fresh-host-per-plugin"], ["--reuse-host"],
                                   ["--reuse-host", "-j", "2"]],
                          ids=["fresh-j1", "fresh-j3", "per-plugin", "reuse-j1", "reuse-j2"])
-def test_same_as_single_runs(tmp_path, env, opts):
+def test_same_as_single_runs(tmp_path, env, single_runs, opts):
     """Each command of a batch gives what a separate run gives: its exit status, stdout and stderr
     (hostDemo's error messages; with a kept host, the plug-in scan's output is in the stderr of the
     host's first command only), and the same files, byte for byte."""
-    sd, single = _single(tmp_path, env, LINES)
+    sd, single = single_runs
     bd = tmp_path / "batch"
     bd.mkdir()
     p = _cli(["--batch", "-", *opts], bd, env, stdin="".join(_line(a) + "\n" for a in LINES))
@@ -303,8 +302,6 @@ def _alive(pid):
 def test_batch_killed_leaves_no_worker(tmp_path, env, sig):
     """The workers have their own process group: a SIGTERM of the batch kills them (its handler), and
     after a SIGKILL of the batch they end by themselves (they watch their parent)."""
-    import signal
-    import time
     (tmp_path / "tmp").mkdir()  # (the batch's temporary directory, where the commands' output is captured)
     e = dict(env, PYTHONPATH=os.pathsep.join([str(PYDIR), env["PYTHONPATH"]]), TMPDIR=str(tmp_path / "tmp"))
 

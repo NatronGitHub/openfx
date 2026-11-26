@@ -15,6 +15,7 @@ above in any conftest.py (one with its own pytest_configure calls ofxhost.testin
 
 from __future__ import annotations
 
+import ctypes
 import os
 from pathlib import Path
 
@@ -23,7 +24,7 @@ import pytest
 
 from . import BACKENDS, HostDemoNotFound, find_hostdemo
 
-__all__ = ["assert_close", "find_hostdemo_or_skip", "hostdemo", "backend", "backend_available",
+__all__ = ["assert_close", "suite_function", "find_hostdemo_or_skip", "hostdemo", "backend", "backend_available",
            "selected_backends", "check_backend", "pytest_configure"]
 
 
@@ -68,6 +69,16 @@ def assert_close(actual, expected, atol: float = 0.0, rtol: float = 0.0, *,
     if len(bad) > max_report:
         lines.append(f"  ... and {len(bad) - max_report} more")
     raise AssertionError("\n".join(lines))
+
+
+def suite_function(name: str, version: int, index: int, prototype):
+    """Function index of the host's suite (ofxh.fetch_suite(name, version)), as a ctypes prototype: to
+    call it as a plug-in does."""
+    import ofxh  # (not at the top: ofxhost.testing doesn't need ofxh)
+
+    suite = ofxh.fetch_suite(name, version)
+    assert suite, f"no suite {name} {version}"
+    return prototype(ctypes.c_void_p.from_address(suite + index * ctypes.sizeof(ctypes.c_void_p)).value)
 
 
 def find_hostdemo_or_skip(host_binary=None) -> Path:

@@ -109,6 +109,40 @@ namespace OFX {
         bool getCanAnimate() const;
       };
 
+      /// kOfxParamPropChoiceOrder of a Choice or StrChoice param descriptor or instance, as OFX 1.5.1
+      /// (ofxParameter.rst, Setting Choice Param Order) says: "This property contains a set of
+      /// integers, of the same length as the options for the choice parameter." "The default, if
+      /// unspecified, is ordinal integers starting from zero, so the options are displayed in their
+      /// natural order." "Values may be arbitrary 32-bit integers. The same value must not occur more
+      /// than once in the order list; behavior is undefined if the same value occurs twice in the list."
+      ///
+      /// So the order has at least the options' length: it is completed with the missing indexes (an
+      /// option appended gets its index), cut when the options shrink, and empty when they are reset.
+      /// An order set longer than the options, e.g. before them, is kept. An entry that nobody set is
+      /// its index; the values the plug-in (or the host) sets are kept, and HostSupport changes none of
+      /// them. Fewer values than options (a partial order, or a reset of the order) are completed with
+      /// the indexes of the others: {5, 1} for three options is {5, 1, 2}. A duplicate can result,
+      /// which the spec makes undefined behaviour: from the plug-in's values (0 set on the third option
+      /// while the first one is 0 by default), or from a cut followed by an append without an order
+      /// ({2, 0, 1}, cut to 2 options, then an append, gives {2, 0, 2}), when a plug-in that uses an
+      /// explicit order doesn't give one for the option it appends. An instance starts with its
+      /// descriptor's values, and follows the same rule.
+      class ChoiceOrderHook : public Property::NotifyHook {
+        Property::Set &_props;
+        int _nOptions;  ///< the number of options at the last change
+        bool _syncing;  ///< (the hook is setting the order)
+        void update(bool cut);
+      public:
+        explicit ChoiceOrderHook(Property::Set &props);
+        // not copyable: it is a hook of _props
+        ChoiceOrderHook(const ChoiceOrderHook &) = delete;
+        ChoiceOrderHook &operator=(const ChoiceOrderHook &) = delete;
+        /// add the hook to the options and the order (after the owner's hooks: a host sees the options
+        /// change before their order)
+        void listen();
+        virtual void notify(const std::string &name, bool single, int num) OFX_EXCEPTION_SPEC;
+      };
+
       /// the Descriptor of a plugin parameter
       class Descriptor : public Base {
         Descriptor();
@@ -127,6 +161,7 @@ namespace OFX {
         std::vector<unsigned char> _bytesDefaultData;
         OfxBytes _bytesDefault;
         auto_ptr<BytesDefaultHook> _bytesDefaultHook;
+        auto_ptr<ChoiceOrderHook> _choiceOrderHook; ///< Choice and StrChoice params
         // not copyable: the hook refers to this descriptor, and the default property points to _bytesDefault
         Descriptor(const Descriptor &);
         Descriptor &operator=(const Descriptor &);
@@ -351,6 +386,7 @@ namespace OFX {
       };
 
       class ChoiceInstance : public Instance, public KeyframeParam {
+        ChoiceOrderHook _choiceOrder;
       public:
         ChoiceInstance(Descriptor& descriptor, Param::SetInstance* instance = 0);
 
@@ -381,6 +417,7 @@ namespace OFX {
 
       class StrChoiceInstance : public Instance, public KeyframeParam {
         std::string _returnValue; ///< location to hold temporary return value. Should delegate this to implementation!!!
+        ChoiceOrderHook _choiceOrder;
       public:
         StrChoiceInstance(Descriptor& descriptor, Param::SetInstance* instance = 0);
 

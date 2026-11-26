@@ -352,7 +352,7 @@ order, `Graph.dumps()` gives the text; everything but `nodes` and `outputs` is o
   "invertPlugin": {"plugin": "net.sf.openfx.invertPlugin", "version": [1, 0], "context": "filter",
                    "params": {}, "inputs": {"Source": {"file": "in.####.pfm#premult"}}},
   "basicPlugin": {"plugin": "net.sf.openfx.basicPlugin", "context": "general",
-                  "params": {"scale": {"keys": [[0.0, 1.0], [10.0, 2.0]], "interpolation": "linear"},
+                  "params": {"scale": {"keys": [[0.0, 1.0], [10.0, 2.0]]},
                              "scaleComponents": false},
                   "inputs": {"Source": {"node": "invertPlugin"}, "Mask": {"node": "invertPlugin"}}}}}
 ```
@@ -366,8 +366,8 @@ order, `Graph.dumps()` gives the text; everything but `nodes` and `outputs` is o
 - `params`: values as `ofxh.param_template()` gives them (numbers, booleans, strings, lists; a
   choice's index, or the label of one of its options), keys, `{"file": path}` (a file parameter's
   value, which `save()` rewrites as it does the file inputs), or null (press a push button).
-  `"interpolation"` is `"linear"`, hostDemo's and ofxh's only one: linear, rounded for integers,
-  held for booleans and choices. Another one is refused.
+  Keys are interpolated as hostDemo and ofxh do: linearly, rounded for integers, held for booleans
+  and choices.
 - `inputs`: `{"node": name}`, `{"file": pattern}` (an image sequence, or a still image; a
   `#premult`, `#unpremult` or `#opaque` suffix gives its premultiplication), or a `render()` string:
   a test pattern (`"default"`, `"ramp"`, `"checker:16"`, `"solid:r,g,b,a"`, `"rod:..."`), `"none"`,

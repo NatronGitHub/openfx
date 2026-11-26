@@ -432,7 +432,12 @@ class _Files:
             raise GraphError(f"{path}: no such file" if self.still else f"{path}: no files of this sequence")
         a = self._read(first)
         self.size = a.shape[:2]
-        self._specs: dict[str, Any] = {}
+        self._specs: dict[str, Any] = {}  # path -> Spec, for the current frame
+
+    def clear(self) -> None:
+        """Forget the frames read (a still image is kept: it is the same at every frame)."""
+        if not self.still:
+            self._specs.clear()
 
     @staticmethod
     def _read(path: str) -> np.ndarray:
@@ -481,7 +486,7 @@ class _Run:
         self.frames = frames
         self.nodes: dict[int, _NodeState] = {}  # id(Node) -> state
         self.cache: dict = {}  # (node name, time, view) -> _Rendered or None, for the current frame
-        self._files: dict = {}
+        self._files: dict = {}  # (path, premult, components) -> _Files
         self.project_window: tuple = (0, 0, 0, 0)  # (the project in pixels at the render scale)
 
     def project_rect(self) -> tuple:
@@ -515,6 +520,12 @@ class _Run:
         if (path, premult, comps) not in self._files:
             self._files[(path, premult, comps)] = _Files(path, premult, comps)
         return self._files[(path, premult, comps)]
+
+    def end_frame(self) -> None:
+        """Forget the images of the current frame: those rendered and those read from files."""
+        self.cache.clear()
+        for f in self._files.values():
+            f.clear()
 
     @staticmethod
     def check(ns: _NodeState, action: str, st, **more) -> None:
@@ -735,17 +746,21 @@ class _Run:
         That is the frames needed over the regions of interest, which are kept in inst.rois.
         """
         inst = ns.instance
-        par = inst.clip(_OUTPUT).aspect_ratio
+        ranges, rois = self.needs(ns, t, win, rs, view)
+        inst.rois = {c: tuple(r) for c, r in rois.items()}
+        for name, clip, frames in _input_frames(ns, ranges, inst.rois, t):
+            for f in frames:
+                clip.image(f, view, inst.rois[name], rs)
+
+    def needs(self, ns: _NodeState, t: float, win, rs, view: int) -> tuple[dict, dict]:
+        """The node's getFramesNeeded and getRegionsOfInterest at t, for the window win (pixels at rs)."""
+        inst = ns.instance
         st, ranges = self.call(ns, "getFramesNeeded", inst.get_frames_needed_action, t)
         st2, rois = self.call(ns, "getRegionsOfInterest", inst.get_regions_of_interest_action, t,
-                              rects.to_canonical(win, rs, par), rs, view)
+                              rects.to_canonical(win, rs, inst.clip(_OUTPUT).aspect_ratio), rs, view)
         if not (status.succeeded(st) and status.succeeded(st2)):
             raise GraphError(f"{ns.name}: the getFramesNeeded or getRegionsOfInterest action failed at time {t}")
-        inst.rois = {c: tuple(r) for c, r in rois.items()}
-        for name, clip in inst.clips.items():
-            if clip.child is not None and not clip.is_output and name in inst.rois:
-                for f in _frames_in(ranges.get(name), t, f"{ns.name}.{name}"):
-                    clip.image(f, view, inst.rois[name], rs)
+        return ranges, rois
 
     def _render_action(self, ns: _NodeState, t: float, win, rs, view: int, rod, rec: dict) -> _Rendered:
         """The render action, after the inputs it needs, in the node's sequence render or its own."""
@@ -822,7 +837,7 @@ def _param_report(inst) -> dict:
         if isinstance(p, FileParam):
             out[name] = {"file": p.value}
         elif inst.param_keys(name):
-            out[name] = {"keys": [[t, g.json_value(v)] for t, v in inst.param_curve(name)], "interpolation": "linear"}
+            out[name] = {"keys": [[t, g.json_value(v)] for t, v in inst.param_curve(name)]}
         else:
             out[name] = values[name]
     return out
@@ -877,16 +892,18 @@ def _plan_window(r: _Run, ns: _NodeState, t: float, window, seen: dict) -> None:
             _plan(r, clip.child, time, win, seen)
         return
     ns.planned.add(t)
-    st, ranges = r.call(ns, "getFramesNeeded", inst.get_frames_needed_action, t)
-    st2, rois = r.call(ns, "getRegionsOfInterest", inst.get_regions_of_interest_action, t,
-                       rects.to_canonical(win, r.scale, inst.clip(_OUTPUT).aspect_ratio), r.scale, 0)
-    if not (status.succeeded(st) and status.succeeded(st2)):
-        raise GraphError(f"{ns.name}: the getFramesNeeded or getRegionsOfInterest action failed at time {t}")
-    for name, clip in inst.clips.items():
+    ranges, rois = r.needs(ns, t, win, r.scale, 0)
+    for name, clip, frames in _input_frames(ns, ranges, rois, t):
+        roi = rects.to_pixels(rois[name], r.scale, clip.aspect_ratio)
+        for f in frames:
+            _plan(r, clip.child, f, roi, seen)
+
+
+def _input_frames(ns: _NodeState, ranges: dict, rois: dict, t: float):
+    """(clip name, clip, frames) of the node's connected input clips that have a region of interest."""
+    for name, clip in ns.instance.clips.items():
         if clip.child is not None and not clip.is_output and name in rois:
-            roi = rects.to_pixels(rois[name], r.scale, clip.aspect_ratio)
-            for f in _frames_in(ranges.get(name), t, f"{ns.name}.{name}"):
-                _plan(r, clip.child, f, roi, seen)
+            yield name, clip, _frames_in(ranges.get(name), t, f"{ns.name}.{name}")
 
 
 def _sequence(frames) -> tuple[float, float, float, bool]:
@@ -970,9 +987,7 @@ def run(graph: g.Graph | str | os.PathLike, plugin_dirs: Sequence = (), *, frame
         log.error("%s", report["error"])
     if report_path is not None:
         try:
-            with open(report_path, "w", encoding="utf-8") as f:
-                json.dump(report, f, indent=2, allow_nan=False)
-                f.write("\n")
+            ofxhost.write_json(report_path, report)
         except (OSError, ValueError) as e:
             report["ok"] = False
             report["error"] = report["error"] or f"the report: {e}"
@@ -1005,7 +1020,7 @@ def _execute(graph: g.Graph, r: _Run, report: dict, images: dict, written: list,
         for ns in order:  # inputs first
             made.append(ns)
             r.setup(ns)
-        r.cache.clear()  # (the images rendered for the push buttons)
+        r.end_frame()  # (the images rendered for the push buttons)
         fs = report["frames"] = _frames(r, outs)
         for ns in outs:
             pattern = graph.outputs[ns.name]
@@ -1018,6 +1033,7 @@ def _execute(graph: g.Graph, r: _Run, report: dict, images: dict, written: list,
         for t in fs:
             for ns in outs:
                 _plan(r, ns, t, window, seen)
+            r.end_frame()  # (the regions of definition read the files)
         _render_frames(r, order, outs, fs, window, graph.outputs if write else {}, report, images, written)
     finally:
         for ns in reversed(made):
@@ -1064,7 +1080,7 @@ def _render_frames(r: _Run, order: list[_NodeState], outs: list[_NodeState], fs:
             for ns in outs:
                 img = r.render(ns, t, window, r.scale)
                 written += _output(r, ns, t, img, window, patterns.get(ns.name), report, images)
-            r.cache.clear()  # (the images are kept for the current frame only)
+            r.end_frame()
     finally:
         for ns in begun:
             ns.seq = None

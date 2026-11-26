@@ -89,8 +89,8 @@ def test_save_load_round_trip(tmp_path):
     assert doc["schema"] == "ofxhost.graph" and doc["schemaVersion"] == 1
     assert doc["render"] == {"frames": [0.0, 1.0], "renderScale": [0.5, 0.5], "window": [4, 2, 30, 20],
                              "depth": "short"}
-    assert doc["nodes"]["out"]["params"]["scale"] == {"keys": [[0.0, 1.5], [1.0, 2]], "interpolation": "linear"}
-    assert doc["nodes"]["out"]["params"]["scaleR"] == {"keys": [[0.5, 0.25]], "interpolation": "linear"}
+    assert doc["nodes"]["out"]["params"]["scale"] == {"keys": [[0.0, 1.5], [1.0, 2]]}
+    assert doc["nodes"]["out"]["params"]["scaleR"] == {"keys": [[0.5, 0.25]]}
     assert doc["nodes"]["out"]["inputs"] == {"Source": {"node": "invertPlugin"}, "Mask": "none"}
     assert doc["nodes"]["seq"]["inputs"] == {"Source": {"file": "in.####.pfm"}}
     assert doc["nodes"]["invertPlugin"]["version"] == [1, 0] and "version" not in doc["nodes"]["out"]
@@ -165,9 +165,7 @@ def test_save_errors():
         Graph({"b": Node(INVERT, inputs={"Source": a})}, {"b": None}).dumps()
     with pytest.raises(ValueError, match="same name"):
         Graph.of(Node(INVERT, name="x", inputs={"Source": Node(INVERT, name="x")}))
-    with pytest.raises(ValueError, match="interpolat"):
-        Keys({0: 1}, "bezier")
-    with pytest.raises(ValueError, match="interpolat"):
+    with pytest.raises(ValueError, match="keys are"):
         loads(json.dumps({"outputs": {"a": None}, "nodes": {"a": {"plugin": INVERT, "params": {
             "x": {"keys": [[0, 1]], "interpolation": "smooth"}}}}}))
     with pytest.raises(ValueError, match="not finite"):

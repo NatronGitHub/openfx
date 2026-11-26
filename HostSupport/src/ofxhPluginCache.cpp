@@ -4,6 +4,7 @@
 #include <assert.h>
 
 #include <map>
+#include <memory> // unique_ptr (scanDirectory)
 #include <string>
 #include <cstdio> // fopen (binaryMatchesHost)
 #include <algorithm> // std::find
@@ -29,7 +30,6 @@
 #include "ofxhPluginCache.h"
 #include "ofxhHost.h"
 #include "ofxhImageEffect.h" // gImageEffectHost, the default host for OfxSetHost
-#include "ofxhImageEffectAPI.h" // ImageEffect::PluginCache (scanPluginFiles())
 #include "ofxhXml.h"
 #include "ofxhUtilities.h"
 
@@ -299,7 +299,7 @@ using namespace OFX::Host;
 
 
 /// try to open the plugin bundle object and query it for plugins
-void PluginBinary::loadPluginInfo(PluginCache *cache) {      
+void PluginBinary::loadPluginInfo(PluginCache *cache) try {
   if (_binary) {
     // also for a binary that can't be stat()ed (0, 0): a cache that recorded it valid is then
     // rewritten once, with the mtime and size of a failed stat(), and stays clean afterwards
@@ -384,10 +384,24 @@ void PluginBinary::loadPluginInfo(PluginCache *cache) {
       _plugins.push_back(api->newPlugin(this, i, plug)); // (no reallocation after the reserve() above)
     }
   }
+} catch (...) {
+  // e.g. from the host's loadingBinary() or the API cache's newPlugin(): leave no plug-ins and no
+  // reference, and record the binary as changed, so that the next scan loads it again
+  deletePlugins();
+  releaseScanReference();
+  _fileModificationTime = 0;
+  _fileSize = 0;
+  throw;
 }
 
 PluginBinary::~PluginBinary() {
-  destroyPlugins();
+  deletePlugins();
+  // the plug-ins released their handles: release the reference taken by loadPluginInfo(), if the
+  // scan didn't, which unloads the binary
+  releaseScanReference();
+  // then _binary is deleted, which unloads the library (~Binary() calls unload()), even if a
+  // reference was not released, e.g. by a leaked PluginHandle, whose OfxPlugin* then points into the
+  // unloaded library
 }
 
 void PluginBinary::deletePlugins() {
@@ -404,18 +418,6 @@ void PluginBinary::deletePlugins() {
     i++;
   }
   _plugins.clear();
-}
-
-void PluginBinary::destroyPlugins() {
-  deletePlugins();
-  // the plug-ins released their handles: release the reference taken by loadPluginInfo(), if the
-  // scan didn't, which unloads the binary
-  releaseScanReference();
-  // we own the Binary (created by the constructors): deleting it unloads the library (~Binary()
-  // calls unload()), even if a reference was not released, e.g. by a leaked PluginHandle, whose
-  // OfxPlugin* then points into the unloaded library
-  delete _binary;
-  _binary = 0;
 }
 
 void PluginBinary::releaseScanReference() {
@@ -657,32 +659,6 @@ void PluginCache::setPluginHostPath(const std::string &hostId) {
 #endif
 }
 
-namespace {
-#if defined (WINDOWS)
-  /// closes a FindFirstFileW() search handle when it goes out of scope, e.g. when the scan of a
-  /// binary throws (R.1, E.6)
-  class FindHandleCloser {
-    HANDLE _h;
-    FindHandleCloser(const FindHandleCloser &);
-    FindHandleCloser &operator=(const FindHandleCloser &);
-  public:
-    explicit FindHandleCloser(HANDLE h) : _h(h) {}
-    ~FindHandleCloser() { if (_h != INVALID_HANDLE_VALUE) { FindClose(_h); } }
-  };
-#else
-  /// closes an opendir() directory stream when it goes out of scope, e.g. when the scan of a
-  /// binary throws (R.1, E.6)
-  class DirCloser {
-    DIR *_d;
-    DirCloser(const DirCloser &);
-    DirCloser &operator=(const DirCloser &);
-  public:
-    explicit DirCloser(DIR *d) : _d(d) {}
-    ~DirCloser() { if (_d) { closedir(_d); } }
-  };
-#endif
-}
-
 void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std::string &dir, bool recurse)
 {
 #ifdef CACHE_DEBUG
@@ -696,7 +672,7 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
   if (!d) {
     return;
   }
-  const DirCloser dirCloser(d);
+  const std::unique_ptr<DIR, decltype(&closedir)> dirCloser(d, &closedir); // (also if the scan of a binary throws)
 #endif
   
   _pluginDirs.push_back(dir.c_str());
@@ -710,7 +686,7 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
   if (findHandle == INVALID_HANDLE_VALUE) {
     return;
   }
-  const FindHandleCloser findHandleCloser(findHandle);
+  const std::unique_ptr<void, decltype(&FindClose)> findHandleCloser(findHandle, &FindClose); // (as dirCloser)
 
   while (1)
 #endif
@@ -807,7 +783,6 @@ void PluginCache::scanDirectory(std::set<std::string> &foundBinFiles, const std:
       }
 #endif
     }
-  // (the directory stream or the search handle is closed by dirCloser or findHandleCloser)
 }
 
 std::string PluginCache::seekPluginFile(const std::string &baseName) const {
@@ -838,9 +813,7 @@ void PluginCache::scanPluginFiles()
   _pluginDirs.clear();
   _plugins.clear();
   for (std::list<PluginCacheSupportedApi>::iterator a = _apiHandlers.begin(); a != _apiHandlers.end(); ++a) {
-    if (ImageEffect::PluginCache *ie = dynamic_cast<ImageEffect::PluginCache *>(a->handler)) {
-      ie->clearConfirmedPlugins();
-    }
+    a->handler->clearConfirmedPlugins();
   }
   
   for (std::list<std::string>::iterator paths= _pluginPath.begin();
@@ -894,20 +867,7 @@ void PluginCache::scanPluginFiles()
       if (binChanged) {
         // The static PluginBinary already had loadPluginInfo called anyway at this point
         if (!pb->isStaticallyLinkedPlugin()) {
-          try {
-            pb->loadPluginInfo(this);
-          } catch (...) {
-            // delete the plug-ins made so far (a later loadPluginInfo() would only clear the list:
-            // R.1), then unload the binary (the reference loadPluginInfo() took); pb and its
-            // Binary stay in _binaries, owned by the cache. loadPluginInfo() already recorded the
-            // binary's mtime and size: reset them, so that a cache written now records it as
-            // changed, and the next scan loads it again, instead of keeping it with no plug-ins
-            pb->deletePlugins();
-            pb->releaseScanReference();
-            pb->_fileModificationTime = 0;
-            pb->_fileSize = 0;
-            throw;
-          }
+          pb->loadPluginInfo(this);
         }
         _dirty = true;
       }
@@ -1103,10 +1063,6 @@ void PluginCache::elementBeginCallback(void */*userData*/, const XML_Char *name,
     std::string api = attmap["api"];
     std::string rawIdentifier = attmap["name"];
     
-    std::string identifier = rawIdentifier;
-    
-    // (the identifier is kept as is: the spec doesn't say that it is case-insensitive)
-    
     int idx = OFX::Host::Property::stringToInt(attmap["index"]);
     int api_version = OFX::Host::Property::stringToInt(attmap["api_version"]);
     int major_version = OFX::Host::Property::stringToInt(attmap["major_version"]);
@@ -1115,7 +1071,7 @@ void PluginCache::elementBeginCallback(void */*userData*/, const XML_Char *name,
     APICache::PluginAPICacheI *apiCache = findApiHandler(api, api_version);
     if (apiCache) {
       
-      Plugin *pe = apiCache->newPlugin(_xmlCurrentBinary, idx, api, api_version, identifier, rawIdentifier, major_version, minor_version);
+      Plugin *pe = apiCache->newPlugin(_xmlCurrentBinary, idx, api, api_version, /* identifier: */ rawIdentifier, rawIdentifier, major_version, minor_version);
       _xmlCurrentBinary->addPlugin(pe);
       _xmlCurrentPlugin = pe;
       apiCache->beginXmlParsing(pe);

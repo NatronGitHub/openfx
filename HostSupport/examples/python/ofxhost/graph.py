@@ -27,15 +27,15 @@ from typing import Any
 
 import numpy as np
 
-from . import DEPTHS, resolve_file_spec, split_components
+from . import DEPTHS, split_components
 from .rects import scale_pair
+from .specs import resolve_spec
 
 __all__ = ["Node", "Keys", "Files", "FilePath", "Project", "Graph", "topological_order", "load", "loads", "stem",
            "json_value", "keys_of", "SCHEMA", "SCHEMA_VERSION"]
 
 SCHEMA = "ofxhost.graph"
 SCHEMA_VERSION = 1
-INTERPOLATIONS = ("linear",)  # (hostDemo's and ofxh's: linear, rounded for integers, held for booleans and choices)
 
 
 @dataclasses.dataclass(eq=False)  # nodes are compared by identity
@@ -60,16 +60,12 @@ class Node:
 class Keys:
     """The keys of an animated parameter, {time: value}.
 
-    A plain {time: value} dict in Node.params means the same. interpolation: "linear", hostDemo's and ofxh's
-    (linear, rounded for integers, held for booleans and choices; the only one they have).
+    A plain {time: value} dict in Node.params means the same. They are interpolated as hostDemo and ofxh do:
+    linearly, rounded for integers, held for booleans and choices.
     """
     values: dict
-    interpolation: str = "linear"
 
     def __post_init__(self):
-        if self.interpolation not in INTERPOLATIONS:
-            raise ValueError(f"interpolation {self.interpolation!r}: hostDemo and ofxh interpolate keys linearly "
-                             "(\"linear\"), rounded for integers and held for booleans and choices")
         if not self.values:
             raise ValueError("Keys: no keys")
 
@@ -312,12 +308,7 @@ class Graph:
             d["context"] = n.context
             params = d["params"] = {}
             for p, v in n.params.items():
-                k = keys_of(v)
-                params[p] = v if v is None else {"file": path(v)} if isinstance(v, FilePath) else \
-                    json_value(v) if k is None else {
-                    "keys": [[float(t), json_value(x)]
-                             for t, x in sorted(k.values.items(), key=lambda kv: float(kv[0]))],
-                    "interpolation": k.interpolation}
+                params[p] = _param_json(v, path)
             inputs = d["inputs"] = {}
             for clip, v in n.inputs.items():
                 if isinstance(v, Node):
@@ -333,10 +324,7 @@ class Graph:
                     # (a hostDemo "file:" spec is made absolute when the base changes)
                     rebase = v.startswith("file:") and dst is not None and \
                         os.path.abspath(self.base or os.getcwd()) != dst
-                    if rebase:
-                        body, comps = split_components(v)
-                        v = resolve_file_spec(body, self.base) + ("#" + comps if comps else "")
-                    inputs[clip] = v
+                    inputs[clip] = resolve_spec(v, self.base) if rebase else v
                 else:
                     raise ValueError(f"{name}.{clip}: an input of type {type(v).__name__} can't be saved "
                                      "(write the image to a file, and use Files or \"file:x.pfm\")")
@@ -447,18 +435,29 @@ def _from_json(doc, base) -> Graph:
                  project=Project.from_json(doc["project"]) if doc.get("project") is not None else None, base=base)
 
 
+def _param_json(v, path) -> Any:
+    """A parameter value of Node.params in the JSON format; path(p) writes a file path."""
+    if v is None:
+        return None  # (press the push button)
+    if isinstance(v, FilePath):
+        return {"file": path(v)}
+    k = keys_of(v)
+    if k is None:
+        return json_value(v)
+    return {"keys": [[float(t), json_value(x)] for t, x in sorted(k.values.items(), key=lambda kv: float(kv[0]))]}
+
+
 def _params(node: str, params: dict) -> dict:
     out = {}
     for name, v in params.items():
         if isinstance(v, dict) and set(v) == {"file"} and isinstance(v["file"], str):
             v = FilePath(v["file"])
         elif isinstance(v, dict):
-            if set(v) - {"keys", "interpolation"} or not isinstance(v.get("keys"), list):
-                raise ValueError(f'{node}.{name}: keys are {{"keys": [[time, value]...], "interpolation": "linear"}}')
+            if set(v) != {"keys"} or not isinstance(v["keys"], list):
+                raise ValueError(f'{node}.{name}: keys are {{"keys": [[time, value]...]}}')
             if not all(isinstance(k, list) and len(k) == 2 for k in v["keys"]):
                 raise ValueError(f"{node}.{name}: each key is [time, value]")
-            v = Keys({_number(t, f"{node}.{name} key time"): x for t, x in v["keys"]},
-                     v.get("interpolation", "linear"))
+            v = Keys({_number(t, f"{node}.{name} key time"): x for t, x in v["keys"]})
         out[name] = v
     return out
 

@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <list>
+#include <memory> // unique_ptr
 #include <set>
 #include <iostream>
 
@@ -205,12 +206,12 @@ namespace OFX {
       friend class PluginHandle;
       friend class PluginCache; // scanPluginFiles() resets _binaryChanged
 
-      // not copyable: a PluginBinary owns _binary, which its destructor deletes, and its plug-ins
+      // not copyable: a PluginBinary owns _binary and its plug-ins
       PluginBinary(const PluginBinary &) = delete;
       PluginBinary &operator=(const PluginBinary &) = delete;
 
     protected :
-      Binary* _binary;                 ///< our binary object, abstracted layer ontop of OS calls, defined in ofxhBinary.h, may not be valid if function pointers below are already set
+      std::unique_ptr<Binary> _binary; ///< our binary object, abstracted layer ontop of OS calls, defined in ofxhBinary.h, may not be valid if function pointers below are already set
       OfxGetNumberOfPluginsFunc _getNumberOfPlugins;
       OfxGetPluginFunc _getPluginFunc;
       std::string _filePath;          ///< full path to the file
@@ -273,14 +274,7 @@ namespace OFX {
         if (_binary->isInvalid()) {
           _binaryInvalid = true;
         }
-        try {
-          loadPluginInfo(cache);
-        } catch (...) {
-          // (e.g. from the host's loadingBinary() or the API cache's newPlugin(): the destructor
-          // won't run, so release what loadPluginInfo() made, and the binary)
-          destroyPlugins();
-          throw;
-        }
+        loadPluginInfo(cache);
       }
       
        /// create the plug-in object from function pointers directly, this is useful for statically linked plug-ins.
@@ -291,7 +285,7 @@ namespace OFX {
                             std::string* cachedHostAppBinFilePath = 0,
                             time_t* cachedFileModificationTime = 0,
                             off_t* cachedFileSize = 0)
-      : _binary(0)
+      : _binary()
       , _getNumberOfPlugins(getNumberOfPlugins)
       , _getPluginFunc(getPlugins)
       , _filePath(hostAppBinFilePath)
@@ -312,13 +306,7 @@ namespace OFX {
           }
         }
         if (_binaryChanged) {
-          try {
-            loadPluginInfo(cache);
-          } catch (...) {
-            // (the destructor won't run: release the plug-ins that loadPluginInfo() made)
-            destroyPlugins();
-            throw;
-          }
+          loadPluginInfo(cache);
         }
       }
 
@@ -329,7 +317,7 @@ namespace OFX {
       
       bool isStaticallyLinkedPlugin() const
       {
-        return _binary == 0;
+        return !_binary;
       }
 
       time_t getFileModificationTime() const {
@@ -378,14 +366,13 @@ namespace OFX {
         _plugins.push_back(pe);
       }
 
+      /// load the binary and make its plug-ins; if it throws, there are no plug-ins, the binary is
+      /// unloaded, and it is recorded as changed
       void loadPluginInfo(PluginCache *);
 
     private :
       /// unload (dropping exceptions) and delete the plug-ins, and clear the list; keep the Binary
       void deletePlugins();
-
-      /// what the destructor does: unload and delete the plug-ins, then the binary
-      void destroyPlugins();
 
     public :
 
@@ -413,15 +400,9 @@ namespace OFX {
       PluginHandle(Plugin *p, OFX::Host::Host *_host);
       virtual ~PluginHandle();
 
-      /// NULL if the binary can't be loaded, if its OfxSetHost refused the host, or if it no longer
-      /// has this plug-in (a stale plug-in cache: its list of plug-ins changed, but not its mtime
-      /// and size). The host should report it and offer to clear the plug-in cache: until then,
-      /// the cache also keeps the binary's old menu entries and hides its new plug-ins. The
-      /// plug-in's contexts may be stale too: ImageEffectPlugin::getContexts() keeps the list read
-      /// from the cache (Natron's menus use it). A context that the plug-in no longer supports
-      /// still gets kOfxImageEffectActionDescribeInContext: if the plug-in returns an error,
-      /// ImageEffectPlugin::getContext() returns NULL and the instance isn't created. The new
-      /// contexts stay hidden until the cache is cleared.
+      /// NULL if the binary can't be loaded, OfxSetHost refused the host, or the binary no longer
+      /// has this plug-in (a stale plug-in cache, see the PluginHandle constructor): the host should
+      /// report it and offer to clear the cache.
       OfxPlugin *getOfxPlugin() {
         return _op;
       }

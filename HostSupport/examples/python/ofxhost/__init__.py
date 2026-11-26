@@ -308,6 +308,17 @@ def _hostdemo_input(clip: str, value: Any, workdir: Path, index: int) -> str:
 _OUTPUT_RE = re.compile(re.escape(OUTPUT_PREFIX) + r"\.(-?\d+(?:\.\d+)?(?:e[-+]\d+)?)([lr]?)(\.alpha)?\.pfm$")
 
 
+def _output_key(t: float, view: str = ""):
+    """The key of an output image in RenderResult.outputs: the time (an int if it is one), or (time, "l" or "r")."""
+    key = int(t) if float(t).is_integer() else t
+    return (key, view) if view else key
+
+
+def _key_order(key) -> tuple:
+    """The sort key of _output_key()'s keys: by time, then view."""
+    return key if isinstance(key, tuple) else (key, "")
+
+
 def _read_outputs(workdir: Path) -> tuple[dict, dict]:
     colour: dict = {}
     alpha: dict = {}
@@ -315,14 +326,11 @@ def _read_outputs(workdir: Path) -> tuple[dict, dict]:
         m = _OUTPUT_RE.match(p.name)
         if not m:
             continue
-        v = float(m.group(1))
-        key = int(v) if v.is_integer() else v
-        if m.group(2):
-            key = (key, m.group(2))
+        key = _output_key(float(m.group(1)), m.group(2))
         (alpha if m.group(3) else colour)[key] = read_pfm(p)
     outputs: dict = {}
     alphas: dict = {}
-    for key in sorted(colour, key=lambda k: k if isinstance(k, tuple) else (k, "")):
+    for key in sorted(colour, key=_key_order):
         img = colour[key]
         outputs[key] = merge_alpha(img, alpha.get(key))
         if img.ndim == 2:  # (Pf: an Alpha image)
@@ -404,25 +412,17 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
         HostDemoError: hostDemo failed (with check), timed out, or wrote no readable output.
         HostDemoNotFound: no hostDemo binary (subprocess backend).
     """
-    if depth not in DEPTHS:
-        raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
+    comps = _render_components(depth, components)
     if _backend_for(backend, host_binary) == "inprocess":
         from . import inprocess
         return inprocess.render(bundle_paths, plugin_id, context=context, inputs=inputs, params=params, depth=depth,
                                 frames=frames, scale=scale, window=window, query=query, extra_args=extra_args,
                                 check=check, components=components)
-    comps = {}
-    for clip, c in (components or {}).items():
-        if c not in COMPONENTS:
-            raise ValueError(f"components of input {clip!r}: {c!r}, expected rgba, rgb or alpha")
-        comps[clip] = COMPONENTS[c]
     own = [a for a in extra_args if a in ("--format", "-o", "--report")]
     if own:
         raise ValueError(f"extra_args {own}: the subprocess backend runs hostDemo with its own --format pfm, -o and "
                          "--report (use backend=\"inprocess\" to write the files, or run hostDemo itself)")
-    given = dict(inputs or {})
-    for clip in comps:
-        given.setdefault(clip, "default")  # (components alone: the default pattern, as in-process)
+    given = _given_inputs(inputs, comps)
     host = find_hostdemo(host_binary)
     env = _env(bundle_paths)
     with tempfile.TemporaryDirectory(prefix="ofxhost-") as tmp:
@@ -437,14 +437,7 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
             if clip in comps:
                 suffix = None if comps[clip] == "rgba" else comps[clip]
             cmd += ["-i", f"{clip}={_hostdemo_input(clip, body, workdir, i)}" + (f"#{suffix}" if suffix else "")]
-        if frames is not None:
-            cmd += ["--frames", ",".join(_format_value(float(f)) for f in frames)]
-        if scale is not None:
-            cmd += ["--scale", ",".join(_format_value(s) for s in scale_pair(scale))]
-        if window is not None:
-            cmd += ["--window", ",".join(str(int(v)) for v in window)]
-        if query:
-            cmd += ["--query"]
+        cmd += _hostdemo_options(frames, scale, window, query)
         cmd += list(extra_args)
         for name, value in (params or {}).items():
             cmd += _param_args(name, value)
@@ -467,6 +460,40 @@ def render(bundle_paths, plugin_id: str, context: str = "filter",
                         images=_images(outputs, report))
 
 
+def _render_components(depth: str, components: Mapping[str, str] | None) -> dict:
+    """render()'s depth and components checked (ValueError): {clip: "rgba", "rgb" or "alpha"}."""
+    if depth not in DEPTHS:
+        raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
+    comps = {}
+    for clip, c in (components or {}).items():
+        if c not in COMPONENTS:
+            raise ValueError(f"components of input {clip!r}: {c!r}, expected rgba, rgb or alpha")
+        comps[clip] = COMPONENTS[c]
+    return comps
+
+
+def _given_inputs(inputs: Mapping | None, comps: Mapping) -> dict:
+    """render()'s inputs, with the default pattern for the clips that only have components."""
+    given = dict(inputs or {})
+    for clip in comps:
+        given.setdefault(clip, "default")
+    return given
+
+
+def _hostdemo_options(frames, scale, window, query: bool) -> list[str]:
+    """hostDemo's --frames, --scale, --window and --query options for render()'s arguments."""
+    cmd = []
+    if frames is not None:
+        cmd += ["--frames", ",".join(_format_value(float(f)) for f in frames)]
+    if scale is not None:
+        cmd += ["--scale", ",".join(_format_value(s) for s in scale_pair(scale))]
+    if window is not None:
+        cmd += ["--window", ",".join(str(int(v)) for v in window)]
+    if query:
+        cmd += ["--query"]
+    return cmd
+
+
 def _images(outputs: dict, report: dict) -> dict:
     """outputs -> Image, with the bounds from the report (matched by file name)."""
     bounds = {}
@@ -481,6 +508,13 @@ def _images(outputs: dict, report: dict) -> dict:
         name = f"{OUTPUT_PREFIX}.{_time_name(t)}{view}.pfm"
         images[key] = Image(pixels, bounds.get(name, (0, 0, pixels.shape[1], pixels.shape[0])), premult)
     return images
+
+
+def write_json(path, doc) -> None:
+    """Write a report as hostDemo does (indented, no NaN, a final newline); raises OSError or ValueError."""
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(doc, f, indent=2, allow_nan=False)
+        f.write("\n")
 
 
 def _time_name(t: float) -> str:

@@ -20,7 +20,6 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import functools
-import json
 import math
 import os
 import tempfile
@@ -28,17 +27,18 @@ import threading
 import traceback
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 
-from . import COMPONENTS, DEPTHS, OUTPUT_PREFIX, HostDemoError, Image, RenderResult, _format_value, _param_args
+from . import (DEPTHS, OUTPUT_PREFIX, HostDemoError, Image, RenderResult, _format_value, _given_inputs,
+               _hostdemo_options, _key_order, _output_key, _param_args, _render_components, _time_name, write_json)
 from . import plugin_dirs, split_components, status, stdio
 from .build import import_ofxh
 from .constants import (kFnOfxImageEffectPropComponentsPresent, kFnOfxImageEffectPropMultiPlanar, kOfxBitDepthByte,
                         kOfxBitDepthFloat, kOfxBitDepthNone, kOfxBitDepthShort,
                         kOfxImageComponentAlpha, kOfxImageComponentNone, kOfxImageComponentRGB,
-                        kOfxImageComponentRGBA, kOfxImageEffectContextFilter, kOfxImageEffectContextGeneral,
+                        kOfxImageComponentRGBA, kOfxImageEffectContextGeneral,
                         kOfxImageEffectOutputClipName, kOfxImageEffectPropOpenGLRenderSupported,
                         kOfxImageEffectPropSupportedPixelDepths, kOfxParamPropAnimates,
                         kOfxParamPropChoiceOption, kOfxParamPropEnabled, kOfxParamPropSecret, kOfxPluginPropFilePath,
@@ -46,8 +46,9 @@ from .constants import (kFnOfxImageEffectPropComponentsPresent, kFnOfxImageEffec
 from .pfm import alpha_path, encode_pfm, split_alpha
 from .pixels import BYTES, NCOMPS, stats, to_depth, to_float
 from .rects import MAX_IMAGE_PIXELS, fits, intersect, is_empty, scale_pair, to_pixels
-from .specs import (CLIP_LENGTH, Spec, SpecError, from_components, input_spec, parse_bool, parse_double, parse_int,
-                    parse_n, pattern, resolve_spec)
+from .specs import (CLIP_LENGTH, CONTEXTS, INPUT_FORMS, SCALE_EXPECTED, WINDOW_EXPECTED, Spec, SpecError,
+                    frame_named_twice, from_components, input_spec, not_found, parse_bool, parse_double, parse_int,
+                    parse_n, pattern, resolve_spec, valid_scale, valid_window)
 
 __all__ = ["render", "describe", "shutdown", "session", "ensure_host", "Session", "Job", "run_job", "json_safe",
            "capture_enabled"]
@@ -58,8 +59,6 @@ MAX_KEY_TIME = 1e15  # (hostDemo's limit of a key's time)
 
 _VEGAS = bool(ofxh.build_config.get("OFX_EXTENSIONS_VEGAS"))
 _NUKE = bool(ofxh.build_config.get("OFX_EXTENSIONS_NUKE"))
-_CONTEXTS = {"filter": kOfxImageEffectContextFilter, kOfxImageEffectContextFilter: kOfxImageEffectContextFilter,
-             "general": kOfxImageEffectContextGeneral, kOfxImageEffectContextGeneral: kOfxImageEffectContextGeneral}
 
 
 def _action(st) -> dict:
@@ -345,16 +344,15 @@ class _Clip(ofxh.ClipInstance):
             if self.name not in run.warned_clips:
                 run.warned_clips.add(self.name)
                 run.err(f"Warning: clip {self.name}: the plug-in or the clip doesn't support tiles, but the RoD "
-                        f"({_g(rod_c[0])},{_g(rod_c[1])},{_g(rod_c[2])},{_g(rod_c[3])}) is too large for hostDemo: "
+                        f"({_rect_g(rod_c)}) is too large for hostDemo: "
                         "fetching the region of interest instead")
             whole = False
         region = rod_c
-        if whole:
-            pass
-        elif bounds is not None:
-            region = tuple(bounds)
-        elif run.rendering and self.name in run.rois:
-            region = run.rois[self.name]
+        if not whole:
+            if bounds is not None:
+                region = tuple(bounds)
+            elif run.rendering and self.name in run.rois:
+                region = run.rois[self.name]
         region = intersect(region, rod_c)
         if is_empty(region):
             return None  # nothing to fetch
@@ -383,7 +381,21 @@ def _g(v: float) -> str:
     return f"{float(v):g}"
 
 
+def _rect_g(r) -> str:
+    """x1,y1,x2,y2 with _g()."""
+    return ",".join(_g(v) for v in r[:4])
+
+
 # --- the session: ofxh's one host -----------------------------------------------------------
+
+class HostOptions(NamedTuple):
+    """The options of the backend's ofxh host besides its directories and profile (see ensure_host())."""
+    keep_loaded: bool = False
+    use_std_paths: bool = False
+    opengl_render: bool = False
+    normalised_defaults: bool = True
+    multiplane: bool = False
+
 
 @dataclasses.dataclass(frozen=True)
 class Session:
@@ -391,7 +403,7 @@ class Session:
     host: Any
     dirs: tuple
     profile: str
-    options: tuple = ()  # (keep_loaded, use_std_paths, opengl_render, normalised_defaults, multiplane)
+    options: HostOptions = HostOptions()
 
 
 _session: Session | None = None
@@ -436,8 +448,9 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
         RuntimeError: another ofxh host is initialized.
     """
     global _session
-    options = (bool(keep_loaded), bool(use_std_paths), bool(opengl_render), bool(normalised_defaults),
-               bool(multiplane))
+    options = HostOptions(keep_loaded=bool(keep_loaded), use_std_paths=bool(use_std_paths),
+                          opengl_render=bool(opengl_render), normalised_defaults=bool(normalised_defaults),
+                          multiplane=bool(multiplane))
     if _session is not None and ofxh.host() is not _session.host:
         _session = None  # (shut down by someone else)
     if _session is not None and (_session.dirs, _session.profile, _session.options) == (dirs, profile, options):
@@ -472,16 +485,14 @@ def _frames(frames) -> list[float]:
     if frames is None:
         return [0., CLIP_LENGTH]
     out: list[float] = []
-    names: set[str] = set()
     for f in frames:
         v = float(f)
         if not math.isfinite(v) or v in out:
             raise _Usage(f'Error: invalid frames "{",".join(map(str, frames))}", expected distinct times t0,t1,...')
         out.append(v)
-        n = f"{v:.12g}"
-        if n in names:
-            raise _Usage(f'Error: invalid frames: {n} is given twice to 12 significant digits (the output file names)')
-        names.add(n)
+    n = frame_named_twice(out)
+    if n is not None:
+        raise _Usage(f'Error: invalid frames: {n} is given twice to 12 significant digits (the output file names)')
     if not out:
         raise _Usage("Error: invalid frames \"\", expected distinct times t0,t1,...")
     return out
@@ -503,8 +514,7 @@ class _Extra:
 def _extra(extra_args: Sequence[str]) -> _Extra:
     """The hostDemo options that the in-process backend takes in extra_args.
 
-    --ofx14, --no-normalised-defaults, --allow-unwritten, -m MAJOR, -s ASSIGNMENT (hostDemo's -s, before the
-    params'),
+    --ofx14, --no-normalised-defaults, --allow-unwritten, -m MAJOR, -s ASSIGNMENT (before the params'),
     --format ppm|pfm, -o PREFIX and --report FILE.
     """
     x = _Extra()
@@ -809,11 +819,11 @@ def _render_window(run: _Run, inst, out_clip, rod, t: float, fname: str) -> tupl
             render_window = rod_px
         elif not run.warned_large:
             run.warned_large = True
-            run.err(f"Warning: the plug-in or its output clip doesn't support tiles, but the RoD ({_g(rod[0])},"
-                    f"{_g(rod[1])},{_g(rod[2])},{_g(rod[3])}) is too large for hostDemo: rendering "
+            run.err(f"Warning: the plug-in or its output clip doesn't support tiles, but the RoD ({_rect_g(rod)}) "
+                    "is too large for hostDemo: rendering "
                     f"{'--window' if window else 'the project'} instead")
     if is_empty(render_window):
-        run.err(f"Warning: the output RoD ({_g(rod[0])},{_g(rod[1])},{_g(rod[2])},{_g(rod[3])}) at time {_g(t)} "
+        run.err(f"Warning: the output RoD ({_rect_g(rod)}) at time {_g(t)} "
                 f"doesn't intersect the {'render window' if window else 'project'}: nothing to render"
                 + ("" if run.job.query else f", {fname} not written"))
         return None
@@ -967,7 +977,7 @@ def _plugin_json(plugin) -> dict:
 
 
 def _context(context: str) -> str:
-    c = _CONTEXTS.get(context)
+    c = CONTEXTS.get(context)
     if c is None:
         raise _Usage(f'Error: unsupported context "{context}", expected filter or general')
     return c
@@ -996,13 +1006,12 @@ def run_job(dirs: tuple, job: Job) -> tuple[int, dict, dict]:
                     "actions": [], "clipPreferences": None, "timeDomain": None, "renders": []}
     short_context = ofxh.short_name("context", job.context)
     if plugin is None:
-        run.err(f'Error: plug-in "{job.plugin_id}"' + (f" with major version {job.major}" if job.major >= 0 else "") +
-                " not found. Check that OFX_PLUGIN_PATH contains the folder of its .ofx.bundle.")
-        return 1, report, run.outputs
+        run.err(not_found(job.plugin_id, job.major))
+        return _finish(1, report, run)
     report["plugin"] = _plugin_json(plugin)
     if short_context not in plugin.contexts:
         run.err(f'Error: plug-in "{job.plugin_id}" does not support the {job.context} context.')
-        return 1, report, run.outputs
+        return _finish(1, report, run)
     inst = _Instance(run)
     run.instance = inst
     try:
@@ -1014,7 +1023,7 @@ def run_job(dirs: tuple, job: Job) -> tuple[int, dict, dict]:
         made = None
     if made is None:
         run.err(f'Error: could not create an instance of plug-in "{job.plugin_id}" in the {job.context} context.')
-        return 1, report, run.outputs
+        return _finish(1, report, run)
     with inst:  # (kOfxActionDestroyInstance while the instance is whole, then delete it)
         ret = 0
         created = False
@@ -1027,6 +1036,11 @@ def run_job(dirs: tuple, job: Job) -> tuple[int, dict, dict]:
             ret = 1
         if created:
             _final_report(inst, report)
+    return _finish(ret, report, run)
+
+
+def _finish(ret: int, report: dict, run: _Run) -> tuple[int, dict, dict]:
+    """run_job()'s result: the report gets ok and exitStatus, as hostDemo writes them in every report."""
     report["ok"] = ret == 0
     report["exitStatus"] = ret
     return ret, json_safe(report), run.outputs
@@ -1039,22 +1053,16 @@ def _connect_inputs(run: _Run, inst, report: dict) -> None:
     """
     clips = inst.clips
     failed = False
-    for name, spec in run.job.inputs:
+    for name, plane, spec in [(name, None, spec) for name, spec in run.job.inputs] + list(run.job.planes):
         clip = clips.get(name)
         if clip is None or clip.is_output:
             run.err(f'Error: the plug-in has no input clip named "{name}". Its clips are:' +
                     "".join(" " + c for c in clips))
             failed = True
             break
-        clip.spec = spec
-    if not failed:
-        for name, plane, spec in run.job.planes:
-            clip = clips.get(name)
-            if clip is None or clip.is_output:
-                run.err(f'Error: the plug-in has no input clip named "{name}". Its clips are:' +
-                        "".join(" " + c for c in clips))
-                failed = True
-                break
+        if plane is None:
+            clip.spec = spec
+        else:
             clip.planes[plane] = spec
     for name, clip in clips.items():
         if not clip.is_output:
@@ -1201,10 +1209,9 @@ def _render_frames(run: _Run, inst, out_clip, sequential: bool, renders: list) -
     """Each time and view, in order, until one fails (_Failed)."""
     for t in run.job.frames:
         for view in range(run.n_views):
-            base = f"{run.job.prefix}.{t:.12g}" + ("" if run.n_views == 1 else "lr"[view])
-            key: Any = int(t) if float(t).is_integer() else t
-            if run.n_views > 1:
-                key = (key, "lr"[view])
+            v = "" if run.n_views == 1 else "lr"[view]
+            base = f"{run.job.prefix}.{_time_name(t)}{v}"
+            key = _output_key(t, v)
             r: dict = {}
             renders.append(r)
             _render_frame(run, inst, out_clip, t, view, sequential, base, key, r)
@@ -1234,7 +1241,7 @@ def _final_report(inst, report: dict) -> None:
 def _results(outputs: dict, report: dict):
     """outputs, alpha and images of a run, as the subprocess backend reads them from the files."""
     premult = (report.get("clipPreferences") or {}).get("outputPremultiplication")
-    keyed = sorted(outputs.items(), key=lambda x: x[0] if isinstance(x[0], tuple) else (x[0], ""))
+    keyed = sorted(outputs.items(), key=lambda x: _key_order(x[0]))
     out, alpha, images = {}, {}, {}
     for key, (pixels, bounds) in keyed:
         img = np.ascontiguousarray(to_float(pixels)[::-1])  # top-down
@@ -1250,14 +1257,7 @@ def _cmd(plugin_id, context, specs, depth, frames, scale, window, query, extra_a
     cmd = ["ofxhost.inprocess", "-p", plugin_id, "-c", context, "-d", depth]
     for clip, spec in specs:
         cmd += ["-i", f"{clip}={spec.text}"]
-    if frames is not None:
-        cmd += ["--frames", ",".join(repr(float(f)) for f in frames)]
-    if scale is not None:
-        cmd += ["--scale", ",".join(repr(s) for s in scale_pair(scale))]
-    if window is not None:
-        cmd += ["--window", ",".join(str(int(v)) for v in window)]
-    if query:
-        cmd += ["--query"]
+    cmd += _hostdemo_options(frames, scale, window, query)
     cmd += list(extra_args)
     for a in assignments:
         cmd += ["-s", a]
@@ -1269,8 +1269,8 @@ def _render_scale(scale) -> tuple:
     if scale is None:
         return (1., 1.)
     s = scale_pair(scale)
-    if not all(0. < x <= 1. for x in s):
-        raise _Usage(f'Error: invalid render scale "{scale}", expected s or sx,sy in (0,1]')
+    if not valid_scale(s):
+        raise _Usage(f'Error: invalid render scale "{scale}", {SCALE_EXPECTED}')
     return s
 
 
@@ -1278,10 +1278,8 @@ def _render_window_arg(window) -> tuple | None:
     if window is None:
         return None
     w = [int(v) for v in window]
-    if len(w) != 4 or w[0] >= w[2] or w[1] >= w[3] or w[2] - w[0] > 1000000 or w[3] - w[1] > 1000000 \
-            or (w[2] - w[0]) * (w[3] - w[1]) > MAX_IMAGE_PIXELS:
-        raise _Usage(f'Error: invalid render window "{",".join(map(str, w))}", expected x1,y1,x2,y2 with '
-                     "x1<x2 and y1<y2, at most 1000000 pixels wide or high and 2^28 pixels in all")
+    if not valid_window(w):
+        raise _Usage(f'Error: invalid render window "{",".join(map(str, w))}", {WINDOW_EXPECTED}')
     return tuple(w)
 
 
@@ -1291,17 +1289,12 @@ def _input_specs(inputs: Mapping, comps: Mapping, sc: tuple, specs: list) -> Non
     They are appended also after an error, for the command in the error message. Raises _Usage.
     """
     seen = set()
-    given = dict(inputs)
-    for clip in comps:
-        given.setdefault(clip, "default")  # (components alone: the default pattern)
-    for clip, value in given.items():
+    for clip, value in _given_inputs(inputs, comps).items():
         try:
             spec = input_spec(clip, value, comps.get(clip))
         except SpecError as e:
             text = value if isinstance(value, str) else str(value)
-            raise _Usage(f'Error: invalid input "{clip}={text}" ({e}), expected Clip=default|solid:r,g,b,a|'
-                         "ramp|checker:N|rod:x1,y1,x2,y2|none|file:rgb.pfm[+alpha.pfm][@x1,y1]"
-                         "[#premult|#unpremult|#opaque]") from None
+            raise _Usage(f'Error: invalid input "{clip}={text}" ({e}), expected {INPUT_FORMS}') from None
         if clip in comps:
             # (the report's spec says what the input is: the effective components, which
             # override a suffix of the spec)
@@ -1315,12 +1308,8 @@ def _input_specs(inputs: Mapping, comps: Mapping, sc: tuple, specs: list) -> Non
 
 def _write_report(path: str, report: dict, ret: int) -> int:
     """--report FILE of extra_args: the exit status, 1 if it can't be written."""
-    report["ok"] = ret == 0
-    report["exitStatus"] = ret
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(report, f, indent=2, allow_nan=False)
-            f.write("\n")
+        write_json(path, report)
     except (OSError, ValueError):
         stdio.write(2, f"Error: cannot write {path}\n")
         ret = report["exitStatus"] = 1
@@ -1338,10 +1327,7 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
 
     Args:
         bundle_paths, plugin_id, context, inputs, params, depth, frames, scale, window, query,
-            extra_args, check: as ofxhost.render().
-        components: clip name -> "rgb", "alpha" or "rgba" (or the kOfxImageComponent* names): the
-            components of that input (its unmapped components; default RGBA, or the spec's "#rgb"...
-            suffix); a clip not in inputs gets the default pattern.
+            extra_args, check, components: as ofxhost.render().
 
     Returns:
         The RenderResult, as the subprocess backend's.
@@ -1352,13 +1338,7 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
             hostDemo's message in stderr).
         RuntimeError: another ofxh host is initialized.
     """
-    if depth not in DEPTHS:
-        raise ValueError(f"depth {depth!r}: expected one of {DEPTHS}")
-    comps = {}
-    for clip, c in (components or {}).items():
-        if c not in COMPONENTS:
-            raise ValueError(f"components of input {clip!r}: {c!r}, expected rgba, rgb or alpha")
-        comps[clip] = COMPONENTS[c]
+    comps = _render_components(depth, components)
     dirs = tuple(plugin_dirs(bundle_paths))
     out_dir = os.getcwd()  # (the output files and the report are relative to the caller's directory)
     assignments = []
@@ -1434,8 +1414,7 @@ def describe(bundle_paths, plugin_id: str, context: str | None = None, extra_arg
             ensure_host(dirs, "ofx14" if x.ofx14 else "default", normalised_defaults=x.normalised_defaults)
             plugin = ofxh.get_plugin(plugin_id, x.major)
             if plugin is None:
-                stdio.write(2, f'Error: plug-in "{plugin_id}" not found. Check that OFX_PLUGIN_PATH contains the '
-                               "folder of its .ofx.bundle.\n")
+                stdio.write(2, not_found(plugin_id) + "\n")
             else:
                 d = ofxh.describe(plugin, None)
         except _Usage as e:

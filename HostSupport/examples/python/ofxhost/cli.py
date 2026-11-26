@@ -235,19 +235,20 @@ def cmd_filter(args) -> int:
     return _run(args, graph)
 
 
+def _load(path: str) -> g.Graph:
+    """g.load(path); raises Failure."""
+    try:
+        return g.load(path)
+    except (OSError, ValueError) as e:
+        raise Failure(f"{path}: {e}") from None
+
+
 def cmd_render(args) -> int:
     if args.dump:
-        try:
-            sys.stdout.write(g.load(args.graph).dumps())
-        except (OSError, ValueError) as e:
-            raise Failure(f"{args.graph}: {e}") from None
+        sys.stdout.write(_load(args.graph).dumps())
         return 0
     if args.save_graph:
-        try:
-            graph = g.load(args.graph)
-        except (OSError, ValueError) as e:
-            raise Failure(f"{args.graph}: {e}") from None
-        return _run(args, graph)
+        return _run(args, _load(args.graph))
     return _run(args, args.graph)  # (run() loads it, and reports a bad file as a failed run)
 
 
@@ -313,13 +314,7 @@ def main(argv=None) -> int:
             with _graphhost().host(dirs, use_env_path=True):
                 return args.func(args)
         return args.func(args)
-    except OfxhNotFound as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    except Failure as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    except OSError as e:  # (e.g. a plug-in directory that doesn't exist, in filter)
+    except (OfxhNotFound, Failure, OSError) as e:  # (OSError: e.g. a plug-in directory that doesn't exist, in filter)
         print(f"error: {e}", file=sys.stderr)
         return 1
 
