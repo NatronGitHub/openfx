@@ -9,6 +9,7 @@ that a crash fails the test instead of killing pytest.
 Neither needs OfxSetHost or the load action: the Support library checks the action first.
 """
 
+import os
 import subprocess
 import sys
 
@@ -47,10 +48,15 @@ sys.exit("no plug-in " + sys.argv[1] + " in " + " ".join(sys.argv[2:]))
 
 
 def _binaries(bundles, name):
-    """The binaries (Contents/<arch>/<name>.ofx) of the bundles whose name contains name."""
+    """The binaries (Contents/<arch>/<name>.ofx) of the bundles whose name contains name.
+
+    Skips the test if there is none, or fails with OFXH_REQUIRE=1.
+    """
     binaries = [str(b) for d in bundles for bundle in sorted(d.glob("*.ofx.bundle"))
                 if name in bundle.name.lower() for b in sorted(bundle.glob("Contents/*/*.ofx"))]
     if not binaries:
+        if os.environ.get("OFXH_REQUIRE") == "1":  # (CI: a missing build fails the tests)
+            pytest.fail(f"no {name} bundle in {bundles} (OFXH_REQUIRE=1)")
         pytest.skip(f"no {name} bundle in {bundles}")
     return binaries
 

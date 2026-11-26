@@ -88,8 +88,7 @@ _FLAGS = {"--no-std-paths": ("std_paths", False), "--quiet": ("quiet", True),
           "--allow-unwritten": ("allow_unwritten", True), "--query": ("query", True), "--ofx14": ("ofx14", True),
           "--opengl-describe": ("opengl_describe", True), "--no-normalised-defaults": ("normalised_defaults", False),
           "--multiplane": ("multiplane", True), "--no-cache": (None, None)}
-# -i Clip@Plane=spec: the planes (hostDemo's parseInputPlaneName: the kFnOfxImagePlane* names without
-# "uk.co.thefoundry.OfxImagePlane")
+# -i Clip@Plane=spec: the short plane names (the kPlanes table of hostDemo's parseInputPlaneArg())
 _PLANES = ("ForwardMotionVector", "BackMotionVector", "StereoDisparityLeft", "StereoDisparityRight")
 _CONTEXTS = {"filter": kOfxImageEffectContextFilter, "general": kOfxImageEffectContextGeneral,
              kOfxImageEffectContextFilter: kOfxImageEffectContextFilter,

@@ -5,6 +5,12 @@
 
 namespace MyHost {
 
+  /// the host profiles: the default one, --ofx14 and --ofx11
+  enum class Profile { eDefault, eOFX14, eOFX11 };
+
+  /// "default", "ofx14" or "ofx11" (the --report value, and the plug-in cache name suffix)
+  const char* profileName(Profile profile);
+
   /// a host combines several things...
   ///    - a factory to create a new instance of your plugin
   ///      - it also gets to filter some calls during in the
@@ -22,13 +28,19 @@ namespace MyHost {
     /// is not called. Call it before the plug-in scan.
     void restrictToOFX14();
 
-    /// --ofx11: behave as an OFX 1.1 host such as VEGAS Pro (openfx-misc#66). The host descriptor
-    /// keeps only the OFX 1.1 host properties (and kOfxPropAPIVersion 1.1), with no tiles, no
-    /// multi-resolution, no overlays and only 8-bit and float depths; fetchSuite() returns only the
-    /// OFX 1.1 suites but the interact suite; OfxSetHost is not called; the double params have no
-    /// kOfxParamPropDefaultCoordinateSystem (as disableNormalisedDefaults()), and the plug-in
-    /// descriptors and instances no kOfxImageEffectInstancePropSequentialRender. Call it before
-    /// the plug-in scan.
+    /// --ofx11: behave as an OFX 1.1 host modelled on VEGAS Pro 12 (openfx-misc#66,
+    /// openfx-misc's README-hosts.txt), with the quirks of other old hosts that the Support
+    /// library must survive. Call it before the plug-in scan.
+    /// - VEGAS Pro 12: the host descriptor keeps only the OFX 1.1 host properties, and
+    ///   kOfxPropAPIVersion 1.1; no tiles, no multi-resolution, no overlays, 8-bit and float depths
+    ///   only, a single clip PAR. fetchSuite() returns the OFX 1.1 suites but the interact suite,
+    ///   plus the message suite V2. OfxSetHost is not called.
+    /// - OFX 1.1: the double params have no kOfxParamPropDefaultCoordinateSystem (OFX 1.2), as
+    ///   with disableNormalisedDefaults().
+    /// - Resolve and Nuke: the plug-in descriptors have no kOfxImageEffectInstancePropSequentialRender
+    ///   (README-hosts.txt); the instances don't have it either.
+    /// - DaVinci Resolve and Fusion 2026: the persistent messages are refused
+    ///   (https://github.com/creativevideotips/cvt-ltx-alpha-gen, src/ofx/src/plugin.cpp).
     void restrictToOFX11();
 
     /// --no-normalised-defaults: behave as a host that doesn't support normalised parameter
@@ -41,7 +53,7 @@ namespace MyHost {
     virtual const void *fetchSuite(const char *suiteName, int suiteVersion);
 
     /// false with restrictToOFX14() or restrictToOFX11()
-    virtual bool supportsOfxSetHost() const { return !_ofx14 && !_ofx11; }
+    virtual bool supportsOfxSetHost() const { return _profile == Profile::eDefault; }
 
     /// true if the environment variable OFX_HOSTDEMO_KEEP_LOADED is 1: the scanned plug-ins stay
     /// loaded (one kOfxActionLoad and kOfxActionDescribe), instead of being unloaded after the
@@ -50,7 +62,7 @@ namespace MyHost {
 
     /// kOfxParamPropColourManagement on RGB and RGBA params (a test-host hook: hostDemo doesn't
     /// convert colours); false with restrictToOFX14() or restrictToOFX11()
-    virtual bool supportsParamColourManagement() const { return !_ofx14 && !_ofx11; }
+    virtual bool supportsParamColourManagement() const { return _profile == Profile::eDefault; }
 
     /// Create a new instance of an image effect plug-in.
     ///
@@ -108,8 +120,7 @@ namespace MyHost {
     /// descriptor or instance
     void removeSequentialRender(OFX::Host::Property::Set& props) const;
 
-    bool _ofx14; ///< restrictToOFX14()
-    bool _ofx11; ///< restrictToOFX11()
+    Profile _profile; ///< restrictToOFX14(), restrictToOFX11()
     bool _keepLoaded; ///< OFX_HOSTDEMO_KEEP_LOADED=1
     bool _normalisedDefaults; ///< false after disableNormalisedDefaults()
   };

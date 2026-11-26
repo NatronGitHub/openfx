@@ -1,23 +1,17 @@
 name: Build
 
-# Per push / pull request: exactly three full builds plus tests, one per OS
-# (policy for all Natron-related repos). macOS runs after Linux and Windows pass, and isn't
-# required for merging (macOS arm64 runners are scarce); extended.yml builds it weekly:
-#   - Linux (ubuntu-24.04): CMake (.github/scripts/cmake-build-test.sh: build, install, the hostDemo
-#     checks, a plug-in project built against the installed package, and a host project using
-#     HostSupport with add_subdirectory and the system expat), plus the header (all together, and
-#     the C API ones as C too, and each HostSupport and Support header on its own) and
-#     property metadata checks and the Python tests (HostSupport/examples/python and
-#     Support/Plugins/tests on both ofxhost backends, hostDemo and in-process, and the HostSupport
-#     Python bindings, HostSupport/python/tests, with the extensions off and on)
-#   - macOS 15 arm64: CMake, system (Xcode) clang, MacPorts tools and libomp, no Homebrew, and the
-#     Python tests on the ofxh module (MacPorts' Python 3.11 and nanobind), as on Linux
-#   - Windows: MSYS2 UCRT64, CMake, the plug-in and host projects, and the ofxh module (built and
-#     imported, plus a smoke comparison of ofxhost.hostdemo with hostDemo: one describe and one render,
-#     also in its batch mode, with a killed worker), and the HostSupport checks (suiteHandleChecks)
-# The plug-in repositories build with CMake (Natron#1181), so the per-PR builds do too. Other
-# variants (the Makefiles, C++20/23, MSVC, debug builds) are in extended.yml, which runs weekly
-# and on demand.
+# Per push / pull request: one job per OS, with its tests (policy for all Natron-related repos;
+# CMake, as the plug-in repositories, Natron#1181). The Linux job also builds a second, cheap tree
+# with the extensions on, for the tests that need them. macOS runs after Linux and
+# Windows pass, and isn't required for merging (macOS arm64 runners are scarce).
+#   - Linux: the header and property metadata checks, cmake-build-test.sh, and the Python tests
+#     (ofxhost on both backends, and the ofxh module) with the extensions off and on
+#   - macOS 15 arm64: Xcode clang and MacPorts (no Homebrew), cmake-build-test.sh and the Python tests
+#   - Windows: MSYS2 UCRT64 with the extensions on, the plug-in and host projects, the ofxh module
+#     (imported, and windows-hostdemo-smoke.sh against hostDemo), the Support self-tests and
+#     suiteHandleChecks
+# The other variants (the Makefiles, C++20/23, MSVC, debug builds) are in extended.yml, which runs
+# weekly and on demand.
 #
 # Frugal CI (NatronGitHub runners are shared by all repos): one run per change.
 # Pushes run CI only on master and tags; feature branches run through their pull
@@ -45,6 +39,20 @@ defaults:
   run:
     shell: bash -eo pipefail {0}
 
+env:
+  # for every step: pytest reads PYTEST_ADDOPTS, and only the tests read OFXH_REQUIRE (1: a missing
+  # ofxh module, plug-in or hostDemo fails the tests instead of skipping them)
+  PYTEST_ADDOPTS: -q -rs -p no:cacheprovider -o faulthandler_timeout=300
+  PYTHONFAULTHANDLER: '1'
+  OFXH_REQUIRE: '1'
+  # the extension macros of the header checks, and the CMake options of the extensions-on builds
+  OFX_EXT_D: >-
+    -DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS
+    -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC_V2
+  OFX_EXT_CMAKE: >-
+    -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON -DOFX_EXTENSIONS_VEGAS=ON
+    -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON
+
 jobs:
   linux:
     name: Linux (ubuntu-24.04, CMake)
@@ -53,8 +61,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
@@ -85,7 +93,7 @@ jobs:
             echo '#include "nuke/fnOfxExtensions.h"'
             echo '#include "ofxhDrawSuiteOpenGL.h"'; } > all.cpp
           for std in c++17 c++20; do
-            for D in "" "-DOFX_EXTENSIONS_RESOLVE" "-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC_V2"; do
+            for D in "" "-DOFX_EXTENSIONS_RESOLVE" "$OFX_EXT_D"; do
               echo "== $std $D"
               g++ -std=$std -fsyntax-only -Wall -Werror $D -Iinclude -IHostSupport/include all.cpp
             done
@@ -99,7 +107,7 @@ jobs:
             echo '#include "nuke/fnOfxExtensions.h"'; echo '#include "nuke/camera.h"'
             echo '#include "tuttle/ofxReadWrite.h"'; } > all.c
           for std in c99 c11; do
-            for D in "" "-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC_V2"; do
+            for D in "" "$OFX_EXT_D"; do
               echo "== $std $D"
               gcc -x c -std=$std -fsyntax-only -pedantic -Wall -Wstrict-prototypes -Werror $D -Iinclude all.c
             done
@@ -107,9 +115,11 @@ jobs:
       - name: Each HostSupport and Support header compiles on its own (C++17, C++20; no extensions, all of them)
         run: |
           # a host or a plug-in may include any of them first: each one includes what it uses (SF.11);
-          # ofxsHWNDInteract.h needs <windows.h>
-          hs_on="-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC -DOFX_SUPPORTS_PARAMETRIC_V2 -DOFX_SUPPORTS_MULTITHREAD -DOFX_USE_STATIC_PLUGINS"
-          s_on="-DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS -DOFX_EXTENSIONS_TUTTLE -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_DIALOG -DOFX_SUPPORTS_PARAMETRIC_V2 -DOFX_USE_MULTITHREAD_MUTEX"
+          # ofxsHWNDInteract.h needs <windows.h>. Plus the macros of each library: HostSupport's
+          # OFX_SUPPORTS_PARAMETRIC, OFX_SUPPORTS_MULTITHREAD and OFX_USE_STATIC_PLUGINS, Support's
+          # OFX_USE_MULTITHREAD_MUTEX
+          hs_on="$OFX_EXT_D -DOFX_SUPPORTS_PARAMETRIC -DOFX_SUPPORTS_MULTITHREAD -DOFX_USE_STATIC_PLUGINS"
+          s_on="$OFX_EXT_D -DOFX_USE_MULTITHREAD_MUTEX"
           for dir in HostSupport Support; do
             if [ $dir = HostSupport ]; then on=$hs_on; hdrs=$(cd HostSupport/include && ls ofxh*.h)
             else on=$s_on; hdrs=$(cd Support/include && ls ofxs*.h | grep -v ofxsHWNDInteract.h); fi
@@ -140,8 +150,7 @@ jobs:
           # or Vegas; the other ofxhost tests expect one)
           set -eo pipefail
           cmake -S . -B build-ci-natron -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLE_PLUGINS=ON \
-            -DBUILD_EXAMPLE_HOSTS=ON -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON \
-            -DOFX_EXTENSIONS_VEGAS=ON -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON \
+            -DBUILD_EXAMPLE_HOSTS=ON $OFX_EXT_CMAKE \
             -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
           cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test support-library-test ofxh \
             hostDemo suiteHandleChecks example-Basic-support example-ChoiceParams-support example-Generator-support \
@@ -152,28 +161,23 @@ jobs:
           SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
             build-ci-natron/HostSupport/examples/suiteHandleChecks > suitehandlechecks-natron.log 2>&1 \
             || { cat suitehandlechecks-natron.log; exit 1; }
-          # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
-          PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" OFXH_REQUIRE=1 \
-            python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
+          PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" python -m pytest HostSupport/python/tests
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
-            OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" OFXH_REQUIRE=1 \
-            python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 \
-            HostSupport/examples/python/tests/test_backends.py HostSupport/examples/python/tests/test_hostdemo_cli.py
+            OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" \
+            python -m pytest HostSupport/examples/python/tests/test_backends.py HostSupport/examples/python/tests/test_hostdemo_cli.py
       - name: Python wrapper and sample plug-in tests (ofxhost, on both backends)
         if: success() || failure()
         run: |
-          # each render test runs with hostDemo and in-process on the ofxh module (OFXH_REQUIRE=1: a
-          # backend that isn't built fails the tests instead of skipping them)
-          OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1 \
+          # each render test runs with hostDemo and in-process on the ofxh module
+          OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
-            python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/examples/python/tests Support/Plugins/tests
+            python -m pytest HostSupport/examples/python/tests Support/Plugins/tests
       - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
         if: success() || failure()
         run: |
-          # OFXH_REQUIRE=1: a missing module, plug-in or hostDemo fails the tests instead of skipping them
-          export PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1
+          export PYTHONPATH="$PWD/build-ci/HostSupport/python"
           python -c "import ofxh; print(ofxh.__file__)"
-          python -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
+          python -m pytest HostSupport/python/tests
 
   macos:
     name: macOS 15 arm64 (CMake, Xcode clang, MacPorts)
@@ -184,7 +188,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install MacPorts
         # Support/include/osxDeploy.sh (release bundles) needs GNU sed: gsed from MacPorts
         uses: melusina-org/setup-macports@v1
@@ -195,10 +199,7 @@ jobs:
         run: |
           echo "PATH=/opt/local/bin:/opt/local/sbin:$(echo "$PATH" | tr ':' '\n' | grep -v -e homebrew -e '^/usr/local/' | paste -sd: -)" >> "$GITHUB_ENV"
       - name: Deployment target (the runner's macOS)
-        # CI builds aren't shipped: they target the runner's macOS. The release bundles target
-        # macOS 14.0 (VFX Reference Platform CY2027) and are built on a macOS 14 machine.
-        # After the MacPorts install: the ports are MacPorts' binary archives for the runner's macOS.
-        run: echo "MACOSX_DEPLOYMENT_TARGET=$(sw_vers -productVersion | cut -d. -f1).0" >> "$GITHUB_ENV"
+        run: .github/scripts/macos-deployment-target.sh
       - name: Toolchain
         run: |
           echo "PATH=$PATH"
@@ -218,17 +219,15 @@ jobs:
       - name: Python wrapper and sample plug-in tests (ofxhost, on both backends)
         if: success() || failure()
         run: |
-          # OFXH_REQUIRE=1: a backend that isn't built fails the tests instead of skipping them
-          OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1 \
+          OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
-            python3.11 -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 \
-            HostSupport/examples/python/tests Support/Plugins/tests
+            python3.11 -m pytest HostSupport/examples/python/tests Support/Plugins/tests
       - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
         if: success() || failure()
         run: |
-          export PYTHONPATH="$PWD/build-ci/HostSupport/python" OFXH_REQUIRE=1
+          export PYTHONPATH="$PWD/build-ci/HostSupport/python"
           python3.11 -c "import ofxh; print(ofxh.__file__)"
-          python3.11 -X faulthandler -m pytest -q -rs -p no:cacheprovider -o faulthandler_timeout=300 HostSupport/python/tests
+          python3.11 -m pytest HostSupport/python/tests
 
   windows:
     name: Windows (MSYS2 UCRT64, CMake)
@@ -239,7 +238,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -258,9 +257,7 @@ jobs:
         run: |
           set -eo pipefail
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON \
-            -DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON -DOFX_EXTENSIONS_VEGAS=ON \
-            -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON \
+            -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON $OFX_EXT_CMAKE \
             -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins" \
             -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
             -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF
@@ -279,65 +276,7 @@ jobs:
           PYTHONPATH="$(cygpath -w "$PWD/build/HostSupport/python");$(cygpath -w "$PWD/HostSupport/examples/python")" \
             python -c "import ofxh, ofxhost.inprocess, ofxhost.graphhost, ofxhost.cli; print(ofxh.__file__, ofxh.build_config)"
       - name: Smoke run of hostDemo's command line in-process (ofxhost.hostdemo), against hostDemo
-        run: |
-          set -eo pipefail
-          # one --describe and one small render of Invert, with hostDemo.exe and with
-          # python -m ofxhost.hostdemo (and the hostdemo-inprocess script, which converts its path
-          # for the native python.exe): the same exit status, describe JSON, files and crc32
-          root=$PWD
-          hd=$root/$(find build -name hostDemo.exe -type f | head -1)
-          export OFX_PLUGIN_PATH="$(cygpath -w "$root/build/Plugins")"
-          export PYTHONPATH="$(cygpath -w "$root/build/HostSupport/python")"
-          args=(--no-std-paths --no-cache --quiet -p net.sf.openfx.invertPlugin -d float --frames 0
-                --window 0,0,16,8 -i Source=ramp --format pfm -o out --report r.json)
-          for h in hd py sh; do
-            mkdir -p "smoke/$h" && cd "smoke/$h"
-            case $h in
-              hd) run=("$hd") ;;
-              py) run=(python -m ofxhost.hostdemo) ;;
-              sh) run=(env OFXHOST_PYTHON=python "$root/HostSupport/examples/python/hostdemo-inprocess") ;;
-            esac
-            [ $h = hd ] || export PYTHONPATH="$PYTHONPATH;$(cygpath -w "$root/HostSupport/examples/python")"
-            "${run[@]}" --no-std-paths --no-cache --quiet -p net.sf.openfx.invertPlugin --describe d.json
-            "${run[@]}" "${args[@]}"
-            ls out.0*.pfm
-            cd "$root"
-          done
-          # the batch mode: the same two runs in two workers, then a worker killed by the test hook
-          # (the command is crashed, the worker replaced: the next command runs)
-          mkdir -p smoke/bt && cd smoke/bt
-          { echo "--no-std-paths --no-cache --quiet -p net.sf.openfx.invertPlugin --describe d.json"
-            echo "${args[*]}"
-            echo "--env OFXHOST_BATCH_TEST_HOOK=kill --no-std-paths --no-cache --quiet --describe k.json"
-            echo "--no-std-paths --no-cache --quiet --describe k2.json"; } > cmds.txt
-          st=0
-          python -m ofxhost.hostdemo --batch cmds.txt -j 2 --batch-report recs.jsonl || st=$?
-          test $st = 1
-          cd "$root"
-          python - <<'PY'
-          import glob, json, os
-          # the output files, byte for byte (MSYS2 has no cmp without diffutils)
-          files = sorted(glob.glob("smoke/hd/out.0*.pfm"))
-          assert files
-          for h in ("py", "sh", "bt"):
-              for f in files:
-                  g = f"smoke/{h}/{os.path.basename(f)}"
-                  assert open(f, "rb").read() == open(g, "rb").read(), g
-          def load(p):
-              return json.load(open(p), parse_constant=lambda c: (_ for _ in ()).throw(ValueError(c)))
-          def nopath(d):  # plugin.filePath: as found by hostDemo, absolute in ofxh (a documented difference)
-              if isinstance(d, dict):
-                  return {k: nopath(v) for k, v in d.items() if k != "filePath"}
-              return [nopath(v) for v in d] if isinstance(d, list) else d
-          for h in ("py", "sh", "bt"):
-              assert nopath(load(f"smoke/{h}/d.json")) == nopath(load("smoke/hd/d.json")), h
-              crc = lambda p: [r["output"]["crc32"] for r in load(p)["renders"]]
-              assert crc(f"smoke/{h}/r.json") == crc("smoke/hd/r.json"), h
-          recs = [json.loads(x) for x in open("smoke/bt/recs.jsonl")]
-          assert [(r["ok"], r["crashed"]) for r in recs] == [(True, False)] * 2 + [(False, True), (True, False)], recs
-          assert "batch test hook: kill" in recs[2]["stdout"], recs[2]
-          print("ofxhost.hostdemo: same as hostDemo (also --batch)")
-          PY
+        run: .github/scripts/windows-hostdemo-smoke.sh
       - name: Self-tests of the OpenGL DrawSuite core (a fake OpenGL table, __stdcall on Windows) and of the Support library
         run: |
           set -eo pipefail
@@ -364,7 +303,7 @@ jobs:
           cmake --install build --prefix install
           find install -name '*.ofx' | sort
           test "$(find install -name '*.ofx' | wc -l)" -ge 5
-          # the example hosts are installed (on Windows, suiteHandleChecks runs above; the test renders run on Linux and macOS)
+          # the example hosts are installed (on Windows, hostDemo and suiteHandleChecks run above, from the build tree)
           ls install/bin/hostDemo.exe install/bin/cacheDemo.exe install/bin/propsetDump.exe install/bin/suiteHandleChecks.exe
       - name: Plug-in project built against the installed package and with add_subdirectory
         run: |

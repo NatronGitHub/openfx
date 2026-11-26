@@ -202,12 +202,10 @@ class _Instance(ofxh.ImageEffectInstance):
         self.messages.append({"kind": "clearPersistentMessage", "type": "", "id": "", "text": ""})
 
     def progress_start(self, message, message_id):
-        self.progress.append({"message": message, "id": message_id, "updates": 0, "lastValue": 0., "ended": False,
-                              "ends": 0})
+        self.progress.append({"message": message, "id": message_id, "updates": 0, "lastValue": 0., "ends": 0})
 
     def progress_end(self):
         if self.progress:
-            self.progress[-1]["ended"] = True
             self.progress[-1]["ends"] += 1  # (the number of progressEnd calls, as hostDemo)
 
     def progress_update(self, t):
@@ -1225,7 +1223,7 @@ def _final_report(inst, report: dict) -> None:
         p["enabled"] = bool(props.get(kOfxParamPropEnabled, (1,))[0])
         p["secret"] = bool(props.get(kOfxParamPropSecret, (0,))[0])
     report["messages"] = list(inst.messages)
-    report["progress"] = [{"message": p["message"], "id": p["id"], "started": True, "ended": p["ended"],
+    report["progress"] = [{"message": p["message"], "id": p["id"], "started": True, "ended": p["ends"] > 0,
                            "ends": p["ends"], "updates": p["updates"],
                            "lastValue": p["lastValue"] if p["updates"] > 0 else None}
                           for p in inst.progress]

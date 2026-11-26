@@ -1,3 +1,5 @@
+// Copyright OpenFX and contributors to the OpenFX project.
+// SPDX-License-Identifier: BSD-3-Clause
 /*
  * propsetDump: dump the property sets that HostSupport actually creates, as JSON.
  *

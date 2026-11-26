@@ -530,21 +530,26 @@ static Json paramJson(const OFX::Host::Param::Descriptor& d, const std::string& 
 }
 
 // --describe: the plug-in's contexts, and in each context its effect flags, clips and parameters.
-// loaded is false if kOfxActionLoad or kOfxActionDescribe failed: no context is described then.
+// If kOfxActionLoad or kOfxActionDescribe failed (loadFailed), no context is described.
 // Returns false if a context couldn't be described.
-static bool describePlugin(OFX::Host::ImageEffect::ImageEffectPlugin* plugin, bool loaded, Json& out)
+static bool describePlugin(OFX::Host::ImageEffect::ImageEffectPlugin* plugin, bool loadFailed, Json& out)
 {
   bool ok = true;
   out["schema"] = "hostDemo.describe";
   out["schemaVersion"] = 1;
   out["plugin"] = pluginJson(plugin);
   Json& contexts = out["contexts"] = Json::object();
+  if (loadFailed) {
+    std::cerr << "Error: the load or describe action failed: no context is described" << std::endl;
+  }
   const std::set<std::string>& cs = plugin->getContexts();
   for (std::set<std::string>::const_iterator it = cs.begin(); it != cs.end(); ++it) {
     Json& c = contexts[*it] = Json::object();
-    OFX::Host::ImageEffect::Descriptor* d = loaded ? plugin->getContext(*it) : NULL;
+    OFX::Host::ImageEffect::Descriptor* d = loadFailed ? NULL : plugin->getContext(*it);
     if (!d) {
-      std::cerr << "Error: the describe in context action failed for the " << *it << " context" << std::endl;
+      if (!loadFailed) {
+        std::cerr << "Error: the describe in context action failed for the " << *it << " context" << std::endl;
+      }
       c["ok"] = false;
       ok = false;
       continue;
@@ -686,7 +691,7 @@ static void fillMessagesJson(const MyHost::MyEffectInstance& instance, Json& rep
     j["message"] = p[i].message;
     j["id"] = p[i].id;
     j["started"] = true;
-    j["ended"] = p[i].ended;
+    j["ended"] = p[i].ends > 0;
     j["ends"] = p[i].ends;
     j["updates"] = p[i].updates;
     j["lastValue"] = (p[i].updates > 0) ? Json(p[i].lastValue) : Json(); // null if there was no update
@@ -1309,12 +1314,12 @@ static int run(int argc, char **argv)
   std::string describePath; ///< --describe
   bool useStdPaths = true;
   bool useCache = true;
-  bool ofx14 = false;          ///< --ofx14
-  bool ofx11 = false;          ///< --ofx11
+  MyHost::Profile profile = MyHost::Profile::eDefault; ///< --ofx14, --ofx11
+  bool ofx14And11 = false;     ///< both --ofx14 and --ofx11
   bool openglDescribe = false; ///< --opengl-describe
   bool multiPlane = false;     ///< --multiplane
-  std::vector<std::pair<std::string, MyHost::InputPlane> > inputPlanes; ///< -i Clip@Plane=spec
-  std::map<std::string, std::map<std::string, std::string> > inputPlaneSpecs; ///< their spec text, for --report
+  /// -i Clip@Plane=spec: by clip, then by short plane name
+  std::map<std::string, std::map<std::string, MyHost::InputPlane> > inputPlanes;
   bool normalisedDefaults = true; ///< --no-normalised-defaults
   bool quiet = false;
   bool allowUnwritten = false;
@@ -1342,10 +1347,10 @@ static int run(int argc, char **argv)
       allowUnwritten = true;
     } else if (arg == "--query") {
       query = true;
-    } else if (arg == "--ofx14") {
-      ofx14 = true;
-    } else if (arg == "--ofx11") {
-      ofx11 = true;
+    } else if (arg == "--ofx14" || arg == "--ofx11") {
+      const MyHost::Profile p = arg == "--ofx14" ? MyHost::Profile::eOFX14 : MyHost::Profile::eOFX11;
+      ofx14And11 = ofx14And11 || (profile != MyHost::Profile::eDefault && profile != p);
+      profile = p;
     } else if (arg == "--opengl-describe") {
       openglDescribe = true;
     } else if (arg == "--multiplane") {
@@ -1407,32 +1412,18 @@ static int run(int argc, char **argv)
         }
       } else if (arg == "-i" && optarg.find('=') != std::string::npos && optarg.find('@') < optarg.find('=')) {
         // -i Clip@Plane=spec: an extra plane
-        const std::string::size_type at = optarg.find('@');
-        const std::string::size_type eq = optarg.find('=');
-        const std::string clipName = optarg.substr(0, at);
-        const std::string planeName = optarg.substr(at + 1, eq - at - 1);
+        std::string clipName, planeName, error;
         MyHost::InputPlane plane;
-        std::string error = "no clip name";
-        if (at > 0) {
-          error.clear();
-          if (!MyHost::parseInputPlaneName(planeName, plane)) {
-            error = "unknown plane \"" + planeName + "\"";
-          } else if (MyHost::parseInputSpec(optarg.substr(eq + 1), plane.spec, error, false) &&
-                     plane.spec.type == MyHost::InputSpec::eNone) {
-            error = "a plane can't be none";
-          }
-        }
-        if (!error.empty()) {
+        if (!MyHost::parseInputPlaneArg(optarg, clipName, planeName, plane, error)) {
           std::cerr << "Error: invalid input plane \"" << optarg << "\" (" << error
                     << "), expected Clip@ForwardMotionVector|BackMotionVector|StereoDisparityLeft|StereoDisparityRight=spec"
                     << std::endl;
           return 1;
         }
-        if (!inputPlaneSpecs[clipName].insert(std::make_pair(planeName, optarg.substr(eq + 1))).second) {
+        if (!inputPlanes[clipName].insert(std::make_pair(planeName, plane)).second) {
           std::cerr << "Error: input plane \"" << clipName << "@" << planeName << "\" given twice (-i)" << std::endl;
           return 1;
         }
-        inputPlanes.push_back(std::make_pair(clipName, plane));
       } else if (arg == "-i") {
         std::string::size_type eq = optarg.find('=');
         MyHost::InputSpec spec;
@@ -1526,9 +1517,11 @@ static int run(int argc, char **argv)
     inputs[k].second.fileScaleX = renderScale.x;
     inputs[k].second.fileScaleY = renderScale.y;
   }
-  for (size_t k = 0; k < inputPlanes.size(); ++k) {
-    inputPlanes[k].second.spec.fileScaleX = renderScale.x;
-    inputPlanes[k].second.spec.fileScaleY = renderScale.y;
+  for (auto& clipPlanes : inputPlanes) {
+    for (auto& p : clipPlanes.second) {
+      p.second.spec.fileScaleX = renderScale.x;
+      p.second.spec.fileScaleY = renderScale.y;
+    }
   }
 
   if (!reportPath.empty() && !describePath.empty()) {
@@ -1551,15 +1544,15 @@ static int run(int argc, char **argv)
     std::cerr << "Error: -i Clip@Plane=spec needs --multiplane" << std::endl;
     return 1;
   }
-  if (multiPlane && ofx14) {
+  if (multiPlane && (profile == MyHost::Profile::eOFX14 || ofx14And11)) {
     std::cerr << "Error: --multiplane and --ofx14 can't be used together (OFX 1.4 has no plane suite)" << std::endl;
     return 1;
   }
-  if (ofx11 && (ofx14 || multiPlane || openglDescribe)) {
+  if (ofx14And11 || (profile == MyHost::Profile::eOFX11 && (multiPlane || openglDescribe))) {
     std::cerr << "Error: --ofx11 can't be used with --ofx14, --multiplane or --opengl-describe" << std::endl;
     return 1;
   }
-  if (ofx11 && inputDepth == kOfxBitDepthShort) {
+  if (profile == MyHost::Profile::eOFX11 && inputDepth == kOfxBitDepthShort) {
     std::cerr << "Error: -d short: the --ofx11 host only supports byte and float depths" << std::endl;
     return 1;
   }
@@ -1574,8 +1567,9 @@ static int run(int argc, char **argv)
   // set the version label in the global cache
   // (the plug-ins may describe themselves differently to an OFX 1.4 host, to a host with
   // OpenGL render, or to a multi-plane host: another cache)
-  const std::string cacheSuffix = std::string(ofx14 ? "-ofx14" : ofx11 ? "-ofx11" : "") + (openglDescribe ? "-opengl" : "") +
-                                  (multiPlane ? "-multiplane" : "");
+  const std::string cacheSuffix =
+    (profile == MyHost::Profile::eDefault ? std::string() : std::string("-") + MyHost::profileName(profile)) +
+    (openglDescribe ? "-opengl" : "") + (multiPlane ? "-multiplane" : "");
   OFX::Host::PluginCache::getPluginCache()->setCacheVersion("hostDemoV1" + cacheSuffix);
   const std::string cachePath = "hostDemoPluginCache" + cacheSuffix + ".xml";
 
@@ -1583,10 +1577,9 @@ static int run(int argc, char **argv)
   // a factory to make plugin instances and acts
   // as a description of the host application
   MyHost::Host myHost;
-  if (ofx14) {
+  if (profile == MyHost::Profile::eOFX14) {
     myHost.restrictToOFX14();
-  }
-  if (ofx11) {
+  } else if (profile == MyHost::Profile::eOFX11) {
     myHost.restrictToOFX11();
   }
   if (openglDescribe) {
@@ -1636,15 +1629,14 @@ static int run(int argc, char **argv)
 
   // get the plugin (by default, the invert example plugin which uses the OFX C++ support code)
   OFX::Host::ImageEffect::ImageEffectPlugin* plugin = imageEffectPluginCache.getPluginById(pluginId, pluginMajor);
-  // kOfxActionLoad and kOfxActionDescribe first, so that the label, grouping and contexts
-  // reported are those the plug-in describes, not those of the plug-in cache, which may be stale.
-  // getPluginHandle() logs a failure, and the plug-in is then not used: ofxCore.h, kOfxActionLoad:
-  // "kOfxStatFailed, the load action failed, no further actions will be passed to the plug-in".
-  // A plug-in that describes no context (its Load or Describe failed during the scan) is not
-  // loaded again: it can't be described in a context or instantiated anyway.
-  const bool loaded = !plugin ||
-    plugin->getDescriptor().getProps().getDimension(kOfxImageEffectPropSupportedContexts) == 0 ||
-    plugin->getPluginHandle() != NULL;
+  // kOfxActionLoad and kOfxActionDescribe before the report, so that it shows what the plug-in
+  // describes, not a possibly stale plug-in cache. getPluginHandle() logs a failure, and the
+  // plug-in then gets no further action (ofxCore.h, kOfxActionLoad: "kOfxStatFailed, the load
+  // action failed, no further actions will be passed to the plug-in"). A plug-in with no context
+  // (its Load or Describe failed during the scan) can't be used anyway: it isn't loaded again.
+  const bool loadFailed = plugin &&
+    plugin->getDescriptor().getProps().getDimension(kOfxImageEffectPropSupportedContexts) > 0 &&
+    plugin->getPluginHandle() == NULL;
 
   if (!quiet) {
     imageEffectPluginCache.dumpToStdOut();
@@ -1656,13 +1648,17 @@ static int run(int argc, char **argv)
   report["schema"] = "hostDemo.report";
   report["schemaVersion"] = 1;
   report["ok"] = false;
-  report["plugin"] = Json::object();
-  report["plugin"]["id"] = pluginId;
+  if (plugin) {
+    report["plugin"] = pluginJson(plugin);
+  } else {
+    report["plugin"] = Json::object();
+    report["plugin"]["id"] = pluginId;
+  }
   report["context"] = context;
   {
     Json& host = report["host"] = Json::object();
     host["name"] = myHost.getProperties().getStringProperty(kOfxPropName);
-    host["profile"] = ofx14 ? "ofx14" : ofx11 ? "ofx11" : "default";
+    host["profile"] = MyHost::profileName(profile);
   }
   report["depth"] = inputDepth;
   {
@@ -1691,7 +1687,7 @@ static int run(int argc, char **argv)
   } else if (!describePath.empty()) {
     // describe the plug-in in all its contexts, without creating an instance
     Json desc = Json::object();
-    if (!describePlugin(plugin, loaded, desc)) {
+    if (!describePlugin(plugin, loadFailed, desc)) {
       ret = 1;
     }
     if (!writeJson(describePath, desc)) {
@@ -1699,14 +1695,11 @@ static int run(int argc, char **argv)
     }
   } else if (plugin->getContexts().find(context) == plugin->getContexts().end()) {
     std::cerr << "Error: plug-in \"" << pluginId << "\" does not support the " << context << " context." << std::endl;
-    report["plugin"] = pluginJson(plugin);
     ret = 1;
-  } else if (!loaded) {
-    report["plugin"] = pluginJson(plugin);
+  } else if (loadFailed) {
     std::cerr << "Error: could not create an instance of plug-in \"" << pluginId << "\" in the " << context << " context." << std::endl;
     ret = 1;
   } else {
-    report["plugin"] = pluginJson(plugin);
     // create an instance of it in the requested context (filter by default)
     // the first arg is the context, the second is client data we are allowed to pass down the call chain
 
@@ -1750,10 +1743,10 @@ static int run(int argc, char **argv)
         }
         clip->setInput(inputs[k].second);
       }
-      for (size_t k = 0; ret == 0 && k < inputPlanes.size(); ++k) {
-        MyHost::MyClipInstance* clip = dynamic_cast<MyHost::MyClipInstance*>(instance->getClip(inputPlanes[k].first));
+      for (auto ip = inputPlanes.begin(); ret == 0 && ip != inputPlanes.end(); ++ip) {
+        MyHost::MyClipInstance* clip = dynamic_cast<MyHost::MyClipInstance*>(instance->getClip(ip->first));
         if (!clip || clip->isOutput()) {
-          std::cerr << "Error: the plug-in has no input clip named \"" << inputPlanes[k].first << "\". Its clips are:";
+          std::cerr << "Error: the plug-in has no input clip named \"" << ip->first << "\". Its clips are:";
           for (std::map<std::string, OFX::Host::ImageEffect::ClipInstance*>::const_iterator it = clips.begin(); it != clips.end(); ++it) {
             std::cerr << " " << it->first;
           }
@@ -1761,7 +1754,9 @@ static int run(int argc, char **argv)
           ret = 1;
           break;
         }
-        clip->setInputPlane(inputPlanes[k].second);
+        for (const auto& p : ip->second) {
+          clip->setInputPlane(p.second);
+        }
       }
       myInstance->setDefaultDepth(inputDepth);
       // the inputs used
@@ -1779,9 +1774,11 @@ static int run(int argc, char **argv)
           if (multiPlane) {
             // its -i Clip@Plane=spec
             Json& planes = in["planes"] = Json::object();
-            const std::map<std::string, std::string>& ps = inputPlaneSpecs[it->first];
-            for (std::map<std::string, std::string>::const_iterator p = ps.begin(); p != ps.end(); ++p) {
-              planes[p->first] = p->second;
+            const auto ps = inputPlanes.find(it->first);
+            if (ps != inputPlanes.end()) {
+              for (const auto& p : ps->second) {
+                planes[p.first] = p.second.text;
+              }
             }
           }
         }
@@ -1981,7 +1978,7 @@ static int run(int argc, char **argv)
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
         // render a stereoscopic frame: left and right views (one view with --ofx14 or --ofx11:
         // views are an extension)
-        const int nViews = (ofx14 || ofx11) ? 1 : 2;
+        const int nViews = profile == MyHost::Profile::eDefault ? 2 : 1;
         for (int view = 0; ret == 0 && view < nViews; ++view) {
           std::ostringstream ss;
           ss << outputPrefix << "." << tname.str() << (nViews == 1 ? "" : view == 0 ? "l" : "r");

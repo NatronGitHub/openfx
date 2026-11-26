@@ -28,10 +28,11 @@ if [ "$os" = Darwin ]; then
   sdkopt=(-DOFX_TEST_SDK_LIBRARY="$work/sdk/lib/libsdkdep.dylib")
 fi
 run() { # mode: package | subdirectory
-  local mode=$1 w="$work/$1" via=OFF
-  [ "$mode" = subdirectory ] && via=ON
+  local mode=$1 w="$work/$1" via=OFF hosts=()
+  # (BUILD_EXAMPLE_HOSTS is an option of openfx's CMakeLists.txt: add_subdirectory only)
+  [ "$mode" = subdirectory ] && via=ON hosts=(-DBUILD_EXAMPLE_HOSTS=ON)
   cmake -S "$src/cmake/tests/plugin-project" -B "$w/build" -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_PREFIX_PATH="$prefix" -DOFX_SOURCE_DIR="$src" -DOFX_VIA_SUBDIRECTORY=$via -DBUILD_EXAMPLE_HOSTS=$via -DOFX_TEST_REQUIRE_OPENMP=$openmp \
+    -DCMAKE_PREFIX_PATH="$prefix" -DOFX_SOURCE_DIR="$src" -DOFX_VIA_SUBDIRECTORY=$via "${hosts[@]}" -DOFX_TEST_REQUIRE_OPENMP=$openmp \
     -DCMAKE_INSTALL_PREFIX="$w/install" -DOFX_DEPLOY_BUNDLES=$deploy $osxtarget "${sdkopt[@]}" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
   cmake --build "$w/build" --parallel
   # with add_subdirectory(openfx), BUILD_EXAMPLE_HOSTS=ON still gives the hostDemo target
@@ -124,23 +125,8 @@ case $os in Darwin) want="_OfxGetNumberOfPlugins _OfxGetPlugin " ;; *) want="Ofx
 case $os in
   Darwin) [ "$rpath" = "@loader_path/../Frameworks @loader_path/../Libraries " ] || fail "rpath: '$rpath'" ;;
   Linux|FreeBSD) [ "$rpath" = '$ORIGIN/../../Libraries ' ] || fail "rpath: '$rpath'"
-     # every build-tree plug-in (the group bundles and the ones with absolute RPATH entries too)
-     # has its installed RUNPATH (OFX_PLUGIN_BUILD_WITH_INSTALL_RPATH), with no empty entry (CMake's
-     # padded build rpath: the current directory)
-     n=0
-     for f in "$built"/*.ofx.bundle/Contents/"$arch"/*.ofx; do
-       [ -f "$f" ] || continue
-       i="$installed/${f#"$built/"}"
-       [ -f "$i" ] || fail "build-tree $f: not installed as $i"
-       brp=$(readelf -d "$f" | sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\]/\1/p')
-       irp=$(readelf -d "$i" | sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\]/\1/p')
-       [ -n "$brp" ] || fail "build-tree $f: no RUNPATH"
-       case "$brp" in :*|*:|*::*) fail "build-tree $f: empty RUNPATH/RPATH entry: '$brp'" ;; esac
-       [ "$brp" = "$irp" ] || fail "build-tree $f: RUNPATH '$brp', installed: '$irp'"
-       n=$((n + 1))
-     done
-     [ "$n" -gt 0 ] || fail "no build-tree plug-in in $built"
-     echo "plugin-project: build-tree RUNPATH of $n plug-ins: no empty entry, same as installed" ;;
+     # every build-tree plug-in, the group bundles and the ones with absolute RPATH entries too
+     "$src/.github/scripts/check-build-rpath.sh" "$built" "$installed" plugin-project ;;
 esac
 # the installed binaries are executable (Debian's CMake strips the execute bit of modules; the CI
 # runners have Kitware's CMake, so this only guards against regressions)
