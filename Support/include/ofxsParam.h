@@ -36,6 +36,11 @@ each represent the actions that can be carried out on those particular OFX objec
     drop those calls. */
 #define OFXS_SUPPORT_HAS_SPEC_PARAM_DEFAULTS 1
 
+/** @brief Feature macro: defined when OFX::Param has getUseHostNativeOverlayHandle(), which reads
+    kOfxParamPropUseHostOverlayHandle on the param instance: the plug-in's request that the host
+    draw a native overlay handle (false if the host doesn't have the property). */
+#define OFXS_SUPPORT_HAS_PARAM_USE_HOST_OVERLAY_HANDLE 1
+
 /** @brief Nasty macro used to define empty protected copy ctors and assign ops */
 // Declared but not defined: these must never be called. (Defining them inline would make
 // the compiler instantiate member destructors, e.g. std::unique_ptr<ParamInteractDescriptor>
@@ -1305,8 +1310,31 @@ namespace OFX {
 
         /** @brief get the icon file name (SVG or PNG) */
         std::string getIcon(bool pngFormat) const;
-        
+
+        /** @brief kOfxParamPropHasHostOverlayHandle, read on the instance: the host's capability.
+            OFX 1.5.1: "If set to 1, then the host is flagging that there is some sort of native
+            user overlay interface handle available for the given parameter", on the "plugin
+            parameter descriptor (read only)". The spec doesn't define it on instances, so a host
+            may not have it there (Natron defines it there; HostSupport copies descriptor
+            properties to instances, so HostSupport-based hosts that define it have it there).
+            It differs from kOfxParamPropUseHostOverlayHandle, the plug-in's choice. The protocol:
+            at describe time, read ParamDescriptor::getHostHasNativeOverlayHandle() and, if true,
+            call setUseHostNativeOverlayHandle(true); on the instance, read
+            getUseHostNativeOverlayHandle(). Kept for source compatibility. */
         bool getHostHasNativeOverlayHandle() const;
+
+        /** @brief kOfxParamPropUseHostOverlayHandle, read on the instance: the plug-in's own
+            request, copied from the descriptor, that the host draw a native overlay handle for
+            this param. False if the host doesn't have the property.
+            OFX 1.5.1: "If set to 1, then a plugin is flaging to the host that the host should use
+            a native UI overlay handle for the given parameter. [...] A plugin can use
+            ::kOfxParamPropHasHostOverlayHandle to see if handles are available on the given
+            parameter", on the "plugin parameter descriptor (read/write only) and
+            instance (read only)", with "Default - 0".
+            True means that the host draws the handle, so the interact shouldn't draw its own, only
+            if the plug-in followed the protocol: it called setUseHostNativeOverlayHandle(true)
+            only if ParamDescriptor::getHostHasNativeOverlayHandle() was true. */
+        bool getUseHostNativeOverlayHandle() const;
 
 #ifdef OFX_EXTENSIONS_NATRON
       /*Set the label of the parameter that should be displayed on the host viewport*/

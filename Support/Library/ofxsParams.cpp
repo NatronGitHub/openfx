@@ -2131,6 +2131,12 @@ namespace OFX {
     return v;
   }
 
+  bool Param::getUseHostNativeOverlayHandle() const
+  {
+    // "Default - 0" (OFX 1.5.1 ofxParam.h; see ofxsParam.h)
+    return OFX::Private::propGetIntOr(_paramProps, kOfxParamPropUseHostOverlayHandle, 0) != 0;
+  }
+
 #ifdef OFX_EXTENSIONS_NATRON
   /*Set the label of the parameter that should be displayed on the host viewport*/
   void Param::setInViewportLabel(const std::string& label)
