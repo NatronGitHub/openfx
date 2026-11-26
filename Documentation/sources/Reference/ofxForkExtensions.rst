@@ -170,6 +170,26 @@ upstream's. Each one has a feature macro in ``ofxsInteract.h`` or
   kOfxParamCoordinatesCanonical" and the property set "Non normalised
   spatial double parameters". Code that only set these defaults can drop
   those calls.
+- ``OFXS_SUPPORT_HAS_PARAM_USE_HOST_OVERLAY_HANDLE`` (``ofxsParam.h``):
+  ``OFX::Param::getUseHostNativeOverlayHandle()`` reads
+  ``kOfxParamPropUseHostOverlayHandle`` on the param instance, false if the
+  host doesn't have it. OFX 1.5.1 defines it on the "plugin parameter
+  descriptor (read/write only) and instance (read only)", with
+  "Default - 0". It is the plug-in's request: "If set to 1, then a plugin is
+  flaging to the host that the host should use a native UI overlay handle
+  for the given parameter." On the instance it is the value the plug-in set
+  on the descriptor. ``kOfxParamPropHasHostOverlayHandle``, on the "plugin
+  parameter descriptor (read only)", is the host's capability: "If set to 1,
+  then the host is flagging that there is some sort of native user overlay
+  interface handle available for the given parameter." The protocol: at
+  describe time, call ``setUseHostNativeOverlayHandle(true)`` only if
+  ``ParamDescriptor::getHostHasNativeOverlayHandle()`` is true; then the
+  instance's ``getUseHostNativeOverlayHandle()`` tells the interact that the
+  host draws the handle. ``Param::getHostHasNativeOverlayHandle()``, kept for
+  source compatibility, reads the capability on the instance, where the spec
+  doesn't define it (Natron defines it there; HostSupport copies descriptor
+  properties to instances, so HostSupport-based hosts that define it have it
+  there).
 
 The OpenGL backend loads the OpenGL functions it uses at run time, so neither
 the Support library nor the plug-ins need OpenGL at link time (the

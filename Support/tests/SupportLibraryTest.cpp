@@ -20,6 +20,8 @@
   - the accessors of a property the host may not have (OFX::Private::propGetIntOr() and the
     others, ofxsProperty.cpp): a property the host doesn't have gives the default, or writes
     nothing; other failures throw; propSetStringIfSupported() returns whether the host took it;
+  - OFX::Param::getUseHostNativeOverlayHandle(): kOfxParamPropUseHostOverlayHandle's value on the
+    instance, or false, without an exception, if the host doesn't have it;
   - OFX::MultiThread::Processor::multiThread() and getNumCPUs() with a thread suite that lacks
     multiThread or multiThreadNumCPUs: single-threaded, no crash;
   - OFX::MultiThread::Mutex (built with OFX_USE_MULTITHREAD_MUTEX) without the host's mutex
@@ -396,6 +398,67 @@ namespace {
     OFX::Private::gPropSuite = saved;
   }
 
+  // Param::getUseHostNativeOverlayHandle() on an instance: the host has
+  // kOfxParamPropUseHostOverlayHandle (gOverlayValue), or not (kOfxStatErrUnknown)
+  OfxStatus gOverlayStatus = kOfxStatOK;
+  int gOverlayValue = 0;
+  OfxStatus overlayGetInt(OfxPropertySetHandle, const char* name, int idx, int* v)
+  {
+    if (std::strcmp(name, kOfxParamPropUseHostOverlayHandle) != 0 || idx != 0) {
+      return kOfxStatErrUnknown;
+    }
+    *v = gOverlayValue;
+    return gOverlayStatus;
+  }
+  int gOverlayPropSet = 0;
+  OfxStatus overlayGetPropertySet(OfxParamHandle, OfxPropertySetHandle* h)
+  {
+    *h = reinterpret_cast<OfxPropertySetHandle>(&gOverlayPropSet);
+    return kOfxStatOK;
+  }
+
+  // the constructor is protected; eDummyParam has no property validation
+  struct TestParam : public OFX::Param {
+    TestParam() : OFX::Param(NULL, "p", OFX::eDummyParam, reinterpret_cast<OfxParamHandle>(&gOverlayPropSet)) {}
+  };
+
+  void testUseHostNativeOverlayHandle()
+  {
+    OfxPropertySuiteV1 propSuite = OfxPropertySuiteV1();
+    propSuite.propGetInt = overlayGetInt;
+    OfxParameterSuiteV1 paramSuite = OfxParameterSuiteV1();
+    paramSuite.paramGetPropertySet = overlayGetPropertySet;
+    OfxPropertySuiteV1* savedProp = OFX::Private::gPropSuite;
+    OfxParameterSuiteV1* savedParam = OFX::Private::gParamSuite;
+    OFX::Private::gPropSuite = &propSuite;
+    OFX::Private::gParamSuite = &paramSuite;
+    {
+      TestParam param;
+      // present: its value
+      gOverlayStatus = kOfxStatOK;
+      gOverlayValue = 0;
+      CHECK(!param.getUseHostNativeOverlayHandle());
+      gOverlayValue = 1;
+      CHECK(param.getUseHostNativeOverlayHandle());
+      // absent: false ("Default - 0"), no exception
+      for (OfxStatus st : {kOfxStatErrUnknown, kOfxStatErrUnsupported}) {
+        gOverlayStatus = st;
+        bool caught = false;
+        bool v = true;
+        try {
+          v = param.getUseHostNativeOverlayHandle();
+        } catch (...) {
+          caught = true;
+        }
+        CHECK(!caught);
+        CHECK(!v);
+      }
+    }
+    gOverlayStatus = kOfxStatOK;
+    OFX::Private::gPropSuite = savedProp;
+    OFX::Private::gParamSuite = savedParam;
+  }
+
   // A fake host for one param descriptor: string properties in a map. When the type becomes XY or
   // XYAbsolute, it resets kOfxParamPropDefaultCoordinateSystem to gHostReset (normalised, as Nuke
   // does). With resetHost(true), the property exists only from then on.
@@ -428,6 +491,17 @@ namespace {
     return kOfxStatOK;
   }
 
+  // for the property validation of debug builds: the host has the string properties in gStrings
+  // (dimension 1), and no other property
+  OfxStatus recGetDimension(OfxPropertySetHandle, const char* name, int* count)
+  {
+    if (!gStrings.count(name)) {
+      return kOfxStatErrUnknown;
+    }
+    *count = 1;
+    return kOfxStatOK;
+  }
+
   // the constructor is protected
   struct TestDouble2DDescriptor : public OFX::Double2DParamDescriptor {
     explicit TestDouble2DDescriptor(OfxPropertySetHandle h) : OFX::Double2DParamDescriptor("p", h) {}
@@ -457,6 +531,7 @@ namespace {
     suite.propSetDouble = recSetDouble;
     suite.propSetString = recSetString;
     suite.propGetString = recGetString;
+    suite.propGetDimension = recGetDimension;
     OfxPropertySuiteV1* saved = OFX::Private::gPropSuite;
     OFX::Private::gPropSuite = &suite;
     int dummy = 0;
@@ -741,6 +816,7 @@ int main()
   testDefineParamTypeMismatchThrows();
   testLazyRegistration();
   testPropertyDefaults();
+  testUseHostNativeOverlayHandle();
   testDefaultCoordinateSystem();
   testSetPixelAspectRatio();
   testThreadSuiteWithoutFunctions();
