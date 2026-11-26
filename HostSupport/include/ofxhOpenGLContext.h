@@ -12,24 +12,27 @@
 
   Part of the optional library openfx::HostSupportOpenGL (CMake option OFX_HOSTSUPPORT_OPENGL);
   ofxhOpenGLTexture.h and ofxhOpenGLRender.h build on it. No OpenGL, EGL or CGL header is
-  needed: EGL is loaded at run time, CGL is a system framework. No global state: everything
-  hangs off the objects the host creates, except the context each thread holds (thread_local,
-  see CurrentContext).
+  needed: EGL is loaded at run time, CGL is a system framework, WGL is opengl32.dll (linked).
+  No global state: everything hangs off the objects the host creates, except the context each
+  thread holds (thread_local, see CurrentContext) and, with WGL, each thread's hidden windows.
 
   Backends (Backend):
   - EGLSurfaceless: EGL_MESA_platform_surfaceless (Mesa, Linux without a window system; the
     GPU of the default render node, or llvmpipe);
   - EGLDevice: EGL_EXT_platform_device (one renderer per EGL device, e.g. NVIDIA without X11);
-  - CGL: macOS.
-  GLX, EGL on a window system and WGL are later backends: a backend implements the Context
+  - CGL: macOS;
+  - WGL: Windows (the driver's renderer). A context is made current on a hidden window of the
+    calling thread (one per thread and pixel format, destroyed when the thread ends), so it
+    may be used on any thread, whichever thread created it.
+  GLX and EGL on a window system are later backends: a backend implements the Context
   interface (make current, done current, getProcAddress, its native context), a renderer
   listing, and a case in the backend dispatch (Detail::createBackendContext() and
   Detail::rendererIds(), one definition per platform today: a second Linux backend turns them
   into a switch on Backend).
 
   The contexts have the compatibility (macOS: legacy) profile, as OFX OpenGL plug-ins may use
-  the fixed-function pipeline, and no default framebuffer: rendering goes to textures
-  (ofxhOpenGLTexture.h).
+  the fixed-function pipeline, and no default framebuffer (WGL: a 1x1 one, unused): rendering
+  goes to textures (ofxhOpenGLTexture.h).
 
   Typical use, one context per render tree:
 
@@ -67,14 +70,14 @@ namespace OFX {
       typedef void (OFXH_GLAPIENTRY *ProcAddress)();
 
       /// Offscreen context backends (see the file documentation)
-      enum class Backend { EGLSurfaceless, EGLDevice, CGL };
+      enum class Backend { EGLSurfaceless, EGLDevice, CGL, WGL };
 
-      /// "egl-surfaceless", "egl-device", "cgl"
+      /// "egl-surfaceless", "egl-device", "cgl", "wgl"
       const char *backendName(Backend backend);
       /// the backend called name (backendName()); false if none
       bool backendFromName(const std::string &name, Backend &backend);
       /// the backends of this build and platform, in the default preference order
-      /// (Linux and BSD: EGLSurfaceless, EGLDevice; macOS: CGL; others: none)
+      /// (Linux and BSD: EGLSurfaceless, EGLDevice; macOS: CGL; Windows: WGL)
       std::vector<Backend> defaultBackends();
 
       /// Services the host gives the contexts; all optional
@@ -87,7 +90,8 @@ namespace OFX {
         /// context: it must not make another context current.
         std::function<void(const std::function<void()> &call)> driverCall;
         /// the OpenGL function loader, e.g. the host's own (default: the backend's,
-        /// eglGetProcAddress then libOpenGL/libGL; the OpenGL framework). nullptr if not found.
+        /// eglGetProcAddress then libOpenGL/libGL; the OpenGL framework; wglGetProcAddress, for
+        /// the current context, then opengl32.dll). nullptr if not found.
         std::function<ProcAddress(const char *name)> getProcAddress;
       };
 
@@ -95,6 +99,7 @@ namespace OFX {
       struct RendererInfo {
         Backend backend = Backend::EGLSurfaceless;
         /// which renderer of the backend: the EGL device index, the CGL renderer ID; -1: default
+        /// (the only one of EGLSurfaceless and WGL)
         int id = -1;
         std::string vendor, renderer, version;  ///< GL_VENDOR, GL_RENDERER, GL_VERSION
         bool software = false;                  ///< no hardware acceleration
@@ -113,7 +118,9 @@ namespace OFX {
 
         /// the renderer, backend and GL strings of this context
         const RendererInfo &info() const { return _info; }
-        /// an OpenGL function (Hooks::getProcAddress, else the backend's); nullptr if not found
+        /// an OpenGL function (Hooks::getProcAddress, else the backend's); nullptr if not found.
+        /// WGL: call it with this context current (wglGetProcAddress); with none current, only the
+        /// OpenGL 1.1 functions are found (opengl32.dll).
         ProcAddress getProcAddress(const char *name) const;
         /// the host's hooks (Hooks::driverCall wraps the driver calls of ofxhOpenGLTexture.h)
         const Hooks &hooks() const { return _hooks; }
@@ -123,7 +130,7 @@ namespace OFX {
         const Detail::GLFunctions &gl() const { return *_gl; }
         /// the context is current on the calling thread (held by a CurrentContext of this thread)
         bool isCurrent() const;
-        /// the backend's context: an EGLContext, a CGLContextObj
+        /// the backend's context: an EGLContext, a CGLContextObj, an HGLRC
         virtual void *nativeContext() const = 0;
 
       protected:

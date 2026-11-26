@@ -93,7 +93,7 @@ Main options (see below for the rule on the `OFX_EXTENSIONS_*` and `OFX_SUPPORTS
 - `OFX_SUPPORTS_OPENGLRENDER` (ON), `_OPENCLRENDER` and `_CUDARENDER` (OFF): GPU rendering in the libraries and the examples (OpenCL needs the OpenCLHeaders and OpenCLICDLoader packages, except on macOS; CUDA is off on macOS);
 - `OFX_SUPPORTS_MULTITHREAD`, `_DIALOG`, `_PARAMETRIC` and `_PARAMETRIC_V2` (OFF): HostSupport features, only for a host that implements them (they add pure virtual functions, and PARAMETRIC needs the host's `ofxhParametricParam.h`);
 - `OFX_BUILD_HOSTSUPPORT`: build HostSupport, on by default at top level;
-- `OFX_HOSTSUPPORT_OPENGL` (OFF): openfx::HostSupportOpenGL, offscreen OpenGL contexts (EGL on Linux and BSD, loaded at run time; CGL on macOS), textures and renders for hosts (HostSupport/include/ofxhOpenGL*.h); needs `OFX_SUPPORTS_OPENGLRENDER`;
+- `OFX_HOSTSUPPORT_OPENGL` (OFF): openfx::HostSupportOpenGL, offscreen OpenGL contexts (EGL on Linux and BSD, loaded at run time; CGL on macOS; WGL on Windows), textures and renders for hosts (HostSupport/include/ofxhOpenGL*.h); needs `OFX_SUPPORTS_OPENGLRENDER`;
 - `BUILD_EXAMPLE_PLUGINS` and `BUILD_EXAMPLE_HOSTS`: the example plug-ins and hosts;
 - `OFX_CXX_STANDARD`: the C++ standard of the plug-ins and of openfx::Support (default: `CMAKE_CXX_STANDARD`, else 17);
 - `OFX_PLUGIN_NO_UNDEFINED` (ON): link the plug-ins with `-z defs` on Linux and FreeBSD, so an undefined symbol fails the link; turn it off for clang sanitizer builds, or use clang's `-shared-libsan` (gcc links its shared sanitizer runtime by default, so it works with `-z defs`). The Makefiles do the same, unless `NO_UNDEFINED_FLAG=` is passed;

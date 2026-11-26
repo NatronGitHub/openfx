@@ -1,7 +1,8 @@
 // Copyright OpenFX and contributors to the OpenFX project.
 // SPDX-License-Identifier: BSD-3-Clause
 
-// The CGL backend of ofxhOpenGLContext.h (macOS). The EGL backends are in ofxhOpenGLEGL.cpp.
+// The CGL backend of ofxhOpenGLContext.h (macOS). The EGL backends are in ofxhOpenGLEGL.cpp, the
+// WGL backend in ofxhOpenGLWGL.cpp.
 
 #include "ofxhOpenGLContext.h"
 #include "ofxhOpenGLFunctions.h"

@@ -256,6 +256,17 @@ jobs:
             mingw-w64-ucrt-x86_64-python
             mingw-w64-ucrt-x86_64-python-numpy
             mingw-w64-ucrt-x86_64-nanobind
+            mingw-w64-ucrt-x86_64-mesa
+      - name: Move Mesa's DLLs out of the MSYS2 bin folder (only openglRenderChecks loads them)
+        run: |
+          set -eo pipefail
+          # (else python.exe, next to them, would load Mesa's opengl32.dll for every plug-in that
+          # imports opengl32: only the OpenGL step below runs on Mesa)
+          mesa="$(cygpath -u "$RUNNER_TEMP")/mesa"
+          mkdir -p "$mesa"
+          pacman -Qlq mingw-w64-ucrt-x86_64-mesa | grep -E '^/ucrt64/bin/[^/]+\.dll$' | while read -r f; do mv "$f" "$mesa/"; done
+          ls "$mesa"
+          test -f "$mesa/opengl32.dll"
       - name: Configure
         run: |
           set -eo pipefail
@@ -290,12 +301,18 @@ jobs:
           slt=$(find build -name support-library-test.exe -type f | head -1)
           test -n "$slt" || { echo "support-library-test was not built"; exit 1; }
           "$slt"
-      - name: openfx::HostSupportOpenGL without a context backend (openglRenderChecks skips the OpenGL checks)
+      - name: openfx::HostSupportOpenGL with WGL on Mesa llvmpipe (openglRenderChecks, OFXH_REQUIRE=1)
         run: |
           set -eo pipefail
           grc=$(find build -name openglRenderChecks.exe -type f | head -1)
           test -n "$grc" || { echo "openglRenderChecks was not built"; exit 1; }
-          OFXH_REQUIRE=0 "$grc"
+          # the runner has no GPU, and System32's opengl32.dll is OpenGL 1.1 (GDI). A copy of the
+          # program in Mesa's folder loads Mesa's opengl32.dll and libgallium_wgl.dll (the program's
+          # folder comes first in the DLL search order; their dependencies are found in PATH), and the
+          # plug-in's opengl32.dll import gets the same module. The other steps never load Mesa.
+          mesa="$(cygpath -u "$RUNNER_TEMP")/mesa"
+          cp "$grc" "$mesa/"
+          GALLIUM_DRIVER=llvmpipe OFX_PLUGIN_PATH="$(cygpath -w "$PWD/build/Plugins")" "$mesa/openglRenderChecks.exe"
       - name: HostSupport checks (suiteHandleChecks), with the Windows plug-in search path
         run: |
           set -eo pipefail

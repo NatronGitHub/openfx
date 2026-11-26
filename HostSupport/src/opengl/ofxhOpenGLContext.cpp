@@ -19,6 +19,7 @@ namespace OFX {
         { Backend::EGLSurfaceless, "egl-surfaceless" },
         { Backend::EGLDevice, "egl-device" },
         { Backend::CGL, "cgl" },
+        { Backend::WGL, "wgl" },
       };
 
       const char *backendName(Backend backend)
@@ -47,7 +48,7 @@ namespace OFX {
 #if defined(__APPLE__)
         return { Backend::CGL };
 #elif defined(_WIN32)
-        return {};
+        return { Backend::WGL };
 #else
         return { Backend::EGLSurfaceless, Backend::EGLDevice };
 #endif
@@ -602,21 +603,3 @@ namespace OFX {
     } // OpenGL
   } // Host
 } // OFX
-
-#if defined(_WIN32)
-// no backend yet (WGL is a later backend)
-namespace OFX {
-  namespace Host {
-    namespace OpenGL {
-      namespace Detail {
-        std::vector<int> rendererIds(const Hooks &, Backend) { return {}; }
-        std::unique_ptr<Context> createBackendContext(const Hooks &, Backend, int, std::string &error)
-        {
-          error = "not available on this platform";
-          return nullptr;
-        }
-      } // Detail
-    } // OpenGL
-  } // Host
-} // OFX
-#endif

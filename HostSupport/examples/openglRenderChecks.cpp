@@ -6,7 +6,8 @@
 /// ofxhOpenGLTexture.h, ofxhOpenGLRender.h), on hostDemo's host classes:
 /// - without OpenGL: the backend names, the context pool (one key on two threads, a failing
 ///   factory) and CurrentContext (nesting, release(), one context per thread), on fake contexts;
-/// - with an OpenGL context: the renderer list, the context restored by createContext(), texture
+/// - with an OpenGL context: the renderer list, the context restored by createContext(), a context
+///   made current after the thread that created it ended (WGL: a new window), texture
 ///   upload and readback (all depths and components, padded and negative rowBytes, partial
 ///   rectangles), Alpha textures sampled as (0, 0, 0, a), clear and render target;
 /// - with Examples/OpenGL (com.genarts:OpenGLSamplePlugin, from OFX_PLUGIN_PATH): OpenGL renders
@@ -28,6 +29,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <future>
 #include <list>
 #include <map>
 #include <stdexcept>
@@ -54,7 +56,15 @@
 #endif
 #if defined(__APPLE__)
 #include <OpenGL/OpenGL.h>
-#elif !defined(_WIN32)
+#elif defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN // without it, rpcndr.h defines small
+#endif
+#include <windows.h>
+#else
 #include <dlfcn.h>
 #endif
 
@@ -112,7 +122,7 @@ namespace {
 
   void checkBackendNames()
   {
-    for (GL::Backend b : { GL::Backend::EGLSurfaceless, GL::Backend::EGLDevice, GL::Backend::CGL }) {
+    for (GL::Backend b : { GL::Backend::EGLSurfaceless, GL::Backend::EGLDevice, GL::Backend::CGL, GL::Backend::WGL }) {
       GL::Backend parsed = GL::Backend::CGL;
       check(std::string("backendFromName(backendName(") + GL::backendName(b) + "))",
             GL::backendFromName(GL::backendName(b), parsed) && parsed == b);
@@ -472,7 +482,7 @@ namespace {
   typedef void (OFXH_GLAPIENTRY *Float2Fn)(float, float);
   typedef void (OFXH_GLAPIENTRY *ViewportFn)(int, int, int, int);
 
-  /// the native context current on this thread (nullptr if none, or on Windows)
+  /// the native context current on this thread (nullptr if none)
   void *currentNativeContext()
   {
 #if defined(__APPLE__)
@@ -485,8 +495,86 @@ namespace {
     }();
     return get ? get() : nullptr;
 #else
-    return nullptr;
+    return wglGetCurrentContext();
 #endif
+  }
+
+  /// The thread that created a context ends while another thread has the context current: that
+  /// thread still renders with it (WGL: on its own window, not on the creator's, which Windows
+  /// destroys), and the context is then made current again on a third thread.
+  void checkCreatorThreadEnds(const GL::Hooks &hooks)
+  {
+    typedef unsigned int (OFXH_GLAPIENTRY *GetErrorFn)();
+    typedef void (OFXH_GLAPIENTRY *ClearColorFn)(float, float, float, float);
+    // renders with the context current on this thread: a clear of its window's framebuffer on
+    // WGL (the window of this thread), else a GL call without error
+    auto renders = [](GL::Context &context) {
+      const auto getError = reinterpret_cast<GetErrorFn>(context.getProcAddress("glGetError"));
+      if (!getError) {
+        return false;
+      }
+      while (getError() != 0) {
+      }
+#if defined(_WIN32)
+      typedef void (OFXH_GLAPIENTRY *ClearFn)(unsigned int);
+      typedef void (OFXH_GLAPIENTRY *BindFramebufferFn)(unsigned int, unsigned int);
+      typedef void (OFXH_GLAPIENTRY *ReadPixelsFn)(int, int, int, int, unsigned int, unsigned int, void *);
+      const auto clearColor = reinterpret_cast<ClearColorFn>(context.getProcAddress("glClearColor"));
+      const auto clear = reinterpret_cast<ClearFn>(context.getProcAddress("glClear"));
+      const auto bind = reinterpret_cast<BindFramebufferFn>(context.getProcAddress("glBindFramebuffer"));
+      const auto readPixels = reinterpret_cast<ReadPixelsFn>(context.getProcAddress("glReadPixels"));
+      if (!clearColor || !clear || !bind || !readPixels) {
+        return false;
+      }
+      unsigned char pixel[4] = { 0, 0, 0, 0 };
+      bind(0x8D40 /* GL_FRAMEBUFFER */, 0);
+      clearColor(1.f, 0.f, 0.f, 1.f);
+      clear(0x4000 /* GL_COLOR_BUFFER_BIT */);
+      readPixels(0, 0, 1, 1, 0x1908 /* GL_RGBA */, 0x1401 /* GL_UNSIGNED_BYTE */, pixel);
+      return getError() == 0 && pixel[0] == 255 && pixel[1] == 0 && pixel[3] == 255;
+#else
+      const auto clearColor = reinterpret_cast<ClearColorFn>(context.getProcAddress("glClearColor"));
+      if (!clearColor) {
+        return false;
+      }
+      clearColor(0.f, 0.f, 0.f, 0.f);
+      return getError() == 0;
+#endif
+    };
+    std::unique_ptr<GL::Context> context;
+    std::promise<void> created, held;
+    std::future<void> createdFuture = created.get_future(), heldFuture = held.get_future();
+    std::thread creator([&] {
+      context = GL::createContext(hooks);
+      created.set_value();
+      heldFuture.wait();
+    });
+    createdFuture.wait();
+    bool currentBefore = false, rendersAfter = false;
+    std::thread holder([&] {
+      if (!context) {
+        held.set_value();
+        return;
+      }
+      GL::CurrentContext current(*context);
+      currentBefore = current.ok() && currentNativeContext() == context->nativeContext();
+      held.set_value();
+      creator.join(); // the creator ends while this thread has the context current
+      rendersAfter = current.ok() && currentNativeContext() == context->nativeContext() && renders(*context);
+    });
+    holder.join();
+    if (creator.joinable()) {
+      creator.join();
+    }
+    check("the creator thread ends while another thread has the context current: a context", context != nullptr);
+    if (!context) {
+      return;
+    }
+    check("... current on the other thread", currentBefore);
+    check("... which still renders with it after the creator ended", rendersAfter);
+    GL::CurrentContext again(*context);
+    check("... and the context is made current again on a third thread, and renders", again.ok() &&
+          currentNativeContext() == context->nativeContext() && renders(*context));
   }
 
   /// an image rectangle with its own memory; rowBytes: the pixel size times the width plus pad
@@ -1195,6 +1283,20 @@ int main()
         checkTextures(*c1);
       }
     }
+    {
+      // WGL: the context's window was destroyed with its thread; it gets a new one on this thread
+      std::unique_ptr<GL::Context> orphan;
+      std::thread([&] { orphan = GL::createContext(hooks); }).join();
+      check("a context created on a thread that ended", orphan != nullptr);
+      if (orphan) {
+        typedef const unsigned char *(OFXH_GLAPIENTRY *GetStringFn)(unsigned int);
+        GL::CurrentContext current(*orphan);
+        const GetStringFn getString = reinterpret_cast<GetStringFn>(orphan->getProcAddress("glGetString"));
+        check("that context: current on another thread", current.ok() && currentNativeContext() == orphan->nativeContext() &&
+              getString && getString(0x1F02 /* GL_VERSION */) != nullptr);
+      }
+    }
+    checkCreatorThreadEnds(hooks);
     std::unique_ptr<GL::Context> c2 = GL::createContext(hooks, GL::defaultBackends(), -1, &error);
     check("a second context", c2 != nullptr);
     if (c2) {
