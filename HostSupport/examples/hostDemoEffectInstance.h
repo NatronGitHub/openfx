@@ -141,6 +141,9 @@ namespace MyHost {
     /// the project frame (offset and size) in pixel coordinates at the given render scale
     OfxRectI getProjectPixelRect(const OfxPointD& renderScale) const;
 
+    /// hostDemo crops and pads the inputs of a plug-in without multiple resolutions (fetchImage())
+    virtual bool cropsAndPadsImages() const { return true; }
+
     /// set the depth the clip preferences use when no input clip is connected (default: byte)
     void setDefaultDepth(const std::string& depth) { _defaultDepth = depth; }
 

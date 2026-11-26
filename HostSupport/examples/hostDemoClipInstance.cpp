@@ -592,7 +592,7 @@ namespace MyHost {
 
   MyImage::MyImage(MyClipInstance &clip, OfxTime time, int view,
                    const OfxRectI& bounds, const OfxRectI& rod, const OfxPointD& renderScale,
-                   bool isOutput, const InputPlane* plane)
+                   bool isOutput, const InputPlane* plane, const OfxRectI* frame)
     : OFX::Host::ImageEffect::Image(clip) /// this ctor sets the depth, components, premult and PAR from the clip
     , _data(NULL)
     , _depth(clip.getPixelDepth())
@@ -652,8 +652,13 @@ namespace MyHost {
           const double X = (x + 0.5) / renderScale.x;
           // the patterns are unpremultiplied colours (getPremult() is kOfxImageUnPreMultiplied
           // for RGBA and Alpha); RGB images drop the alpha, and are opaque; the two-component
-          // planes keep the first two
-          evalPattern(spec, time, view, X, Y, W, H, rgba);
+          // planes keep the first two. Outside the input's RoD (the padding of a frame), black and
+          // transparent.
+          if (frame && (x < rod.x1 || x >= rod.x2 || y < rod.y1 || y >= rod.y2)) {
+            rgba[0] = rgba[1] = rgba[2] = rgba[3] = 0.;
+          } else {
+            evalPattern(spec, time, view, X, Y, W, H, rgba);
+          }
           // what is connected: RGB is opaque, Alpha is the alpha (in all four, as a Pf file)
           if (spec.components == kOfxImageComponentRGB) {
             rgba[3] = 1.;
@@ -693,10 +698,7 @@ namespace MyHost {
     setIntProperty(kOfxImagePropBounds, _bounds.x2, 2);
     setIntProperty(kOfxImagePropBounds, _bounds.y2, 3);
 
-    setIntProperty(kOfxImagePropRegionOfDefinition, rod.x1, 0);
-    setIntProperty(kOfxImagePropRegionOfDefinition, rod.y1, 1);
-    setIntProperty(kOfxImagePropRegionOfDefinition, rod.x2, 2);
-    setIntProperty(kOfxImagePropRegionOfDefinition, rod.y2, 3);
+    setIntPropertyN(kOfxImagePropRegionOfDefinition, frame ? &frame->x1 : &rod.x1, 4);
 
     // row bytes
     setIntProperty(kOfxImagePropRowBytes, _rowBytes);
@@ -960,10 +962,19 @@ namespace MyHost {
   OfxRectD MyClipInstance::getRegionOfDefinition(OfxTime time) const
   {
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
-    return getRoD(time, _view);
+    return getPluginRoD(time, _view);
 #else
-    return getRoD(time, 0);
+    return getPluginRoD(time, 0);
 #endif
+  }
+
+  OfxRectD MyClipInstance::getPluginRoD(OfxTime time, int view) const
+  {
+    OfxRectD frame;
+    if (!isOutput() && getConnected() && _effect->getSingleResolutionFrame(frame)) {
+      return frame;
+    }
+    return getRoD(time, view);
   }
 
   OfxRectD MyClipInstance::getRoD(OfxTime time, int view) const
@@ -1107,6 +1118,24 @@ namespace MyHost {
     }
 
     // Input clip: fetch on demand, the image is deleted when the plug-in releases it.
+    OfxRectD frame;
+    if (_effect->getSingleResolutionFrame(frame)) {
+      // A plug-in without multiple resolutions (getSingleResolutionFrame() quotes the spec) gets
+      // every input as the frame, rooted at the origin: cropped where the input extends beyond it,
+      // padded where it falls short. ofxProcessingArch.rst: "A host can either choose to refuse to
+      // load a plugin, or, preferentially, pad images with an appropriate amount of
+      // black/transparent pixels to enable them to work." The image is the whole frame, cropped
+      // to optionalBounds if the plug-in supports tiles (as ofxh, which doesn't see the RoIs).
+      const OfxRectI framePixels = canonicalToPixelEnclosing(frame, renderScale, par);
+      OfxRectI bounds = framePixels;
+      if (optionalBounds && _effect->supportsTiles() && supportsTiles()) {
+        bounds = intersect(canonicalToPixelEnclosing(*optionalBounds, renderScale, par), framePixels);
+      }
+      if (bounds.x2 <= bounds.x1 || bounds.y2 <= bounds.y1) {
+        return NULL;
+      }
+      return new MyImage(*this, time, view, bounds, rod, renderScale, /*isOutput=*/false, plane, &framePixels);
+    }
     // The bounds are optionalBounds if given, else the RoI the plug-in asked for in this
     // render, else the RoD; clipped to the RoD.
     // kOfxImageEffectPropSupportsTiles: "If a clip or plugin does not support tiled images, then
@@ -1203,7 +1232,7 @@ namespace MyHost {
   /// override this to return the rod on the clip for the given view
   OfxRectD MyClipInstance::getRegionOfDefinition(OfxTime time, int view) const
   {
-    return getRoD(time, view < 0 ? _view : view);
+    return getPluginRoD(time, view < 0 ? _view : view);
   }
 #endif
 

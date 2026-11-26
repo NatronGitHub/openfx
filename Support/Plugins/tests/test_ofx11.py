@@ -29,6 +29,16 @@ pytestmark = [
 ]
 
 
+def _same_with_padding(ofx11, default):
+    """--ofx11 reports no multi-resolution: the output is the project frame, the input padded with transparent black,
+    which these inverts turn to 1. Its corner is the default host's output."""
+    out = ofx11.output[::-1]  # bottom-up: the input is at the origin
+    padding = np.ones(out.shape[:2], bool)
+    padding[:16, :24] = False
+    assert out.shape[:2] == (576, 720) and np.all(out[padding] == 1.)
+    assert_close(out[:16, :24][::-1], default.output, atol=0)
+
+
 def test_tester_in_ofx11_host(render):
     plugin = "net.sf.openfx.GenericTestPlugin"
     default = render(plugin, inputs={"Source": SRC}, depth="float")
@@ -38,14 +48,14 @@ def test_tester_in_ofx11_host(render):
     for r in (default, ofx11):
         assert r.report["clipPreferences"]["clips"]["Output"]["pixelAspectRatio"] == \
             r.report["clipPreferences"]["clips"]["Source"]["pixelAspectRatio"]
-    assert_close(ofx11.output, default.output, atol=0)
+    _same_with_padding(ofx11, default)
 
 
 def test_invert_same_in_both_hosts(render):
     default = render("net.sf.openfx.invertPlugin", inputs={"Source": SRC}, depth="byte")
     ofx11 = render("net.sf.openfx.invertPlugin", inputs={"Source": SRC}, depth="byte", extra_args=OFX11)
     assert ofx11.report["host"]["profile"] == "ofx11"
-    assert_close(ofx11.output, default.output, atol=0)
+    _same_with_padding(ofx11, default)
 
 
 TESTER = "net.sf.openfx.GenericTestPlugin"

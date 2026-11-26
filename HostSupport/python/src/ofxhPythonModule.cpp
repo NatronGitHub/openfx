@@ -751,7 +751,10 @@ static void bindImageData(nb::module_ &m)
                         "bounds: (x1, y1, x2, y2) in PIXELS at the render scale (get_image()'s bounds argument is\n"
                         "in canonical coordinates). An output image of a render must contain the render window.\n"
                         "rod: the clip's RoD in pixels (None: from region_of_definition()). field: none, both,\n"
-                        "lower or upper. unique_id: \"\" for clip:time:view (as hostDemo).")
+                        "lower or upper. unique_id: \"\" for clip:time:view (as hostDemo).\n"
+                        "For a plug-in without multiple resolutions (or in a host that reports\n"
+                        "kOfxImageEffectPropSupportsMultiResolution 0), ofxh crops and pads an input image to the\n"
+                        "project extent from the origin: the plug-in gets other bounds and RoD than these.")
     .def("__init__", [](ImageData *d, nb::object pixels, const RectI &bounds, std::optional<RectI> rod,
                         const std::string &field, const std::string &uniqueId) {
       new (d) ImageData();

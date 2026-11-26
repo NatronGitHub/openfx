@@ -128,6 +128,24 @@ filled with NaN (float) or ``0xCD`` bytes before each render, and a float
 render that leaves NaN pixels fails, unless ``--allow-unwritten`` is
 given.
 
+Multiple Resolutions
+--------------------
+
+hostDemo and the Python host report
+:c:macro:`kOfxImageEffectPropSupportsMultiResolution` 1: their images may be
+of any size and offset from the origin. A plug-in that declares 0 gets its
+images in one frame, the project extent rooted at the origin (PAL SD:
+0,0 to 768,576 in canonical coordinates): its output's region of
+definition is that frame, and so is every input's. Each input image is
+cropped to the frame where it extends beyond it (negative coordinates
+included), and padded with black and transparent pixels where it falls
+short, as the specification prefers ("pad images with an appropriate
+amount of black/transparent pixels", ``ofxProcessingArch.rst``). An input
+covers the whole frame, cropped to the region the plug-in asks for if it
+supports tiles. The same applies to every plug-in in a host that reports
+0: ``--ofx11``, or a Python host that sets the property to 0. The report
+gives the inputs' own regions of definition, before the crop and pad.
+
 The JSON Documents
 ------------------
 
@@ -165,7 +183,8 @@ An OFX 1.1 Host: ``--ofx11``
 Some hosts still implement OFX 1.1: VEGAS Pro, for one (openfx-misc's
 ``README-hosts.txt``). With ``--ofx11``, hostDemo behaves as such a host:
 the host descriptor has only the OFX 1.1 host properties, and API version
-1.1; it has no tiles, no multi-resolution, no overlays, byte and float
+1.1; it has no tiles, no multi-resolution (every plug-in's inputs are
+cropped and padded, see above), no overlays, byte and float
 depths only (``-d short`` is an error), and a single clip pixel aspect
 ratio. ``fetchSuite`` returns the OFX 1.1 suites but the interact suite,
 which VEGAS lacks, plus the message suite V2, which VEGAS Pro 12 lists; it

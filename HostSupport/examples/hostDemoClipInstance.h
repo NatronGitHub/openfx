@@ -132,10 +132,12 @@ namespace MyHost {
     static bool isSupported(const std::string& depth, const std::string& components);
 
     /// bounds and rod are in pixel coordinates (at the given render scale); plane: an extra
-    /// plane of an input (NULL: the colour plane, with the clip's components)
+    /// plane of an input (NULL: the colour plane, with the clip's components); frame: the
+    /// single-resolution frame of an input that is cropped and padded to it (NULL: none), its RoD,
+    /// black and transparent outside rod
     MyImage(MyClipInstance &clip, OfxTime t, int view,
             const OfxRectI& bounds, const OfxRectI& rod, const OfxPointD& renderScale,
-            bool isOutput, const InputPlane* plane = NULL);
+            bool isOutput, const InputPlane* plane = NULL, const OfxRectI* frame = NULL);
     ~MyImage();
 
     const std::string& getDepth() const { return _depth; }
@@ -210,6 +212,10 @@ namespace MyHost {
     /// for a connected input (for a PFM file, its size in pixels at the clip's PAR), empty (0,0,0,0) for a disconnected one, and the result of the
     /// effect's getRegionOfDefinition action for the output clip (empty if the action fails)
     OfxRectD getRoD(OfxTime time, int view) const;
+
+    /// the RoD that the plug-in gets (getRegionOfDefinition()): getRoD(), or for a connected input
+    /// the effect's single-resolution frame, if it has one
+    OfxRectD getPluginRoD(OfxTime time, int view) const;
 
     /// the mapped pixel depth and components: kOfxBitDepthNone and kOfxImageComponentNone
     /// if the clip is disconnected ("implying a clip is unconnected")

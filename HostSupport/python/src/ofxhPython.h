@@ -379,6 +379,9 @@ public:
   OHIE::Image *fetchFromPython(OfxTime time, int view, const OfxRectD *optionalBounds, const std::string &plane);
   /// the clip's RoD in canonical coordinates, from the Python region_of_definition()
   OfxRectD rod(OfxTime time, int view) const;
+  /// the RoD that the plug-in gets (getRegionOfDefinition()): rod(), or for a connected input the
+  /// effect's single-resolution frame, if it has one
+  OfxRectD pluginRoD(OfxTime time, int view) const;
   /// the default RoD (hostDemo's): the effect's RoD for the output clip, the project for a
   /// connected input, empty for a disconnected one
   OfxRectD defaultRoD(OfxTime time, int view) const;
@@ -422,8 +425,11 @@ public:
   OfxRectD getRegionOfDefinition(OfxTime time) const override;
 
 private:
-  /// make the C++ image of what get_image() returned (raises if it isn't a valid image)
-  PyImage *makeImage(nb::object r, OfxTime time, int view, const std::string &plane);
+  /// make the C++ image of what get_image() returned (raises if it isn't a valid image). frame:
+  /// the single-resolution frame (pixels) of an input to crop and pad the image to, and its bounds
+  /// there (nullptr: none)
+  PyImage *makeImage(nb::object r, OfxTime time, int view, const std::string &plane,
+                     const OfxRectI *frame = nullptr, const OfxRectI *frameBounds = nullptr);
 
   int _view;                   ///< the view of getImage() (setView)
   PyImage *_outputImage;       ///< the output image of the current render (output clip only)
@@ -470,6 +476,9 @@ public:
   const std::map<std::string, OHIE::ClipInstance *> &clips() const { return _clips; }
   /// the project rectangle in pixels at the given render scale
   OfxRectI projectPixelRect(const OfxPointD &renderScale) const;
+  /// ofxh crops and pads the inputs of a plug-in without multiple resolutions, as hostDemo
+  /// (PyClipInstance::fetchFromPython())
+  bool cropsAndPadsImages() const override { return true; }
 
   // ImageEffect::Instance
   const std::string &getDefaultOutputFielding() const override;

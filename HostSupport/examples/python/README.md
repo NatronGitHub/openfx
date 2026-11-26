@@ -203,7 +203,9 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   host modelled on VEGAS Pro (openfx-misc's README-hosts.txt), to check that a plug-in still
   works there: the host descriptor has only the OFX 1.1 host properties, and kOfxPropAPIVersion
   1.1 (no kOfxPropVersion, kOfxImageEffectInstancePropSequentialRender or kOfxPropHostOSHandle),
-  no tiles, no multi-resolution, no overlays or custom interacts, byte and float depths only
+  no tiles, no multi-resolution (every plug-in's inputs are cropped and padded to the project
+  extent, as those of a plug-in that declares kOfxImageEffectPropSupportsMultiResolution 0 on
+  both backends), no overlays or custom interacts, byte and float depths only
   (`-d short` is an error), and kOfxImageEffectPropSupportsMultipleClipPARs 0; fetchSuite gives
   the OFX 1.1 suites but the interact suite, and the message suite V2, which VEGAS Pro 12 lists
   (no progress suite V2, parametric parameter, OpenGL render or dialog suite); its persistent
