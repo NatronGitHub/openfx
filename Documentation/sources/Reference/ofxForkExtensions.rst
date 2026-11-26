@@ -104,8 +104,8 @@ C++ Support library additions
 -----------------------------
 
 The fork's Support library (``Support/``) has a few additions that are not in
-upstream's. Each one has a feature macro in ``ofxsInteract.h``, so that code
-shared with other Support versions can test it:
+upstream's. Each one has a feature macro in ``ofxsInteract.h`` or
+``ofxsParam.h``, so that code shared with other Support versions can test it:
 
 - ``OFXS_SUPPORT_HAS_DRAWCONTEXT``: the C++ API of the OFX 1.5 DrawSuite
   (``OFX::DrawContext``, ``DrawArgs::drawContext`` and
@@ -161,6 +161,16 @@ shared with other Support versions can test it:
   for a plug-in whose ``draw()`` has its own OpenGL code: it tests
   ``calledViaOverlayInteractV2()`` (and ``isOpenGLContextCurrent()``), not
   ``drawContext == NULL``.
+- ``OFXS_SUPPORT_HAS_SPEC_PARAM_DEFAULTS`` (``ofxsParam.h``): the Int, Int2D,
+  Int3D, Double, Double2D and Double3D descriptors try to set the spec's
+  default range and display range (DaVinci Resolve clamps params without
+  them). ``setDoubleType()`` tries to set the default coordinate system of
+  the X, XAbsolute, Y, YAbsolute, XY and XYAbsolute types to the plug-in's
+  ``setDefaultCoordinateSystem()`` choice, or canonical: OFX 1.5.1 gives
+  ``kOfxParamPropDefaultCoordinateSystem`` "Default -
+  kOfxParamCoordinatesCanonical" and the property set "Non normalised
+  spatial double parameters". Code that only set these defaults can drop
+  those calls.
 
 The OpenGL backend loads the OpenGL functions it uses at run time, so neither
 the Support library nor the plug-ins need OpenGL at link time (the

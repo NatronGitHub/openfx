@@ -26,6 +26,7 @@
 #endif
 #include "ofxGPURender.h" // OFX 1.5 GPU render extension properties
 #include "ofxColour.h" // OFX 1.5 colour management
+#include "ofxSonyVegas.h" // the VEGAS host names (_hostIsVegas), with or without OFX_EXTENSIONS_VEGAS
 #include "ofxsCore.h"
 
 #if defined __APPLE__ || defined __linux__ || defined __FreeBSD__
@@ -2874,8 +2875,8 @@ namespace OFX {
     // Vegas, and probably VegasMovieStudio, always use renderScale, and do not set it in the image props, see https://github.com/NatronGitHub/openfx-misc/issues/66#issuecomment-562783481
     // VEGAS Pro 19 reports com.vegascreativesoftware.vegas, VEGAS Pro 12 to 15 com.sonycreativesoftware.vegas
     // (openfx-misc's README-hosts.txt, the VEGAS Pro 15 and 19 host descriptions)
-    _hostIsVegas = starts_with(hostDescription.hostName, "com.sonycreativesoftware.vegas") ||
-                   starts_with(hostDescription.hostName, "com.vegascreativesoftware.vegas");
+    _hostIsVegas = starts_with(hostDescription.hostName, kOfxSonyVegasHostName) ||
+                   starts_with(hostDescription.hostName, kOfxVegasProHostName);
     _ignoreImageRenderScale = _hostIsFusion || _hostIsVegas;
     _ignoreImageField = _hostIsResolve;
   }

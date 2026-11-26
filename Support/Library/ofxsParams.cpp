@@ -653,14 +653,6 @@ namespace OFX {
   BaseDoubleParamDescriptor::BaseDoubleParamDescriptor(const std::string &name, ParamTypeEnum type, OfxPropertySetHandle props)
     : ValueParamDescriptor(name, type, props)
   {
-    // the spec's default, kOfxParamCoordinatesCanonical (OFX 1.4 ofxParam.h: "Default -
-    // kOfxParamCoordinatesCanonical"), set explicitly: Nuke 10 defaults XY and XYAbsolute params to
-    // normalised (openfx-misc's README-hosts.txt). Only where the host has the property, so that a
-    // plug-in's own supportsDefaultCoordinateSystem() probe (SupportExt ofxsNormalisedDefaults.h)
-    // is unchanged; a host without it (OFX 1.1) takes defaults as canonical anyway. Non-throwing
-    if (supportsDefaultCoordinateSystem()) {
-      setDefaultCoordinateSystem(eCoordinatesCanonical);
-    }
   }
 
   /// set kOfxParamPropDoubleType ("Default - kOfxParamDoubleTypePlain"): a host without the property,
@@ -742,6 +734,28 @@ namespace OFX {
       break;
 #endif
     }
+    // OFX 1.5.1 ofxParam.h, kOfxParamPropDefaultCoordinateSystem: "Default -
+    // kOfxParamCoordinatesCanonical", "Property Set - Non normalised spatial double parameters, ie:
+    // any double param who's kOfxParamPropDoubleType is set to one of... kOfxParamDoubleTypeX,
+    // XAbsolute, Y, YAbsolute, XY, XYAbsolute". Nuke 10 defaults XY and XYAbsolute to normalised
+    // (openfx-misc's README-hosts.txt), so write the plug-in's choice, or canonical. Only where the
+    // host has the property: an OFX 1.1 host takes defaults as canonical anyway. If the host refused
+    // the type (the param stays Plain), this still writes where the host has the property: harmless,
+    // since the hosts that refuse spatial types are OFX 1.1 hosts, which don't have it
+    switch (v) {
+    case eDoubleTypeX :
+    case eDoubleTypeXAbsolute :
+    case eDoubleTypeY :
+    case eDoubleTypeYAbsolute :
+    case eDoubleTypeXY :
+    case eDoubleTypeXYAbsolute :
+      if (supportsDefaultCoordinateSystem()) {
+        setDefaultCoordinateSystem(_defaultCoordinateSystem);
+      }
+      break;
+    default :
+      break;
+    }
   }
 
   /** @brief returns true if the param descriptor prop kOfxParamPropDefaultCoordinateSystem is present */
@@ -756,7 +770,8 @@ namespace OFX {
   /** @brief set the type of coordinate system for default values */
   void BaseDoubleParamDescriptor::setDefaultCoordinateSystem(DefaultCoordinateSystemEnum v)
   {
-    // this property was introduced with OpenFX 1.2
+    // this property was introduced with OpenFX 1.2. Remembered for setDoubleType()
+    _defaultCoordinateSystem = v;
     switch(v)
     {
     case eCoordinatesCanonical :

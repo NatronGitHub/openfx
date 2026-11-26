@@ -24,6 +24,9 @@
     multiThread or multiThreadNumCPUs: single-threaded, no crash;
   - OFX::MultiThread::Mutex (built with OFX_USE_MULTITHREAD_MUTEX) without the host's mutex
     functions: a lock count, nested in the holding thread, positive or negative initially;
+  - the double param descriptors' default coordinate system: no write while Plain or non-spatial;
+    setDoubleType() to a spatial type writes the plug-in's setDefaultCoordinateSystem() choice,
+    made before or after, or canonical, over a host's reset (Nuke: normalised);
   - with OFX_EXTENSIONS_NATRON, OFX::Private::decodeNativeOverlayHandle(), which decodes the host's
     kNatronOfxPropNativeOverlays strings (ofxNatron.h) into ImageEffectHostDescription::nativeInteracts.
 
@@ -34,6 +37,8 @@
 */
 
 #include <cstdio>
+#include <cstring>
+#include <map>
 #include <thread>
 #include <stdexcept>
 #include <string>
@@ -376,6 +381,113 @@ namespace {
     OFX::Private::gPropSuite = saved;
   }
 
+  // A fake host for one param descriptor: string properties in a map. When the type becomes XY or
+  // XYAbsolute, it resets kOfxParamPropDefaultCoordinateSystem to gHostReset (normalised, as Nuke
+  // does). With resetHost(true), the property exists only from then on.
+  std::map<std::string, std::string> gStrings;
+  const char* gHostReset = kOfxParamCoordinatesNormalised;
+  int gCoordWrites = 0; // writes of kOfxParamPropDefaultCoordinateSystem
+  int gDoubleWrites = 0; // the descriptor constructors write only the four range properties
+  OfxStatus recSetDouble(OfxPropertySetHandle, const char*, int, double) { ++gDoubleWrites; return kOfxStatOK; }
+  OfxStatus recSetString(OfxPropertySetHandle, const char* name, int, const char* v)
+  {
+    const std::string n = name, value = v;
+    if (n == kOfxParamPropDefaultCoordinateSystem) {
+      ++gCoordWrites;
+      if (!gStrings.count(n)) {
+        return kOfxStatErrUnknown;
+      }
+    }
+    gStrings[n] = value;
+    if (n == kOfxParamPropDoubleType && (value == kOfxParamDoubleTypeXY || value == kOfxParamDoubleTypeXYAbsolute)) {
+      gStrings[kOfxParamPropDefaultCoordinateSystem] = gHostReset;
+    }
+    return kOfxStatOK;
+  }
+  OfxStatus recGetString(OfxPropertySetHandle, const char* name, int, const char** v)
+  {
+    if (!gStrings.count(name)) {
+      return kOfxStatErrUnknown;
+    }
+    *v = gStrings[name].c_str();
+    return kOfxStatOK;
+  }
+
+  // the constructor is protected
+  struct TestDouble2DDescriptor : public OFX::Double2DParamDescriptor {
+    explicit TestDouble2DDescriptor(OfxPropertySetHandle h) : OFX::Double2DParamDescriptor("p", h) {}
+  };
+
+  std::string coords()
+  {
+    return gStrings.count(kOfxParamPropDefaultCoordinateSystem) ? gStrings[kOfxParamPropDefaultCoordinateSystem] : "absent";
+  }
+
+  void resetHost(bool coordsOnlyWhenSpatial, const char* hostReset = kOfxParamCoordinatesNormalised)
+  {
+    gStrings.clear();
+    if (!coordsOnlyWhenSpatial) {
+      gStrings[kOfxParamPropDefaultCoordinateSystem] = kOfxParamCoordinatesNormalised;
+    }
+    gHostReset = hostReset;
+    gCoordWrites = gDoubleWrites = 0;
+  }
+
+  void testDefaultCoordinateSystem()
+  {
+    OfxPropertySuiteV1 suite = OfxPropertySuiteV1();
+    suite.propSetInt = propSetInt; // the ones of testPropertyDefaults()
+    suite.propGetInt = propGetInt;
+    suite.propGetDouble = propGetDouble;
+    suite.propSetDouble = recSetDouble;
+    suite.propSetString = recSetString;
+    suite.propGetString = recGetString;
+    OfxPropertySuiteV1* saved = OFX::Private::gPropSuite;
+    OFX::Private::gPropSuite = &suite;
+    int dummy = 0;
+    OfxPropertySetHandle h = reinterpret_cast<OfxPropertySetHandle>(&dummy);
+    const std::string canonical = kOfxParamCoordinatesCanonical;
+    const std::string normalised = kOfxParamCoordinatesNormalised;
+
+    for (int onlyWhenSpatial = 0; onlyWhenSpatial < 2; ++onlyWhenSpatial) {
+      const std::string initial = onlyWhenSpatial ? "absent" : normalised; // the host's own value
+      // the default ranges are set (2 x 4); no coordinate system write while Plain or non-spatial;
+      // a spatial type without a choice gives canonical
+      resetHost(onlyWhenSpatial != 0);
+      {
+        TestDouble2DDescriptor d(h);
+        CHECK(gDoubleWrites == 8);
+        d.setDoubleType(OFX::eDoubleTypePlain);
+        d.setDoubleType(OFX::eDoubleTypeScale);
+        CHECK(gCoordWrites == 0 && coords() == initial);
+        d.setDoubleType(OFX::eDoubleTypeXYAbsolute); // the host resets to normalised
+        CHECK(coords() == canonical);
+      }
+      // normalised chosen before setDoubleType(), possibly while the host doesn't have the property
+      // yet, is written by setDoubleType() over the host's reset to canonical
+      resetHost(onlyWhenSpatial != 0, kOfxParamCoordinatesCanonical);
+      {
+        TestDouble2DDescriptor d(h);
+        d.setDefaultCoordinateSystem(OFX::eCoordinatesNormalised);
+        CHECK(coords() == initial);
+        d.setDoubleType(OFX::eDoubleTypeXY);
+        CHECK(coords() == normalised);
+      }
+    }
+    // normalised chosen after setDoubleType() is written at once, and survives a later type change
+    resetHost(false, kOfxParamCoordinatesCanonical);
+    {
+      TestDouble2DDescriptor d(h);
+      d.setDoubleType(OFX::eDoubleTypeXY);
+      CHECK(coords() == canonical);
+      d.setDefaultCoordinateSystem(OFX::eCoordinatesNormalised);
+      CHECK(coords() == normalised);
+      d.setDoubleType(OFX::eDoubleTypeXYAbsolute); // the host resets to canonical
+      CHECK(coords() == normalised);
+    }
+    OFX::Private::gPropSuite = saved;
+  }
+
   OfxStatus numCPUs4(unsigned int* n) { *n = 4; return kOfxStatOK; }
 
   struct CountingProcessor : public OFX::MultiThread::Processor {
@@ -529,6 +641,7 @@ int main()
   testDefineParamTypeMismatchThrows();
   testLazyRegistration();
   testPropertyDefaults();
+  testDefaultCoordinateSystem();
   testThreadSuiteWithoutFunctions();
   testMutexWithoutMutexFunctions();
 #ifdef OFX_EXTENSIONS_NATRON
