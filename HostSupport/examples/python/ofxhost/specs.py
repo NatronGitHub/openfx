@@ -413,3 +413,30 @@ def from_components(rgba: np.ndarray, components: str) -> np.ndarray:
     if components == "alpha":
         return np.repeat(np.asarray(rgba, np.float64)[..., 3:4], 4, axis=2)
     return rgba
+
+
+# the OpenGL backends of openfx::HostSupportOpenGL (GL::backendName()), on every platform
+OPENGL_BACKENDS = ("egl-surfaceless", "egl-device", "cgl", "wgl", "glx")
+
+
+def parse_gpu_renderer(text: str) -> tuple[str, int] | None:
+    """A renderer as BACKEND:ID (e.g. "egl-device:0", "cgl:16940800", "glx:-1"): (backend, id).
+
+    As hostDemo's --gpu-renderer: BACKEND is one of OPENGL_BACKENDS, ID a decimal int (optional sign).
+
+    Returns:
+        (backend, id), or None if text isn't BACKEND:ID (gpu_renderer_error() is the message).
+    """
+    backend, sep, renderer_id = text.rpartition(":")
+    digits = renderer_id[1:] if renderer_id[:1] in ("+", "-") else renderer_id
+    if not sep or backend not in OPENGL_BACKENDS or not (digits.isascii() and digits.isdigit()):
+        return None
+    value = int(renderer_id)
+    if not INT_MIN <= value <= INT_MAX:
+        return None
+    return backend, value
+
+
+def gpu_renderer_error(text: str) -> str:
+    """The message of a --gpu-renderer that isn't BACKEND:ID (hostDemo's)."""
+    return f"'{text}': expected BACKEND:ID (see --gpu-renderers)"

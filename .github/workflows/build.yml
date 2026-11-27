@@ -69,8 +69,10 @@ jobs:
           cache-dependency-path: .github/workflows/build.yml
       - name: Install dependencies
         run: |
-          # (libegl1, libegl-mesa0, libgl1-mesa-dri: EGL and llvmpipe for openglRenderChecks)
-          sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev libegl1 libegl-mesa0 libgl1-mesa-dri
+          # (libegl1, libegl-mesa0, libgl1-mesa-dri: EGL and llvmpipe for openglRenderChecks;
+          # libglx-mesa0 and xvfb: its GLX run)
+          sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev libexpat1-dev libegl1 libegl-mesa0 libgl1-mesa-dri \
+            libglx-mesa0 xvfb
           pip install pyyaml "nanobind>=2.0,<4" numpy pytest "ruff~=0.17.0"
       - name: Python lint (ruff, with the rules of HostSupport/python/pyproject.toml)
         run: |
@@ -160,6 +162,9 @@ jobs:
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test && Support/support-library-test)
           # openfx::HostSupportOpenGL with the Natron context data (EGL, Mesa llvmpipe; OFXH_REQUIRE=1)
           OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/examples/openglRenderChecks
+          # the GLX backend, on an X server of its own (Xvfb, Mesa llvmpipe)
+          OFXH_OPENGL_BACKENDS=glx OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
+            xvfb-run -a build-ci-natron/HostSupport/examples/openglRenderChecks
           # the HostSupport checks with the extensions (e.g. kFnOfxImageEffectPropComponentsPresent)
           SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
             build-ci-natron/HostSupport/examples/suiteHandleChecks > suitehandlechecks-natron.log 2>&1 \
@@ -168,6 +173,13 @@ jobs:
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" \
             python -m pytest HostSupport/examples/python/tests/test_backends.py HostSupport/examples/python/tests/test_hostdemo_cli.py
+          # the GPU tests of ofxh and of the command lines with GLX too (Xvfb, Mesa llvmpipe): ofxh's
+          # renderers of OFXH_OPENGL_BACKENDS, and --gpu-renderers (which lists GLX after EGL there)
+          OFXH_OPENGL_BACKENDS=glx PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
+            xvfb-run -a python -m pytest HostSupport/python/tests/test_opengl.py
+          OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
+            OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" \
+            xvfb-run -a python -m pytest HostSupport/examples/python/tests/test_hostdemo_cli.py -k gpu
       - name: Python wrapper and sample plug-in tests (ofxhost, on both backends)
         if: success() || failure()
         run: |

@@ -428,12 +428,17 @@ virtual. The optional library ``openfx::HostSupportOpenGL`` (CMake option
 don't have their own:
 
 -  ``ofxhOpenGLContext.h``: offscreen contexts, with backends chosen at
-   run time (EGL surfaceless and EGL devices on Linux and BSD, CGL on
-   macOS, WGL on Windows), the renderers they offer, a context pool
-   (one context per render tree) and ``CurrentContext``, which makes a
-   context current on the calling thread. The host may give its own
-   OpenGL loader, a logger, and a wrapper for driver calls (for example
-   to mask floating-point exceptions);
+   run time (EGL surfaceless, EGL devices and GLX on Linux and BSD; CGL
+   on macOS; WGL on Windows), the renderers they offer, each selectable
+   by its id (EGL devices, CGL renderers, and GPUs through
+   ``WGL_NV_gpu_affinity`` or ``WGL_AMD_gpu_association``), a context
+   pool (one context per render tree) and ``CurrentContext``, which
+   makes a context current on the calling thread. The host may give its
+   own OpenGL loader, a logger, and a wrapper for driver calls (for
+   example to mask floating-point exceptions). With GLX, a host that uses
+   Xlib from several threads with libX11 older than 1.8 (for example
+   EL9's 1.7) calls ``XInitThreads()`` first, before any other Xlib call:
+   the library serializes its own Xlib calls but doesn't call it;
 -  ``ofxhOpenGLTexture.h``: textures of OFX image rectangles, with upload,
    readback and the render target;
 -  ``ofxhOpenGLRender.h``: ``chooseRenderMode()`` (OpenGL, CPU, or

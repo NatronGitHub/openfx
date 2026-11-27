@@ -621,8 +621,51 @@ static OH::PluginCache *makePluginCache(bool useEnvPath)
   return pc;
 }
 
+#ifdef OFXH_OPENGL
+/// the backends named in names, an iterable of str (None: defaultBackends()); TypeError for a str
+/// (not a list of names) or a non-str item, ValueError for an unknown name
+static std::vector<GL::Backend> parseBackends(const nb::object &names, const std::string &what)
+{
+  if (names.is_none()) {
+    return GL::defaultBackends();
+  }
+  if (nb::isinstance<nb::str>(names)) {
+    raiseError(PyExc_TypeError, what + ": the OpenGL backends are a list of names, not a str");
+  }
+  std::vector<GL::Backend> backends;
+  for (nb::handle n : names) {
+    if (!nb::isinstance<nb::str>(n)) {
+      raiseError(PyExc_TypeError, what + ": an OpenGL backend name must be a str");
+    }
+    const std::string name = nb::cast<std::string>(n);
+    GL::Backend b;
+    if (!GL::backendFromName(name, b)) {
+      raiseError(PyExc_ValueError, what + ": unknown OpenGL backend \"" + name + "\"");
+    }
+    backends.push_back(b);
+  }
+  return backends;
+}
+
+/// a renderer as a dict (opengl_renderers(), opengl_context())
+static nb::dict rendererDict(const GL::RendererInfo &info)
+{
+  nb::dict d;
+  d["backend"] = GL::backendName(info.backend);
+  d["id"] = info.id;
+  d["renderer"] = info.renderer;
+  d["vendor"] = info.vendor;
+  d["version"] = info.version;
+  d["glsl"] = info.shadingLanguageVersion;
+  d["video_memory"] = info.videoMemoryBytes;
+  d["software"] = info.software;
+  d["max_texture_size"] = info.maxTextureSize;
+  return d;
+}
+#endif
+
 static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnvPath, const std::string &profile,
-                 bool keepLoaded, bool normalisedDefaults, bool opengl)
+                 bool keepLoaded, bool normalisedDefaults, bool opengl, nb::object openglBackends, int openglRenderer)
 {
   State &st = state();
   if (st.initialized) {
@@ -637,6 +680,13 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
   if (opengl) {
     raiseError(PyExc_ValueError, "ofxh.init(): opengl=True: ofxh was built without OFX_HOSTSUPPORT_OPENGL");
   }
+#endif
+  if (!opengl && (!openglBackends.is_none() || openglRenderer != -1)) {
+    raiseError(PyExc_ValueError, "ofxh.init(): opengl_backends and opengl_renderer need opengl=True");
+  }
+#ifdef OFXH_OPENGL
+  const std::vector<GL::Backend> glBackends = opengl ? parseBackends(openglBackends, "ofxh.init()")
+                                                     : std::vector<GL::Backend>();
 #endif
   if (!nb::isinstance<HostBase>(host)) {
     raiseError(PyExc_TypeError, "ofxh.init(): host must be an ofxh.Host");
@@ -655,6 +705,26 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
       pluginDirs.push_back(nb::cast<std::string>(fspath(d)));
     }
   }
+#ifdef OFXH_OPENGL
+  // the context first (before the scan: without one, the host doesn't say it supports OpenGL). A
+  // backend or renderer the caller chose that can't be used is an error: no fallback to the CPU
+  std::unique_ptr<GL::Context> glContext;
+  std::string glError;
+  if (opengl) {
+    withoutGil([&] {
+      glContext = GL::createContext(GL::Hooks(), glBackends, openglRenderer, &glError);
+      return 0;
+    });
+    if (!glContext && (openglRenderer != -1 || !openglBackends.is_none())) {
+      // a ValueError whose opengl_error attribute is the reason (what opengl_context() would say)
+      nb::object e = nb::borrow(PyExc_ValueError)(
+        nb::str(("ofxh.init(): no OpenGL context on the chosen backends or renderer (" + glError + ")").c_str()));
+      nb::setattr(e, "opengl_error", nb::str(glError.c_str()));
+      PyErr_SetObject(PyExc_ValueError, e.ptr());
+      throw nb::python_error();
+    }
+  }
+#endif
   // (before the first getPluginCache())
   OH::PluginCache::useStdOFXPluginsLocation(useStdPaths);
   OH::PluginCache *pc = makePluginCache(useEnvPath);
@@ -666,14 +736,8 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
   st.host->_keepLoaded = keepLoaded;
   st.host->_normalisedDefaults = normalisedDefaults;
 #ifdef OFXH_OPENGL
-  if (opengl) {
-    // before the scan: without a context, the host doesn't say it supports OpenGL
-    PyHost *h = st.host.get();
-    withoutGil([&] {
-      h->_glContext = GL::createContext(GL::Hooks(), GL::defaultBackends(), -1, &h->_glError);
-      return 0;
-    });
-  }
+  st.host->_glContext = std::move(glContext);
+  st.host->_glError = glError;
 #endif
   st.initialized = true;
   st.profile = profile;
@@ -1797,7 +1861,7 @@ static void bindFunctions(nb::module_ &m)
 {
   m.def("init", &init, "host"_a, "plugin_dirs"_a.none() = nb::none(), "use_std_paths"_a = false,
         "use_env_path"_a = true, "profile"_a = "default", "keep_loaded"_a = false, "normalised_defaults"_a = true,
-        "opengl"_a = false,
+        "opengl"_a = false, "opengl_backends"_a.none() = nb::none(), "opengl_renderer"_a = -1,
         "Initialize HostSupport with this host (an ofxh.Host), and scan the plug-ins of plugin_dirs, of\n"
         "OFX_PLUGIN_PATH if use_env_path, and of the standard locations if use_std_paths. One host per\n"
         "process: RuntimeError if one is initialized; call shutdown() before another init(). If it raises,\n"
@@ -1818,7 +1882,34 @@ static void bindFunctions(nb::module_ &m)
         "opengl: create an offscreen OpenGL context (openfx::HostSupportOpenGL, builds with\n"
         "OFX_HOSTSUPPORT_OPENGL) before the scan; if it is made, the host's\n"
         "kOfxImageEffectPropOpenGLRenderSupported is \"true\", and the actions may take opengl=True. See\n"
-        "opengl_context().");
+        "opengl_context().\n"
+        "opengl_backends: the backends to try, by name (\"egl-surfaceless\", \"egl-device\", \"glx\", \"cgl\",\n"
+        "\"wgl\"; default: the platform's); opengl_renderer: the renderer id of opengl_renderers() (default -1,\n"
+        "the backend's default). Both need opengl=True: ValueError otherwise, or for an unknown backend.\n"
+        "If either is given and no context can be made, init() raises ValueError, whose opengl_error\n"
+        "attribute says why, before the scan; with neither, it goes on without a context, and\n"
+        "opengl_context() says why.");
+  m.def("opengl_renderers", [](nb::object backends) {
+    nb::list r;
+#ifdef OFXH_OPENGL
+    const std::vector<GL::Backend> b = parseBackends(backends, "ofxh.opengl_renderers()");
+    std::vector<GL::RendererInfo> infos;
+    withoutGil([&] {
+      infos = GL::listRenderers(GL::Hooks(), b);
+      return 0;
+    });
+    for (const GL::RendererInfo &info : infos) {
+      r.append(rendererDict(info));
+    }
+#else
+    (void)backends;
+#endif
+    return r;
+  }, "backends"_a.none() = nb::none(),
+     "The OpenGL renderers of these backends (by name; default: the platform's), each a dict: {\"backend\",\n"
+     "\"id\" (for init(opengl_renderer=...)), \"renderer\", \"vendor\", \"version\", \"glsl\", \"video_memory\"\n"
+     "(bytes, 0 if unknown), \"software\", \"max_texture_size\"}. A context is made on each to read them. []\n"
+     "without OFX_HOSTSUPPORT_OPENGL. Needs no init().");
   m.def("opengl_context", []() -> nb::object {
     nb::dict d;
 #ifdef OFXH_OPENGL
@@ -1830,17 +1921,13 @@ static void bindFunctions(nb::module_ &m)
       d["error"] = h->_glError;
       return d;
     }
-    const GL::RendererInfo &info = h->_glContext->info();
-    d["backend"] = GL::backendName(info.backend);
-    d["renderer"] = info.renderer;
-    d["vendor"] = info.vendor;
-    d["version"] = info.version;
-    return d;
+    return rendererDict(h->_glContext->info());
 #else
     return nb::none();
 #endif
-  }, "The OpenGL context of ofxh.init(opengl=True): {\"backend\", \"renderer\", \"vendor\", \"version\"},\n"
-     "or {\"error\": why} if none could be made; None without opengl=True (or OFX_HOSTSUPPORT_OPENGL).");
+  }, "The OpenGL context of ofxh.init(opengl=True), as a renderer of opengl_renderers() (\"backend\", \"id\",\n"
+     "\"renderer\"...), or {\"error\": why} if none could be made; None without opengl=True (or\n"
+     "OFX_HOSTSUPPORT_OPENGL).");
   m.def("shutdown", &shutdown,
         "Close the open instances, unload the plug-ins and delete the plug-in cache and the host. Also\n"
         "called at exit. Not in an action or a callback.");

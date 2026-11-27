@@ -210,7 +210,7 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   "default"). It uses its own plug-in cache file, hostDemoPluginCache-ofx14.xml. In Python:
   `extra_args=["--ofx14"]`.
 - `--gpu=opengl` renders with OpenGL the plug-ins that can (kOfxImageEffectPropOpenGLRenderSupported
-  "true" or "needed"), on an offscreen context of openfx::HostSupportOpenGL (EGL on Linux, CGL on
+  "true" or "needed"), on an offscreen context of openfx::HostSupportOpenGL (EGL or GLX on Linux, CGL on
   macOS, WGL on Windows; builds with `OFX_HOSTSUPPORT_OPENGL`): the host then says it supports OpenGL render. Without
   a context it warns and renders on the CPU, and a plug-in that needs OpenGL fails. After an OpenGL
   failure (kOfxStatGPURenderFailed, kOfxStatGPUOutOfMemory, kOfxStatErrMemory, or an input texture
@@ -218,6 +218,13 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   `extra_args=["--gpu=opengl"]`; the ofxh module's `init(opengl=True)`, `render_mode()`, `opengl=True`
   on the render actions (refused unless `render_mode()` is "opengl"), `opengl_result` and
   `opengl_error` are what the in-process backend uses.
+- `--gpu-renderers` lists the OpenGL renderers, one per line: `BACKEND:ID`, a tab, then the renderer,
+  vendor, version, GLSL version and video memory ("Unknown" if the driver doesn't say). The renderers are
+  EGL devices, CGL renderers, the GPUs of `WGL_NV_gpu_affinity` or `WGL_AMD_gpu_association`, or a
+  backend's default (`-1`). `--gpu-renderer=BACKEND:ID`, with `--gpu=opengl`, makes the context on
+  that renderer, e.g. `--gpu-renderer=egl-device:1`. If that context can't be made, it is an error
+  (status 1, no report), not a fallback to the CPU. In Python: `ofxh.opengl_renderers(backends)`,
+  and `ofxh.init(opengl=True, opengl_backends=[...], opengl_renderer=id)`.
 - `--ofx11` (not with `--ofx14`, `--multiplane`, `--opengl-describe` or `--gpu=opengl`) makes hostDemo an OFX 1.1
   host modelled on VEGAS Pro (openfx-misc's README-hosts.txt), to check that a plug-in still
   works there: the host descriptor has only the OFX 1.1 host properties, and kOfxPropAPIVersion

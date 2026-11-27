@@ -770,9 +770,12 @@ static void usage(const char* prog)
     "  --components c,... the host's supported components (kOfxImageEffectPropSupportedComponents):\n"
     "                     distinct rgba, rgb or alpha, in order (default: rgba,alpha)\n"
     "  --gpu=MODE         cpu (the default) or opengl: render with OpenGL the plug-ins that can (an\n"
-    "                     offscreen context: EGL on Linux, CGL on macOS, WGL on Windows), on the CPU\n"
+    "                     offscreen context: EGL or GLX on Linux, CGL on macOS, WGL on Windows), on the CPU\n"
     "                     without a context, or if the OpenGL render fails (kOfxStatGPURenderFailed...)\n"
     "                     and the plug-in can; the --report renders get \"openGL\" and \"cpuRetry\"\n"
+    "  --gpu-renderer=BACKEND:ID  with --gpu=opengl: the renderer of the context, one of --gpu-renderers\n"
+    "                     (e.g. egl-device:0, glx:-1, cgl:<renderer ID>); no context on it is an error\n"
+    "  --gpu-renderers    list the OpenGL renderers as BACKEND:ID and their names, and exit\n"
     "  --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,\n"
     "                     the GetClipComponents action; Nuke-extension builds only)\n"
     "  --no-normalised-defaults  be a host without normalised parameter defaults: double params\n"
@@ -1437,6 +1440,8 @@ static int run(int argc, char **argv)
   bool ofx14And11 = false;     ///< both --ofx14 and --ofx11
   bool openglDescribe = false; ///< --opengl-describe
   bool gpuOpenGL = false;      ///< --gpu=opengl
+  std::string gpuRenderer;     ///< --gpu-renderer=BACKEND:ID
+  bool gpuRenderers = false;   ///< --gpu-renderers
   bool multiPlane = false;     ///< --multiplane
   /// --components: kOfxImageEffectPropSupportedComponents of the host descriptor, and their short names
   std::vector<std::string> hostComponents, hostComponentNames;
@@ -1477,6 +1482,10 @@ static int run(int argc, char **argv)
       openglDescribe = true;
     } else if (arg == "--gpu=opengl" || arg == "--gpu=cpu") {
       gpuOpenGL = arg == "--gpu=opengl";
+    } else if (arg.compare(0, 15, "--gpu-renderer=") == 0) {
+      gpuRenderer = arg.substr(15);
+    } else if (arg == "--gpu-renderers") {
+      gpuRenderers = true;
     } else if (arg == "--multiplane") {
 #ifdef OFX_EXTENSIONS_NUKE
       multiPlane = true;
@@ -1676,10 +1685,46 @@ static int run(int argc, char **argv)
     std::cerr << "Error: --opengl-describe needs --describe (to render with OpenGL: --gpu=opengl)" << std::endl;
     return 1;
   }
-#ifndef HOSTDEMO_OPENGL
-  if (gpuOpenGL) {
-    std::cerr << "Error: --gpu=opengl: hostDemo was built without OFX_HOSTSUPPORT_OPENGL" << std::endl;
+  if (!gpuRenderer.empty() && !gpuOpenGL) {
+    std::cerr << "Error: --gpu-renderer needs --gpu=opengl" << std::endl;
     return 1;
+  }
+#ifndef HOSTDEMO_OPENGL
+  if (gpuOpenGL || gpuRenderers) {
+    std::cerr << "Error: " << (gpuRenderers ? "--gpu-renderers" : "--gpu=opengl")
+              << ": hostDemo was built without OFX_HOSTSUPPORT_OPENGL" << std::endl;
+    return 1;
+  }
+#else
+  // --gpu-renderer=BACKEND:ID: a backend name and a decimal int (optional sign), in the int range
+  std::vector<GL::Backend> gpuBackends = GL::defaultBackends();
+  int gpuRendererId = -1;
+  if (!gpuRenderer.empty()) {
+    const size_t colon = gpuRenderer.rfind(':');
+    GL::Backend backend;
+    const std::string idText = colon == std::string::npos ? std::string() : gpuRenderer.substr(colon + 1);
+    const size_t sign = !idText.empty() && (idText[0] == '+' || idText[0] == '-') ? 1 : 0;
+    const bool digits = idText.size() > sign &&
+      idText.find_first_not_of("0123456789", sign) == std::string::npos;
+    errno = 0;
+    const long long id = digits ? std::strtoll(idText.c_str(), nullptr, 10) : 0;
+    if (!digits || errno == ERANGE || id < INT_MIN || id > INT_MAX ||
+        !GL::backendFromName(gpuRenderer.substr(0, colon), backend)) {
+      std::cerr << "Error: --gpu-renderer: '" << gpuRenderer << "': expected BACKEND:ID (see --gpu-renderers)" << std::endl;
+      return 1;
+    }
+    gpuBackends.assign(1, backend);
+    gpuRendererId = static_cast<int>(id);
+  }
+  if (gpuRenderers) {
+    for (const GL::RendererInfo &r : GL::listRenderers(GL::Hooks())) {
+      std::cout << GL::backendName(r.backend) << ":" << r.id << "\t" << r.renderer << " (" << r.vendor << ", "
+                << r.version << ", GLSL " << (r.shadingLanguageVersion.empty() ? "-" : r.shadingLanguageVersion)
+                << ", " << (r.videoMemoryBytes > 0 ? std::to_string(r.videoMemoryBytes >> 20) + " MiB" : "Unknown")
+                << (r.software ? ", software" : "") << ")\n";
+    }
+    std::cout.flush();
+    return 0;
   }
 #endif
 #ifndef OFX_SUPPORTS_OPENGLRENDER
@@ -1718,7 +1763,12 @@ static int run(int argc, char **argv)
   if (gpuOpenGL) {
     GL::Hooks hooks;
     std::string why;
-    gl.context = GL::createContext(hooks, GL::defaultBackends(), -1, &why);
+    gl.context = GL::createContext(hooks, gpuBackends, gpuRendererId, &why);
+    if (!gl.context && !gpuRenderer.empty()) {
+      // (a renderer the user chose: no silent fallback to another one, or to the CPU)
+      std::cerr << "Error: --gpu-renderer=" << gpuRenderer << ": no OpenGL context (" << why << ")" << std::endl;
+      return 1;
+    }
     if (!gl.context) {
       std::cerr << "Warning: --gpu=opengl: no OpenGL context (" << why << "): rendering on the CPU" << std::endl;
     }

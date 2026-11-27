@@ -18,7 +18,10 @@
 ///   another thread gets another context or none, and a render with the same key waits), the
 ///   texture lifetime of clipFreeTexture, the cleanup of textures the plug-in didn't free, and
 ///   chooseRenderMode().
+/// - the renderer selection: a context on each renderer of listRenderers(), by its id.
 /// Without an OpenGL context or the plug-in, those checks are skipped, unless OFXH_REQUIRE=1 (CI).
+/// OFXH_OPENGL_BACKENDS: the backends to try, by name, comma-separated (default: defaultBackends()),
+/// e.g. "glx" under an X server.
 /// Exits with 1 if a check fails.
 
 #include <algorithm>
@@ -125,13 +128,39 @@ namespace {
 
   void checkBackendNames()
   {
-    for (GL::Backend b : { GL::Backend::EGLSurfaceless, GL::Backend::EGLDevice, GL::Backend::CGL, GL::Backend::WGL }) {
+    for (GL::Backend b : { GL::Backend::EGLSurfaceless, GL::Backend::EGLDevice, GL::Backend::CGL, GL::Backend::WGL,
+                           GL::Backend::GLX }) {
       GL::Backend parsed = GL::Backend::CGL;
       check(std::string("backendFromName(backendName(") + GL::backendName(b) + "))",
             GL::backendFromName(GL::backendName(b), parsed) && parsed == b);
     }
     GL::Backend parsed;
-    check("backendFromName(\"glx\") = false (not a backend yet)", !GL::backendFromName("glx", parsed));
+    check("backendFromName(\"vulkan\") = false", !GL::backendFromName("vulkan", parsed));
+  }
+
+  /// the backends of the context checks: OFXH_OPENGL_BACKENDS, else defaultBackends()
+  std::vector<GL::Backend> gBackends = GL::defaultBackends();
+
+  bool parseBackends()
+  {
+    const char *env = std::getenv("OFXH_OPENGL_BACKENDS");
+    if (!env || !*env) {
+      return true;
+    }
+    std::vector<GL::Backend> backends;
+    std::string list(env);
+    for (size_t start = 0; start <= list.size();) {
+      const size_t end = std::min(list.find(',', start), list.size());
+      GL::Backend b;
+      if (!GL::backendFromName(list.substr(start, end - start), b)) {
+        std::printf("OFXH_OPENGL_BACKENDS: unknown backend \"%s\"\n", list.substr(start, end - start).c_str());
+        return false;
+      }
+      backends.push_back(b);
+      start = end + 1;
+    }
+    gBackends = backends;
+    return true;
   }
 
   void checkPool()
@@ -488,15 +517,42 @@ namespace {
 #if defined(__APPLE__)
     return CGLGetCurrentContext();
 #elif !defined(_WIN32)
+    // (EGL or GLX, whichever the backend loaded: RTLD_NOLOAD)
     typedef void *(*GetCurrentContextFn)();
-    static GetCurrentContextFn get = [] {
-      void *h = dlopen("libEGL.so.1", RTLD_NOW | RTLD_NOLOAD);
-      return h ? reinterpret_cast<GetCurrentContextFn>(dlsym(h, "eglGetCurrentContext")) : nullptr;
-    }();
-    return get ? get() : nullptr;
+    const auto load = [](const char *library, const char *name) {
+      void *h = dlopen(library, RTLD_NOW | RTLD_NOLOAD);
+      return h ? reinterpret_cast<GetCurrentContextFn>(dlsym(h, name)) : nullptr;
+    };
+    void *current = nullptr;
+    if (GetCurrentContextFn egl = load("libEGL.so.1", "eglGetCurrentContext")) {
+      current = egl();
+    }
+    if (!current) {
+      if (GetCurrentContextFn glx = load("libGL.so.1", "glXGetCurrentContext")) {
+        current = glx();
+      }
+    }
+    return current;
 #else
     return wglGetCurrentContext();
 #endif
+  }
+
+  /// listRenderers(): each renderer is selectable by its id, createContext(backends, id); an
+  /// unknown id gives no context
+  void checkRendererSelection(const GL::Hooks &hooks, const std::vector<GL::RendererInfo> &renderers)
+  {
+    for (const GL::RendererInfo &r : renderers) {
+      std::unique_ptr<GL::Context> c = GL::createContext(hooks, { r.backend }, r.id);
+      check(std::string("createContext(") + GL::backendName(r.backend) + ", renderer " + std::to_string(r.id) +
+              "): that renderer (" + r.renderer + ")",
+            c && c->info().backend == r.backend && c->info().id == r.id && c->info().renderer == r.renderer);
+    }
+    if (!renderers.empty()) {
+      std::string error;
+      check("createContext() on an unknown renderer id: none, with an error",
+            GL::createContext(hooks, { renderers.front().backend }, 1 << 30, &error) == nullptr && !error.empty());
+    }
   }
 
   /// The thread that created a context ends while another thread has the context current: that
@@ -539,7 +595,7 @@ namespace {
     std::promise<void> created, held;
     std::future<void> createdFuture = created.get_future(), heldFuture = held.get_future();
     std::thread creator([&] {
-      context = GL::createContext(hooks);
+      context = GL::createContext(hooks, gBackends);
       created.set_value();
       heldFuture.wait();
     });
@@ -1096,6 +1152,46 @@ namespace {
     delete y;
   }
 
+  /// OFX 1.5.1, one context at a time: a render on c2 while one on c1 is in progress waits for it
+  /// (without holding c2), then Detached on c1 and Attached on c2: "A host cannot call
+  /// kOfxActionOpenGLContextAttached on the same instance without an intervening
+  /// kOfxActionOpenGLContextDetached"
+  void checkSwitchWaits(GLTestInstance &instance, GL::Context &c1, GL::Context &c2)
+  {
+    instance.actions.clear();
+    GL::Attachment attachment(instance);
+    std::atomic<int> stage(0);
+    std::thread t1([&] {
+      GL::CurrentContext current(c1);
+      GL::RenderSession session(attachment, current);
+      stage = session.ok() ? 1 : -1;
+      while (stage == 1) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+    });
+    while (stage == 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    std::atomic<bool> done(false);
+    bool ok2 = false;
+    std::thread t2([&] {
+      GL::CurrentContext current(c2);
+      GL::RenderSession session(attachment, current);
+      ok2 = session.ok();
+      done = true;
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    const bool waited = !done && instance.actions == std::vector<std::string>({ "attached:c1" });
+    stage = 2;
+    t1.join();
+    t2.join();
+    check("one context at a time: a render on c2 waits for the one in progress on c1", waited);
+    check("one context at a time: then Detached on c1 and Attached on c2",
+          ok2 && instance.actions == std::vector<std::string>({ "attached:c1", "detached:c1", "attached:c2" }));
+    check("one context at a time: detach() sends Detached on c2", attachment.detach() == kOfxStatOK && instance.actions.back() == "detached:c2");
+    instance.actions.clear();
+  }
+
   /// A plug-in that returns kNatronOfxImageEffectPropOpenGLContextData from Attached is attached to
   /// several contexts at once ("This permits running several parallel renders on different OpenGL
   /// contexts", ofxNatron.h): a render on c2 doesn't wait for one on c1, there is no Detached in
@@ -1188,7 +1284,7 @@ namespace {
     // host cannot call kOfxActionOpenGLContextAttached on the same instance without an
     // intervening kOfxActionOpenGLContextDetached" (OFX 1.5.1): the next render detaches it from
     // every other context; on c1 or c2 it stays attached there (no Detached and Attached again)
-    std::unique_ptr<GL::Context> c3 = GL::createContext(GL::Hooks());
+    std::unique_ptr<GL::Context> c3 = GL::createContext(GL::Hooks(), gBackends);
     check("a third context", c3 != nullptr);
     if (c3) {
       gContexts[2] = c3.get();
@@ -1271,7 +1367,7 @@ namespace {
     const OfxRectI window = { 0, 0, 64, 48 };
     int key = 0;
     {
-      GL::ContextPool pool([hooks] { return GL::createContext(hooks); }, 2);
+      GL::ContextPool pool([hooks] { return GL::createContext(hooks, gBackends); }, 2);
       GL::ContextPool::Lease lease(pool, &key);
       check("a pool context", lease.context() != nullptr);
       if (!lease.context()) {
@@ -1299,7 +1395,7 @@ namespace {
             instance.sameKeyGot && !instance.sameKeyDuringRender && r.status == kOfxStatOK && r.maxError <= 1e-3f);
     }
     {
-      GL::ContextPool pool([hooks] { return GL::createContext(hooks); }, 1);
+      GL::ContextPool pool([hooks] { return GL::createContext(hooks, gBackends); }, 1);
       GL::ContextPool::Lease lease(pool, &key);
       if (!lease.context()) {
         return;
@@ -1321,7 +1417,7 @@ namespace {
   void checkPoolLowered()
   {
     GL::Hooks hooks;
-    GL::ContextPool pool([hooks] { return GL::createContext(hooks); }, 4);
+    GL::ContextPool pool([hooks] { return GL::createContext(hooks, gBackends); }, 4);
     int keys[5] = { 0, 0, 0, 0, 0 };
     std::unique_ptr<GL::ContextPool::Lease> leases[4];
     for (int i = 0; i < 4; ++i) {
@@ -1474,6 +1570,7 @@ namespace {
     }
     check("~Attachment of a detached instance: nothing sent", instance->actions.size() == 4);
     checkCrosswiseAndNested(plugin, *instance, c1, c2);
+    checkSwitchWaits(*instance, c1, c2);
     checkConcurrentAttachment(*instance, c1, c2);
     checkExclusiveContext(*instance);
     checkPoolLowered();
@@ -1486,6 +1583,9 @@ namespace {
 int main()
 {
   checkBackendNames();
+  if (!parseBackends()) {
+    return 1;
+  }
   checkPool();
   checkCurrentContext();
   checkLostHold();
@@ -1497,12 +1597,13 @@ int main()
     std::printf("  [%s] %s\n", kLevels[static_cast<int>(level)], message.c_str());
   };
   std::string error;
-  std::unique_ptr<GL::Context> c1 = GL::createContext(hooks, GL::defaultBackends(), -1, &error);
+  std::unique_ptr<GL::Context> c1 = GL::createContext(hooks, gBackends, -1, &error);
   if (!c1) {
     skip("no OpenGL context (" + error + "): the texture and render checks");
   } else {
-    const std::vector<GL::RendererInfo> renderers = GL::listRenderers(hooks);
+    const std::vector<GL::RendererInfo> renderers = GL::listRenderers(hooks, gBackends);
     check("listRenderers: at least one", !renderers.empty());
+    checkRendererSelection(hooks, renderers);
     for (const GL::RendererInfo &r : renderers) {
       std::printf("  renderer %s %d: %s, %s, %s%s, max texture %d, GLSL %s, video memory %lld MiB\n",
                   GL::backendName(r.backend), r.id, r.renderer.c_str(), r.vendor.c_str(), r.version.c_str(),
@@ -1515,7 +1616,7 @@ int main()
     {
       GL::CurrentContext current(*c1);
       check("CurrentContext on an OpenGL context: current in the driver", current.ok() && currentNativeContext() == c1->nativeContext());
-      std::unique_ptr<GL::Context> other = GL::createContext(hooks);
+      std::unique_ptr<GL::Context> other = GL::createContext(hooks, gBackends);
       check("createContext() while a context is current: that one is current again after",
             other && currentNativeContext() == c1->nativeContext());
       if (other) {
@@ -1530,7 +1631,7 @@ int main()
     {
       // WGL: the context's window was destroyed with its thread; it gets a new one on this thread
       std::unique_ptr<GL::Context> orphan;
-      std::thread([&] { orphan = GL::createContext(hooks); }).join();
+      std::thread([&] { orphan = GL::createContext(hooks, gBackends); }).join();
       check("a context created on a thread that ended", orphan != nullptr);
       if (orphan) {
         typedef const unsigned char *(OFXH_GLAPIENTRY *GetStringFn)(unsigned int);
@@ -1541,7 +1642,7 @@ int main()
       }
     }
     checkCreatorThreadEnds(hooks);
-    std::unique_ptr<GL::Context> c2 = GL::createContext(hooks, GL::defaultBackends(), -1, &error);
+    std::unique_ptr<GL::Context> c2 = GL::createContext(hooks, gBackends, -1, &error);
     check("a second context", c2 != nullptr);
     if (c2) {
       PluginCache::useStdOFXPluginsLocation(false); // only OFX_PLUGIN_PATH
