@@ -36,7 +36,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 
 from . import stdio
-from .hostdemo import host_components, host_dirs, is_batch, scan_options
+from .hostdemo import host_components, host_dirs, host_gpu, is_batch, scan_options
 
 __all__ = ["run_batch", "parse_batch", "parse_command", "Command", "BatchSyntaxError", "OnRecordError", "HOSTS",
            "main", "BATCH_USAGE"]
@@ -212,12 +212,13 @@ def _host_key(flags: set, args: Sequence[str]) -> tuple:
         directory and environment.
     """
     from .inprocess import HostOptions  # (lazy: inprocess imports ofxh)
+    gpu, gpu_renderer = host_gpu(args)
     return (host_dirs(), "ofx14" if "--ofx14" in flags else "default",
             HostOptions(keep_loaded=os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1",
                         use_std_paths="--no-std-paths" not in flags, opengl_render="--opengl-describe" in flags,
                         normalised_defaults="--no-normalised-defaults" not in flags,
                         multiplane="--multiplane" in flags, components=host_components(args),
-                        gpu=next((f[len("--gpu="):] for f in ("--gpu=opengl", "--gpu=opencl") if f in flags), "")))
+                        gpu=gpu, gpu_renderer=gpu_renderer))
 
 
 _hosts: list = []  # (the test hook "host": the hosts seen, kept so that their ids aren't reused)

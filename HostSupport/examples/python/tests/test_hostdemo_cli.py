@@ -15,7 +15,7 @@ import pytest
 
 import ofxhost
 from ofxhost import constants as k
-from ofxhost.testing import check_backend
+from ofxhost.testing import check_backend, without_support_debug
 
 PYDIR = Path(__file__).resolve().parents[1]  # HostSupport/examples/python
 
@@ -50,9 +50,11 @@ def _env(plugins, ofxh_dir, **more):
 
 
 def _run(cmd, cwd, env):
+    """The CompletedProcess of cmd, without what Support's debug builds print on stdout (without_support_debug())."""
     p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, errors="replace", timeout=300,
                        stdin=subprocess.DEVNULL)
     assert p.returncode >= 0, f"{cmd}: killed by signal {-p.returncode}\n{p.stderr}"
+    p.stdout = without_support_debug(p.stdout)
     return p
 
 
@@ -504,7 +506,7 @@ def test_gpu_renderers(tmp_path, hosts, sample_plugins):
     """--gpu-renderers lists the same renderers (BACKEND:ID and names) in both; --gpu-renderer=BACKEND:ID
     renders GPUGain with OpenGL on each, as on the CPU; an unknown id, a backend with no renderer here
     (also with its default id, -1), a malformed one (no colon, an unknown backend, an id outside int),
-    or one without --gpu=opengl is the same error in both
+    or one without --gpu=opengl (no --gpu, or --gpu=opencl) is the same error in both
     (status 1, the same message, no report)."""
     _need_opengl(tmp_path, hosts, sample_plugins)
     s, i, _, _ = _compare(tmp_path / "list", hosts, sample_plugins, ["--gpu-renderers"], report=False)
@@ -526,7 +528,7 @@ def test_gpu_renderers(tmp_path, hosts, sample_plugins):
     bads = [f"--gpu-renderer={backend}:{1 << 30}", f"--gpu-renderer={unlisted}:-1", "--gpu-renderer=nocolon",
             "--gpu-renderer=vulkan:0",
             f"--gpu-renderer={backend}:{1 << 32}", f"--gpu-renderer={backend}:0x1"]
-    for n, (bad, gpu) in enumerate([(b, g) for b in bads for g in (["--gpu=opengl"], [])]):
+    for n, (bad, gpu) in enumerate([(b, g) for b in bads for g in (["--gpu=opengl"], [], ["--gpu=opencl"])]):
         (s, sd), (i, idir) = both(tmp_path / f"bad{n}", hosts, sample_plugins, [*Q, *gpu, bad, *args])
         assert s.returncode == i.returncode == 1, (bad, gpu, s.stderr, i.stderr)
         assert s.stderr.splitlines()[:1] == i.stderr.splitlines()[:1], (bad, gpu)

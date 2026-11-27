@@ -116,7 +116,10 @@ backend's behaviour (`@pytest.mark.backends("subprocess", reason="...")`: skippe
 the reason; without `reason=`, the test fails); `check_backend("inprocess")`, which skips a test
 or, at its top level, a whole module (or fails with `OFXH_REQUIRE=1`); and a `hostdemo` fixture
 (with `backend`: the hostDemo binary on the subprocess backend, skipped if it isn't built, None
-in-process, for `host_binary=`). To get them: `pytest_plugins = ["ofxhost.testing"]` in
+in-process, for `host_binary=`); and `views(ofx14=False)`, the views rendered for each frame (two
+in Nuke or Vegas builds, but one with `--ofx14`): `.count`, `.keys(t)` (the keys of frame t in
+`outputs`, one per view), `.stems(prefix, t)` (the output file names without their extension) and
+`.vegas` (the "default" input is then red in view 0 and cyan in view 1). To get them: `pytest_plugins = ["ofxhost.testing"]` in
 the top-level conftest.py (pytest refuses `pytest_plugins` in the others), or
 `from ofxhost.testing import backend, pytest_configure` in any conftest.py (a conftest.py with its
 own `pytest_configure` calls `ofxhost.testing.pytest_configure(config)` from it instead). The

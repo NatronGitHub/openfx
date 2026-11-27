@@ -1180,11 +1180,13 @@ namespace OFX {
         virtual const std::string &findMostChromaticComponents(const std::string &a, const std::string &b) const;
           
 #ifdef OFX_EXTENSIONS_NUKE
-        /// Returns the number of views
+        /// Returns the number of views (the plane suite's getViewCount returns the status)
         virtual OfxStatus getViewCount(int *nViews) const = 0;
           
         /// Returns the view textual representation
-        /// The string is owned by the host and must be valid throughout the calling action
+        /// The string is owned by the host and must be valid throughout the calling action.
+        /// The plane suite's getViewName returns the status (e.g. kOfxStatErrBadIndex for an index
+        /// that is not a view)
         virtual OfxStatus getViewName(int viewIndex, const char** name) const = 0;
 #endif
 

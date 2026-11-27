@@ -13,6 +13,7 @@ import pytest
 
 import ofxhost
 from ofxhost import constants as k
+from ofxhost.testing import views
 
 GPUGAIN = "com.OpenFXSample.GPUGain"  # kOfxImageEffectPropSupportsMultiResolution 0, no tiles
 INVERT = "net.sf.openfx.invertPlugin"  # 1, tiles
@@ -46,27 +47,30 @@ def _gpugain(sample_plugins, src, at, **kw):
 def test_non_multires_plugin_gets_the_frame(backend, sample_plugins):
     """GPUGain: its RoD (forced to the frame), render window and output are the frame; the input is padded."""
     r = _gpugain(sample_plugins, SRC, AT)
-    x = r.report["renders"][0]
-    assert x["regionOfDefinition"]["rod"] == list(FRAME)
-    assert x["regionsOfInterest"]["clips"]["Source"] == list(FRAME)
-    assert x["renderWindow"] == list(FRAME_PX)
-    assert r.images[0].bounds == FRAME_PX
-    out = _bottom_up(r.output)
-    inside = _in(out.shape, AT)
-    np.testing.assert_allclose(out[inside].reshape(16, 24, 4), _bottom_up(SRC) * GAINS, atol=1e-6)
-    assert np.all(out[~inside] == 0.)
-    # the report's input RoD is the host's own, before the crop and pad
-    assert x["inputs"]["Source"]["regionOfDefinition"][0] > 0
+    keys = views().keys(0)
+    assert len(r.report["renders"]) == len(keys)
+    for x, key in zip(r.report["renders"], keys):
+        assert x["regionOfDefinition"]["rod"] == list(FRAME)
+        assert x["regionsOfInterest"]["clips"]["Source"] == list(FRAME)
+        assert x["renderWindow"] == list(FRAME_PX)
+        assert r.images[key].bounds == FRAME_PX
+        out = _bottom_up(r.outputs[key])
+        inside = _in(out.shape, AT)
+        np.testing.assert_allclose(out[inside].reshape(16, 24, 4), _bottom_up(SRC) * GAINS, atol=1e-6)
+        assert np.all(out[~inside] == 0.)
+        # the report's input RoD is the host's own, before the crop and pad
+        assert x["inputs"]["Source"]["regionOfDefinition"][0] > 0
 
 
 def test_negative_offset_is_cropped(backend, sample_plugins):
     """An input at negative coordinates: the part at x < 0 or y < 0 is cropped."""
     at = (-10, -5, 14, 11)
     r = _gpugain(sample_plugins, SRC, at)
-    assert r.images[0].bounds == FRAME_PX
-    out = _bottom_up(r.output)
-    np.testing.assert_allclose(out[0:11, 0:14], _bottom_up(SRC)[5:, 10:] * GAINS, atol=1e-6)
-    assert np.all(out[~_in(out.shape, at)] == 0.)
+    for key in views().keys(0):
+        assert r.images[key].bounds == FRAME_PX
+        out = _bottom_up(r.outputs[key])
+        np.testing.assert_allclose(out[0:11, 0:14], _bottom_up(SRC)[5:, 10:] * GAINS, atol=1e-6)
+        assert np.all(out[~_in(out.shape, at)] == 0.)
 
 
 def test_larger_input_is_cropped(backend, sample_plugins):
@@ -74,25 +78,28 @@ def test_larger_input_is_cropped(backend, sample_plugins):
     big = np.random.default_rng(6).random((40, 40, 4), dtype=np.float32)
     at = (700, 560, 740, 600)
     r = _gpugain(sample_plugins, big, at)
-    assert r.images[0].bounds == FRAME_PX
-    out = _bottom_up(r.output)
-    np.testing.assert_allclose(out[560:576, 700:720], _bottom_up(big)[:16, :20] * GAINS, atol=1e-6)
-    assert np.all(out[~_in(out.shape, at)] == 0.)
+    for key in views().keys(0):
+        assert r.images[key].bounds == FRAME_PX
+        out = _bottom_up(r.outputs[key])
+        np.testing.assert_allclose(out[560:576, 700:720], _bottom_up(big)[:16, :20] * GAINS, atol=1e-6)
+        assert np.all(out[~_in(out.shape, at)] == 0.)
 
 
 def test_multires_plugin_gets_inputs_as_they_are(backend, sample_plugins):
     """Invert supports multiple resolutions, and so does the host: its RoD and output are those of its input."""
     r = ofxhost.render(sample_plugins, INVERT, inputs={"Source": ofxhost.Image(SRC, AT)}, depth="float", frames=[0])
-    assert r.report["renders"][0]["renderWindow"] == list(AT)
-    assert r.images[0].bounds == AT
-    np.testing.assert_allclose(r.output[..., :3], 1. - SRC[..., :3], atol=1e-6)
+    keys = views().keys(0)
+    assert [x["renderWindow"] for x in r.report["renders"]] == [list(AT)] * len(keys)
+    for key in keys:
+        assert r.images[key].bounds == AT
+        np.testing.assert_allclose(r.outputs[key][..., :3], 1. - SRC[..., :3], atol=1e-6)
 
 
-def _check_invert_padded(r):
+def _check_invert_padded(r, key):
     """Invert in a host that reports 0: the padding (transparent black) is inverted to 1 (outside of an input image,
-    Invert would write 0)."""
-    assert r.images[0].bounds == FRAME_PX
-    out = _bottom_up(r.output)
+    Invert would write 0). key: the output's (RenderResult.outputs)."""
+    assert r.images[key].bounds == FRAME_PX
+    out = _bottom_up(r.outputs[key])
     inside = _in(out.shape, AT)
     assert np.all(out[~inside] == 1.)
     np.testing.assert_allclose(out[inside].reshape(16, 24, 4)[..., :3], 1. - _bottom_up(SRC)[..., :3], atol=1e-6)
@@ -104,7 +111,7 @@ def test_ofx11_host_pads_every_plugin(backend, sample_plugins):
     r = ofxhost.render(sample_plugins, INVERT, inputs={"Source": ofxhost.Image(SRC, AT)}, depth="float", frames=[0],
                        extra_args=["--ofx11"])
     assert r.report["host"]["profile"] == "ofx11"
-    _check_invert_padded(r)
+    _check_invert_padded(r, 0)  # (one view: the views are an extension)
     w = ofxhost.render(sample_plugins, INVERT, inputs={"Source": ofxhost.Image(SRC, AT)}, depth="float", frames=[0],
                        window=(0, 0, 50, 30), extra_args=["--ofx11"])
     assert w.images[0].bounds == (0, 0, 50, 30)
@@ -244,11 +251,12 @@ def test_python_host_reporting_0_pads_every_plugin(backend, sample_plugins, host
     import ofxh
     r = ofxhost.render(sample_plugins, INVERT, inputs={"Source": ofxhost.Image(SRC, AT)}, depth="float", frames=[0])
     assert ofxh.host().props[k.kOfxImageEffectPropSupportsMultiResolution] == (0,)
-    _check_invert_padded(r)
     w = ofxhost.render(sample_plugins, INVERT, inputs={"Source": ofxhost.Image(SRC, AT)}, depth="float", frames=[0],
                        window=(0, 0, 50, 30))
-    assert w.images[0].bounds == (0, 0, 50, 30)
-    np.testing.assert_array_equal(_bottom_up(w.output), _bottom_up(r.output)[0:30, 0:50])
+    for key in views().keys(0):
+        _check_invert_padded(r, key)
+        assert w.images[key].bounds == (0, 0, 50, 30)
+        np.testing.assert_array_equal(_bottom_up(w.outputs[key]), _bottom_up(r.outputs[key])[0:30, 0:50])
 
 
 @pytest.mark.backends("inprocess", reason=IN_PROCESS)

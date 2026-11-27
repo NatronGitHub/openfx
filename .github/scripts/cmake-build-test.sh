@@ -2,8 +2,9 @@
 # Build everything with CMake (what the plug-in repositories use, Natron#1181), install it, run
 # the hostDemo checks on the built plug-ins, and build a plug-in project against the installed
 # package (cmake/tests/plugin-project). Used by the Linux and macOS jobs.
-# The extensions are off, as in the Makefile build: the hostDemo checks expect one view per frame
-# (with OFX_EXTENSIONS_NUKE or _VEGAS hostDemo renders two). The Windows job builds them on.
+# The extensions are off, as in the Makefile build: the hostDemo checks (hostdemo-checks.sh) expect
+# one view per frame (with OFX_EXTENSIONS_NUKE or _VEGAS hostDemo renders two). The extensions-on
+# step of the Linux job (with the Python tests) and the Windows job build them on.
 # OFX_CMAKE_EXTRA_ARGS: more (space-separated) arguments for the configure step, e.g.
 # -DOFX_PYTHON_BINDINGS=ON (the Linux and macOS jobs).
 set -eo pipefail

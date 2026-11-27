@@ -262,6 +262,9 @@ namespace MyHost
   {
     MyEffectInstance* instance = new MyEffectInstance(plugin, desc, context);
     removeSequentialRender(instance->getProps());
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    instance->setViewCount(viewCount());
+#endif
     if (_profile == Profile::eOFX11) {
       instance->setRefusePersistentMessages();
     }

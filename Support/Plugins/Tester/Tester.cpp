@@ -438,6 +438,25 @@ public :
       const std::string err = keysTest(args.time);
       sendMessage(OFX::Message::eMessageMessage, "", err.empty() ? "Keys test passed" : "Keys test FAILED: " + err);
     }
+#ifdef OFX_EXTENSIONS_NUKE
+    else if(paramName=="viewsTest")
+    {
+      // the views of the host (the Nuke extension's plane suite), then what the name of the view
+      // after the last gives: "views: left, right; view 2: kOfxStatErrBadIndex"
+      const int n = getViewCount();
+      std::string text = "views:";
+      for (int i = 0; i < n; ++i) {
+        text += (i == 0 ? " " : ", ") + getViewName(i);
+      }
+      text += "; view " + std::to_string(n) + ": ";
+      try {
+        text += '"' + getViewName(n) + '"';
+      } catch (const OFX::Exception::Suite& e) {
+        text += OFX::mapStatusToString(e.status());
+      }
+      sendMessage(OFX::Message::eMessageMessage, "", text);
+    }
+#endif
     else if(paramName=="widgetPos")
     {
       redrawOverlays();
@@ -698,6 +717,12 @@ void GenericTestExamplePluginFactory::describeInContext(OFX::ImageEffectDescript
   // GenericTestPlugin::keysTest); it sends the message "Keys test passed", or what failed
   PushButtonParamDescriptor* pb3 = desc.definePushButtonParam("keysTest");
   pb3->setLabels("Keys Test", "Keys Test", "Keys Test");
+#ifdef OFX_EXTENSIONS_NUKE
+  // viewsTest: sends the views of the host (getViewCount, getViewName) as a message, and the
+  // status of getViewName for the view after the last
+  PushButtonParamDescriptor* viewsTest = desc.definePushButtonParam("viewsTest");
+  viewsTest->setLabels("Views Test", "Views Test", "Views Test");
+#endif
   DoubleParamDescriptor* keysDouble = desc.defineDoubleParam("keysDouble");
   keysDouble->setLabels("Keys Double", "Keys Double", "Keys Double");
   IntParamDescriptor* keysInt = desc.defineIntParam("keysInt");

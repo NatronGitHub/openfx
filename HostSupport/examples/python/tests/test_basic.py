@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import ofxhost
-from ofxhost.testing import assert_close
+from ofxhost.testing import assert_close, views
 
 INVERT = "net.sf.openfx.invertPlugin"
 
@@ -71,7 +71,8 @@ def test_invert_float(hostdemo, sample_plugins):
     src = gradient()
     r = ofxhost.render(sample_plugins, INVERT, inputs={"Source": src}, depth="float",
                        host_binary=hostdemo)
-    assert sorted(r.outputs) == [0, 1]
+    v = views()
+    assert list(r.outputs) == v.keys(0) + v.keys(1)
     for t, out in r.outputs.items():
         assert out.shape == (48, 64, 4)
         assert_close(out[..., :3], 1 - src, atol=1e-6, msg=f"frame {t}")
@@ -79,8 +80,10 @@ def test_invert_float(hostdemo, sample_plugins):
         # alpha 1, so the output alpha is 0
         assert_close(out[..., 3], 0.0, msg=f"alpha, frame {t}")
         assert np.array_equal(r.alpha[t], out[..., 3])
-    o = r.report["renders"][0]["output"]
-    assert (o["w"], o["h"], o["depth"], o["comps"], o["nan"]) == (64, 48, "float", "RGBA", 0)
+    assert len(r.report["renders"]) == 2 * v.count
+    for x in r.report["renders"]:
+        o = x["output"]
+        assert (o["w"], o["h"], o["depth"], o["comps"], o["nan"]) == (64, 48, "float", "RGBA", 0)
 
 
 def test_mandatory_clip_none_fails(hostdemo, sample_plugins):
@@ -99,12 +102,13 @@ def test_orientation(hostdemo, sample_plugins):
     src[0] = 1.0
     r = ofxhost.render(sample_plugins, INVERT, inputs={"Source": src},
                        host_binary=hostdemo)
-    out = r.outputs[0]
-    assert_close(out[0, :, :3], 0.0, atol=1e-6, msg="top row")
-    assert out[1:, :, :3].min() >= 0.5 - 1e-6
-    assert_close(out[..., :3], 1 - src, atol=1e-6)
-    # g grows downwards in the input, so 1-g decreases downwards (below the marked row)
-    assert out[1, 0, 1] > out[-1, 0, 1]
+    for key in views().keys(0):
+        out = r.outputs[key]
+        assert_close(out[0, :, :3], 0.0, atol=1e-6, msg="top row")
+        assert out[1:, :, :3].min() >= 0.5 - 1e-6
+        assert_close(out[..., :3], 1 - src, atol=1e-6)
+        # g grows downwards in the input, so 1-g decreases downwards (below the marked row)
+        assert out[1, 0, 1] > out[-1, 0, 1]
 
 
 def test_keys_and_buttons(hostdemo, sample_plugins):
@@ -115,9 +119,27 @@ def test_keys_and_buttons(hostdemo, sample_plugins):
                        inputs={"Source": src, "Mask": "none"}, params={"scale": {0: 1., 10: 2.}},
                        frames=[0, 5], host_binary=hostdemo)
     assert r.report["params"]["scale"]["keys"] == [[0, 1], [10, 2]]
-    assert [x["params"]["scale"] for x in r.report["renders"]] == [1, 1.5]
-    assert_close(r.images[5.0].pixels[..., 0], np.full((8, 8), 0.75, np.float32), atol=1e-6)
+    v = views()
+    assert [x["params"]["scale"] for x in r.report["renders"]] == [1] * v.count + [1.5] * v.count
+    for key in v.keys(5):
+        assert_close(r.images[key].pixels[..., 0], np.full((8, 8), 0.75, np.float32), atol=1e-6)
     r = ofxhost.render(sample_plugins, "net.sf.openfx.GenericTestPlugin", params={"keysTest": None},
                        frames=[0], query=True, host_binary=hostdemo)
     assert [m["text"] for m in r.report["messages"]] == ["Keys test passed"]
+
+
+@pytest.mark.parametrize("ofx14", [False, True])
+def test_views_reported(hostdemo, sample_plugins, ofx14):
+    """The views the host reports to the plug-in (the Nuke extension's getViewCount and getViewName, which Tester's
+    viewsTest sends) are the views it renders: left and right in Nuke builds; the name of the view after the last is
+    kOfxStatErrBadIndex (which Support throws). With --ofx14 the host has no plane suite, and Support's fallback is a
+    single view, "Main" (and "" for another index)."""
+    import ofxh
+    if not ofxh.build_config.get("OFX_EXTENSIONS_NUKE"):
+        pytest.skip("getViewCount and getViewName are in the plane suite of the Nuke extension (OFX_EXTENSIONS_NUKE)")
+    r = ofxhost.render(sample_plugins, "net.sf.openfx.GenericTestPlugin", params={"viewsTest": None}, frames=[0],
+                       host_binary=hostdemo, extra_args=["--ofx14"] if ofx14 else [])
+    assert list(r.outputs) == views(ofx14).keys(0) == ([0] if ofx14 else [(0, "l"), (0, "r")])
+    assert [m["text"] for m in r.report["messages"]] == \
+        ['views: Main; view 1: ""' if ofx14 else "views: left, right; view 2: kOfxStatErrBadIndex"]
 

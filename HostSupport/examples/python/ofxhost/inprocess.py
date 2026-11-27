@@ -179,7 +179,8 @@ class _Host(ofxh.Host):
 class _Instance(ofxh.ImageEffectInstance):
     """hostDemo's MyEffectInstance (hostDemoEffectInstance.cpp).
 
-    Records the messages and the progress, and uses the input depth for the output of a generator.
+    Records the messages and the progress, uses the input depth for the output of a generator, and reports the views
+    it renders.
     """
 
     def __init__(self, run: _Run):
@@ -188,6 +189,12 @@ class _Instance(ofxh.ImageEffectInstance):
         self.messages: list[dict] = []
         self.progress: list[dict] = []
         self.default_output_depth = run.job.depth
+        self.view_count = run.n_views  # (the views rendered for each frame)
+
+    def view_name(self, index):
+        """hostDemo's getViewName: "main" for a single view, else "left" and "right" (index < view_count: ofxh
+        refuses the others)."""
+        return "main" if self.run.n_views == 1 else ("left", "right")[index]
 
     def new_clip_instance(self, desc, index):
         return _Clip(self.run, desc)

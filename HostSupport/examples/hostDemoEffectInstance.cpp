@@ -340,14 +340,18 @@ namespace MyHost {
 #ifdef OFX_EXTENSIONS_NUKE
   /// Returns the number of views
   OfxStatus MyEffectInstance::getViewCount(int *nViews) const {
-    *nViews = 1;
+    *nViews = _nViews;
     return kOfxStatOK;
   }
           
   /// Returns the view textual representation
   /// The string is owned by the host and must be valid throughout the calling action
   OfxStatus MyEffectInstance::getViewName(int viewIndex, const char** name) const {
-    *name = "main";
+    if (viewIndex < 0 || viewIndex >= _nViews) {
+      *name = "";
+      return kOfxStatErrBadIndex;
+    }
+    *name = _nViews == 1 ? "main" : viewIndex == 0 ? "left" : "right";
     return kOfxStatOK;
   }
 #endif
