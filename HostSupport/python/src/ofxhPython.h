@@ -48,6 +48,10 @@
 #include "ofxhOpenGLContext.h"
 #include "ofxhOpenGLRender.h"
 #endif
+#ifdef OFXH_OPENCL
+#include "ofxhOpenCLDevice.h"
+#include "ofxhOpenCLRender.h"
+#endif
 
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
@@ -318,6 +322,12 @@ public:
   std::unique_ptr<OFX::Host::OpenGL::Context> _glContext;
   std::string _glError;
 #endif
+#ifdef OFXH_OPENCL
+  /// ofxh.init(opencl=True): the OpenCL device (a context, and the queues lent to renders), or the
+  /// reason there is none
+  std::unique_ptr<OFX::Host::OpenCL::Device> _clDevice;
+  std::string _clError;
+#endif
 
   PyHost(nb::object py, RefPtr ref);
   ~PyHost() override;
@@ -388,6 +398,9 @@ public:
   OHIE::Image *fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds,
                           const std::string &plane = std::string());
   OHIE::Image *fetchFromPython(OfxTime time, int view, const OfxRectD *optionalBounds, const std::string &plane);
+  /// in an OpenCL render action of the instance, its OpenCL copy (RenderSession::getImage(), which
+  /// gives the output for the output clip); else image. Takes image's reference.
+  OHIE::Image *forOpenCL(OHIE::Image *image);
   /// the clip's RoD in canonical coordinates, from the Python region_of_definition()
   OfxRectD rod(OfxTime time, int view) const;
   /// the RoD that the plug-in gets (getRegionOfDefinition()): rod(), or for a connected input the
@@ -500,6 +513,16 @@ public:
     _glAttachment.reset();
     return OHIE::Instance::destroyInstanceAction();
   }
+#endif
+#ifdef OFXH_OPENCL
+  /// the session of the OpenCL action in progress, whose images PyClipInstance's getImage() gives
+  /// (read on the plug-in's threads too: the GPURenderScope isn't seen there)
+  std::atomic<OFX::Host::OpenCL::RenderSession *> _clSession{ nullptr };
+  /// the outcome of the last OpenCL action: "ok", "not_sent" (the session refused it: see its log),
+  /// "retry" or "failed" (an image copy failed, or the plug-in reported a GPU failure)
+  std::string _clResult;
+  /// the exception that stopped the last OpenCL action, "" if none
+  std::string _clError;
 #endif
 
   const std::map<std::string, OHIE::ClipInstance *> &clips() const { return _clips; }

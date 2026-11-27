@@ -2,7 +2,8 @@
 
 # openfx CMake package: targets openfx::Api (C headers), openfx::HostSupport
 # (libOfxHost) and openfx::Support (libOfxSupport), plus add_ofx_plugin(); with
-# OFX_HOSTSUPPORT_OPENGL, openfx::HostSupportOpenGL (libOfxHostOpenGL).
+# OFX_HOSTSUPPORT_OPENGL, openfx::HostSupportOpenGL (libOfxHostOpenGL); with OFX_HOSTSUPPORT_OPENCL,
+# openfx::HostSupportOpenCL (libOfxHostOpenCL).
 # The compile definitions used to build the libraries (OFX_EXTENSIONS_*,
 # OFX_SUPPORTS_*) are usage requirements of the library targets.
 include(CMakeFindDependencyMacro)

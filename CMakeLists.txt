@@ -98,9 +98,12 @@ option(OFX_PYTHON_BINDINGS "HostSupport Python bindings (nanobind)" OFF)
 # openfx::HostSupportOpenGL (HostSupport/include/ofxhOpenGL*.h): offscreen OpenGL contexts, textures
 # and renders for hosts that implement the OpenGL render suite. Needs OFX_SUPPORTS_OPENGLRENDER.
 option(OFX_HOSTSUPPORT_OPENGL "HostSupport: offscreen OpenGL rendering (openfx::HostSupportOpenGL)" OFF)
+# openfx::HostSupportOpenCL (HostSupport/include/ofxhOpenCL*.h): OpenCL devices, command queues and
+# renders (OpenCL buffers and images) for hosts. Needs no OpenCL SDK: OpenCL is loaded at run time.
+option(OFX_HOSTSUPPORT_OPENCL "HostSupport: OpenCL rendering (openfx::HostSupportOpenCL)" OFF)
 # the example hosts and the Python bindings need HostSupport, also when openfx is used with
 # add_subdirectory()
-if((BUILD_EXAMPLE_HOSTS OR OFX_PYTHON_BINDINGS OR OFX_HOSTSUPPORT_OPENGL) AND NOT OFX_BUILD_HOSTSUPPORT)
+if((BUILD_EXAMPLE_HOSTS OR OFX_PYTHON_BINDINGS OR OFX_HOSTSUPPORT_OPENGL OR OFX_HOSTSUPPORT_OPENCL) AND NOT OFX_BUILD_HOSTSUPPORT)
   set(OFX_BUILD_HOSTSUPPORT ON CACHE BOOL "Build the HostSupport library (needs expat)" FORCE)
 endif()
 set(PLUGIN_INSTALLDIR "" CACHE STRING "Where the OFX bundles are installed (relative: to CMAKE_INSTALL_PREFIX; default depends on OS)")
@@ -124,8 +127,14 @@ list(APPEND OFX_DEFINITIONS ${OFX_EXTRA_DEFINITIONS})
 # GL_SILENCE_DEPRECATION (Apple's OpenGL headers) is a plug-in-side definition: it is set by
 # add_ofx_plugin and openfx::Support, not by openfx::Api or openfx::HostSupport (hosts don't need it)
 if(OFX_SUPPORTS_OPENCLRENDER AND NOT APPLE)
-  find_package(OpenCLHeaders REQUIRED)
-  find_package(OpenCLICDLoader REQUIRED)
+  # the Khronos packages (OpenCL-SDK, vcpkg...), else CMake's FindOpenCL (e.g. Debian and Ubuntu's
+  # opencl-c-headers and ocl-icd-opencl-dev, which have no OpenCLICDLoader package): both define
+  # OpenCL::OpenCL, with the headers
+  find_package(OpenCLHeaders CONFIG QUIET)
+  find_package(OpenCLICDLoader CONFIG QUIET)
+  if(NOT (OpenCLHeaders_FOUND AND OpenCLICDLoader_FOUND))
+    find_package(OpenCL REQUIRED)
+  endif()
 endif()
 if(OFX_SUPPORTS_CUDARENDER)
   set(CMAKE_CUDA_ARCHITECTURES "all-major")
@@ -221,13 +230,16 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 install(DIRECTORY include/ DESTINATION include
         FILES_MATCHING PATTERN "*.h" PATTERN "DocSrc" EXCLUDE)
-if(OFX_HOSTSUPPORT_OPENGL)
-  install(DIRECTORY HostSupport/include/ DESTINATION include/HostSupport FILES_MATCHING PATTERN "*.h")
-else()
-  # without openfx::HostSupportOpenGL, not its headers
-  install(DIRECTORY HostSupport/include/ DESTINATION include/HostSupport FILES_MATCHING PATTERN "*.h"
-          PATTERN "ofxhOpenGLContext.h" EXCLUDE PATTERN "ofxhOpenGLTexture.h" EXCLUDE PATTERN "ofxhOpenGLRender.h" EXCLUDE)
+# without openfx::HostSupportOpenGL or openfx::HostSupportOpenCL, not their headers
+set(_ofx_hs_exclude "")
+if(NOT OFX_HOSTSUPPORT_OPENGL)
+  list(APPEND _ofx_hs_exclude PATTERN "ofxhOpenGLContext.h" EXCLUDE PATTERN "ofxhOpenGLTexture.h" EXCLUDE
+       PATTERN "ofxhOpenGLRender.h" EXCLUDE)
 endif()
+if(NOT OFX_HOSTSUPPORT_OPENCL)
+  list(APPEND _ofx_hs_exclude PATTERN "ofxhOpenCLDevice.h" EXCLUDE PATTERN "ofxhOpenCLRender.h" EXCLUDE)
+endif()
+install(DIRECTORY HostSupport/include/ DESTINATION include/HostSupport FILES_MATCHING PATTERN "*.h" ${_ofx_hs_exclude})
 install(DIRECTORY Support/include/ DESTINATION include/Support FILES_MATCHING PATTERN "*.h")
 install(DIRECTORY Support/Plugins/include/ DESTINATION include/Support/Plugins
         FILES_MATCHING PATTERN "*.h" PATTERN "*.H")
@@ -238,6 +250,9 @@ if(OFX_BUILD_HOSTSUPPORT)
   list(APPEND _ofx_export_targets OfxHost)
   if(OFX_HOSTSUPPORT_OPENGL)
     list(APPEND _ofx_export_targets OfxHostOpenGL)
+  endif()
+  if(OFX_HOSTSUPPORT_OPENCL)
+    list(APPEND _ofx_export_targets OfxHostOpenCL)
   endif()
 endif()
 install(TARGETS ${_ofx_export_targets} EXPORT openfxTargets

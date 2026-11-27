@@ -30,6 +30,14 @@ except ImportError:
     ofxh = None
 
 
+def pytest_configure(config):
+    # (as ofxhost.testing's)
+    config.addinivalue_line(
+        "markers", "opencl: the test needs an OpenCL device and the sample plug-ins built with OpenCL "
+        "(OFX_SUPPORTS_OPENCLRENDER); CI selects them (-m opencl) where it has both, and deselects them "
+        "(-m 'not opencl') elsewhere")
+
+
 def _skip(message):
     if REQUIRE:
         pytest.fail(message + " (OFXH_REQUIRE=1)")

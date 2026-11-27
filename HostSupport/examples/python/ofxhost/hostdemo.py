@@ -70,7 +70,10 @@ hostDemo's command line, in-process on the HostSupport Python bindings (ofxhost.
   --gpu=MODE         cpu (the default) or opengl: render with OpenGL the plug-ins that can (an
                      offscreen context: EGL or GLX on Linux, CGL on macOS, WGL on Windows), on the CPU
                      without a context, or if the OpenGL render fails (kOfxStatGPURenderFailed...)
-                     and the plug-in can; the --report renders get "openGL" and "cpuRetry"
+                     and the plug-in can; the --report renders get "openGL" and "cpuRetry".
+                     opencl: the same with OpenCL (the first GPU device, else the first device;
+                     OpenCL Buffers, or Images for a plug-in with Images only and RGBA clips);
+                     the --report renders get "openCL" and "cpuRetry"
   --gpu-renderer=BACKEND:ID  with --gpu=opengl: the renderer of the context, one of --gpu-renderers
                      (e.g. egl-device:0, glx:-1, cgl:<renderer ID>); no context on it is an error
   --gpu-renderers    list the OpenGL renderers as BACKEND:ID and their names, and exit
@@ -308,7 +311,7 @@ def _parse(argv: list[str], prog: str) -> dict:
     """
     o = {"plugin": _DEFAULT_PLUGIN, "major": -1, "context": kOfxImageEffectContextFilter, "prefix": "Output",
          "depth": "byte", "assignments": [], "inputs": [], "report": "", "describe": "", "std_paths": True,
-         "planes": [], "multiplane": False, "quiet": False, "ofx14": False, "opengl_describe": False, "gpu": False,
+         "planes": [], "multiplane": False, "quiet": False, "ofx14": False, "opengl_describe": False, "gpu": "",
          "normalised_defaults": True, "allow_unwritten": False, "format": "ppm", "frames": None, "scale": (1., 1.),
          "window": None, "query": False, "components": specs.HOST_COMPONENTS, "gpu_renderer": "",
          "list_renderers": False}
@@ -325,8 +328,8 @@ def _parse(argv: list[str], prog: str) -> dict:
             # hostDemo's OFX 1.1 profile changes the plug-in descriptors and instances too (no
             # kOfxImageEffectInstancePropSequentialRender): ofxh.init() has no such profile
             _fail("Error: --ofx11: the in-process backend has no OFX 1.1 host profile: use hostDemo")
-        if arg in ("--gpu=opengl", "--gpu=cpu"):
-            o["gpu"] = arg == "--gpu=opengl"
+        if arg in ("--gpu=opengl", "--gpu=opencl", "--gpu=cpu"):
+            o["gpu"] = "" if arg == "--gpu=cpu" else arg[len("--gpu="):]
         elif arg.startswith("--gpu-renderer="):
             o["gpu_renderer"] = arg[len("--gpu-renderer="):]
         elif arg == "--gpu-renderers":
@@ -357,7 +360,7 @@ def _parse(argv: list[str], prog: str) -> dict:
         _fail("Error: --report and --describe can't be used together (--describe creates no instance)")
     if o["opengl_describe"] and not o["describe"]:
         _fail("Error: --opengl-describe needs --describe (to render with OpenGL: --gpu=opengl)")
-    if o["gpu_renderer"] and not o["gpu"]:
+    if o["gpu_renderer"] and o["gpu"] != "opengl":
         _fail("Error: --gpu-renderer needs --gpu=opengl")
     if o["gpu_renderer"] and specs.parse_gpu_renderer(o["gpu_renderer"]) is None:
         _fail(f"Error: --gpu-renderer: {specs.gpu_renderer_error(o['gpu_renderer'])}")
@@ -365,6 +368,8 @@ def _parse(argv: list[str], prog: str) -> dict:
         _fail("Error: -i Clip@Plane=spec needs --multiplane")
     if o["multiplane"] and o["ofx14"]:
         _fail("Error: --multiplane and --ofx14 can't be used together (OFX 1.4 has no plane suite)")
+    if o["gpu"] == "opencl" and o["ofx14"]:
+        _fail("Error: --gpu=opencl can't be used with --ofx14 or --ofx11 (OpenCL render is OFX 1.5)")
     return o
 
 
@@ -421,9 +426,11 @@ def run(argv: list[str], prog: str = "hostdemo", shutdown: bool = True) -> int:
         return 1
     _preload()
     from . import inprocess as ip
-    if (o["gpu"] or o["list_renderers"]) and not ip.ofxh.build_config.get("OFX_HOSTSUPPORT_OPENGL"):
-        _err(f"Error: {'--gpu-renderers' if o['list_renderers'] else '--gpu=opengl'}: ofxh was built without "
-             "OFX_HOSTSUPPORT_OPENGL")
+    if o["list_renderers"] and not ip.ofxh.build_config.get("OFX_HOSTSUPPORT_OPENGL"):
+        _err("Error: --gpu-renderers: ofxh was built without OFX_HOSTSUPPORT_OPENGL")
+        return 1
+    if o["gpu"] and not ip.ofxh.build_config.get(f"OFX_HOSTSUPPORT_{o['gpu'].upper()}"):
+        _err(f"Error: --gpu={o['gpu']}: ofxh was built without OFX_HOSTSUPPORT_{o['gpu'].upper()}")
         return 1
     if o["list_renderers"]:
         for r in ip.gpu_renderers():
@@ -441,7 +448,7 @@ def run(argv: list[str], prog: str = "hostdemo", shutdown: bool = True) -> int:
         # (ofxh.init() refuses it before the scan, so no plug-in is loaded, as in hostDemo)
         try:
             ip.ensure_host(dirs, profile, keep, o["std_paths"], normalised_defaults=o["normalised_defaults"],
-                           multiplane=o["multiplane"], components=o["components"], gpu=True,
+                           multiplane=o["multiplane"], components=o["components"], gpu="opengl",
                            gpu_renderer=o["gpu_renderer"])
         except ip.OpenGLRendererError as e:
             _err(f"Error: --gpu-renderer={o['gpu_renderer']}: no OpenGL context ({e.reason})")

@@ -33,7 +33,7 @@ namespace OFX {
         if (hostHasOpenGL && (needed || gl == "true")) {
           return RenderMode::OpenGL;
         }
-        if (!needed && props.getStringProperty(kOfxImageEffectPropCPURenderSupported) != "false") {
+        if (!needed && ImageEffect::canRenderOnCPU(effect)) {
           return RenderMode::CPU;
         }
         return RenderMode::None;
@@ -41,8 +41,7 @@ namespace OFX {
 
       bool openGLFailed(const RenderSession &session, OfxStatus st)
       {
-        return session.inputFailed() || st == kOfxStatGLRenderFailed || st == kOfxStatGLOutOfMemory ||
-          st == kOfxStatErrMemory;
+        return session.inputFailed() || ImageEffect::gpuRenderFailed(st);
       }
 
       bool cpuRetryAllowed(const ImageEffect::Instance &effect, const RenderSession &session, OfxStatus st)
