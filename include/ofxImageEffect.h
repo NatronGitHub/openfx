@@ -1605,6 +1605,29 @@ Also note that some hosts do implement kOfxImageEffectPropRenderScale - these tw
  */
 #define kOfxImageEffectPropRenderQualityDraft "OfxImageEffectPropRenderQualityDraft"
 
+/** @brief Indicates that the plugin can render without spatial awareness, either inherently or by
+disabling certain parameters at render time. 
+
+If the plugin descriptor has this property set to "true", the plugin is expected to disable spatial effects when the host sets this property to "true" in the arguments passed to kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionRender.
+
+    - Type - string X 1
+    - Property Set - plugin descriptor (read/write), render calls - host (read-only)
+    - Default - "false"
+    - Valid Values - This must be one of
+      - "false"  - the plugin cannot render without spatial awareness and the host should bypass it for renders that require no spatial awareness.
+      - "true"   - the plugin can render without spatial awareness. The host will indicate this type of render by setting kOfxImageEffectPropNoSpatialAwareness to "true" in the arguments passed to kOfxImageEffectActionBeginSequenceRender and kOfxImageEffectActionRender.
+
+  @version added in version 1.5.1.
+
+    @propdef
+    type: enum
+    dimension: 1
+    values:
+      - "false"
+      - "true"
+ */
+#define kOfxImageEffectPropNoSpatialAwareness "OfxImageEffectPropNoSpatialAwareness"
+
 /** @brief The extent of the current project in canonical coordinates.
 
     - Type - double X 2
@@ -1913,190 +1936,6 @@ This will be in \ref PixelCoordinates
     dimension: 4
  */
 #define kOfxImageEffectPropRenderWindow "OfxImageEffectPropRenderWindow"
-
-#ifdef OFX_EXTENSIONS_RESOLVE
-/** @brief Indicates whether a host or plugin can support Cuda render
-
-    - Type - string X 1
-    - Property Set - plugin descriptor (read/write), host descriptor (read only)
-    - Default - "false"
-    - Valid Values - This must be one of
-      - "false"  - in which case the host or plugin does not support Cuda render
-      - "true"   - which means a host or plugin can support Cuda render,
-                   in the case of plug-ins this also means that it is
-                   capable of CPU based rendering in the absence of a GPU
- */
-#define kOfxImageEffectPropCudaRenderSupported "OfxImageEffectPropCudaRenderSupported"
-
-/** @brief Indicates that an image effect SHOULD use Cuda render in
-the current action
-
-   When a plugin and host have established they can both use Cuda renders
-   then when this property has been set, the host expects the plugin to render
-   its result into the buffer it has setup before calling the render. The plugin
-   should also handle the situation if the plugin is running on the same device
-   as the host.
-
-   - Type - int X 1
-   - Property Set - inArgs property set of the kOfxImageEffectActionRender action
-   - Valid Values
-      - 0 indicates that the effect should assume that the buffers reside on
-          the CPU.
-      - 1 indicates that the effect should assume that the buffers reside on
-          the device.
-
-\note Once this property is set, the host and plug-in have agreed to
-use Cuda render, so the effect SHOULD access all its images directly
-using the buffer pointers.
-
-*/
-#define kOfxImageEffectPropCudaEnabled "OfxImageEffectPropCudaEnabled"
-
-/**  @brief Indicates whether a host or plugin can support Cuda stream
-
-    - Type - string X 1
-    - Property Set - plugin descriptor (read/write), host descriptor (read only)
-    - Default - "false"
-    - Valid Values - This must be one of
-      - "false"  - in which case the host or plugin does not support Cuda stream
-      - "true"   - which means a host or plugin can support Cuda stream provided
-
-*/
-#define kOfxImageEffectPropCudaStreamSupported "OfxImageEffectPropCudaStreamSupported"
-
-/**  @brief The stream of Cuda render
-
-    - Type - pointer X 1
-    - Property Set - plugin descriptor (read only), host descriptor (read/write)
-
-This property contains a pointer to the stream of Cuda render (cudaStream_t).
-In order to use it, reinterpret_cast<cudaStream_t>(pointer) is needed.
-
-*/
-#define kOfxImageEffectPropCudaStream "OfxImageEffectPropCudaStream"
-
-/** @brief Indicates whether a host or plugin can support Metal render
-
-    - Type - string X 1
-    - Property Set - plugin descriptor (read/write), host descriptor (read only)
-    - Default - "false"
-    - Valid Values - This must be one of
-      - "false"  - in which case the host or plugin does not support Cuda render
-      - "true"   - which means a host or plugin can support Cuda render,
-                   in the case of plug-ins this also means that it is
-                   capable of CPU based rendering in the absence of a GPU
-*/
-#define kOfxImageEffectPropMetalRenderSupported "OfxImageEffectPropMetalRenderSupported"
-
-/** @brief Indicates that an image effect SHOULD use Metal render in
-the current action
-
-   When a plugin and host have established they can both use Metal renders
-   then when this property has been set, the host expects the plugin to render
-   its result into the buffer it has setup before calling the render. The plugin
-   should also handle the situation if the plugin is running on the same device
-   as the host.
-
-   - Type - int X 1
-   - Property Set - inArgs property set of the kOfxImageEffectActionRender action
-   - Valid Values
-      - 0 indicates that the effect should assume that the buffers reside on
-          the CPU.
-      - 1 indicates that the effect should assume that the buffers reside on
-          the device.
-
-\note Once this property is set, the host and plug-in have agreed to
-use Metal render, so the effect SHOULD access all its images directly
-using the buffer pointers.
-
-*/
-#define kOfxImageEffectPropMetalEnabled "OfxImageEffectPropMetalEnabled"
-
-/**  @brief The command queue of Metal render
-
-    - Type - pointer X 1
-    - Property Set - plugin descriptor (read only), host descriptor (read/write)
-
-This property contains a pointer to the command queue of Metal render (id<MTLCommandQueue> type).
-In order to use it, reinterpret_cast<id<MTLCommandQueue> >(pointer) is needed.
-
-*/
-#define kOfxImageEffectPropMetalCommandQueue "OfxImageEffectPropMetalCommandQueue"
-
-/** @brief Indicates whether a host or plugin can support OpenCL render
-
-    - Type - string X 1
-    - Property Set - plugin descriptor (read/write), host descriptor (read only)
-    - Default - "false"
-    - Valid Values - This must be one of
-      - "false"  - in which case the host or plugin does not support OpenCL render
-      - "true"   - which means a host or plugin can support OpenCL render,
-                   in the case of plug-ins this also means that it is
-                   capable of CPU based rendering in the absence of a GPU
- */
-#define kOfxImageEffectPropOpenCLRenderSupported "OfxImageEffectPropOpenCLRenderSupported"
-
-/** @brief Indicates that an image effect SHOULD use OpenCL render in
-the current action
-
-   When a plugin and host have established they can both use OpenCL renders
-   then when this property has been set, the host expects the plugin to render
-   its result into the buffer it has setup before calling the render. The plugin
-   should also handle the situation if the plugin is running on the same device
-   as the host.
-
-   - Type - int X 1
-   - Property Set - inArgs property set of the kOfxImageEffectActionRender action
-   - Valid Values
-      - 0 indicates that the effect should assume that the buffers reside on
-          the CPU.
-      - 1 indicates that the effect should assume that the buffers reside on
-          the device.
-
-\note Once this property is set, the host and plug-in have agreed to
-use OpenCL render, so the effect SHOULD access all its images directly
-using the buffer pointers.
-
-*/
-#define kOfxImageEffectPropOpenCLEnabled "OfxImageEffectPropOpenCLEnabled"
-
-/**  @brief The command queue of OpenCL render
-
-    - Type - pointer X 1
-    - Property Set - plugin descriptor (read only), host descriptor (read/write)
-
-This property contains a pointer to the command queue of OpenCL render (cl_command_queue type).
-In order to use it, reinterpret_cast<cl_command_queue>(pointer) is needed.
-
-*/
-#define kOfxImageEffectPropOpenCLCommandQueue "OfxImageEffectPropOpenCLCommandQueue"
-
-/** @brief Indicates a plugin output does not depend on location or neighbours of a given pixel.
-If the plugin is with no spatial awareness, it will be executed during LUT generation. Otherwise,
-it will be bypassed during LUT generation.
-
-    - Type - string X 1
-    - Property Set - plugin descriptor (read/write)
-    - Default - "false"
-    - Valid Values - This must be one of
-      - "false"  - the plugin is with spatial awareness, it will be bypassed during LUT generation
-      - "true"   - the plugin is with no spatial awareness, it will be executed during LUT generation
-
-    @propdef
-    type: enum
-    dimension: 1
-    values:
-      - "false"
-      - "true"
- */
-#define kOfxImageEffectPropNoSpatialAwareness "OfxImageEffectPropNoSpatialAwareness"
-#endif // OFX_EXTENSIONS_RESOLVE
-
-#ifndef kOfxImageEffectPropNoSpatialAwareness
-/** @brief kOfxImageEffectPropNoSpatialAwareness is standard since OFX 1.5.1 (see the definition
-    under OFX_EXTENSIONS_RESOLVE above for its documentation): define it in every build. */
-#define kOfxImageEffectPropNoSpatialAwareness "OfxImageEffectPropNoSpatialAwareness"
-#endif
 
 /* NOTE: these kOfxImageField* constants are irregularly named: the macro name
    contains "Image" but the string value does not (e.g. kOfxImageFieldNone is

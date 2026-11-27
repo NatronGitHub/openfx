@@ -375,6 +375,7 @@ namespace OFX {
         return _properties.getIntProperty(kFnOfxImageEffectPropMultiPlanar) != 0;
       }
         
+#ifdef OFX_EXTENSIONS_NATRON
       bool Base::isHostMaskingEnabled() const
       {
         return _properties.getIntProperty(kNatronOfxImageEffectPropHostMasking) != 0;
@@ -384,6 +385,7 @@ namespace OFX {
       {
         return _properties.getIntProperty(kNatronOfxImageEffectPropHostMixing) != 0;
       }
+#endif
         
       Base::OfxPassThroughLevelEnum Base::getPassThroughForNonRenderedPlanes() const
       {

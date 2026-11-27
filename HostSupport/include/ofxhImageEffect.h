@@ -343,11 +343,13 @@ namespace OFX {
         /// Indicates that a host or plugin can fetch more than a type of image from a clip
         bool isMultiPlanar() const;
         
+#ifdef OFX_EXTENSIONS_NATRON
         ///Indicates that the plug-in would like to have a mask automatically handled by the host if possible
         bool isHostMaskingEnabled() const;
           
         ///Indicates that the plug-in would like to have a "Mix" parameter handled by the host if possible
         bool isHostMixingEnabled() const;
+#endif
         
         enum OfxPassThroughLevelEnum {
             ePassThroughLevelEnumBlockAllNonRenderedPlanes = 0,
