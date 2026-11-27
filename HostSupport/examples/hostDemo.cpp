@@ -496,6 +496,10 @@ static Json effectFlagsJson(const OFX::Host::Property::Set& p)
   // GPU rendering: "false", "true" or "needed"
   j["openGLRenderSupported"] = propJson(p, kOfxImageEffectPropOpenGLRenderSupported);
   j["openCLRenderSupported"] = propJson(p, kOfxImageEffectPropOpenCLRenderSupported);
+  j["openCLSupported"] = propJson(p, kOfxImageEffectPropOpenCLSupported);
+  // the depths of the plug-in's OpenGL textures (none: the host decides); null without
+  // OFX_SUPPORTS_OPENGLRENDER
+  j["openGLPixelDepths"] = propJson(p, kOfxOpenGLPropPixelDepth, true);
   j["cudaRenderSupported"] = propJson(p, kOfxImageEffectPropCudaRenderSupported);
   j["cudaStreamSupported"] = propJson(p, kOfxImageEffectPropCudaStreamSupported);
   j["metalRenderSupported"] = propJson(p, kOfxImageEffectPropMetalRenderSupported);
@@ -2145,6 +2149,14 @@ static int run(int argc, char **argv)
     // (ofxGPURender.h): Images if the device has them
     myHost.getProperties().setStringProperty(kOfxImageEffectPropOpenCLRenderSupported, "true");
     myHost.getProperties().setStringProperty(kOfxImageEffectPropOpenCLSupported, hostOpenCLImages ? "true" : "false");
+#ifdef HOSTDEMO_OPENCL
+    // the OpenCL program suite, "an optional suite the host can provide for building OpenCL
+    // programs for the plug-in" (ofxGPURender.h): built for the context of the render's queue
+    CL::Device* device = cl.device.get();
+    myHost.setOpenCLProgramCompiler([device](const char* source, int fOptional, void* result) {
+      return device->compileProgram(CL::currentQueue(), source, fOptional, result);
+    });
+#endif
   }
   if (hostMetal) {
     // kOfxImageEffectPropMetalRenderSupported, "Indicates whether a host or plug-in can support Metal

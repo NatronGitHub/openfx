@@ -61,6 +61,12 @@ namespace OFX {
         return ImageEffect::canRenderOnCPU(effect) ? RenderMode::CPU : RenderMode::None;
       }
 
+      void *currentQueue()
+      {
+        const ImageEffect::GPURenderScope *scope = ImageEffect::GPURenderScope::current();
+        return scope && scope->api() == ImageEffect::GPURenderScope::API::OpenCL ? scope->queue() : nullptr;
+      }
+
       bool openCLFailed(const RenderSession &session, OfxStatus st)
       {
         return session.failed() || ImageEffect::gpuRenderFailed(st);

@@ -263,6 +263,8 @@ static nb::dict effectFlagsJson(const Prop::Set &p)
   j["clipPreferencesSlaveParams"] = propJson(p, kOfxImageEffectPropClipPreferencesSlaveParam, true);
   j["openGLRenderSupported"] = propJson(p, kOfxImageEffectPropOpenGLRenderSupported);
   j["openCLRenderSupported"] = propJson(p, kOfxImageEffectPropOpenCLRenderSupported);
+  j["openCLSupported"] = propJson(p, kOfxImageEffectPropOpenCLSupported);
+  j["openGLPixelDepths"] = propJson(p, kOfxOpenGLPropPixelDepth, true);
   j["cudaRenderSupported"] = propJson(p, kOfxImageEffectPropCudaRenderSupported);
   j["cudaStreamSupported"] = propJson(p, kOfxImageEffectPropCudaStreamSupported);
   j["metalRenderSupported"] = propJson(p, kOfxImageEffectPropMetalRenderSupported);

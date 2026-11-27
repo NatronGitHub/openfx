@@ -56,6 +56,7 @@
     }
 */
 
+#include "ofxCore.h"
 #include "ofxhUtilities.h"
 
 #include <condition_variable>
@@ -156,6 +157,9 @@ namespace OFX {
         bool isCurrent() const;
         /// the backend's context: an EGLContext, a CGLContextObj, an HGLRC
         virtual void *nativeContext() const = 0;
+        /// the instances attached to it (kOfxActionOpenGLContextAttached without Detached yet,
+        /// see Attachment in ofxhOpenGLRender.h)
+        int attachments() const;
 
       protected:
         explicit Context(const Hooks &hooks);
@@ -173,8 +177,13 @@ namespace OFX {
       private:
         friend class CurrentContext;
         friend class ContextPool;
+        friend class Attachment;
         /// claimed (held, or reserved by a suspended render) by a thread other than the caller
         bool claimedByAnotherThread() const;
+        /// no thread holds or reserves it, and no instance is attached to it: it can be destroyed
+        bool unused() const;
+        /// Attachment: an instance was attached (+1) or detached (-1)
+        void attachmentChanged(int delta);
         Hooks _hooks;
         RendererInfo _info;
         std::unique_ptr<Detail::GLFunctions> _gl;
@@ -188,6 +197,7 @@ namespace OFX {
         /// context is reserved to that thread but current nowhere
         int _suspended = 0;
         std::thread::id _owner;   ///< the thread that claimed it last
+        int _attachments = 0;     ///< attachments()
       };
 
       /// the context the calling thread holds (through a CurrentContext), nullptr if none
@@ -315,6 +325,17 @@ namespace OFX {
         /// (instances may be attached to them) until the pool is destroyed.
         void setMaxContexts(int maxContexts);
         int maxContexts() const;
+        /// Destroys the idle contexts that no instance is attached to (Context::attachments()) and
+        /// no thread holds, with the GPU memory they hold: OfxImageEffectOpenGLRenderSuiteV1's
+        /// flushResources, "When a plug-in fails to allocate GPU resources, it can call this
+        /// function to request the host to flush its GPU resources if it holds any"
+        /// (ofxGPURender.h). The contexts lent, and those instances are attached to, stay. Returns
+        /// the number destroyed; acquire() creates new ones as needed. A context is checked under
+        /// the pool's lock and destroyed after it: while releaseIdle() runs, no thread may claim a
+        /// pool context outside a lease (a CurrentContext without acquire(), other than through
+        /// Attachment, whose contexts stay). An Attachment destroyed without sending Detached on a
+        /// context no longer counts there.
+        int releaseIdle();
 
         /// acquire() and release() as a scope (release() only if acquire() gave a context)
         class Lease {
@@ -347,6 +368,13 @@ namespace OFX {
         std::condition_variable _changed;
         std::list<Slot> _slots;   ///< (a list: a slot stays put while its context is created)
       };
+
+      /// flushResources (OfxImageEffectOpenGLRenderSuiteV1) for a host whose contexts are pool's: a
+      /// host's ImageEffect::Host::flushOpenGLResources() returns flushResources(pool), which
+      /// releases pool's idle contexts (ContextPool::releaseIdle()) and returns "kOfxStatOK - the
+      /// host has actually released some resources" if it destroyed one, else "kOfxStatReplyDefault -
+      /// nothing the host could do.." (ofxGPURender.h)
+      OfxStatus flushResources(ContextPool &pool);
 
     } // OpenGL
   } // Host

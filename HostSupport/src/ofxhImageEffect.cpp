@@ -674,6 +674,11 @@ namespace OFX {
         return nullptr;
       }
 
+      const GPURenderScope *GPURenderScope::current()
+      {
+        return gGPURenderScope;
+      }
+
       /// kOfxImageEffectPropOpenCLEnabled, kOfxImageEffectPropOpenCLCommandQueue,
       /// kOfxImageEffectPropMetalEnabled, kOfxImageEffectPropMetalTextureEnabled,
       /// kOfxImageEffectPropMetalCommandQueue and kOfxImageEffectPropCudaEnabled of the inArgs of
@@ -4457,7 +4462,17 @@ namespace OFX {
 
       static OfxStatus flushResources( )
       {
-        return gImageEffectHost->flushOpenGLResources();
+        // "kOfxStatOK - the host has actually released some resources, kOfxStatReplyDefault -
+        // nothing the host could do.." (ofxGPURender.h, flushResources): without a host, nothing;
+        // C++ exceptions must not propagate into the plug-in
+        if (!gImageEffectHost) {
+          return kOfxStatReplyDefault;
+        }
+        try {
+          return gImageEffectHost->flushOpenGLResources();
+        } catch (...) {
+          return kOfxStatReplyDefault;
+        }
       }
 
       static const struct OfxImageEffectOpenGLRenderSuiteV1 gOpenGLRenderSuite = {
@@ -4472,6 +4487,9 @@ namespace OFX {
       static OfxStatus compileOpenCLProgram(const char *pszProgramSource, int fOptional, void *pResult)
       {
         if (!gImageEffectHost || !pszProgramSource || !pResult) {
+          if (pResult) {
+            *static_cast<void **>(pResult) = NULL; // (pResult is a cl_program*: no program)
+          }
           return kOfxStatErrBadHandle;
         }
         try {

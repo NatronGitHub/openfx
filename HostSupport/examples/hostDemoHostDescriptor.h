@@ -3,6 +3,9 @@
 #ifndef HOST_DEMO_HOST_DESCRIPTOR_H
 #define HOST_DEMO_HOST_DESCRIPTOR_H
 
+#include <functional>
+#include <utility>
+
 namespace MyHost {
 
   /// the host profiles: the default one, --ofx14 and --ofx11
@@ -117,10 +120,23 @@ namespace MyHost {
     virtual OfxStatus notifyRedrawPending(OfxImageEffectHandle instance, OfxPropertySetHandle inArgs);
 #endif
 
+    /// --gpu=opencl: the OpenCL program suite (OfxOpenCLProgramSuiteV1), compiled by compile
+    /// (OpenCL::Device::compileProgram() for the render's queue); none if compile is empty (the
+    /// default). Before the plug-in scan.
+    typedef std::function<OfxStatus(const char *source, int fOptional, void *result)> OpenCLProgramCompiler;
+    void setOpenCLProgramCompiler(OpenCLProgramCompiler compile) { _compileOpenCLProgram = std::move(compile); }
+    /// the OpenCL program suite, with setOpenCLProgramCompiler()
+    virtual bool supportsOpenCLProgramSuite() const { return static_cast<bool>(_compileOpenCLProgram); }
+    virtual OfxStatus compileOpenCLProgram(const char *pszProgramSource, int fOptional, void *pResult)
+    {
+      return _compileOpenCLProgram ? _compileOpenCLProgram(pszProgramSource, fOptional, pResult) : kOfxStatErrUnsupported;
+    }
+
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     /// @see OfxImageEffectOpenGLRenderSuiteV1.flushResources()
     /// "kOfxStatReplyDefault - nothing the host could do.." (flushResources, ofxGPURender.h): hostDemo
-    /// keeps no GPU resources between renders
+    /// has one OpenGL context, which the calling render uses, and keeps no other GPU resource (a
+    /// host with a pool of contexts returns OpenGL::flushResources(pool), ofxhOpenGLContext.h)
     virtual OfxStatus flushOpenGLResources() const { return kOfxStatReplyDefault; };
 #endif
   private:
@@ -131,6 +147,7 @@ namespace MyHost {
     Profile _profile; ///< restrictToOFX14(), restrictToOFX11()
     bool _keepLoaded; ///< OFX_HOSTDEMO_KEEP_LOADED=1
     bool _normalisedDefaults; ///< false after disableNormalisedDefaults()
+    OpenCLProgramCompiler _compileOpenCLProgram; ///< setOpenCLProgramCompiler()
   };
 
   // my ofx host object

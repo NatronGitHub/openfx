@@ -45,6 +45,7 @@ namespace OFX {
         static const GLenum kGLFloat = 0x1406;
         static const GLenum kGLHalfFloat = 0x140B;
         static const GLenum kGLAlpha = 0x1906;
+        static const GLenum kGLRGB = 0x1907;
         static const GLenum kGLRGBA = 0x1908;
         static const GLenum kGLVendor = 0x1F00;
         static const GLenum kGLRenderer = 0x1F01;

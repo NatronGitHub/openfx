@@ -84,6 +84,13 @@ namespace OFX {
 
       class RenderSession;
 
+      /// The command queue (a cl_command_queue) of the innermost OpenCL render of the calling
+      /// thread (an ImageEffect::GPURenderScope of API OpenCL, e.g. a RenderSession's), nullptr if
+      /// none: the queue a host's compileOpenCLProgram() passes to Device::compileProgram(), since
+      /// OfxOpenCLProgramSuiteV1::compileProgram doesn't say which context to build for. On the
+      /// threads of the host's multi-thread suite, the host passes the scope on (GPURenderScope).
+      void *currentQueue();
+
       /// After an OpenCL action of session that returned st: whether OpenCL failed: the session
       /// failed (RenderSession::failed()), or ImageEffect::gpuRenderFailed(st), the rule of the
       /// OpenGL retry too. "If a call using OpenCL rendering fails, the host may re-attempt using

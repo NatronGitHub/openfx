@@ -439,8 +439,9 @@ don't have their own:
    Xlib from several threads with libX11 older than 1.8 (for example
    EL9's 1.7) calls ``XInitThreads()`` first, before any other Xlib call:
    the library serializes its own Xlib calls but doesn't call it;
--  ``ofxhOpenGLTexture.h``: textures of OFX image rectangles, with upload,
-   readback and the render target;
+-  ``ofxhOpenGLTexture.h``: textures of OFX image rectangles (RGBA, RGB
+   and Alpha, in each depth), with upload, readback and the render
+   target;
 -  ``ofxhOpenGLRender.h``: ``chooseRenderMode()`` (OpenGL, CPU, or
    neither, from :c:macro:`kOfxImageEffectPropOpenGLRenderSupported` and
    :c:macro:`kOfxImageEffectPropCPURenderSupported`), ``Attachment``
@@ -450,7 +451,18 @@ don't have their own:
    and reads the output back. The host still overrides
    ``ClipInstance::loadTexture()``: its override forwards to
    ``RenderSession::loadTexture()`` of the render running on the
-   calling thread.
+   calling thread. ``clipLoadTexture`` with an explicit format gives a
+   texture of that depth ("When a specific format is requested, the host
+   ensures it gives the requested format"), and a format that isn't
+   :c:macro:`kOfxBitDepthByte`, ``Short``, ``Half`` or ``Float`` fails
+   the input instead of falling back to another depth.
+
+``flushResources`` ("request the host to flush its GPU resources if it
+holds any") calls the host's ``flushOpenGLResources()``. A host with a
+``ContextPool`` returns ``OpenGL::flushResources(pool)``, which destroys
+the idle contexts no instance is attached to and returns
+:c:macro:`kOfxStatOK` if it destroyed one, :c:macro:`kOfxStatReplyDefault`
+otherwise.
 
 The host still decides when to render with OpenGL: it sets
 :c:macro:`kOfxImageEffectPropOpenGLRenderSupported` to ``"true"`` on its
@@ -525,6 +537,28 @@ and ``ImageEffect::canRenderOnCPU()`` in ``ofxhImageEffect.h``; OpenGL adds
 that a plug-in whose :c:macro:`kOfxImageEffectPropOpenGLRenderSupported` is
 ``"needed"`` has no CPU render. ``HostSupport/examples/openclRenderChecks.cpp`` runs a render
 with the GPUGain sample.
+
+``Device::compileProgram()`` implements the OpenCL program suite
+(``OfxOpenCLProgramSuiteV1``): it builds the program with the host's
+options (``Hooks::buildOptions``, for example ``-cl-denorms-are-zero``)
+and keeps the binaries, in memory and in ``Hooks::programCacheDirectory``,
+keyed on the source, the options and the platform, device and driver
+("if the source of the program or the OpenCL environment changes, the host
+must recompile"). A cache file is checked whole before its binary reaches the
+driver. The directory must be private to the user, since a binary may carry
+native code: on POSIX, a directory not owned by the user or writable by
+others is not used (memory cache only), and the files are created with mode
+0600. The host owns the directory (nothing evicts its files). ``compileProgram`` has no context argument: the program
+is built for the context of the render's command queue, which
+``OpenCL::currentQueue()`` finds from the ``GPURenderScope`` of the calling
+thread. A host that runs the plug-in's multi-thread functions on other
+threads passes the scope on to them (``ofxhImageEffect.h``). Outside an
+OpenCL render, a call with ``fOptional`` set returns
+:c:macro:`kOfxStatReplyDefault` and no program ("host may skip compiling on
+this call"), and other calls fail. The host returns ``true`` from
+``Host::supportsOpenCLProgramSuite()`` and forwards
+``Host::compileOpenCLProgram()``; hostDemo (``--gpu=opencl``) and the
+Python host (``ofxh.init(opencl=True)``) do.
 
 Metal Rendering
 ---------------
