@@ -162,6 +162,10 @@ namespace OFX {
         OfxBytes _bytesDefault;
         auto_ptr<BytesDefaultHook> _bytesDefaultHook;
         auto_ptr<ChoiceOrderHook> _choiceOrderHook; ///< Choice and StrChoice params
+        /// the short and long labels follow the label; the display range follows the range of a
+        /// numeric param (ofxParam.h, kOfxParamPropMin: "Setting this will also reset
+        /// ::kOfxParamPropDisplayMin", and the same for the max)
+        auto_ptr<Property::LinkedPropertiesHook> _linkedHook;
         // not copyable: the hook refers to this descriptor, and the default property points to _bytesDefault
         Descriptor(const Descriptor &);
         Descriptor &operator=(const Descriptor &);
@@ -232,6 +236,9 @@ namespace OFX {
       /// the description of a plugin parameter
       class Instance : public Base, protected Property::NotifyHook {
         Instance();  
+        /// as Descriptor::_linkedHook: the host's setLabel() sees the new short and long labels,
+        /// and its setDisplayRange() is called after its setRange()
+        auto_ptr<Property::LinkedPropertiesHook> _linkedHook;
       protected:
         SetInstance*  _paramSetInstance;
         Instance*     _parentInstance;

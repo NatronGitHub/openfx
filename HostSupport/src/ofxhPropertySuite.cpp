@@ -4,6 +4,7 @@
 // ofx
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
+#include "ofxParam.h" // kOfxPropParamSetNeedsSyncing
 
 // ofx host
 #include "ofxhBinary.h"
@@ -14,6 +15,8 @@
 #include <iostream>
 #include <new> // std::bad_alloc
 #include <set>
+#include <type_traits> // std::is_same
+#include <algorithm> // std::min
 #include <mutex>
 #include <string.h>
 
@@ -557,16 +560,98 @@ namespace OFX {
         }
       }
 
+      /// the property that the plug-in is setting or resetting through the property suite on this
+      /// thread (innermost; nullptr if none): LinkedPropertiesHook follows those writes only
+      static thread_local const Property *gPluginWrite = nullptr;
+
+      /// (an automatic object) prop is being written by the plug-in while it lives
+      class PluginWriteScope {
+      public:
+        explicit PluginWriteScope(const Property *prop) : _previous(gPluginWrite) { gPluginWrite = prop; }
+        ~PluginWriteScope() { gPluginWrite = _previous; }
+        PluginWriteScope(const PluginWriteScope &) = delete;
+        PluginWriteScope &operator=(const PluginWriteScope &) = delete;
+      private:
+        const Property *_previous;
+      };
+
+      void LinkedPropertiesHook::link(const std::string &source, const std::string &target)
+      {
+        if (!_set.fetchProperty(source) || !_set.fetchProperty(target)) {
+          return;
+        }
+        if (_targets.find(source) == _targets.end()) {
+          _set.addNotifyHook(source, this);
+        }
+        _targets.insert(std::make_pair(source, target));
+      }
+
+      /// to takes from's values: index if single, else the first indexOrN
+      template<class T> static void copyLinkedValues(const Property &from, Property &to, bool single, int indexOrN)
+      {
+        const PropertyTemplate<T> &src = static_cast<const PropertyTemplate<T> &>(from);
+        PropertyTemplate<T> &dst = static_cast<PropertyTemplate<T> &>(to);
+        if (single) {
+          dst.setValue(src.getValue(indexOrN), indexOrN);
+          return;
+        }
+        const int n = std::min(indexOrN, src.getDimension());
+        std::vector<typename T::Type> values; // (keeps the strings that apiValues points to)
+        std::vector<typename T::APIType> apiValues;
+        for (int i = 0; i < n; ++i) {
+          values.push_back(src.getValue(i));
+        }
+        for (int i = 0; i < n; ++i) {
+          apiValues.push_back(castToAPIType(values[i]));
+        }
+        dst.setValueN(apiValues.data(), n);
+      }
+
+      void LinkedPropertiesHook::notify(const std::string &name, bool single, int indexOrN) OFX_EXCEPTION_SPEC
+      {
+        const Property *from = _set.fetchProperty(name);
+        if (!from || from != gPluginWrite) {
+          return; // a write by the host itself (or none)
+        }
+        const auto range = _targets.equal_range(name);
+        for (auto t = range.first; t != range.second; ++t) {
+          Property *to = _set.fetchProperty(t->second);
+          if (!to || to->getType() != from->getType()) {
+            continue;
+          }
+          switch (from->getType()) {
+            case eInt: copyLinkedValues<IntValue>(*from, *to, single, indexOrN); break;
+            case eDouble: copyLinkedValues<DoubleValue>(*from, *to, single, indexOrN); break;
+            case eString: copyLinkedValues<StringValue>(*from, *to, single, indexOrN); break;
+            default: break;
+          }
+        }
+      }
+
+      void addLabelProperties(Set &set, const std::string &name, LinkedPropertiesHook &hook)
+      {
+        const char *const labels[] = { kOfxPropLabel, kOfxPropShortLabel, kOfxPropLongLabel };
+        for (const char *label : labels) {
+          set.removeProperty(label);
+          const PropSpec spec = { label, eString, 1, false, name.c_str() };
+          set.createProperty(spec);
+        }
+        hook.link(kOfxPropLabel, kOfxPropShortLabel);
+        hook.link(kOfxPropLabel, kOfxPropLongLabel);
+      }
+
       /// empty ctor
       Set::Set()
         : _magic(kMagic)
         , _chainedSet(NULL) 
+        , _needsSyncingHidden(false)
       {
       }
 
       Set::Set(const PropSpec spec[])
         : _magic(kMagic)
         , _chainedSet(NULL) 
+        , _needsSyncingHidden(false)
       {
         addProperties(spec);
       }
@@ -574,6 +659,7 @@ namespace OFX {
       Set::Set(const Set &other) 
         : _magic(kMagic)
         , _chainedSet(NULL) 
+        , _needsSyncingHidden(other._needsSyncingHidden.load())
       {
         // If a copy throws (e.g. std::bad_alloc), the constructor doesn't complete and the
         // destructor doesn't run: delete the copies made so far, and rethrow (E.6, R.1).
@@ -836,6 +922,18 @@ namespace OFX {
         return -1;
       }
       
+      /// kOfxPropParamSetNeedsSyncing while Set::isNeedsSyncingHidden(): the plug-in can't see it
+      static bool hiddenFromPlugin(const Set &set, const char *property)
+      {
+        return property && strcmp(property, kOfxPropParamSetNeedsSyncing) == 0 && set.isNeedsSyncingHidden();
+      }
+
+      /// a hidden kOfxPropParamSetNeedsSyncing may be shown by a set of int index 0 (count 1) only
+      template<class T> static bool pluginMayShow(int index, int count)
+      {
+        return std::is_same<T, IntValue>::value && index == 0 && count == 1;
+      }
+
       /// static functions for the suite
       template<class T> static OfxStatus propSet(OfxPropertySetHandle properties,
                                                  const char *property,
@@ -853,7 +951,8 @@ namespace OFX {
             return kOfxStatErrBadHandle;
           }
           PropertyTemplate<T> *prop = 0;
-          if(!thisSet->fetchTypedProperty(property, prop, false)) {
+          const bool hidden = hiddenFromPlugin(*thisSet, property);
+          if((hidden && !pluginMayShow<T>(index, 1)) || !thisSet->fetchTypedProperty(property, prop, false)) {
 #           ifdef OFX_DEBUG_PROPERTIES
             std::cout << ' ' << StatStr(kOfxStatErrUnknown) << std::endl;
 #           endif
@@ -865,7 +964,13 @@ namespace OFX {
 #           endif
             return kOfxStatErrValue;
           }
-          prop->setValue(value, index);
+          {
+            PluginWriteScope scope(prop);
+            prop->setValue(value, index);
+          }
+          if (hidden) {
+            thisSet->showNeedsSyncing();
+          }
         } catch (const Exception& e) {
 #         ifdef OFX_DEBUG_PROPERTIES
           std::cout << ' ' << StatStr(e.getStatus()) << std::endl;
@@ -906,7 +1011,8 @@ namespace OFX {
             return kOfxStatErrBadHandle;
           }
           PropertyTemplate<T> *prop = 0;
-          if(!thisSet->fetchTypedProperty(property, prop, false)) {
+          const bool hidden = hiddenFromPlugin(*thisSet, property);
+          if((hidden && !pluginMayShow<T>(0, count)) || !thisSet->fetchTypedProperty(property, prop, false)) {
 #           ifdef OFX_DEBUG_PROPERTIES
             std::cout << ' ' << StatStr(kOfxStatErrUnknown) << std::endl;
 #           endif
@@ -918,7 +1024,13 @@ namespace OFX {
 #           endif
             return kOfxStatErrValue;
           }
-          prop->setValueN(values, count);
+          {
+            PluginWriteScope scope(prop);
+            prop->setValueN(values, count);
+          }
+          if (hidden) {
+            thisSet->showNeedsSyncing();
+          }
         } catch (const Exception& e) {
 #         ifdef OFX_DEBUG_PROPERTIES
           std::cout << ' ' << StatStr(e.getStatus()) << std::endl;
@@ -953,7 +1065,7 @@ namespace OFX {
             return kOfxStatErrBadHandle;
           }
           PropertyTemplate<T> *prop = 0;
-          if(!thisSet->fetchTypedProperty(property, prop, true)) {
+          if(hiddenFromPlugin(*thisSet, property) || !thisSet->fetchTypedProperty(property, prop, true)) {
 #           ifdef OFX_DEBUG_PROPERTIES
             std::cout << ' ' << StatStr(kOfxStatErrUnknown) << std::endl;
 #           endif
@@ -995,7 +1107,7 @@ namespace OFX {
             return kOfxStatErrBadHandle;
           }
           PropertyTemplate<T> *prop = 0;
-          if(!thisSet->fetchTypedProperty(property, prop, true)) {
+          if(hiddenFromPlugin(*thisSet, property) || !thisSet->fetchTypedProperty(property, prop, true)) {
 #           ifdef OFX_DEBUG_PROPERTIES
             std::cout << ' ' << StatStr(kOfxStatErrUnknown) << std::endl;
 #           endif
@@ -1038,7 +1150,7 @@ namespace OFX {
 #           endif
             return kOfxStatErrBadHandle;
           }
-          Property *prop = thisSet->fetchProperty(property, false);
+          Property *prop = hiddenFromPlugin(*thisSet, property) ? nullptr : thisSet->fetchProperty(property, false);
           if(!prop) {
 #           ifdef OFX_DEBUG_PROPERTIES
             std::cout << ' ' << StatStr(kOfxStatErrUnknown) << std::endl;
@@ -1051,7 +1163,10 @@ namespace OFX {
 #           endif
             return kOfxStatErrValue;
           }
-          prop->reset();
+          {
+            PluginWriteScope scope(prop);
+            prop->reset();
+          }
 #         ifdef OFX_DEBUG_PROPERTIES
           std::cout << ' ' << StatStr(kOfxStatOK) << std::endl;
 #         endif
@@ -1088,7 +1203,7 @@ namespace OFX {
           return kOfxStatErrBadHandle;
         }
         try {            
-          Property *prop = thisSet->fetchProperty(property, true);
+          Property *prop = hiddenFromPlugin(*thisSet, property) ? nullptr : thisSet->fetchProperty(property, true);
           if(!prop) {
 #           ifdef OFX_DEBUG_PROPERTIES
             std::cout << "unknown property\n";

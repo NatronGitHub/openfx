@@ -1003,9 +1003,10 @@ namespace OFX {
     }
   }
 
-  /** @brief, set the label properties in a plugin. A later setLabel() keeps the short and long
-      labels set here (OFX 1.4 ofxCore.h says the host resets them when kOfxPropLabel changes:
-      Support doesn't do that for the host) */
+  /** @brief, set the label properties in a plugin. A later setLabel() resets the short and long
+      labels set here in a host that follows ofxCore.h ("Note that resetting this will also reset
+      kOfxPropShortLabel and kOfxPropLongLabel"; HostSupport does), though Support itself doesn't
+      set them again */
   void ImageEffectDescriptor::setLabels(const std::string &label, const std::string &shortLabel, const std::string &longLabel)
   {
     setLabel(label);

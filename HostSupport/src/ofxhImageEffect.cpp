@@ -491,10 +491,16 @@ namespace OFX {
       ////////////////////////////////////////////////////////////////////////////////
       // descriptor
 
+      // The labels default to the plug-in identifier: ofxCore.h, kOfxPropLabel: "Default - the
+      // ::kOfxPropName the object was created with", and kOfxPropShortLabel, kOfxPropLongLabel:
+      // "Default - initially ::kOfxPropName, but will be reset if ::kOfxPropLabel is changed". An
+      // effect descriptor has no kOfxPropName: the identifier is what it was created with.
       Descriptor::Descriptor(Plugin *plug) 
         : Base(effectDescriptorStuff)
         , _plugin(plug)
+        , _labelHook(_properties)
       {
+        Property::addLabelProperties(_properties, plug->getIdentifier(), _labelHook);
         _properties.setStringProperty(kOfxPluginPropFilePath, plug->getBinary()->getBundlePath());
         gImageEffectHost->initDescriptor(this);
       }
@@ -502,7 +508,9 @@ namespace OFX {
       Descriptor::Descriptor(const Descriptor &other, Plugin *plug) 
         : Base(other._properties)
         , _plugin(plug)
+        , _labelHook(_properties)
       {
+        linkLabels(); // (the labels and their defaults are copied)
         _properties.setStringProperty(kOfxPluginPropFilePath, plug->getBinary()->getBundlePath());
         gImageEffectHost->initDescriptor(this);
       }
@@ -510,9 +518,17 @@ namespace OFX {
       Descriptor::Descriptor(const std::string &bundlePath, Plugin *plug) 
         : Base(effectDescriptorStuff) 
         , _plugin(plug)
+        , _labelHook(_properties)
       {
+        Property::addLabelProperties(_properties, plug ? plug->getIdentifier() : std::string(), _labelHook);
         _properties.setStringProperty(kOfxPluginPropFilePath, bundlePath);
         gImageEffectHost->initDescriptor(this);
+      }
+
+      void Descriptor::linkLabels()
+      {
+        _labelHook.link(kOfxPropLabel, kOfxPropShortLabel);
+        _labelHook.link(kOfxPropLabel, kOfxPropLongLabel);
       }
 
       Descriptor::~Descriptor()	
@@ -640,6 +656,14 @@ namespace OFX {
         return effect.getProps().getStringProperty(kOfxImageEffectPropCPURenderSupported) != "false";
       }
 
+      bool cudaStreamsSupported(const Instance &effect)
+      {
+        const std::string &plugin = effect.getProps().getStringProperty(kOfxImageEffectPropCudaStreamSupported);
+        return gImageEffectHost &&
+          gImageEffectHost->getProperties().getStringProperty(kOfxImageEffectPropCudaStreamSupported) == "true" &&
+          (plugin == "true" || plugin == "needed");
+      }
+
       const GPURenderScope *GPURenderScope::find(const Instance &effect)
       {
         for (const GPURenderScope *s = gGPURenderScope; s; s = s->_previous) {
@@ -650,14 +674,27 @@ namespace OFX {
         return nullptr;
       }
 
-      /// kOfxImageEffectPropOpenCLEnabled and kOfxImageEffectPropOpenCLCommandQueue of the inArgs
-      /// of BeginSequenceRender, Render and EndSequenceRender (which have them): see GPURenderScope
+      /// kOfxImageEffectPropOpenCLEnabled, kOfxImageEffectPropOpenCLCommandQueue and
+      /// kOfxImageEffectPropCudaEnabled of the inArgs of BeginSequenceRender, Render and
+      /// EndSequenceRender (which have them), and kOfxImageEffectPropCudaStream, which "will only be
+      /// set if the host and plug-in both support CUDA streams" (added then): see GPURenderScope
       static void setGPURenderArgs(Property::Set &inArgs, const Instance &effect)
       {
         const GPURenderScope *scope = GPURenderScope::find(effect);
         const bool openCL = scope && scope->api() == GPURenderScope::API::OpenCL;
+        const bool cuda = scope && scope->api() == GPURenderScope::API::CUDA;
         inArgs.setIntProperty(kOfxImageEffectPropOpenCLEnabled, openCL ? 1 : 0);
         inArgs.setPointerProperty(kOfxImageEffectPropOpenCLCommandQueue, openCL ? scope->queue() : nullptr);
+        inArgs.setIntProperty(kOfxImageEffectPropCudaEnabled, cuda ? 1 : 0);
+        // ofxGPURender.h, kOfxImageEffectPropCudaStream: "This property will only be set if the host
+        // and plug-in both support CUDA streams." Otherwise it is absent: a plug-in that finds it
+        // would enqueue its work on it and not wait for it ("If not set: the plug-in SHOULD ensure
+        // that any asynchronous operations it enqueues have completed before returning").
+        if (cuda && scope->queue() && cudaStreamsSupported(effect)) {
+          static const Property::PropSpec stream = { kOfxImageEffectPropCudaStream, Property::ePointer, 1, true, NULL };
+          inArgs.createProperty(stream);
+          inArgs.setPointerProperty(kOfxImageEffectPropCudaStream, scope->queue());
+        }
       }
 
       bool Instance::isNoSpatialAwarenessRender() const
@@ -766,8 +803,6 @@ namespace OFX {
         , _outputFrameRate(24)
         , _outputPixelAspectRatio(1.)
       {
-        int i = 0;
-        
         // this will add parameters that are needed in an instance but not a Descriptor
         _properties.addProperties(effectInstanceStuff);
         // the descriptor's kOfxPropType was copied by Base(other): an instance handle is
@@ -783,21 +818,29 @@ namespace OFX {
                                                      kOfxImageEffectColourManagementNone));
         addColourManagementInstanceProperties();
         _properties.setChainedSet(&other.getProps());
+        // kOfxPropParamSetNeedsSyncing: hidden from the plug-in until it sets it (see
+        // syncPrivateDataAction()); declared now, so that the property map never changes after
+        // construction (render threads may read it while the plug-in sets the property)
+        _properties.createProperty({ kOfxPropParamSetNeedsSyncing, Property::eInt, 1, false, "0" });
+        _properties.hideNeedsSyncingUntilPluginSets();
 
         _properties.setPointerProperty(kOfxImageEffectPropPluginHandle, _plugin->getPluginHandle()->getOfxPlugin());
 
         _properties.setStringProperty(kOfxImageEffectPropContext,context);
         _properties.setIntProperty(kOfxPropIsInteractive,interactive);
 
+        installInstanceGetHooks();
+      }
+
+      void Instance::installInstanceGetHooks()
+      {
         // the double properties of the instance are computed by the host (getDoubleProperty()
         // and getDoublePropertyN()): hook them. The others (e.g. the context, kOfxPropIsInteractive,
         // kOfxImageEffectInstancePropSequentialRender) are stored in the set.
-        while(effectInstanceStuff[i].name) {
-          const Property::PropSpec& spec = effectInstanceStuff[i];
-          if (spec.type == Property::eDouble) {
-            _properties.setGetHook(spec.name, this);
+        for (const Property::PropSpec *spec = effectInstanceStuff; spec->name; ++spec) {
+          if (spec->type == Property::eDouble) {
+            _properties.setGetHook(spec->name, this);
           }
-          i++;
         }
       }
 
@@ -819,7 +862,16 @@ namespace OFX {
       , _outputFrameRate(other._outputFrameRate)
       , _outputPixelAspectRatio(other._outputPixelAspectRatio)
       {
-
+        // Base(other) copied the property set, but a Property::Set copy has no chained set, and its
+        // properties have no get hooks: without them, a copy (e.g. a host's render clone) would
+        // report the stored defaults (0) for the project size, frame rate, duration...
+        _properties.setChainedSet(&_descriptor->getProps());
+        installInstanceGetHooks();
+        // the copy is another plug-in instance: it starts with the default, NULL, not the other
+        // instance's pointer. ofxCore.h, kOfxPropInstanceData: "Default - NULL. This data pointer
+        // is unique to each plug-in instance, so two instances of the same plug-in do not share the
+        // same data pointer."
+        _properties.setPointerProperty(kOfxPropInstanceData, nullptr);
       }
 
       /// implemented for Param::SetDescriptor
@@ -1350,10 +1402,15 @@ namespace OFX {
 #       ifdef OFX_DEBUG_ACTIONS
           std::cout << "OFX: "<<(void*)this<<"->"<<kOfxActionSyncPrivateData<<"()"<<std::endl;
 #       endif
-        // Only call kOfxActionSyncPrivateData if kOfxPropParamSetNeedsSyncing is not set,
-        // or if it is set to 1.
-        // see http://openfx.sourceforge.net/Documentation/1.3/ofxProgrammingReference.html#kOfxPropParamSetNeedsSyncing
-        Property::Int* s = _properties.fetchIntProperty(kOfxPropParamSetNeedsSyncing);
+        // ofxParam.h, kOfxPropParamSetNeedsSyncing: "If it is set to 1, the host will call
+        // SyncPrivateData and then set it to zero before doing the copy/save. If it is set to 0, the
+        // host will assume that the param data correctly represents the private state, and will not
+        // call SyncPrivateData before copying/saving. If this property is not set, the host will
+        // always call SyncPrivateData before copying or saving the effect (as if the property were
+        // set to 1 -- but the host will not create or modify the property)." The plug-in sees the
+        // property only once it has set it (Property::Set::hideNeedsSyncingUntilPluginSets()): until
+        // then it is "not set".
+        Property::Int* s = _properties.isNeedsSyncingHidden() ? nullptr : _properties.fetchIntProperty(kOfxPropParamSetNeedsSyncing);
         bool needsSyncing = s ? s->getValue() : true;
         OfxStatus st = kOfxStatReplyDefault;
         if (needsSyncing) {
@@ -1506,7 +1563,6 @@ namespace OFX {
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, true, NULL },
-          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, true, NULL },
           { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, true, NULL },
 #       ifdef OFX_EXTENSIONS_NUKE
           { kFnOfxImageEffectPropView, Property::eInt, 1, true, "0" },
@@ -1614,7 +1670,6 @@ namespace OFX {
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, true, NULL },
-          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, true, NULL },
           { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, true, NULL },
 #       ifdef OFX_EXTENSIONS_VEGAS
           { kOfxImageEffectPropRenderView, Property::eInt, 1, true, "0" },
@@ -1739,7 +1794,6 @@ namespace OFX {
           { kOfxImageEffectPropCudaEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropMetalEnabled, Property::eInt, 1, true, "0" },
           { kOfxImageEffectPropOpenCLCommandQueue, Property::ePointer, 1, true, NULL },
-          { kOfxImageEffectPropCudaStream, Property::ePointer, 1, true, NULL },
           { kOfxImageEffectPropMetalCommandQueue, Property::ePointer, 1, true, NULL },
 #       ifdef OFX_EXTENSIONS_NUKE
           { kFnOfxImageEffectPropView, Property::eInt, 1, true, "0" },
@@ -3215,7 +3269,15 @@ namespace OFX {
             std::cout << it->first<<"->"<<outArgs.getStringProperty(depthParamName)<<","<<outArgs.getStringProperty(componentParamName)<<","<<outArgs.getDoubleProperty(parParamName)<<" ";
 #       endif
 
-            clip->setPixelDepth(outArgs.getStringProperty(depthParamName));
+            // a depth that the plug-in may not set (read-only, see setupClipPreferencesArgs()) keeps
+            // the one setDefaultClipPreferences() chose, even if the ePluginReadOnlyWarn or
+            // ePluginReadOnlyIgnore policy let the plug-in write it: then "the host will
+            // transparently map all of an effect's input and output clips to a single depth"
+            // (ofxClipPreferences.rst)
+            const Property::String *depthProp = outArgs.fetchStringProperty(depthParamName);
+            if (depthProp && !depthProp->getPluginReadOnly()) {
+              clip->setPixelDepth(depthProp->getValue());
+            }
             clip->setComponents(outArgs.getStringProperty(componentParamName));
             // only the output PAR is kept: the input PARs belong to the host (ClipInstance has no PAR
             // setter). The PAR "must be set to a positive non zero double value" (ofxImageEffect.h):

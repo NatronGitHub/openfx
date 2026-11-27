@@ -413,10 +413,18 @@ namespace OFX {
           : Base(other._properties)
           , Param::SetDescriptor()
           , _plugin(other._plugin)
-        {}
+          , _labelHook(_properties)
+        {
+          linkLabels();
+        }
+
+        /// the short and long labels follow the label (ofxCore.h, kOfxPropLabel: "Note that
+        /// resetting this will also reset ::kOfxPropShortLabel and ::kOfxPropLongLabel")
+        void linkLabels();
 
       protected:
         Plugin                                 *_plugin;       ///< the plugin I belong to
+        Property::LinkedPropertiesHook          _labelHook;    ///< see linkLabels()
         std::map<std::string, ClipDescriptor*>  _clips;        ///< clips descriptors by name
         std::vector<ClipDescriptor*>            _clipsByOrder; ///< clip descriptors in order of declaration
         mutable Interact::Descriptor            _overlayDescriptor; ///< descriptor to use for overlays, it has delayed description
@@ -533,16 +541,23 @@ namespace OFX {
 
       /// OFX 1.5 GPU render other than OpenGL (ofxGPURender.h): while the scope is alive, the
       /// BeginSequenceRender, Render and EndSequenceRender actions that the calling thread sends to
-      /// effect (beginRenderAction(), renderAction(), endRenderAction()) have
-      /// kOfxImageEffectPropOpenCLEnabled 1 and kOfxImageEffectPropOpenCLCommandQueue queue (a
-      /// cl_command_queue) in their inArgs; without one, 0 and NULL. Other instances' actions,
-      /// e.g. those of a render nested in a clipGetImage() on this thread, are left alone. Scopes
-      /// nest: the innermost one for effect applies.
+      /// effect (beginRenderAction(), renderAction(), endRenderAction()) have, in their inArgs:
+      /// - API OpenCL: kOfxImageEffectPropOpenCLEnabled 1 and kOfxImageEffectPropOpenCLCommandQueue
+      ///   queue (a cl_command_queue);
+      /// - API CUDA: kOfxImageEffectPropCudaEnabled 1, and kOfxImageEffectPropCudaStream queue (a
+      ///   CUstream, the runtime API's cudaStream_t) if queue isn't NULL and
+      ///   cudaStreamsSupported(effect): it "will only be set if the host and plug-in both support
+      ///   CUDA streams", so the inArgs have no kOfxImageEffectPropCudaStream otherwise (also
+      ///   without a scope);
+      /// and the other APIs' properties 0 and NULL; without a scope, all 0 and NULL. Other
+      /// instances' actions, e.g. those of a render nested in a clipGetImage() on this thread, are
+      /// left alone. Scopes nest: the innermost one for effect applies.
       ///
       /// "If a plug-in and host have both set kOfxImageEffectPropOpenCLRenderSupported="true" or
       /// have both set kOfxImageEffectPropOpenCLSupported="true" then the host MAY set this property
-      /// to indicate that it is passing images as OpenCL Buffers or Images" (ofxGPURender.h): open
-      /// it only then, and return those images from ClipInstance::getImage() meanwhile
+      /// to indicate that it is passing images as OpenCL Buffers or Images", and likewise for
+      /// kOfxImageEffectPropCudaRenderSupported and "CUDA memory pointers" (ofxGPURender.h): open it
+      /// only then, and return those images from ClipInstance::getImage() meanwhile
       /// (openfx::HostSupportOpenCL's RenderSession does both, ofxhOpenCLRender.h). As with
       /// ThumbnailRenderScope, keep it alive from beginRenderAction() to endRenderAction() on each
       /// thread that sends them.
@@ -551,7 +566,7 @@ namespace OFX {
       /// thread that created it, innermost first (asserted in debug builds).
       class GPURenderScope {
       public:
-        enum class API { CPU, OpenCL };
+        enum class API { CPU, OpenCL, CUDA };
         /// api CPU: as without a scope (e.g. a nested render of the same instance on the CPU)
         GPURenderScope(const Instance &effect, API api, void *queue);
         ~GPURenderScope();
@@ -578,6 +593,11 @@ namespace OFX {
       /// the plug-in can render on the CPU: its kOfxImageEffectPropCPURenderSupported isn't "false"
       /// ("the host or plug-in does not support CPU rendering", ofxGPURender.h, OFX 1.5.1)
       bool canRenderOnCPU(const Instance &effect);
+      /// the host descriptor (gImageEffectHost) and the plug-in both support CUDA streams: their
+      /// kOfxImageEffectPropCudaStreamSupported is "true" (for the plug-in, also "needed", a value
+      /// of upstream main's @propdef). kOfxImageEffectPropCudaStream "will only be set if the host
+      /// and plug-in both support CUDA streams" (ofxGPURender.h): see GPURenderScope.
+      bool cudaStreamsSupported(const Instance &effect);
 
       /// an image effect plugin instance.
       ///
@@ -596,7 +616,7 @@ namespace OFX {
                        public Progress::ProgressI,
                        public TimeLine::TimeLineI,
                        private Property::NotifyHook, 
-                       private Property::GetHook
+                       protected Property::GetHook // (derived hosts may install it on their own properties)
       {
       protected:
         OFX::Host::ImageEffect::ImageEffectPlugin    *_plugin;
@@ -624,7 +644,10 @@ namespace OFX {
 
         /// copy ctor, all clips and parameters will hold a reference (that they do not own)
         /// to clips/parameters from the other instance. The other instance is expected to live
-        /// at least as long as this instance
+        /// at least as long as this instance. The copy has the other's properties, chained to
+        /// the descriptor's, and the same host-computed ones (project size, frame rate...), except
+        /// kOfxPropInstanceData, which is NULL: it is another plug-in instance, and it is not
+        /// created (call createInstanceAction()).
         Instance(const Instance& other);
 
         /// Call destroyInstanceAction() first (see the class doc). If the instance is still
@@ -1129,6 +1152,9 @@ namespace OFX {
        
       private:
         void addColourManagementInstanceProperties();
+        /// the get hooks of the properties that the host computes (the eDouble ones of the
+        /// instance: project size, frame rate...), installed by both constructors
+        void installInstanceGetHooks();
       public:
 
         /// Setup the default clip preferences on the clips
