@@ -10,6 +10,13 @@ of the direct OFX objects and any library side only functions.
 */
 
 #include "ofxsCore.h"
+#include <atomic> // ThreadScope
+#include <system_error> // ThreadScope
+#ifndef _WIN32
+#include <cerrno> // ThreadScope
+#include <new> // ThreadScope
+#include <pthread.h> // ThreadScope
+#endif
 #ifdef OFX_USE_MULTITHREAD_MUTEX
 #include <memory> // unique_ptr (Mutex)
 #endif
@@ -166,6 +173,172 @@ namespace OFX {
 #ifdef OFX_USE_MULTITHREAD_MUTEX
     typedef AutoMutexT<Mutex> AutoMutex;
 #endif
+
+/// OFX::MultiThread::ThreadScope exists
+#define OFXS_SUPPORT_HAS_THREAD_SCOPE 1
+
+// the visibility of ThreadScope's members on ELF and Mach-O (MinGW and Cygwin warn on it; Windows
+// uses thread_local)
+#if defined(__GNUC__) && !defined(_WIN32) && !defined(__CYGWIN__)
+#define OFXS_THREAD_SCOPE_HIDDEN __attribute__((visibility("hidden")))
+#else
+#define OFXS_THREAD_SCOPE_HIDDEN
+#endif
+
+    /** @brief A per-thread value for the duration of a scope, without thread-local variables
+        on POSIX: macOS never unloads a binary that has them (dyld), so plug-ins should not use
+        thread_local (#385).
+
+    A ThreadScope<T> object makes value the calling thread's ThreadScope<T>::current() until it is
+    destroyed, which restores the previous one: scopes nest on each thread, also when an exception
+    leaves them. Each type T is an independent kind: make T a type dedicated to the kind, usually
+    the class that holds the ThreadScope (as below): e.g. a CImgAbortScope that holds the effect
+    and a ThreadScope<CImgAbortScope>, not a ThreadScope<OFX::ImageEffect>, which another use in
+    the binary could share. The value is owned by the caller, usually that object. Outside any scope, current() is nullptr. Construct and destroy a ThreadScope on the
+    same thread, as a local variable or a member of one.
+
+    For example, the render time of the render action being processed by this thread:
+    @code
+    class RenderTimeScope {
+    public:
+      explicit RenderTimeScope(double t) : _time(t), _scope(this) {}
+      static double current() {
+        const RenderTimeScope* s = OFX::MultiThread::ThreadScope<RenderTimeScope>::current();
+        return s ? s->_time : 0.;
+      }
+    private:
+      double _time;
+      OFX::MultiThread::ThreadScope<RenderTimeScope> _scope; // last: pushed when _time is set
+    };
+    @endcode
+
+    On POSIX (Linux, macOS) it uses a pthread key per T, created at the first scope (the
+    constructor throws std::bad_alloc if memory is short, std::system_error for other failures,
+    and the next scope tries again) and deleted when the binary is unloaded. The keys are a
+    per-process resource shared with the host and the other plug-ins (PTHREAD_KEYS_MAX, 512 on
+    macOS): use a few kinds, not one per object. At exit, the static destructors run while host
+    threads may still be in an action: the key of a kind is then deleted only if no scope of
+    that kind is live, and otherwise left to the process's end, so a scope that ends later is
+    harmless. A scope that begins after the binary started unloading, or after exit, is not
+    supported, including the next scope of an action already in flight (it may throw, or see
+    nullptr). On Windows, which unloads DLLs that have thread-local variables, it uses a
+    thread_local pointer. No allocation per scope, except the thread's storage for the key the
+    first time a thread uses it (pthread_setspecific).
+
+    There is one key per kind and per plug-in binary, whatever the visibility of T and of the
+    build: the members of ThreadScope are hidden on ELF and Mach-O (with default visibility, GCC on
+    Linux would make its statics STB_GNU_UNIQUE: shared by all the binaries that use the same T,
+    which glibc then never unloads). The class itself keeps the default visibility, so that a T
+    with default visibility can hold one without a GCC warning.
+    */
+    template <class T>
+    class ThreadScope {
+    public:
+      /// makes value the current one of the calling thread; throws std::bad_alloc or
+      /// std::system_error if the key or the thread's storage can't be created (the current value
+      /// is unchanged then)
+      OFXS_THREAD_SCOPE_HIDDEN explicit ThreadScope(T* value)
+        : _previous(push(value))
+      {
+      }
+
+      /// restores the previous value (that of the enclosing scope, or nullptr)
+      OFXS_THREAD_SCOPE_HIDDEN ~ThreadScope() noexcept
+      {
+#ifdef _WIN32
+        slot() = _previous;
+#else
+        // (can't fail: the thread's storage for the key exists since the constructor)
+        pthread_setspecific(_key, _previous);
+        _live.fetch_sub(1, std::memory_order_release);
+#endif
+      }
+
+      // not copyable or movable: the destructor restores the previous value (C.21)
+      ThreadScope(const ThreadScope&) = delete;
+      ThreadScope& operator=(const ThreadScope&) = delete;
+
+      /// the value of the innermost scope of the calling thread, or nullptr
+      OFXS_THREAD_SCOPE_HIDDEN static T* current() noexcept
+      {
+#ifdef _WIN32
+        return slot();
+#else
+        // no live scope (on any thread): the key may not exist yet
+        if (_live.load(std::memory_order_acquire) == 0) {
+          return nullptr;
+        }
+        return static_cast<T*>(pthread_getspecific(_key));
+#endif
+      }
+
+    private:
+      // returns the previous value
+      OFXS_THREAD_SCOPE_HIDDEN static T* push(T* value)
+      {
+#ifdef _WIN32
+        T* previous = slot();
+        slot() = value;
+        return previous;
+#else
+        static const Key key; // (thread-safe, and tried again if it throws)
+        (void)key;
+        _live.fetch_add(1, std::memory_order_acq_rel); // (from here, current() reads _key)
+        T* previous = static_cast<T*>(pthread_getspecific(_key));
+        const int err = pthread_setspecific(_key, value);
+        if (err != 0) {
+          _live.fetch_sub(1, std::memory_order_release);
+          throwError(err, "pthread_setspecific");
+        }
+        return previous;
+#endif
+      }
+
+#ifndef _WIN32
+      // std::bad_alloc for ENOMEM, which Support's action handlers return as kOfxStatErrMemory
+      [[noreturn]] OFXS_THREAD_SCOPE_HIDDEN static void throwError(int err, const char* what)
+      {
+        if (err == ENOMEM) {
+          throw std::bad_alloc();
+        }
+        throw std::system_error(err, std::generic_category(), what);
+      }
+#endif
+
+#ifdef _WIN32
+      static T*& slot() noexcept
+      {
+        static thread_local T* value = nullptr;
+        return value;
+      }
+#else
+      // creates _key, and deletes it when the binary is unloaded or at exit, unless a scope is
+      // still live. The key and the count are trivially destructible statics, so that a scope
+      // can still use them after this destructor has run.
+      struct OFXS_THREAD_SCOPE_HIDDEN Key {
+        Key()
+        {
+          const int err = pthread_key_create(&_key, nullptr); // (no value is left at a thread's end)
+          if (err != 0) {
+            throwError(err, "pthread_key_create");
+          }
+        }
+        ~Key()
+        {
+          if (_live.load(std::memory_order_acquire) == 0) {
+            pthread_key_delete(_key);
+          }
+        }
+        Key(const Key&) = delete;
+        Key& operator=(const Key&) = delete;
+      };
+
+      OFXS_THREAD_SCOPE_HIDDEN static inline pthread_key_t _key{};
+      OFXS_THREAD_SCOPE_HIDDEN static inline std::atomic<int> _live{0}; // the live scopes, on all threads
+#endif
+
+      T* const _previous;
+    };
   };
 };
 

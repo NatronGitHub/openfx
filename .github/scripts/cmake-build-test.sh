@@ -33,6 +33,20 @@ test -n "$dst" || { echo "drawsuite-opengl-test was not built"; exit 1; }
 slt=$(find "$build" -name support-library-test -type f -perm -u+x | head -1)
 test -n "$slt" || { echo "support-library-test was not built"; exit 1; }
 "$slt"
+# every example plug-in binary is really unloaded by dlclose(), and on macOS has no thread-local
+# variables, which dyld never unloads (Support/tests/PluginUnloadTest.cpp, #385)
+put=$(find "$build" -name plugin-unload-test -type f -perm -u+x | head -1)
+test -n "$put" || { echo "plugin-unload-test was not built"; exit 1; }
+plugins=()
+while IFS= read -r f; do plugins+=("$f"); done < <(find "$build/Plugins" -path '*.ofx.bundle/Contents/*' -name '*.ofx' -type f | sort)
+test ${#plugins[@]} -gt 0 || { echo "no plug-in binary found in $build/Plugins"; exit 1; }
+# and a binary that uses ThreadScope, twice: unloaded, then loaded again with new keys; built
+# with hidden visibility as the plug-ins, and with default visibility
+tst=$(find "$build" -name thread-scope-test.ofx -type f | head -1)
+test -n "$tst" || { echo "thread-scope-test.ofx was not built"; exit 1; }
+tsd=$(find "$build" -name thread-scope-test-default.ofx -type f | head -1)
+test -n "$tsd" || { echo "thread-scope-test-default.ofx was not built"; exit 1; }
+"$put" "${plugins[@]}" "$tst" "$tst" "$tsd" "$tsd"
 # the Support self-test (Support/tests/DrawContextOpenGLTest.cpp): macOS with an offscreen CGL
 # context, Linux without a context (run-time loading of libGL and of the context checks)
 dct=$(find "$build" -name drawcontext-opengl-test -type f -perm -u+x | head -1)

@@ -84,6 +84,7 @@ of the direct OFX objects and any library side only functions.
 #endif
 
 #include <assert.h>
+#include <atomic>
 #include <vector>
 #include <list>
 #include <string>
@@ -311,10 +312,12 @@ namespace OFX {
     /** @brief The raw property handle */
     OfxPropertySetHandle _propHandle;
 
-    /** @brief Class static, whether we are logging each property action. Per thread:
-        the property validation turns logging off on its thread while render threads use
-        properties. */
-    static thread_local int _gPropLogging;
+    /** @brief Class static, whether we are logging each property action (if positive). One
+        counter per plug-in binary, shared by all threads: the property validation turns logging
+        off while it runs, on any thread. Atomic, since render threads read it in the property
+        functions. Not thread_local: macOS never unloads a binary that has thread-local
+        variables (#385). */
+    static std::atomic<int> _gPropLogging;
 
     /** @brief Do not throw an exception if a host returns 'unsupported' when setting a property.
         One flag per plug-in binary, not synchronized: set it in the load action or in describe,
@@ -322,10 +325,10 @@ namespace OFX {
     static bool _gThrowOnUnsupported;
 
   public :
-    /** @brief turns on logging of property access functions (on the calling thread) */
+    /** @brief turns on logging of property access functions (for all threads; calls nest) */
     static void propEnableLogging(void)  {++_gPropLogging;}
 
-    /** @brief turns off logging of property access functions (on the calling thread) */
+    /** @brief turns off logging of property access functions (for all threads; calls nest) */
     static void propDisableLogging(void) {--_gPropLogging;}
 
     /** @brief Do we throw an exception if a host returns 'unsupported' when setting a property. Default is true */
