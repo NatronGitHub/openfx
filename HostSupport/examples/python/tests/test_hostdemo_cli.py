@@ -498,3 +498,36 @@ def test_gpu_opengl_example(tmp_path, hosts, sample_plugins):
     (s, _), (i, _) = both(tmp_path / "nogl", hosts, sample_plugins, [*Q, "-p", OPENGL, "--frames", "0", "-o", "x"])
     assert s.returncode == i.returncode == 1, (s.stderr, i.stderr)
 
+
+
+def test_gpu_renderers(tmp_path, hosts, sample_plugins):
+    """--gpu-renderers lists the same renderers (BACKEND:ID and names) in both; --gpu-renderer=BACKEND:ID
+    renders GPUGain with OpenGL on each, as on the CPU; an unknown id, a backend with no renderer here
+    (also with its default id, -1), a malformed one (no colon, an unknown backend, an id outside int),
+    or one without --gpu=opengl is the same error in both
+    (status 1, the same message, no report)."""
+    _need_opengl(tmp_path, hosts, sample_plugins)
+    s, i, _, _ = _compare(tmp_path / "list", hosts, sample_plugins, ["--gpu-renderers"], report=False)
+    assert s.returncode == 0, s.stderr
+    names = [line.split("\t")[0] for line in s.stdout.splitlines()]
+    assert names, "no renderer listed"
+    args = ["-p", GPUGAIN, "-d", "float", "-i", "Source=checker:5", "scale=0.5", "--frames", "0",
+            "--window", "0,0,64,48", "--format", "pfm", "-o", "out", "--report", "r.json"]
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    for n, name in enumerate(names):
+        _, _, sd, _ = _compare(tmp_path / f"gpu{n}", hosts, sample_plugins,
+                               [*Q, "--gpu=opengl", f"--gpu-renderer={name}", *args])
+        assert _gl_flags(sd) == {(True, False, True)}, name
+        assert _files(sd) == _files(cd), name
+    backend = names[0].rpartition(":")[0]
+    # (and a backend with no renderer here, with its default id: wgl outside Windows, e.g.)
+    unlisted = [b for b in ("wgl", "cgl", "glx", "egl-surfaceless", "egl-device")
+                if b not in {n.rpartition(":")[0] for n in names}][0]
+    bads = [f"--gpu-renderer={backend}:{1 << 30}", f"--gpu-renderer={unlisted}:-1", "--gpu-renderer=nocolon",
+            "--gpu-renderer=vulkan:0",
+            f"--gpu-renderer={backend}:{1 << 32}", f"--gpu-renderer={backend}:0x1"]
+    for n, (bad, gpu) in enumerate([(b, g) for b in bads for g in (["--gpu=opengl"], [])]):
+        (s, sd), (i, idir) = both(tmp_path / f"bad{n}", hosts, sample_plugins, [*Q, *gpu, bad, *args])
+        assert s.returncode == i.returncode == 1, (bad, gpu, s.stderr, i.stderr)
+        assert s.stderr.splitlines()[:1] == i.stderr.splitlines()[:1], (bad, gpu)
+        assert not (sd / "r.json").exists() and not (idir / "r.json").exists(), (bad, gpu)

@@ -20,6 +20,7 @@ namespace OFX {
         { Backend::EGLDevice, "egl-device" },
         { Backend::CGL, "cgl" },
         { Backend::WGL, "wgl" },
+        { Backend::GLX, "glx" },
       };
 
       const char *backendName(Backend backend)
@@ -50,7 +51,8 @@ namespace OFX {
 #elif defined(_WIN32)
         return { Backend::WGL };
 #else
-        return { Backend::EGLSurfaceless, Backend::EGLDevice };
+        // GLX last: for X11 without GLVND, where libEGL may be missing or have no driver
+        return { Backend::EGLSurfaceless, Backend::EGLDevice, Backend::GLX };
 #endif
       }
 
@@ -639,3 +641,48 @@ namespace OFX {
     } // OpenGL
   } // Host
 } // OFX
+
+#if !defined(__APPLE__) && !defined(_WIN32)
+// Linux and BSD: the backend dispatch, between the EGL backends (ofxhOpenGLEGL.cpp) and GLX
+// (ofxhOpenGLGLX.cpp)
+namespace OFX {
+  namespace Host {
+    namespace OpenGL {
+      namespace Detail {
+        std::vector<int> rendererIds(const Hooks &hooks, Backend backend)
+        {
+          switch (backend) {
+            case Backend::EGLSurfaceless:
+            case Backend::EGLDevice:
+              return eglRendererIds(hooks, backend);
+            case Backend::GLX:
+              return { -1 };
+            default:
+              return {};
+          }
+        }
+
+        std::unique_ptr<Context> createBackendContext(const Hooks &hooks, Backend backend, int rendererId,
+                                                      std::string &error)
+        {
+          if (rendererId != -1 && backend != Backend::EGLDevice) {
+            // (EGLSurfaceless and GLX have one renderer: the default)
+            error = "no renderer " + std::to_string(rendererId) + " (only the default, -1)";
+            return nullptr;
+          }
+          switch (backend) {
+            case Backend::EGLSurfaceless:
+            case Backend::EGLDevice:
+              return eglCreateContext(hooks, backend, rendererId, error);
+            case Backend::GLX:
+              return glxCreateContext(hooks, error);
+            default:
+              error = "not available on this platform";
+              return nullptr;
+          }
+        }
+      } // Detail
+    } // OpenGL
+  } // Host
+} // OFX
+#endif

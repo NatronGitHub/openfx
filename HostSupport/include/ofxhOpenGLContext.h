@@ -11,8 +11,9 @@
   scope that makes a context current on the calling thread.
 
   Part of the optional library openfx::HostSupportOpenGL (CMake option OFX_HOSTSUPPORT_OPENGL);
-  ofxhOpenGLTexture.h and ofxhOpenGLRender.h build on it. No OpenGL, EGL or CGL header is
-  needed: EGL is loaded at run time, CGL is a system framework, WGL is opengl32.dll (linked).
+  ofxhOpenGLTexture.h and ofxhOpenGLRender.h build on it. No OpenGL, EGL, GLX or CGL header is
+  needed: EGL, GLX (libGL) and libX11 are loaded at run time, CGL is a system framework, WGL is
+  opengl32.dll (linked).
   No global state: everything hangs off the objects the host creates, except the context each
   thread holds (thread_local, see CurrentContext) and, with WGL, each thread's hidden windows.
 
@@ -21,14 +22,23 @@
     GPU of the default render node, or llvmpipe);
   - EGLDevice: EGL_EXT_platform_device (one renderer per EGL device, e.g. NVIDIA without X11);
   - CGL: macOS;
-  - WGL: Windows (the driver's renderer). A context is made current on a hidden window of the
+  - WGL: Windows (the driver's renderer, or a GPU chosen with WGL_NV_gpu_affinity or, in 64-bit
+    builds, WGL_AMD_gpu_association). A context is made current on a hidden window of the
     calling thread (one per thread and pixel format, destroyed when the thread ends), so it
-    may be used on any thread, whichever thread created it.
-  GLX and EGL on a window system are later backends: a backend implements the Context
-  interface (make current, done current, getProcAddress, its native context), a renderer
-  listing, and a case in the backend dispatch (Detail::createBackendContext() and
-  Detail::rendererIds(), one definition per platform today: a second Linux backend turns them
-  into a switch on Backend).
+    may be used on any thread, whichever thread created it; on a GPU, on its affinity DC, or as
+    an associated context.
+  - GLX: X11 (GLX 1.3, libGL with or without GLVND), on an X connection of the context's own
+    ($DISPLAY) and a 1x1 pbuffer: for X11 without GLVND or without an EGL driver. libX11 is
+    loaded at run time; the library serializes its own Xlib calls that touch Xlib's global state
+    (opening and closing connections, and the X error handler it sets while it creates or
+    destroys a context, so that an X error makes that attempt fail instead of exiting). A host
+    that uses Xlib from several threads with libX11 older than 1.8 (e.g. EL9's 1.7) calls
+    XInitThreads() first, before any other Xlib call; libX11 1.8 does it by default.
+  defaultBackends(): CGL; WGL; on Linux and BSD, EGLSurfaceless, EGLDevice, then GLX. A new backend
+  implements the Context interface (make current, done current, getProcAddress, its native
+  context), a renderer listing, and a case in the backend dispatch (Detail::createBackendContext()
+  and Detail::rendererIds(): a switch on Backend on Linux and BSD, one backend each on macOS and
+  Windows).
 
   The contexts have the compatibility (macOS: legacy) profile, as OFX OpenGL plug-ins may use
   the fixed-function pipeline, and no default framebuffer (WGL: a 1x1 one, unused): rendering
@@ -71,14 +81,14 @@ namespace OFX {
       typedef void (OFXH_GLAPIENTRY *ProcAddress)();
 
       /// Offscreen context backends (see the file documentation)
-      enum class Backend { EGLSurfaceless, EGLDevice, CGL, WGL };
+      enum class Backend { EGLSurfaceless, EGLDevice, CGL, WGL, GLX };
 
-      /// "egl-surfaceless", "egl-device", "cgl", "wgl"
+      /// "egl-surfaceless", "egl-device", "cgl", "wgl", "glx"
       const char *backendName(Backend backend);
       /// the backend called name (backendName()); false if none
       bool backendFromName(const std::string &name, Backend &backend);
       /// the backends of this build and platform, in the default preference order
-      /// (Linux and BSD: EGLSurfaceless, EGLDevice; macOS: CGL; Windows: WGL)
+      /// (Linux and BSD: EGLSurfaceless, EGLDevice, GLX; macOS: CGL; Windows: WGL)
       std::vector<Backend> defaultBackends();
 
       /// the level of a Hooks::log message
@@ -107,8 +117,11 @@ namespace OFX {
       /// A renderer (a GPU or a software rasterizer) a backend can create contexts on
       struct RendererInfo {
         Backend backend = Backend::EGLSurfaceless;
-        /// which renderer of the backend: the EGL device index, the CGL renderer ID; -1: default
-        /// (the only one of EGLSurfaceless and WGL)
+        /// which renderer of the backend, for createContext(): the EGL device index, the CGL
+        /// renderer ID, the WGL GPU (NVIDIA's GPU index, AMD's GPU ID; then listRenderers()
+        /// lists the GPUs only); -1: the default (the only one of EGLSurfaceless, GLX, and WGL
+        /// without a GPU choice), which createContext() accepts on every backend. Stable while
+        /// the system's GPUs and drivers don't change.
         int id = -1;
         std::string vendor, renderer, version;  ///< GL_VENDOR, GL_RENDERER, GL_VERSION
         bool software = false;                  ///< no hardware acceleration
@@ -117,7 +130,8 @@ namespace OFX {
         std::string shadingLanguageVersion;
         /// the renderer's dedicated video memory, 0 if the driver doesn't say:
         /// GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX (GL_NVX_gpu_memory_info), CGL's
-        /// kCGLRPVideoMemoryMegabytes
+        /// kCGLRPVideoMemoryMegabytes, GLX_RENDERER_VIDEO_MEMORY_MESA (GLX_MESA_query_renderer:
+        /// Mesa's drivers, e.g. Intel and AMD on Linux), WGL_GPU_RAM_AMD (WGL_AMD_gpu_association)
         std::int64_t videoMemoryBytes = 0;
       };
 

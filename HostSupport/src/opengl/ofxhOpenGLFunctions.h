@@ -168,6 +168,13 @@ namespace OFX {
         std::vector<int> rendererIds(const Hooks &hooks, Backend backend);
         std::unique_ptr<Context> createBackendContext(const Hooks &hooks, Backend backend, int rendererId,
                                                       std::string &error);
+#if !defined(__APPLE__) && !defined(_WIN32)
+        /// Linux and BSD: the EGL backends (ofxhOpenGLEGL.cpp) and GLX (ofxhOpenGLGLX.cpp), which
+        /// rendererIds() and createBackendContext() dispatch to (ofxhOpenGLContext.cpp)
+        std::vector<int> eglRendererIds(const Hooks &hooks, Backend backend);
+        std::unique_ptr<Context> eglCreateContext(const Hooks &hooks, Backend backend, int rendererId, std::string &error);
+        std::unique_ptr<Context> glxCreateContext(const Hooks &hooks, std::string &error);
+#endif
 
       } // Detail
     } // OpenGL

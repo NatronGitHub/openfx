@@ -48,9 +48,9 @@ from .pfm import alpha_path, encode_pfm, split_alpha
 from .pixels import BYTES, NCOMPS, stats, to_depth, to_float
 from .rects import MAX_IMAGE_PIXELS, fits, intersect, is_empty, scale_pair, to_pixels
 from .specs import (CLIP_LENGTH, COMPONENTS_EXPECTED, CONTEXTS, HOST_COMPONENTS, INPUT_FORMS, SCALE_EXPECTED,
-                    WINDOW_EXPECTED, Spec, SpecError, frame_named_twice, from_components, input_spec, not_found,
-                    parse_bool, parse_double, parse_host_components, parse_int, parse_n, pattern, resolve_spec,
-                    valid_scale, valid_window)
+                    WINDOW_EXPECTED, Spec, SpecError, frame_named_twice, from_components, gpu_renderer_error,
+                    input_spec, not_found, parse_bool, parse_double, parse_gpu_renderer, parse_host_components,
+                    parse_int, parse_n, pattern, resolve_spec, valid_scale, valid_window)
 
 __all__ = ["render", "describe", "shutdown", "session", "ensure_host", "Session", "Job", "run_job", "json_safe",
            "capture_enabled"]
@@ -404,6 +404,7 @@ class HostOptions(NamedTuple):
     multiplane: bool = False
     components: tuple = HOST_COMPONENTS
     gpu: bool = False
+    gpu_renderer: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -435,9 +436,17 @@ def shutdown() -> None:
     _session = None
 
 
+class OpenGLRendererError(ValueError):
+    """ensure_host(gpu_renderer=...): no OpenGL context on that renderer; reason says why."""
+
+    def __init__(self, gpu_renderer: str, reason: str):
+        super().__init__(f"{gpu_renderer}: no OpenGL context ({reason})")
+        self.reason = reason
+
+
 def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_paths: bool = False,
                 opengl_render: bool = False, normalised_defaults: bool = True, multiplane: bool = False,
-                components: Sequence[str] = HOST_COMPONENTS, gpu: bool = False) -> None:
+                components: Sequence[str] = HOST_COMPONENTS, gpu: bool = False, gpu_renderer: str = "") -> None:
     """Make sure the backend's ofxh host is initialized with these settings.
 
     ofxh has one host per process: a new one replaces the backend's own, but not another one.
@@ -457,14 +466,26 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
             --components).
         gpu: an OpenGL context (hostDemo's --gpu=opengl, ofxh.init(opengl=True)): if it is made, the
             host says it supports OpenGL render, and renders with it the plug-ins that can.
+        gpu_renderer: with gpu, the renderer of the context, "BACKEND:ID" (a renderer of
+            ofxh.opengl_renderers(), see specs.parse_gpu_renderer()); "" for the default.
 
     Raises:
         RuntimeError: another ofxh host is initialized.
+        ValueError: gpu_renderer isn't BACKEND:ID.
+        OpenGLRendererError: no context can be made on gpu_renderer.
     """
     global _session
     options = HostOptions(keep_loaded=bool(keep_loaded), use_std_paths=bool(use_std_paths),
                           opengl_render=bool(opengl_render), normalised_defaults=bool(normalised_defaults),
-                          multiplane=bool(multiplane), components=tuple(components), gpu=bool(gpu))
+                          multiplane=bool(multiplane), components=tuple(components), gpu=bool(gpu),
+                          gpu_renderer=str(gpu_renderer))
+    gl_choice = {}
+    if gpu and gpu_renderer:
+        choice = parse_gpu_renderer(gpu_renderer)
+        if choice is None:
+            raise ValueError(gpu_renderer_error(gpu_renderer))
+        backend, renderer_id = choice
+        gl_choice = {"opengl_backends": [backend], "opengl_renderer": renderer_id}
     if _session is not None and ofxh.host() is not _session.host:
         _session = None  # (shut down by someone else)
     if _session is not None and (_session.dirs, _session.profile, _session.options) == (dirs, profile, options):
@@ -477,9 +498,19 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
         ofxh.shutdown()
         _session = None
     host = _Host(opengl_render, multiplane, options.components)
-    ofxh.init(host, list(dirs), use_std_paths=use_std_paths, use_env_path=False, profile=profile,
-              keep_loaded=keep_loaded, normalised_defaults=normalised_defaults, opengl=bool(gpu))
+    try:
+        ofxh.init(host, list(dirs), use_std_paths=use_std_paths, use_env_path=False, profile=profile,
+                  keep_loaded=keep_loaded, normalised_defaults=normalised_defaults, opengl=bool(gpu), **gl_choice)
+    except ValueError as e:
+        if gl_choice and hasattr(e, "opengl_error"):
+            raise OpenGLRendererError(gpu_renderer, e.opengl_error) from e
+        raise
     _session = Session(host, dirs, profile, options)
+
+
+def gpu_renderers() -> list[dict]:
+    """The OpenGL renderers (ofxh.opengl_renderers()), each with "name": BACKEND:ID for gpu_renderer."""
+    return [dict(r, name=f"{r['backend']}:{r['id']}") for r in ofxh.opengl_renderers()]
 
 
 # --- a run of hostDemo ----------------------------------------------------------------------
@@ -611,6 +642,7 @@ class Job:
     planes: list[tuple[str, str, Spec]] = dataclasses.field(default_factory=list)
     components: tuple = HOST_COMPONENTS
     gpu: bool = False  # hostDemo's --gpu=opengl
+    gpu_renderer: str = ""  # with gpu: BACKEND:ID (not in hostDemo)
 
 
 class _Run:
@@ -1050,11 +1082,11 @@ def run_job(dirs: tuple, job: Job) -> tuple[int, dict, dict]:
     run = _Run(job)
     profile = "ofx14" if job.ofx14 else "default"
     ensure_host(dirs, profile, job.keep_loaded, job.use_std_paths, normalised_defaults=job.normalised_defaults,
-                multiplane=job.multiplane, components=job.components, gpu=job.gpu)
-    if job.gpu:
-        gl = ofxh.opengl_context() or {}
-        if "error" in gl:
-            run.err(f"Warning: --gpu=opengl: no OpenGL context ({gl['error']}): rendering on the CPU")
+                multiplane=job.multiplane, components=job.components, gpu=job.gpu, gpu_renderer=job.gpu_renderer)
+    # (with job.gpu_renderer, ensure_host() raised OpenGLRendererError if that renderer gave no context)
+    gl_error = (ofxh.opengl_context() or {}).get("error") if job.gpu else None
+    if gl_error:
+        run.err(f"Warning: --gpu=opengl: no OpenGL context ({gl_error}): rendering on the CPU")
     plugin = ofxh.get_plugin(job.plugin_id, job.major)
     report: dict = {"schema": "hostDemo.report", "schemaVersion": 1, "ok": False, "plugin": {"id": job.plugin_id},
                     "context": job.context, "host": {"name": ofxh.host().props[kOfxPropName][0], "profile": profile},

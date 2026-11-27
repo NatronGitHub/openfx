@@ -4,7 +4,7 @@
 // The EGL backends of ofxhOpenGLContext.h (Linux and BSD): EGL_MESA_platform_surfaceless and
 // EGL_EXT_platform_device. libEGL is loaded at run time, so the library needs neither EGL headers
 // nor libEGL to build, and runs without them (then these backends fail and the next one is tried).
-// The macOS backend is ofxhOpenGLCGL.cpp, the Windows one ofxhOpenGLWGL.cpp.
+// GLX is ofxhOpenGLGLX.cpp, the macOS backend ofxhOpenGLCGL.cpp, the Windows one ofxhOpenGLWGL.cpp.
 
 #include "ofxhOpenGLContext.h"
 #include "ofxhOpenGLFunctions.h"
@@ -288,7 +288,7 @@ namespace OFX {
           return ok;
         }
 
-        std::vector<int> rendererIds(const Hooks &hooks, Backend backend)
+        std::vector<int> eglRendererIds(const Hooks &hooks, Backend backend)
         {
           if (backend == Backend::EGLSurfaceless) {
             return { -1 };
@@ -304,13 +304,9 @@ namespace OFX {
           return ids;
         }
 
-        std::unique_ptr<Context> createBackendContext(const Hooks &hooks, Backend backend, int rendererId,
-                                                      std::string &error)
+        std::unique_ptr<Context> eglCreateContext(const Hooks &hooks, Backend backend, int rendererId,
+                                                  std::string &error)
         {
-          if (backend != Backend::EGLSurfaceless && backend != Backend::EGLDevice) {
-            error = "not available on this platform";
-            return nullptr;
-          }
           EGLLibrary egl;
           if (!loadEGL(hooks, egl, error)) {
             return nullptr;
