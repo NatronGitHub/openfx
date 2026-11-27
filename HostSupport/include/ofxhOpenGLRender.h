@@ -13,7 +13,8 @@
   - chooseRenderMode(): CPU or OpenGL, from kOfxImageEffectPropOpenGLRenderSupported and
     kOfxImageEffectPropCPURenderSupported, and the CPU retry after a failed OpenGL render;
   - Attachment: the context an instance is attached to (kOfxActionOpenGLContextAttached and
-    Detached) and its context data (kNatronOfxImageEffectPropOpenGLContextData);
+    Detached), or the contexts, with their context data, of a plug-in that returns
+    kNatronOfxImageEffectPropOpenGLContextData;
   - RenderSession: one OpenGL render (Begin/Render/EndSequenceRender with
     kOfxImageEffectPropOpenGLEnabled 1): it attaches the instance, provides the default
     ClipInstance::loadTexture() (input clips: the image uploaded to a texture; the output clip:
@@ -48,6 +49,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <vector>
 
 namespace OFX {
   namespace Host {
@@ -85,9 +87,17 @@ namespace OFX {
       /// kOfxImageEffectPropCPURenderSupported isn't "false")
       bool cpuRetryAllowed(const ImageEffect::Instance &effect, const RenderSession &session, OfxStatus st);
 
-      /// The OpenGL context an instance is attached to. The host keeps one per instance, and
+      /// The OpenGL contexts an instance is attached to. The host keeps one per instance, and
       /// destroys it before the instance (that sends kOfxActionOpenGLContextDetached) and before
       /// the contexts.
+      ///
+      /// OFX 1.5.1: "A host cannot call kOfxActionOpenGLContextAttached on the same instance without
+      /// an intervening kOfxActionOpenGLContextDetached": one context at a time, renders of the
+      /// instance on another one wait, and a switch detaches first. With OFX_EXTENSIONS_NATRON, a
+      /// plug-in that returns kNatronOfxImageEffectPropOpenGLContextData from Attached is attached to
+      /// several contexts at once, each with its data: "This permits running several parallel renders
+      /// on different OpenGL contexts, but it violates the OpenFX spec [...] If the plugin returns
+      /// NULL [...], it is supposed to follow the OpenFX spec" (ofxNatron.h).
       class Attachment {
       public:
         explicit Attachment(ImageEffect::Instance &effect) : _effect(effect) {}
@@ -96,35 +106,46 @@ namespace OFX {
         Attachment(const Attachment &) = delete;
         Attachment &operator=(const Attachment &) = delete;
 
-        /// Sends kOfxActionOpenGLContextDetached if attached, with the context it was attached to
-        /// current on this thread (waiting until no other thread holds it). Call it from a
-        /// thread that holds no context: else (unless it holds the attached context and no
-        /// render of the instance runs) Detached isn't sent, the instance stays attached, and this
-        /// returns kOfxStatFailed at once. kOfxStatErrMemory: still attached.
+        /// Sends kOfxActionOpenGLContextDetached on each context the instance is attached to, with
+        /// that context current on this thread (waiting until no other thread holds it). Call it
+        /// from a thread that holds no context: else (unless it holds the one attached context and
+        /// no render of the instance runs) Detached isn't sent, the instance stays attached, and
+        /// this returns kOfxStatFailed at once. kOfxStatErrMemory: still attached there.
         OfxStatus detach();
         /// Attached or Detached returned kOfxStatFailed (or another error but
         /// kOfxStatErrMemory): "the host should not attempt to run the plug-in in OpenGL render
         /// mode", so no RenderSession on this attachment is ok() any more
         bool failed() const;
-        /// the context, nullptr if not attached
+        /// the contexts the instance is attached to (more than one only with context data)
+        int contexts() const;
+        /// the context it is attached to (OFX mode: the only one; with context data, the first),
+        /// nullptr if none. A render's context data is RenderSession::contextData().
         Context *context() const;
-        /// the context data the plug-in returned from kOfxActionOpenGLContextAttached
-        void *contextData() const;
 
       private:
         friend class RenderSession;
-        OfxStatus beginRender(CurrentContext &current);
-        void endRender();
-        OfxStatus detachLocked(std::unique_lock<std::mutex> &lock, CurrentContext *current);
+        struct Attached {
+          Context *context;
+          void *data;      ///< kNatronOfxImageEffectPropOpenGLContextData, or nullptr
+          int renders;     ///< RenderSessions in progress on context
+        };
+        OfxStatus beginRender(CurrentContext &current, void *&data);
+        void endRender(Context *context);
+        Attached *find(const Context *context);
+        /// Detached on context (attached), made current on this thread; erased if it was sent
+        OfxStatus detachLocked(std::unique_lock<std::mutex> &lock, CurrentContext *current, Context *context);
+        /// detachLocked() on every context but keep, until one isn't detached (then still
+        /// attached there)
+        OfxStatus detachAll(std::unique_lock<std::mutex> &lock, CurrentContext *current, Context *keep = nullptr);
         class Switch;
 
         ImageEffect::Instance &_effect;
         mutable std::mutex _mutex;
         std::condition_variable _changed;
-        Context *_context = nullptr;
-        void *_contextData = nullptr;
-        int _renders = 0;          ///< RenderSessions in progress on _context
+        std::vector<Attached> _attached;
         bool _switching = false;   ///< a thread is detaching or attaching
+        bool _attachOnly = false;  ///< ... only attaching, every attached context having context
+                                   ///< data: renders on those contexts join (none during a detach)
         bool _failed = false;      ///< see failed()
       };
 
@@ -143,6 +164,9 @@ namespace OFX {
         RenderSession(const RenderSession &) = delete;
         RenderSession &operator=(const RenderSession &) = delete;
 
+        /// the context data of the instance on this session's context (pass it as
+        /// kNatronOfxImageEffectPropOpenGLContextData to the render actions), nullptr if none
+        void *contextData() const { return _contextData; }
         /// the kOfxActionOpenGLContextAttached status (kOfxStatOK if attached already)
         OfxStatus status() const { return _status; }
         /// render with OpenGL: attached (kOfxStatOK or kOfxStatReplyDefault)
@@ -189,6 +213,7 @@ namespace OFX {
         friend class Handle;
         Attachment &_attachment;
         CurrentContext &_current;
+        void *_contextData = nullptr;
         OfxStatus _status;
         std::unique_ptr<Texture> _output;
         ImageEffect::Image *_outputImage = nullptr;

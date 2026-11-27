@@ -85,19 +85,29 @@ namespace OFX {
       Context *Attachment::context() const
       {
         std::lock_guard<std::mutex> lock(_mutex);
-        return _context;
+        return _attached.empty() ? nullptr : _attached.front().context;
       }
 
-      void *Attachment::contextData() const
+      int Attachment::contexts() const
       {
         std::lock_guard<std::mutex> lock(_mutex);
-        return _contextData;
+        return static_cast<int>(_attached.size());
       }
 
       bool Attachment::failed() const
       {
         std::lock_guard<std::mutex> lock(_mutex);
         return _failed;
+      }
+
+      Attachment::Attached *Attachment::find(const Context *context)
+      {
+        for (Attached &a : _attached) {
+          if (a.context == context) {
+            return &a;
+          }
+        }
+        return nullptr;
       }
 
       /// the status of Attached or Detached: kOfxStatFailed, "the host should not attempt to run
@@ -108,7 +118,7 @@ namespace OFX {
         return st != kOfxStatOK && st != kOfxStatReplyDefault && st != kOfxStatErrMemory;
       }
 
-      OfxStatus Attachment::detachLocked(std::unique_lock<std::mutex> &lock, CurrentContext *current)
+      OfxStatus Attachment::detachLocked(std::unique_lock<std::mutex> &lock, CurrentContext *current, Context *context)
       {
         // "The host must call this with the same OpenGL context active as it called with the
         // corresponding kOfxActionOpenGLContextAttached." (kOfxActionOpenGLContextDetached).
@@ -116,8 +126,7 @@ namespace OFX {
         // one: no thread holds a context while it waits for another, so two threads that swap
         // instances between the same two contexts don't deadlock (like the lock order of CP.21,
         // for contexts).
-        Context *previous = _context;
-        void *data = _contextData;
+        void *data = find(context)->data;
         lock.unlock();
         if (current) {
           current->release();
@@ -130,7 +139,7 @@ namespace OFX {
             CurrentContext *c;
             ~Reacquire() { if (c) c->reacquire(); }
           } reacquire = { current };
-          CurrentContext other(*previous);
+          CurrentContext other(*context);
           if (other.ok()) {
             st = detachedAction(_effect, data);
             sent = true;
@@ -142,23 +151,28 @@ namespace OFX {
           // again: still attached, so no Attached elsewhere
           return sent ? st : kOfxStatFailed;
         }
-        _context = nullptr;
-        _contextData = nullptr;
+        _attached.erase(_attached.begin() + (find(context) - _attached.data()));
         _failed = _failed || refusesOpenGL(st);
         return st;
       }
 
-      /// sets _switching for its lifetime, and resets it (with the lock) and notifies the waiters
-      /// at its end, also when an action throws (E.6)
+      /// sets _switching (and _attachOnly for a concurrent attach) for its lifetime, and resets
+      /// them (with the lock) and notifies the waiters at its end, also when an action throws (E.6)
       class Attachment::Switch {
       public:
-        Switch(Attachment &a, std::unique_lock<std::mutex> &lock) : _a(a), _lock(lock) { _a._switching = true; }
+        Switch(Attachment &a, std::unique_lock<std::mutex> &lock, bool attachOnly)
+          : _a(a), _lock(lock)
+        {
+          _a._switching = true;
+          _a._attachOnly = attachOnly;
+        }
         ~Switch()
         {
           if (!_lock.owns_lock()) {
             _lock.lock();
           }
           _a._switching = false;
+          _a._attachOnly = false;
           _a._changed.notify_all();
         }
       private:
@@ -172,34 +186,114 @@ namespace OFX {
         std::unique_lock<std::mutex> lock(_mutex);
         // a thread that holds a context waits for nothing: it can send Detached only on that
         // context, and only if no render of the instance runs
-        if ((held && (held != _context || _renders > 0 || _switching)) || (!held && reservedContext())) {
-          return _context ? kOfxStatFailed : kOfxStatReplyDefault;
+        const bool onlyHeld = _attached.size() == 1 && _attached.front().context == held &&
+          _attached.front().renders == 0 && !_switching;
+        if ((held && !_attached.empty() && !onlyHeld) || (!held && reservedContext())) {
+          return _attached.empty() ? kOfxStatReplyDefault : kOfxStatFailed;
         }
-        _changed.wait(lock, [&] { return !_switching && _renders == 0; });
-        if (!_context) {
+        const auto idle = [&] {
+          if (_switching) {
+            return false;
+          }
+          for (const Attached &a : _attached) {
+            if (a.renders > 0) {
+              return false;
+            }
+          }
+          return true;
+        };
+        _changed.wait(lock, idle);
+        if (_attached.empty()) {
           return kOfxStatReplyDefault;
         }
-        Switch guard(*this, lock);
-        return detachLocked(lock, nullptr);
+        Switch guard(*this, lock, /*attachOnly=*/false);
+        return detachAll(lock, nullptr);
       }
 
-      OfxStatus Attachment::beginRender(CurrentContext &current)
+      OfxStatus Attachment::detachAll(std::unique_lock<std::mutex> &lock, CurrentContext *current, Context *keep)
       {
+        OfxStatus result = kOfxStatOK;
+        for (;;) {
+          // the last attached context other than keep
+          Context *c = nullptr;
+          for (auto a = _attached.rbegin(); a != _attached.rend() && !c; ++a) {
+            c = a->context != keep ? a->context : nullptr;
+          }
+          if (!c) {
+            return result;
+          }
+          const OfxStatus st = detachLocked(lock, current, c);
+          if (find(c)) {
+            return st == kOfxStatOK || st == kOfxStatReplyDefault ? kOfxStatFailed : st; // still attached there
+          }
+          if (current && !current->ok()) {
+            return kOfxStatFailed; // the caller's context is lost
+          }
+          if (st != kOfxStatOK && st != kOfxStatReplyDefault) {
+            result = st;
+          }
+        }
+      }
+
+      OfxStatus Attachment::beginRender(CurrentContext &current, void *&data)
+      {
+        data = nullptr;
         if (!current.ok()) {
           return kOfxStatFailed;
         }
         Context *const target = &current.context();
         std::unique_lock<std::mutex> lock(_mutex);
-        // wait for the renders of the instance on another context, and for another thread's
-        // switch, without holding this context
-        while (!_failed && (_switching || (_renders > 0 && _context != target))) {
+        // Three outcomes:
+        // - join: the instance is attached to this context, and to no other or only to contexts
+        //   with context data (also while another thread only attaches it elsewhere: its renders
+        //   here don't wait for that; never during a detach, which would send Detached under them);
+        // - attach concurrently: every context it is attached to has context data (Natron), so it
+        //   is attached here too, after another thread's Attached or Detached;
+        // - switch (OFX 1.5.1, or a plug-in that returned NULL on one of its contexts): wait for
+        //   its renders on the other contexts, without holding this one, detach from all of them,
+        //   then attach here, unless it is attached here already (then it stays, and the render
+        //   joins: no Detached and Attached on this context).
+        const auto concurrent = [&] {
+          if (_attached.empty()) {
+            return false;
+          }
+          for (const Attached &a : _attached) {
+            if (!a.data) {
+              return false;
+            }
+          }
+          return true;
+        };
+        // ("If the plugin returns NULL as outArgs of kOfxActionOpenGLContextAttached, it is
+        // supposed to follow the OpenFX spec": attached to one context, or the renders wait)
+        const auto joins = [&] {
+          return find(target) && (_attached.size() == 1 || concurrent()) && (!_switching || _attachOnly);
+        };
+        const auto mustWait = [&] {
+          if (joins()) {
+            return false;
+          }
+          if (_switching) {
+            return true;
+          }
+          if (concurrent()) {
+            return false;
+          }
+          for (const Attached &a : _attached) {
+            if (a.context != target && a.renders > 0) {
+              return true;
+            }
+          }
+          return false;
+        };
+        while (!_failed && mustWait()) {
           if (reservedContext()) {
             return kOfxStatFailed; // a render of this thread reserves a context: no waiting
           }
           lock.unlock();
           current.release();
           lock.lock();
-          _changed.wait(lock, [&] { return _failed || (!_switching && (_renders == 0 || _context == target)); });
+          _changed.wait(lock, [&] { return _failed || !mustWait(); });
           lock.unlock();
           const bool ok = current.reacquire();
           lock.lock();
@@ -210,43 +304,54 @@ namespace OFX {
         if (_failed) {
           return kOfxStatFailed; // a kOfxStatFailed from Attached or Detached: no OpenGL any more
         }
-        if (_context == target) {
-          ++_renders;
+        if (joins()) {
+          Attached *a = find(target);
+          ++a->renders;
+          data = a->data;
           return kOfxStatOK;
         }
         // "A host cannot call kOfxActionOpenGLContextAttached on the same instance without an
         // intervening kOfxActionOpenGLContextDetached. A host can have a plug-in swap OpenGL
         // contexts by issuing a attach/detach for the first context then another attach for the
-        // next context." (kOfxActionOpenGLContextAttached)
-        Switch guard(*this, lock);
+        // next context." (kOfxActionOpenGLContextAttached): detached from every other context
+        // first, unless all of them have context data
+        const bool attachOnly = concurrent();
+        Switch guard(*this, lock, attachOnly);
         OfxStatus st = kOfxStatOK;
-        if (_context) {
-          st = detachLocked(lock, &current);
-        }
-        if (_context || !current.ok()) {
-          // Detached wasn't sent, or must be sent again, or this context is lost
-          return st == kOfxStatOK || st == kOfxStatReplyDefault ? kOfxStatFailed : st;
+        if (!attachOnly) {
+          st = detachAll(lock, &current, target);
+          if (_attached.size() > (find(target) ? 1u : 0u) || !current.ok()) {
+            // Detached wasn't sent, or must be sent again, or this context is lost
+            return st == kOfxStatOK || st == kOfxStatReplyDefault ? kOfxStatFailed : st;
+          }
         }
         if (_failed) {
           return kOfxStatFailed;
         }
+        if (Attached *a = find(target)) {
+          // attached here already: it stays (an Attached here would need a Detached first)
+          ++a->renders;
+          data = a->data;
+          return kOfxStatOK;
+        }
         lock.unlock();
-        void *data = nullptr;
-        st = attachedAction(_effect, data);
+        void *attachedData = nullptr;
+        st = attachedAction(_effect, attachedData);
         lock.lock();
         if (st == kOfxStatOK || st == kOfxStatReplyDefault) {
-          _context = target;
-          _contextData = data;
-          ++_renders;
+          _attached.push_back(Attached{ target, attachedData, 1 });
+          data = attachedData;
         }
         _failed = refusesOpenGL(st);
         return st;
       }
 
-      void Attachment::endRender()
+      void Attachment::endRender(Context *context)
       {
         std::lock_guard<std::mutex> lock(_mutex);
-        --_renders;
+        if (Attached *a = find(context)) {
+          --a->renders;
+        }
         _changed.notify_all();
       }
 
@@ -297,7 +402,7 @@ namespace OFX {
       RenderSession::RenderSession(Attachment &attachment, CurrentContext &current)
         : _attachment(attachment)
         , _current(current)
-        , _status(attachment.beginRender(current))
+        , _status(attachment.beginRender(current, _contextData))
       {
       }
 
@@ -306,7 +411,7 @@ namespace OFX {
         // "texture handle to be disposed of by clipFreeTexture before the action returns"
         // (clipLoadTexture): the handles left are the plug-in's leaks
         if (!_handles.empty() && context().hooks().log) {
-          context().hooks().log("OpenGL: the plug-in didn't free " + std::to_string(_handles.size()) +
+          context().hooks().log(LogLevel::Warning, "OpenGL: the plug-in didn't free " + std::to_string(_handles.size()) +
                                 " texture(s) with clipFreeTexture");
         }
         const std::vector<Handle *> left(_handles.begin(), _handles.end());
@@ -322,7 +427,7 @@ namespace OFX {
         }
         _output.reset();
         if (ok()) {
-          _attachment.endRender();
+          _attachment.endRender(&_current.context());
         }
       }
 
@@ -475,7 +580,7 @@ namespace OFX {
           // render is wrong: inputFailed() tells the host
           _failed = true;
           if (context().hooks().log) {
-            context().hooks().log(e.what());
+            context().hooks().log(LogLevel::Error, e.what());
           }
           return nullptr;
         }

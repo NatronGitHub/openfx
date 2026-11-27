@@ -68,19 +68,17 @@ namespace OFX {
         /// the device context of the calling thread's window of its pixel format (wglMakeCurrent:
         /// "It need not be the same hdc that was passed to wglCreateContext when hglrc was created,
         /// but it must be on the same device and have the same pixel format."). A window lives as
-        /// long as its thread, which can't end while it has a context current: a context never
-        /// works on a destroyed window, and each window is destroyed by its own thread.
+        /// long as its thread, which must not end while it holds or reserves a context (see
+        /// CurrentContext): a context never works on a destroyed window.
         class ThreadWindows {
         public:
           ThreadWindows() = default;
           ThreadWindows(const ThreadWindows &) = delete;
           ThreadWindows &operator=(const ThreadWindows &) = delete;
-          ~ThreadWindows()
-          {
-            for (const Window &w : _windows) {
-              DestroyWindow(w.window);
-            }
-          }
+          /// Nothing: a thread_local destructor runs at the thread's end, possibly under the loader
+          /// lock (thread-detach notifications), where destroying a window or calling the OpenGL
+          /// driver may deadlock. The system destroys the windows of a thread that ends.
+          ~ThreadWindows() = default;
 
           /// the device context of this thread's window of pixelFormat (made if needed); nullptr
           /// and error if that fails
@@ -245,7 +243,7 @@ namespace OFX {
             HDC dc = threadWindows().dc(_pixelFormat, _pfd, error);
             if (!dc) {
               if (hooks().log) {
-                hooks().log("OpenGL: wgl: no window to make the context current: " + error);
+                hooks().log(LogLevel::Error, "OpenGL: wgl: no window to make the context current: " + error);
               }
               return false;
             }

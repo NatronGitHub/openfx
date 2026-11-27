@@ -1090,7 +1090,7 @@ says:
  plugin swap OpenGL contexts by issuing a attach/detach for the first context
  then another attach for the next context."
 
- If the plugin returns NULL as outArgs of kOfxActionOpenGLContextDetached, it is supposed
+ If the plugin returns NULL as outArgs of kOfxActionOpenGLContextAttached, it is supposed
  to follow the OpenFX spec, and will have to be detached/attached when switching the render context.
 
     @propdef
