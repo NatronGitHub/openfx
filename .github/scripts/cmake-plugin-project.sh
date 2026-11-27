@@ -34,9 +34,9 @@ run() { # mode: package | subdirectory
   cmake -S "$src/cmake/tests/plugin-project" -B "$w/build" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_PREFIX_PATH="$prefix" -DOFX_SOURCE_DIR="$src" -DOFX_VIA_SUBDIRECTORY=$via "${hosts[@]}" -DOFX_TEST_REQUIRE_OPENMP=$openmp \
     -DCMAKE_INSTALL_PREFIX="$w/install" -DOFX_DEPLOY_BUNDLES=$deploy $osxtarget "${sdkopt[@]}" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
-  cmake --build "$w/build" --parallel
+  cmake --build "$w/build" --parallel ${CMAKE_BUILD_PARALLEL_LEVEL}
   # with add_subdirectory(openfx), BUILD_EXAMPLE_HOSTS=ON still gives the hostDemo target
-  if [ "$mode" = subdirectory ]; then cmake --build "$w/build" --parallel --target hostDemo; fi
+  if [ "$mode" = subdirectory ]; then cmake --build "$w/build" --parallel ${CMAKE_BUILD_PARALLEL_LEVEL} --target hostDemo; fi
   cmake --install "$w/build" 2>&1 | tee "$w/install.log"
   if [ "$os" = Darwin ]; then
     # installing again: the plug-in binaries are copied again (not "Up-to-date"), so that the
@@ -298,7 +298,7 @@ cmake -S "$src/cmake/tests/plugin-project" -B "$w/build" -DCMAKE_BUILD_TYPE=Rele
   -DCMAKE_PREFIX_PATH="$prefix" -DOFX_SOURCE_DIR="$src" -DOFX_PLUGIN_BUNDLES=SEPARATE -DOFX_TEST_REQUIRE_OPENMP=$openmp \
   -DCMAKE_INSTALL_PREFIX="$w/install" -DOFX_DEPLOY_BUNDLES=$deploy $osxtarget "${sdkopt[@]}" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
 targets=$(awk '{ print $1 }' "$w/build/ofx_bundle_groups.txt" | tr '\n' ' ')
-cmake --build "$w/build" --parallel --target $targets
+cmake --build "$w/build" --parallel ${CMAKE_BUILD_PARALLEL_LEVEL} --target $targets
 for t in $targets; do cmake --install "$w/build" --component "$t" > /dev/null; done
 check_groups SEPARATE "$w/build" "$w/install/OFX/Plugins"
 check_group_errors

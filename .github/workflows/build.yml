@@ -1,11 +1,11 @@
 name: Build
 
 # Per push / pull request: one job per OS, with its tests (policy for all Natron-related repos;
-# CMake, as the plug-in repositories, Natron#1181). The Linux job also builds a second, cheap tree
-# with the extensions on, for the tests that need them. macOS runs after Linux and
+# CMake, as the plug-in repositories, Natron#1181). The Linux job also builds a second tree with
+# the extensions on, as Natron does, for the tests that need them. macOS runs after Linux and
 # Windows pass, and isn't required for merging (macOS arm64 runners are scarce).
-#   - Linux: the header and property metadata checks, cmake-build-test.sh, and the Python tests
-#     (ofxhost on both backends, and the ofxh module) with the extensions off and on
+#   - Linux: the header and property metadata checks, the generated files, cmake-build-test.sh and
+#     the Python tests (ofxhost on both backends, and the ofxh module) with the extensions off and on
 #   - macOS 15 arm64: Xcode clang and MacPorts (no Homebrew), cmake-build-test.sh and the Python tests
 #   - Windows: MSYS2 UCRT64 with the extensions on, the plug-in and host projects, the ofxh module
 #     (imported, and windows-hostdemo-smoke.sh against hostDemo), the Support self-tests and
@@ -93,6 +93,29 @@ jobs:
           git diff --exit-code -- Documentation/sources/Reference/ofxPropertiesReferenceGenerated.rst \
             Documentation/sources/Reference/ofxPropertySetsGenerated.rst \
             || { echo "::error::run scripts/gen-props-doc.py and commit the generated .rst files"; exit 1; }
+      - name: Generated openfx-cpp property headers are up to date
+        run: |
+          # (gen-props.py's own checks use upstream's rules, which report the fork's non-property
+          # names: check-props.py is the check, above; the log is shown on failure)
+          python scripts/gen-props.py > gen-props.log 2>&1 || { cat gen-props.log; exit 1; }
+          git diff --exit-code -- openfx-cpp/include/openfx \
+            || { echo "::error::run scripts/gen-props.py and commit the generated openfx-cpp headers"; exit 1; }
+      - name: The openfx-cpp headers compile (no guard macro, each alone, all of them)
+        run: |
+          # the extensions' and the optional features' properties are under their macros
+          # (scripts/ofx_fork_props.py, GUARD_MACROS): a property under the wrong macro fails only
+          # with that macro alone. C++17: no macro, each alone, all; C++20: no macro and all (the
+          # language standard doesn't change which macro guards what)
+          macros=$(python -c 'import sys; sys.path.insert(0, "scripts"); import ofx_fork_props
+          print(" ".join("-D" + m for m in ofx_fork_props.GUARD_MACROS))')
+          for D in "" $macros "$macros"; do
+            echo "== c++17 $D"
+            make -s -C openfx-cpp check CXX=g++ CXXSTD=c++17 EXTRA_CXXFLAGS="$D"
+          done
+          for D in "" "$macros"; do
+            echo "== c++20 $D"
+            make -s -C openfx-cpp check CXX=g++ CXXSTD=c++20 EXTRA_CXXFLAGS="$D"
+          done
       - name: All headers together compile (C++17, C++20; all extension flag sets)
         run: |
           { echo '#include "ofxCore.h"'; echo '#include "ofxImageEffect.h"'
@@ -162,32 +185,26 @@ jobs:
         env:
           OFX_CMAKE_EXTRA_ARGS: -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE=${{ env.pythonLocation }}/bin/python
         run: .github/scripts/cmake-build-test.sh
-      - name: The extensions on (Natron, Nuke, Vegas, TuttleOFX, Resolve) - DrawSuite self-tests and the Python tests
+      - name: The extensions on (Natron, Nuke, Vegas, TuttleOFX, Resolve) - cmake-build-test.sh and the Python tests
+        env:
+          OFX_CI_EXTENSIONS: 'on'
+          CMAKE_BUILD_PARALLEL_LEVEL: '4'
+          OFX_CMAKE_EXTRA_ARGS: -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE=${{ env.pythonLocation }}/bin/python
         run: |
-          # cmake-build-test.sh builds with the extensions off: build everything with them on, and run
-          # the two DrawSuite self-tests and the Support library self-test with OFX_EXTENSIONS_NATRON
-          # (no GL context here: the property reading and the backend state, the drawing with the fake
-          # OpenGL table, the native overlay decoding), and the Python tests: the ofxh module's, and
-          # the ofxhost and sample plug-in tests on both backends (two views per frame with Nuke or
-          # Vegas), so that the code for the extensions compiles and runs
+          # cmake-build-test.sh again, with the extensions on, in build-ci-natron: the Support
+          # self-tests with OFX_EXTENSIONS_NATRON (no GL context here: the property reading and the
+          # backend state, the drawing with the fake OpenGL table, the native overlay decoding),
+          # openglRenderChecks with the Natron context data (EGL, Mesa llvmpipe; OFXH_REQUIRE=1),
+          # cudaRenderChecks on its fake CUDA driver, the plug-in unload test, the hostDemo checks (two
+          # views per frame), the install and the plug-in and host projects.
+          # Then the Python tests: the ofxh module's, and the ofxhost and sample plug-in tests on both
+          # backends (two views per frame with Nuke or Vegas), so that the code for the extensions
+          # compiles and runs
           set -eo pipefail
-          cmake -S . -B build-ci-natron -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLE_PLUGINS=ON \
-            -DBUILD_EXAMPLE_HOSTS=ON -DOFX_HOSTSUPPORT_OPENGL=ON -DOFX_HOSTSUPPORT_OPENCL=ON -DOFX_HOSTSUPPORT_CUDA=ON \
-            $OFX_EXT_CMAKE \
-            -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
-          cmake --build build-ci-natron --parallel 4
-          (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test && Support/support-library-test)
-          # openfx::HostSupportCUDA with the extensions, on its fake CUDA driver
-          OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/examples/cudaRenderChecks
-          # openfx::HostSupportOpenGL with the Natron context data (EGL, Mesa llvmpipe; OFXH_REQUIRE=1)
-          OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/examples/openglRenderChecks
+          .github/scripts/cmake-build-test.sh
           # the GLX backend, on an X server of its own (Xvfb, Mesa llvmpipe)
           OFXH_OPENGL_BACKENDS=glx OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
             xvfb-run -a build-ci-natron/HostSupport/examples/openglRenderChecks
-          # the HostSupport checks with the extensions (e.g. kFnOfxImageEffectPropComponentsPresent)
-          SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
-            build-ci-natron/HostSupport/examples/suiteHandleChecks > suitehandlechecks-natron.log 2>&1 \
-            || { cat suitehandlechecks-natron.log; exit 1; }
           PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" python -m pytest -m "not opencl and not metal and not cuda" HostSupport/python/tests
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" \

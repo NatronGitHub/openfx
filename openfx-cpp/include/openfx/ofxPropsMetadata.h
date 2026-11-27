@@ -14,6 +14,19 @@
 #include <ofxParametricParam.h>
 #include <ofxKeySyms.h>
 #include <ofxOld.h>
+#ifdef OFX_EXTENSIONS_NATRON
+#include <ofxNatron.h>
+#endif // OFX_EXTENSIONS_NATRON
+#ifdef OFX_EXTENSIONS_NUKE
+#include <nuke/fnOfxExtensions.h>
+#include <nuke/fnPublicOfxExtensions.h>
+#endif // OFX_EXTENSIONS_NUKE
+#ifdef OFX_EXTENSIONS_TUTTLE
+#include <tuttle/ofxReadWrite.h>
+#endif // OFX_EXTENSIONS_TUTTLE
+#ifdef OFX_EXTENSIONS_VEGAS
+#include <ofxSonyVegas.h>
+#endif // OFX_EXTENSIONS_VEGAS
 
 #include "ofxSpan.h"
 
@@ -63,164 +76,295 @@ enum class PropId {
   OfxImageEffectPropColourManagementStyle, // 28
   OfxImageEffectPropComponents, // 29
   OfxImageEffectPropContext, // 30
-  OfxImageEffectPropCudaEnabled, // 31
-  OfxImageEffectPropCudaRenderSupported, // 32
-  OfxImageEffectPropCudaStream, // 33
-  OfxImageEffectPropCudaStreamSupported, // 34
-  OfxImageEffectPropDisplayColourspace, // 35
-  OfxImageEffectPropFieldToRender, // 36
-  OfxImageEffectPropFrameRange, // 37
-  OfxImageEffectPropFrameRate, // 38
-  OfxImageEffectPropFrameStep, // 39
-  OfxImageEffectPropInAnalysis, // 40
-  OfxImageEffectPropInteractiveRenderStatus, // 41
-  OfxImageEffectPropMetalCommandQueue, // 42
-  OfxImageEffectPropMetalEnabled, // 43
-  OfxImageEffectPropMetalRenderSupported, // 44
-  OfxImageEffectPropMetalTextureEnabled, // 45
-  OfxImageEffectPropMetalTextureSupported, // 46
-  OfxImageEffectPropMultipleClipDepths, // 47
-  OfxImageEffectPropNoSpatialAwareness, // 48
-  OfxImageEffectPropOCIOConfig, // 49
-  OfxImageEffectPropOCIODisplay, // 50
-  OfxImageEffectPropOCIOView, // 51
-  OfxImageEffectPropOpenCLCommandQueue, // 52
-  OfxImageEffectPropOpenCLEnabled, // 53
-  OfxImageEffectPropOpenCLImage, // 54
-  OfxImageEffectPropOpenCLRenderSupported, // 55
-  OfxImageEffectPropOpenCLSupported, // 56
-  OfxImageEffectPropOpenGLEnabled, // 57
-  OfxImageEffectPropOpenGLRenderSupported, // 58
-  OfxImageEffectPropOpenGLTextureIndex, // 59
-  OfxImageEffectPropOpenGLTextureTarget, // 60
-  OfxImageEffectPropPixelAspectRatio, // 61
-  OfxImageEffectPropPixelDepth, // 62
-  OfxImageEffectPropPluginHandle, // 63
-  OfxImageEffectPropPreMultiplication, // 64
-  OfxImageEffectPropProjectExtent, // 65
-  OfxImageEffectPropProjectOffset, // 66
-  OfxImageEffectPropProjectSize, // 67
-  OfxImageEffectPropRegionOfDefinition, // 68
-  OfxImageEffectPropRegionOfInterest, // 69
-  OfxImageEffectPropRenderQualityDraft, // 70
-  OfxImageEffectPropRenderScale, // 71
-  OfxImageEffectPropRenderWindow, // 72
-  OfxImageEffectPropSequentialRenderStatus, // 73
-  OfxImageEffectPropSetableFielding, // 74
-  OfxImageEffectPropSetableFrameRate, // 75
-  OfxImageEffectPropSupportedComponents, // 76
-  OfxImageEffectPropSupportedContexts, // 77
-  OfxImageEffectPropSupportedPixelDepths, // 78
-  OfxImageEffectPropSupportsMultiResolution, // 79
-  OfxImageEffectPropSupportsMultipleClipPARs, // 80
-  OfxImageEffectPropSupportsOverlays, // 81
-  OfxImageEffectPropSupportsTiles, // 82
-  OfxImageEffectPropTemporalClipAccess, // 83
-  OfxImageEffectPropThumbnailRender, // 84
-  OfxImageEffectPropUnmappedFrameRange, // 85
-  OfxImageEffectPropUnmappedFrameRate, // 86
-  OfxImagePropBounds, // 87
-  OfxImagePropData, // 88
-  OfxImagePropField, // 89
-  OfxImagePropPixelAspectRatio, // 90
-  OfxImagePropRegionOfDefinition, // 91
-  OfxImagePropRowBytes, // 92
-  OfxImagePropUniqueIdentifier, // 93
-  OfxInteractPropBackgroundColour, // 94
-  OfxInteractPropBitDepth, // 95
-  OfxInteractPropDrawContext, // 96
-  OfxInteractPropHasAlpha, // 97
-  OfxInteractPropPenPosition, // 98
-  OfxInteractPropPenPressure, // 99
-  OfxInteractPropPenViewportPosition, // 100
-  OfxInteractPropPixelScale, // 101
-  OfxInteractPropSlaveToParam, // 102
-  OfxInteractPropSuggestedColour, // 103
-  OfxInteractPropViewport, // 104
-  OfxOpenGLPropPixelDepth, // 105
-  OfxParamHostPropMaxPages, // 106
-  OfxParamHostPropMaxParameters, // 107
-  OfxParamHostPropPageRowColumnCount, // 108
-  OfxParamHostPropSupportsBooleanAnimation, // 109
-  OfxParamHostPropSupportsChoiceAnimation, // 110
-  OfxParamHostPropSupportsCustomAnimation, // 111
-  OfxParamHostPropSupportsCustomInteract, // 112
-  OfxParamHostPropSupportsParametricAnimation, // 113
-  OfxParamHostPropSupportsStrChoice, // 114
-  OfxParamHostPropSupportsStrChoiceAnimation, // 115
-  OfxParamHostPropSupportsStringAnimation, // 116
-  OfxParamPropAnimates, // 117
-  OfxParamPropCacheInvalidation, // 118
-  OfxParamPropCanUndo, // 119
-  OfxParamPropChoiceEnum, // 120
-  OfxParamPropChoiceOption, // 121
-  OfxParamPropChoiceOrder, // 122
-  OfxParamPropColourManagement, // 123
-  OfxParamPropCustomCallbackV1, // 124
-  OfxParamPropCustomValue, // 125
-  OfxParamPropDataPtr, // 126
-  OfxParamPropDefault, // 127
-  OfxParamPropDefaultCoordinateSystem, // 128
-  OfxParamPropDigits, // 129
-  OfxParamPropDimensionLabel, // 130
-  OfxParamPropDisplayMax, // 131
-  OfxParamPropDisplayMin, // 132
-  OfxParamPropDoubleType, // 133
-  OfxParamPropEnabled, // 134
-  OfxParamPropEvaluateOnChange, // 135
-  OfxParamPropGroupOpen, // 136
-  OfxParamPropHasHostOverlayHandle, // 137
-  OfxParamPropHint, // 138
-  OfxParamPropIncrement, // 139
-  OfxParamPropInteractMinimumSize, // 140
-  OfxParamPropInteractPreferedSize, // 141
-  OfxParamPropInteractSize, // 142
-  OfxParamPropInteractSizeAspect, // 143
-  OfxParamPropInteractV1, // 144
-  OfxParamPropInterpolationAmount, // 145
-  OfxParamPropInterpolationTime, // 146
-  OfxParamPropIsAnimating, // 147
-  OfxParamPropIsAutoKeying, // 148
-  OfxParamPropMax, // 149
-  OfxParamPropMin, // 150
-  OfxParamPropPageChild, // 151
-  OfxParamPropParametricDimension, // 152
-  OfxParamPropParametricInteractBackground, // 153
-  OfxParamPropParametricRange, // 154
-  OfxParamPropParametricUIColour, // 155
-  OfxParamPropParent, // 156
-  OfxParamPropPersistant, // 157
-  OfxParamPropPluginMayWrite, // 158
-  OfxParamPropScriptName, // 159
-  OfxParamPropSecret, // 160
-  OfxParamPropShowTimeMarker, // 161
-  OfxParamPropStringFilePathExists, // 162
-  OfxParamPropStringMode, // 163
-  OfxParamPropType, // 164
-  OfxPluginPropFilePath, // 165
-  OfxPluginPropParamPageOrder, // 166
-  OfxPropAPIVersion, // 167
-  OfxPropChangeReason, // 168
-  OfxPropEffectInstance, // 169
-  OfxPropHostOSHandle, // 170
-  OfxPropIcon, // 171
-  OfxPropInstanceData, // 172
-  OfxPropIsInteractive, // 173
-  OfxPropLabel, // 174
-  OfxPropLongLabel, // 175
-  OfxPropName, // 176
-  OfxPropParamSetNeedsSyncing, // 177
-  OfxPropPluginDescription, // 178
-  OfxPropShortLabel, // 179
-  OfxPropTime, // 180
-  OfxPropType, // 181
-  OfxPropVersion, // 182
-  OfxPropVersionLabel, // 183
-  OfxImageClipPropDisplayTimeOffset, // 184 (orig name: OfxImageClipPropDisplayTimeOffset)
-  OfxParamPropUseHostOverlayHandle, // 185 (orig name: OfxParamPropUseHostOverlayHandle)
-  OfxPropKeyString, // 186 (orig name: OfxPropKeyString)
-  OfxPropKeySym, // 187 (orig name: OfxPropKeySym)
-  NProps // 188
+  OfxImageEffectPropCudaRenderSupported, // 31
+  OfxImageEffectPropCudaStreamSupported, // 32
+  OfxImageEffectPropDisplayColourspace, // 33
+  OfxImageEffectPropFieldToRender, // 34
+  OfxImageEffectPropFrameRange, // 35
+  OfxImageEffectPropFrameRate, // 36
+  OfxImageEffectPropFrameStep, // 37
+  OfxImageEffectPropInAnalysis, // 38
+  OfxImageEffectPropInteractiveRenderStatus, // 39
+  OfxImageEffectPropMetalCommandQueue, // 40
+  OfxImageEffectPropMetalEnabled, // 41
+  OfxImageEffectPropMetalRenderSupported, // 42
+  OfxImageEffectPropMetalTextureEnabled, // 43
+  OfxImageEffectPropMetalTextureSupported, // 44
+  OfxImageEffectPropMultipleClipDepths, // 45
+  OfxImageEffectPropNoSpatialAwareness, // 46
+  OfxImageEffectPropOCIOConfig, // 47
+  OfxImageEffectPropOCIODisplay, // 48
+  OfxImageEffectPropOCIOView, // 49
+  OfxImageEffectPropOpenCLRenderSupported, // 50
+  OfxImageEffectPropOpenCLSupported, // 51
+  OfxImageEffectPropOpenGLRenderSupported, // 52
+  OfxImageEffectPropPixelAspectRatio, // 53
+  OfxImageEffectPropPixelDepth, // 54
+  OfxImageEffectPropPluginHandle, // 55
+  OfxImageEffectPropPreMultiplication, // 56
+  OfxImageEffectPropProjectExtent, // 57
+  OfxImageEffectPropProjectOffset, // 58
+  OfxImageEffectPropProjectSize, // 59
+  OfxImageEffectPropRegionOfDefinition, // 60
+  OfxImageEffectPropRegionOfInterest, // 61
+  OfxImageEffectPropRenderQualityDraft, // 62
+  OfxImageEffectPropRenderScale, // 63
+  OfxImageEffectPropRenderWindow, // 64
+  OfxImageEffectPropSequentialRenderStatus, // 65
+  OfxImageEffectPropSetableFielding, // 66
+  OfxImageEffectPropSetableFrameRate, // 67
+  OfxImageEffectPropSupportedComponents, // 68
+  OfxImageEffectPropSupportedContexts, // 69
+  OfxImageEffectPropSupportedPixelDepths, // 70
+  OfxImageEffectPropSupportsMultiResolution, // 71
+  OfxImageEffectPropSupportsMultipleClipPARs, // 72
+  OfxImageEffectPropSupportsOverlays, // 73
+  OfxImageEffectPropSupportsTiles, // 74
+  OfxImageEffectPropTemporalClipAccess, // 75
+  OfxImageEffectPropThumbnailRender, // 76
+  OfxImageEffectPropUnmappedFrameRange, // 77
+  OfxImageEffectPropUnmappedFrameRate, // 78
+  OfxImagePropBounds, // 79
+  OfxImagePropData, // 80
+  OfxImagePropField, // 81
+  OfxImagePropPixelAspectRatio, // 82
+  OfxImagePropRegionOfDefinition, // 83
+  OfxImagePropRowBytes, // 84
+  OfxImagePropUniqueIdentifier, // 85
+  OfxInteractPropBackgroundColour, // 86
+  OfxInteractPropBitDepth, // 87
+  OfxInteractPropDrawContext, // 88
+  OfxInteractPropHasAlpha, // 89
+  OfxInteractPropPenPosition, // 90
+  OfxInteractPropPenPressure, // 91
+  OfxInteractPropPenViewportPosition, // 92
+  OfxInteractPropPixelScale, // 93
+  OfxInteractPropSlaveToParam, // 94
+  OfxInteractPropSuggestedColour, // 95
+  OfxInteractPropViewport, // 96
+  OfxParamHostPropMaxPages, // 97
+  OfxParamHostPropMaxParameters, // 98
+  OfxParamHostPropPageRowColumnCount, // 99
+  OfxParamHostPropSupportsBooleanAnimation, // 100
+  OfxParamHostPropSupportsChoiceAnimation, // 101
+  OfxParamHostPropSupportsCustomAnimation, // 102
+  OfxParamHostPropSupportsCustomInteract, // 103
+  OfxParamHostPropSupportsParametricAnimation, // 104
+  OfxParamHostPropSupportsStrChoice, // 105
+  OfxParamHostPropSupportsStrChoiceAnimation, // 106
+  OfxParamHostPropSupportsStringAnimation, // 107
+  OfxParamInterpType, // 108
+  OfxParamPropAnimates, // 109
+  OfxParamPropCacheInvalidation, // 110
+  OfxParamPropCanUndo, // 111
+  OfxParamPropChoiceEnum, // 112
+  OfxParamPropChoiceOption, // 113
+  OfxParamPropChoiceOrder, // 114
+  OfxParamPropColourManagement, // 115
+  OfxParamPropCustomCallbackV1, // 116
+  OfxParamPropCustomValue, // 117
+  OfxParamPropDataPtr, // 118
+  OfxParamPropDefault, // 119
+  OfxParamPropDefaultCoordinateSystem, // 120
+  OfxParamPropDigits, // 121
+  OfxParamPropDimensionLabel, // 122
+  OfxParamPropDisplayMax, // 123
+  OfxParamPropDisplayMin, // 124
+  OfxParamPropDoubleType, // 125
+  OfxParamPropEnabled, // 126
+  OfxParamPropEvaluateOnChange, // 127
+  OfxParamPropGroupOpen, // 128
+  OfxParamPropHasHostOverlayHandle, // 129
+  OfxParamPropHint, // 130
+  OfxParamPropIncrement, // 131
+  OfxParamPropInteractMinimumSize, // 132
+  OfxParamPropInteractPreferedSize, // 133
+  OfxParamPropInteractSize, // 134
+  OfxParamPropInteractSizeAspect, // 135
+  OfxParamPropInteractV1, // 136
+  OfxParamPropInterpolationAmount, // 137
+  OfxParamPropInterpolationTime, // 138
+  OfxParamPropIsAnimating, // 139
+  OfxParamPropIsAutoKeying, // 140
+  OfxParamPropMax, // 141
+  OfxParamPropMin, // 142
+  OfxParamPropPageChild, // 143
+  OfxParamPropParent, // 144
+  OfxParamPropPersistant, // 145
+  OfxParamPropPluginMayWrite, // 146
+  OfxParamPropScriptName, // 147
+  OfxParamPropSecret, // 148
+  OfxParamPropShowTimeMarker, // 149
+  OfxParamPropStringFilePathExists, // 150
+  OfxParamPropStringMode, // 151
+  OfxParamPropType, // 152
+  OfxPluginPropFilePath, // 153
+  OfxPluginPropParamPageOrder, // 154
+  OfxPropAPIVersion, // 155
+  OfxPropChangeReason, // 156
+  OfxPropEffectInstance, // 157
+  OfxPropHostOSHandle, // 158
+  OfxPropIcon, // 159
+  OfxPropInstanceData, // 160
+  OfxPropIsInteractive, // 161
+  OfxPropLabel, // 162
+  OfxPropLongLabel, // 163
+  OfxPropName, // 164
+  OfxPropParamSetNeedsSyncing, // 165
+  OfxPropPluginDescription, // 166
+  OfxPropShortLabel, // 167
+  OfxPropTime, // 168
+  OfxPropType, // 169
+  OfxPropVersion, // 170
+  OfxPropVersionLabel, // 171
+  OfxImageClipPropDisplayTimeOffset, // 172 (orig name: OfxImageClipPropDisplayTimeOffset)
+  OfxParamPropUseHostOverlayHandle, // 173 (orig name: OfxParamPropUseHostOverlayHandle)
+  OfxPropKeyString, // 174 (orig name: OfxPropKeyString)
+  OfxPropKeySym, // 175 (orig name: OfxPropKeySym)
+#ifdef OFX_EXTENSIONS_NATRON
+  NatronOfxBooleanParamPropIsToggableButton, // 176
+  NatronOfxExtraCreatedPlanes, // 177
+  NatronOfxGroupParamPropIsDialog, // 178
+  NatronOfxHostIsNatron, // 179
+  NatronOfxImageEffectPluginUsesMultipleThread, // 180
+  NatronOfxImageEffectPropChannelSelector, // 181
+  NatronOfxImageEffectPropGroupId, // 182
+  NatronOfxImageEffectPropInViewerContextDefaultShortcuts, // 183
+  NatronOfxImageEffectPropInViewerContextShortcutHasAltModifier, // 184
+  NatronOfxImageEffectPropInViewerContextShortcutHasControlModifier, // 185
+  NatronOfxImageEffectPropInViewerContextShortcutHasKeypadModifier, // 186
+  NatronOfxImageEffectPropInViewerContextShortcutHasMetaModifier, // 187
+  NatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier, // 188
+  NatronOfxImageEffectPropInViewerContextShortcutSymbol, // 189
+  NatronOfxImageEffectPropInstanceId, // 190
+  NatronOfxImageEffectPropOpenGLContextData, // 191
+  NatronOfxImageEffectPropProjectId, // 192
+  NatronOfxImageEffectSelectionRectangle, // 193
+  NatronOfxInteractColourPicking, // 194
+  NatronOfxInteractHostPropSupportsKeyModifiers, // 195
+  NatronOfxInteractPropDrawSuiteShadows, // 196
+  NatronOfxInteractPropKeyModifiers, // 197
+  NatronOfxPageParamPropInViewerContextIsToolbar, // 198
+  NatronOfxParamHostPropSupportsDynamicChoices, // 199
+  NatronOfxParamPropChoiceCascading, // 200
+  NatronOfxParamPropChoiceHostCanAddOptions, // 201
+  NatronOfxParamPropInViewerContextCanHaveShortcut, // 202
+  NatronOfxParamPropInViewerContextLabel, // 203
+  NatronOfxParamPropInViewerContextLayoutHint, // 204
+  NatronOfxParamPropInViewerContextLayoutPadWidth, // 205
+  NatronOfxParamPropInViewerContextParamsOrder, // 206
+  NatronOfxParamPropInViewerContextSecret, // 207
+  NatronOfxParamPropIsInstanceSpecific, // 208
+  NatronOfxParamPropTypeRectangle, // 209
+  NatronOfxParamTypeMatrix3x3, // 210
+  NatronOfxPropDescriptionIsMarkdown, // 211
+  NatronOfxPropNativeOverlays, // 212
+  NatronOfxPropPickerColour, // 213
+  OfxImageClipPropFormat, // 214
+  OfxImageEffectPropCanDistort, // 215
+  OfxInteractHostPropSupportedCursors, // 216
+  OfxInteractPropCursor, // 217
+  OfxInteractPropCursorHotSpot, // 218
+  OfxInteractPropCursorImage, // 219
+  OfxInteractPropScreenPixelRatio, // 220
+  OfxParamPropParametricIsPeriodic, // 221
+  OfxPropInverseDistortionDataFreeFunction, // 222
+  OfxPropInverseDistortionFunction, // 223
+  OfxPropInverseDistortionFunctionData, // 224
+  OfxPropInverseDistortionFunctionDataSize, // 225
+  OfxPropMatrix3x3, // 226
+  NatronOfxImageEffectPropHostMasking, // 227 (orig name: NatronOfxImageEffectPropHostMasking)
+  NatronOfxImageEffectPropHostMixing, // 228 (orig name: NatronOfxImageEffectPropHostMixing)
+#endif // OFX_EXTENSIONS_NATRON
+#ifdef OFX_EXTENSIONS_NUKE
+  FnOfxImageEffectCanTransform, // 229
+  FnOfxParamPropGroupIsTab, // 230
+  FnOfxPropMatrix2D, // 231
+  OfxImageEffectPropIdentityPlane, // 232
+  OfxImageEffectPropRenderAllPlanes, // 233
+  OfxImageEffectPropRenderPlanes, // 234
+  OfxParamPropLayoutHint, // 235
+  OfxParamPropLayoutPadWidth, // 236
+  OfxPropHostBuildVersion, // 237
+  OfxPropHostMajorVersion, // 238
+  OfxPropHostMinorVersion, // 239
+  OfxPropHostProductTitle, // 240
+  OfxPropOverlayColour, // 241
+  FnOfxImageEffectPropPassThroughClip, // 242 (orig name: FnOfxImageEffectPropPassThroughClip)
+  FnOfxImageEffectPropPassThroughTime, // 243 (orig name: FnOfxImageEffectPropPassThroughTime)
+  FnOfxImageEffectPropPassThroughView, // 244 (orig name: FnOfxImageEffectPropPassThroughView)
+  FnOfxImageEffectPropComponentsPresent, // 245 (orig name: FnOfxImageEffectPropComponentsPresent)
+  FnOfxImageEffectPropMultiPlanar, // 246 (orig name: FnOfxImageEffectPropMultiPlanar)
+  FnOfxImageEffectPropPassThroughComponents, // 247 (orig name: FnOfxImageEffectPropPassThroughComponents)
+  FnOfxImageEffectPropView, // 248 (orig name: FnOfxImageEffectPropView)
+  FnOfxImageEffectPropViewAware, // 249 (orig name: FnOfxImageEffectPropViewAware)
+  FnOfxImageEffectPropViewInvariance, // 250 (orig name: FnOfxImageEffectPropViewInvariance)
+#endif // OFX_EXTENSIONS_NUKE
+#ifdef OFX_EXTENSIONS_RESOLVE
+  OfxImageEffectPropResolvePage, // 251
+  OfxImageClipPropThumbnail, // 252 (orig name: OfxImageClipPropThumbnail)
+#endif // OFX_EXTENSIONS_RESOLVE
+#ifdef OFX_EXTENSIONS_TUTTLE
+  OfxParamPropChoiceLabelOption, // 253
+  TuttleOfxImageEffectPropEvaluation, // 254
+  TuttleOfxImageEffectPropSupportedExtensions, // 255
+#endif // OFX_EXTENSIONS_TUTTLE
+#ifdef OFX_EXTENSIONS_VEGAS
+  OfxHWndInteractPropLocation, // 256
+  OfxHWndInteractPropMinSize, // 257
+  OfxHWndInteractPropParent, // 258
+  OfxHWndInteractPropPrefferedSize, // 259
+  OfxImageEffectPluginPropHWndInteractV1, // 260
+  OfxImageEffectPropHelpContextID, // 261
+  OfxImageEffectPropHelpFile, // 262
+  OfxImageEffectPropPixelOrder, // 263
+  OfxImageEffectPropRenderQuality, // 264
+  OfxImageEffectPropRenderView, // 265
+  OfxImageEffectPropVegasContext, // 266
+  OfxImageEffectPropVegasUpliftGUID, // 267
+  OfxImageEffectPropViewsToRender, // 268
+  OfxParamColorDefaultColorspace, // 269
+  OfxParamPropColorWheelLevel, // 270
+  OfxParamPropParameterExpanded, // 271
+  OfxProbPluginVegasPresetThumbnail, // 272
+  OfxPropVegasHostAppDataDirectory, // 273
+  OfxPropVegasUpliftData, // 274
+  OfxPropVegasUpliftDataLength, // 275
+  OfxPropVegasUpliftKeyframeData, // 276
+  OfxPropVegasUpliftKeyframeDataLength, // 277
+  OfxPropVegasUpliftKeyframeInterpolation, // 278
+  OfxPropVegasUpliftKeyframeTime, // 279
+#endif // OFX_EXTENSIONS_VEGAS
+#ifdef OFX_SUPPORTS_CUDARENDER
+  OfxImageEffectPropCudaEnabled, // 280
+  OfxImageEffectPropCudaStream, // 281
+#endif // OFX_SUPPORTS_CUDARENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
+  OfxImageEffectPropOpenCLCommandQueue, // 282
+  OfxImageEffectPropOpenCLEnabled, // 283
+  OfxImageEffectPropOpenCLImage, // 284
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+  OfxImageEffectPropOpenGLEnabled, // 285
+  OfxImageEffectPropOpenGLTextureIndex, // 286
+  OfxImageEffectPropOpenGLTextureTarget, // 287
+  OfxOpenGLPropPixelDepth, // 288
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_PARAMETRIC
+  OfxParamPropParametricDimension, // 289
+  OfxParamPropParametricInteractBackground, // 290
+  OfxParamPropParametricRange, // 291
+  OfxParamPropParametricUIColour, // 292
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC_V2
+  OfxHostPropSupportedParametricInterpolations, // 293
+  OfxParamParametricInterpolationCustomInterpCallbackV1, // 294
+  OfxParametricParamCustomInterpControlPointIndex, // 295
+  OfxParametricParamCustomInterpCurveIndex, // 296
+  OfxParametricParamCustomInterpInterpolationTime, // 297
+  OfxParametricParamCustomInterpInterpolationValue, // 298
+#endif // OFX_SUPPORTS_PARAMETRIC_V2
+  NProps // 299
 }; // PropId
 
 // Separate arrays for enum-values for enum props, to keep everything constexpr
@@ -279,8 +423,8 @@ constexpr std::array OfxImageEffectPropThumbnailRender =
   {"false","true"};
 constexpr std::array OfxImagePropField =
   {"OfxFieldNone","OfxFieldBoth","OfxFieldLower","OfxFieldUpper"};
-constexpr std::array OfxOpenGLPropPixelDepth =
-  {"OfxBitDepthNone","OfxBitDepthByte","OfxBitDepthShort","OfxBitDepthHalf","OfxBitDepthFloat"};
+constexpr std::array OfxParamInterpType =
+  {"OfxParamInterpTypeConstantStep","OfxParamInterpTypeLinear","OfxParamInterpTypeSmooth"};
 constexpr std::array OfxParamPropCacheInvalidation =
   {"OfxParamInvalidateValueChange","OfxParamInvalidateValueChangeToEnd","OfxParamInvalidateAll"};
 constexpr std::array OfxParamPropColourManagement =
@@ -293,6 +437,50 @@ constexpr std::array OfxParamPropStringMode =
   {"OfxParamStringIsSingleLine","OfxParamStringIsMultiLine","OfxParamStringIsFilePath","OfxParamStringIsDirectoryPath","OfxParamStringIsLabel","OfxParamStringIsRichTextFormat"};
 constexpr std::array OfxPropChangeReason =
   {"OfxChangeUserEdited","OfxChangePluginEdited","OfxChangeTime"};
+#ifdef OFX_EXTENSIONS_NATRON
+constexpr std::array NatronOfxImageEffectPropChannelSelector =
+  {"OfxImageComponentNone","OfxImageComponentRGBA","OfxImageComponentRGB","OfxImageComponentAlpha"};
+constexpr std::array OfxInteractHostPropSupportedCursors =
+  {"default","none","OfxInteractCursorCustom","pointer","crosshair","text","wait","progress","not-allowed","help","cell","copy","move","grab","grabbing","all-scroll","col-resize","row-resize","ew-resize","ns-resize","nesw-resize","nwse-resize","zoom-in","zoom-out"};
+constexpr std::array OfxInteractPropCursor =
+  {"default","none","OfxInteractCursorCustom","pointer","crosshair","text","wait","progress","not-allowed","help","cell","copy","move","grab","grabbing","all-scroll","col-resize","row-resize","ew-resize","ns-resize","nesw-resize","nwse-resize","zoom-in","zoom-out"};
+#endif // OFX_EXTENSIONS_NATRON
+#ifdef OFX_EXTENSIONS_NUKE
+constexpr std::array FnOfxImageEffectPropComponentsPresent =
+  {"uk.co.thefoundry.OfxImagePlaneColour","uk.co.thefoundry.OfxImagePlaneBackMotionVector","uk.co.thefoundry.OfxImagePlaneForwardMotionVector","uk.co.thefoundry.OfxImagePlaneStereoDisparityLeft","uk.co.thefoundry.OfxImagePlaneStereoDisparityRight"};
+#endif // OFX_EXTENSIONS_NUKE
+#ifdef OFX_EXTENSIONS_RESOLVE
+#endif // OFX_EXTENSIONS_RESOLVE
+#ifdef OFX_EXTENSIONS_TUTTLE
+#endif // OFX_EXTENSIONS_TUTTLE
+#ifdef OFX_EXTENSIONS_VEGAS
+constexpr std::array OfxImageEffectPropPixelOrder =
+  {"OfxImagePixelOrderRGBA","OfxImagePixelOrderBGRA"};
+constexpr std::array OfxImageEffectPropRenderQuality =
+  {"OfxImageEffectPropRenderQualityDraft","OfxImageEffectPropRenderQualityPreview","OfxImageEffectPropRenderQualityGood","OfxImageEffectPropRenderQualityBest"};
+constexpr std::array OfxImageEffectPropVegasContext =
+  {"OfxImageEffectPropVegasContextUnknown","OfxImageEffectPropVegasContextMedia","OfxImageEffectPropVegasContextTrack","OfxImageEffectPropVegasContextEvent","OfxImageEffectPropVegasContextEventFadeIn","OfxImageEffectPropVegasContextEventFadeOut","OfxImageEffectPropVegasContextProject","OfxImageEffectPropVegasContextGenerator"};
+constexpr std::array OfxParamColorDefaultColorspace =
+  {"OfxParamColorColorspaceRGB","OfxParamColorColorspaceHSL","OfxParamColorColorspaceHSV","OfxParamColorColorspaceLab"};
+constexpr std::array OfxProbPluginVegasPresetThumbnail =
+  {"OfxProbPluginVegasPresetThumbnailDefault","OfxProbPluginVegasPresetThumbnailSolidImage","OfxProbPluginVegasPresetThumbnailImageWithAlpha"};
+constexpr std::array OfxPropVegasUpliftKeyframeInterpolation =
+  {"OfxVegasKeyframeInterpolationUnknown","OfxVegasKeyframeInterpolationLinear","OfxVegasKeyframeInterpolationFast","OfxVegasKeyframeInterpolationSlow","OfxVegasKeyframeInterpolationSmooth","OfxVegasKeyframeInterpolationSharp","OfxVegasKeyframeInterpolationHold","OfxVegasKeyframeInterpolationManual","OfxVegasKeyframeInterpolationSplit"};
+#endif // OFX_EXTENSIONS_VEGAS
+#ifdef OFX_SUPPORTS_CUDARENDER
+#endif // OFX_SUPPORTS_CUDARENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+constexpr std::array OfxOpenGLPropPixelDepth =
+  {"OfxBitDepthNone","OfxBitDepthByte","OfxBitDepthShort","OfxBitDepthHalf","OfxBitDepthFloat"};
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_PARAMETRIC
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC_V2
+constexpr std::array OfxHostPropSupportedParametricInterpolations =
+  {"OfxHostParametricInterpolationDefault","OfxHostParametricInterpolationConstant","OfxHostParametricInterpolationLinear","OfxHostParametricInterpolationHorizontal","OfxHostParametricInterpolationSmooth","OfxHostParametricInterpolationCubic","OfxHostParametricInterpolationCatmullRom","OfxHostParametricInterpolationCustom"};
+#endif // OFX_SUPPORTS_PARAMETRIC_V2
 } // namespace prop_enum_values
 
 
@@ -329,9 +517,7 @@ static constexpr PropType OfxImageEffectPropColourManagementConfig_types[] = {Pr
 static constexpr PropType OfxImageEffectPropColourManagementStyle_types[] = {PropType::Enum};
 static constexpr PropType OfxImageEffectPropComponents_types[] = {PropType::Enum};
 static constexpr PropType OfxImageEffectPropContext_types[] = {PropType::Enum};
-static constexpr PropType OfxImageEffectPropCudaEnabled_types[] = {PropType::Bool};
 static constexpr PropType OfxImageEffectPropCudaRenderSupported_types[] = {PropType::Enum};
-static constexpr PropType OfxImageEffectPropCudaStream_types[] = {PropType::Pointer};
 static constexpr PropType OfxImageEffectPropCudaStreamSupported_types[] = {PropType::Enum};
 static constexpr PropType OfxImageEffectPropDisplayColourspace_types[] = {PropType::String};
 static constexpr PropType OfxImageEffectPropFieldToRender_types[] = {PropType::Enum};
@@ -350,15 +536,9 @@ static constexpr PropType OfxImageEffectPropNoSpatialAwareness_types[] = {PropTy
 static constexpr PropType OfxImageEffectPropOCIOConfig_types[] = {PropType::String};
 static constexpr PropType OfxImageEffectPropOCIODisplay_types[] = {PropType::String};
 static constexpr PropType OfxImageEffectPropOCIOView_types[] = {PropType::String};
-static constexpr PropType OfxImageEffectPropOpenCLCommandQueue_types[] = {PropType::Pointer};
-static constexpr PropType OfxImageEffectPropOpenCLEnabled_types[] = {PropType::Bool};
-static constexpr PropType OfxImageEffectPropOpenCLImage_types[] = {PropType::Pointer};
 static constexpr PropType OfxImageEffectPropOpenCLRenderSupported_types[] = {PropType::Enum};
 static constexpr PropType OfxImageEffectPropOpenCLSupported_types[] = {PropType::Enum};
-static constexpr PropType OfxImageEffectPropOpenGLEnabled_types[] = {PropType::Bool};
 static constexpr PropType OfxImageEffectPropOpenGLRenderSupported_types[] = {PropType::Enum};
-static constexpr PropType OfxImageEffectPropOpenGLTextureIndex_types[] = {PropType::Int};
-static constexpr PropType OfxImageEffectPropOpenGLTextureTarget_types[] = {PropType::Int};
 static constexpr PropType OfxImageEffectPropPixelAspectRatio_types[] = {PropType::Double};
 static constexpr PropType OfxImageEffectPropPixelDepth_types[] = {PropType::Enum};
 static constexpr PropType OfxImageEffectPropPluginHandle_types[] = {PropType::Pointer};
@@ -403,7 +583,6 @@ static constexpr PropType OfxInteractPropPixelScale_types[] = {PropType::Double}
 static constexpr PropType OfxInteractPropSlaveToParam_types[] = {PropType::String};
 static constexpr PropType OfxInteractPropSuggestedColour_types[] = {PropType::Double};
 static constexpr PropType OfxInteractPropViewport_types[] = {PropType::Int};
-static constexpr PropType OfxOpenGLPropPixelDepth_types[] = {PropType::Enum};
 static constexpr PropType OfxParamHostPropMaxPages_types[] = {PropType::Int};
 static constexpr PropType OfxParamHostPropMaxParameters_types[] = {PropType::Int};
 static constexpr PropType OfxParamHostPropPageRowColumnCount_types[] = {PropType::Int};
@@ -415,6 +594,7 @@ static constexpr PropType OfxParamHostPropSupportsParametricAnimation_types[] = 
 static constexpr PropType OfxParamHostPropSupportsStrChoice_types[] = {PropType::Bool};
 static constexpr PropType OfxParamHostPropSupportsStrChoiceAnimation_types[] = {PropType::Bool};
 static constexpr PropType OfxParamHostPropSupportsStringAnimation_types[] = {PropType::Bool};
+static constexpr PropType OfxParamInterpType_types[] = {PropType::Enum};
 static constexpr PropType OfxParamPropAnimates_types[] = {PropType::Bool};
 static constexpr PropType OfxParamPropCacheInvalidation_types[] = {PropType::Enum};
 static constexpr PropType OfxParamPropCanUndo_types[] = {PropType::Bool};
@@ -450,10 +630,6 @@ static constexpr PropType OfxParamPropIsAutoKeying_types[] = {PropType::Bool};
 static constexpr PropType OfxParamPropMax_types[] = {PropType::Int,PropType::Double};
 static constexpr PropType OfxParamPropMin_types[] = {PropType::Int,PropType::Double};
 static constexpr PropType OfxParamPropPageChild_types[] = {PropType::String};
-static constexpr PropType OfxParamPropParametricDimension_types[] = {PropType::Int};
-static constexpr PropType OfxParamPropParametricInteractBackground_types[] = {PropType::Pointer};
-static constexpr PropType OfxParamPropParametricRange_types[] = {PropType::Double};
-static constexpr PropType OfxParamPropParametricUIColour_types[] = {PropType::Double};
 static constexpr PropType OfxParamPropParent_types[] = {PropType::String};
 static constexpr PropType OfxParamPropPersistant_types[] = {PropType::Bool};
 static constexpr PropType OfxParamPropPluginMayWrite_types[] = {PropType::Bool};
@@ -486,6 +662,149 @@ static constexpr PropType kOfxImageClipPropDisplayTimeOffset_types[] = {PropType
 static constexpr PropType kOfxParamPropUseHostOverlayHandle_types[] = {PropType::Bool};
 static constexpr PropType kOfxPropKeyString_types[] = {PropType::String};
 static constexpr PropType kOfxPropKeySym_types[] = {PropType::Int};
+#ifdef OFX_EXTENSIONS_NATRON
+static constexpr PropType NatronOfxBooleanParamPropIsToggableButton_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxExtraCreatedPlanes_types[] = {PropType::String};
+static constexpr PropType NatronOfxGroupParamPropIsDialog_types[] = {PropType::Int};
+static constexpr PropType NatronOfxHostIsNatron_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxImageEffectPluginUsesMultipleThread_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxImageEffectPropChannelSelector_types[] = {PropType::Enum};
+static constexpr PropType NatronOfxImageEffectPropGroupId_types[] = {PropType::String};
+static constexpr PropType NatronOfxImageEffectPropInViewerContextDefaultShortcuts_types[] = {PropType::String};
+static constexpr PropType NatronOfxImageEffectPropInViewerContextShortcutHasAltModifier_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxImageEffectPropInViewerContextShortcutHasControlModifier_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxImageEffectPropInViewerContextShortcutHasKeypadModifier_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxImageEffectPropInViewerContextShortcutHasMetaModifier_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxImageEffectPropInViewerContextShortcutSymbol_types[] = {PropType::Int};
+static constexpr PropType NatronOfxImageEffectPropInstanceId_types[] = {PropType::String};
+static constexpr PropType NatronOfxImageEffectPropOpenGLContextData_types[] = {PropType::Pointer};
+static constexpr PropType NatronOfxImageEffectPropProjectId_types[] = {PropType::String};
+static constexpr PropType NatronOfxImageEffectSelectionRectangle_types[] = {PropType::Double};
+static constexpr PropType NatronOfxInteractColourPicking_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxInteractHostPropSupportsKeyModifiers_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxInteractPropDrawSuiteShadows_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxInteractPropKeyModifiers_types[] = {PropType::Int};
+static constexpr PropType NatronOfxPageParamPropInViewerContextIsToolbar_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxParamHostPropSupportsDynamicChoices_types[] = {PropType::Int};
+static constexpr PropType NatronOfxParamPropChoiceCascading_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxParamPropChoiceHostCanAddOptions_types[] = {PropType::Int};
+static constexpr PropType NatronOfxParamPropInViewerContextCanHaveShortcut_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxParamPropInViewerContextLabel_types[] = {PropType::String};
+static constexpr PropType NatronOfxParamPropInViewerContextLayoutHint_types[] = {PropType::Int};
+static constexpr PropType NatronOfxParamPropInViewerContextLayoutPadWidth_types[] = {PropType::Int};
+static constexpr PropType NatronOfxParamPropInViewerContextParamsOrder_types[] = {PropType::String};
+static constexpr PropType NatronOfxParamPropInViewerContextSecret_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxParamPropIsInstanceSpecific_types[] = {PropType::Bool};
+static constexpr PropType NatronOfxParamPropTypeRectangle_types[] = {PropType::Int};
+static constexpr PropType NatronOfxParamTypeMatrix3x3_types[] = {PropType::Int};
+static constexpr PropType NatronOfxPropDescriptionIsMarkdown_types[] = {PropType::Int};
+static constexpr PropType NatronOfxPropNativeOverlays_types[] = {PropType::String};
+static constexpr PropType NatronOfxPropPickerColour_types[] = {PropType::Double};
+static constexpr PropType OfxImageClipPropFormat_types[] = {PropType::Int};
+static constexpr PropType OfxImageEffectPropCanDistort_types[] = {PropType::Int};
+static constexpr PropType OfxInteractHostPropSupportedCursors_types[] = {PropType::Enum};
+static constexpr PropType OfxInteractPropCursor_types[] = {PropType::Enum};
+static constexpr PropType OfxInteractPropCursorHotSpot_types[] = {PropType::Int};
+static constexpr PropType OfxInteractPropCursorImage_types[] = {PropType::String};
+static constexpr PropType OfxInteractPropScreenPixelRatio_types[] = {PropType::Double};
+static constexpr PropType OfxParamPropParametricIsPeriodic_types[] = {PropType::Int};
+static constexpr PropType OfxPropInverseDistortionDataFreeFunction_types[] = {PropType::Pointer};
+static constexpr PropType OfxPropInverseDistortionFunction_types[] = {PropType::Pointer};
+static constexpr PropType OfxPropInverseDistortionFunctionData_types[] = {PropType::Pointer};
+static constexpr PropType OfxPropInverseDistortionFunctionDataSize_types[] = {PropType::Int};
+static constexpr PropType OfxPropMatrix3x3_types[] = {PropType::Double};
+static constexpr PropType kNatronOfxImageEffectPropHostMasking_types[] = {PropType::Bool};
+static constexpr PropType kNatronOfxImageEffectPropHostMixing_types[] = {PropType::Bool};
+#endif // OFX_EXTENSIONS_NATRON
+#ifdef OFX_EXTENSIONS_NUKE
+static constexpr PropType FnOfxImageEffectCanTransform_types[] = {PropType::Bool};
+static constexpr PropType FnOfxParamPropGroupIsTab_types[] = {PropType::Bool};
+static constexpr PropType FnOfxPropMatrix2D_types[] = {PropType::Double};
+static constexpr PropType OfxImageEffectPropIdentityPlane_types[] = {PropType::String};
+static constexpr PropType OfxImageEffectPropRenderAllPlanes_types[] = {PropType::Int};
+static constexpr PropType OfxImageEffectPropRenderPlanes_types[] = {PropType::String};
+static constexpr PropType OfxParamPropLayoutHint_types[] = {PropType::Int};
+static constexpr PropType OfxParamPropLayoutPadWidth_types[] = {PropType::Int};
+static constexpr PropType OfxPropHostBuildVersion_types[] = {PropType::String};
+static constexpr PropType OfxPropHostMajorVersion_types[] = {PropType::Int};
+static constexpr PropType OfxPropHostMinorVersion_types[] = {PropType::Int};
+static constexpr PropType OfxPropHostProductTitle_types[] = {PropType::String};
+static constexpr PropType OfxPropOverlayColour_types[] = {PropType::Double};
+static constexpr PropType FnOfxImageEffectPropPassThroughClip_types[] = {PropType::String};
+static constexpr PropType FnOfxImageEffectPropPassThroughTime_types[] = {PropType::Double};
+static constexpr PropType FnOfxImageEffectPropPassThroughView_types[] = {PropType::Int};
+static constexpr PropType FnOfxImageEffectPropComponentsPresent_types[] = {PropType::Enum};
+static constexpr PropType FnOfxImageEffectPropMultiPlanar_types[] = {PropType::Int};
+static constexpr PropType FnOfxImageEffectPropPassThroughComponents_types[] = {PropType::Int};
+static constexpr PropType FnOfxImageEffectPropView_types[] = {PropType::Int};
+static constexpr PropType FnOfxImageEffectPropViewAware_types[] = {PropType::Int};
+static constexpr PropType FnOfxImageEffectPropViewInvariance_types[] = {PropType::Int};
+#endif // OFX_EXTENSIONS_NUKE
+#ifdef OFX_EXTENSIONS_RESOLVE
+static constexpr PropType OfxImageEffectPropResolvePage_types[] = {PropType::String};
+static constexpr PropType kOfxImageClipPropThumbnail_types[] = {PropType::Bool};
+#endif // OFX_EXTENSIONS_RESOLVE
+#ifdef OFX_EXTENSIONS_TUTTLE
+static constexpr PropType OfxParamPropChoiceLabelOption_types[] = {PropType::String};
+static constexpr PropType TuttleOfxImageEffectPropEvaluation_types[] = {PropType::Double};
+static constexpr PropType TuttleOfxImageEffectPropSupportedExtensions_types[] = {PropType::String};
+#endif // OFX_EXTENSIONS_TUTTLE
+#ifdef OFX_EXTENSIONS_VEGAS
+static constexpr PropType OfxHWndInteractPropLocation_types[] = {PropType::Int};
+static constexpr PropType OfxHWndInteractPropMinSize_types[] = {PropType::Int};
+static constexpr PropType OfxHWndInteractPropParent_types[] = {PropType::Pointer};
+static constexpr PropType OfxHWndInteractPropPrefferedSize_types[] = {PropType::Int};
+static constexpr PropType OfxImageEffectPluginPropHWndInteractV1_types[] = {PropType::Pointer};
+static constexpr PropType OfxImageEffectPropHelpContextID_types[] = {PropType::Int};
+static constexpr PropType OfxImageEffectPropHelpFile_types[] = {PropType::String};
+static constexpr PropType OfxImageEffectPropPixelOrder_types[] = {PropType::Enum};
+static constexpr PropType OfxImageEffectPropRenderQuality_types[] = {PropType::Enum};
+static constexpr PropType OfxImageEffectPropRenderView_types[] = {PropType::Int};
+static constexpr PropType OfxImageEffectPropVegasContext_types[] = {PropType::Enum};
+static constexpr PropType OfxImageEffectPropVegasUpliftGUID_types[] = {PropType::String};
+static constexpr PropType OfxImageEffectPropViewsToRender_types[] = {PropType::Int};
+static constexpr PropType OfxParamColorDefaultColorspace_types[] = {PropType::Enum};
+static constexpr PropType OfxParamPropColorWheelLevel_types[] = {PropType::Double};
+static constexpr PropType OfxParamPropParameterExpanded_types[] = {PropType::Int};
+static constexpr PropType OfxProbPluginVegasPresetThumbnail_types[] = {PropType::Enum};
+static constexpr PropType OfxPropVegasHostAppDataDirectory_types[] = {PropType::String};
+static constexpr PropType OfxPropVegasUpliftData_types[] = {PropType::Pointer};
+static constexpr PropType OfxPropVegasUpliftDataLength_types[] = {PropType::Int};
+static constexpr PropType OfxPropVegasUpliftKeyframeData_types[] = {PropType::Pointer};
+static constexpr PropType OfxPropVegasUpliftKeyframeDataLength_types[] = {PropType::Int};
+static constexpr PropType OfxPropVegasUpliftKeyframeInterpolation_types[] = {PropType::Enum};
+static constexpr PropType OfxPropVegasUpliftKeyframeTime_types[] = {PropType::Double};
+#endif // OFX_EXTENSIONS_VEGAS
+#ifdef OFX_SUPPORTS_CUDARENDER
+static constexpr PropType OfxImageEffectPropCudaEnabled_types[] = {PropType::Bool};
+static constexpr PropType OfxImageEffectPropCudaStream_types[] = {PropType::Pointer};
+#endif // OFX_SUPPORTS_CUDARENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
+static constexpr PropType OfxImageEffectPropOpenCLCommandQueue_types[] = {PropType::Pointer};
+static constexpr PropType OfxImageEffectPropOpenCLEnabled_types[] = {PropType::Bool};
+static constexpr PropType OfxImageEffectPropOpenCLImage_types[] = {PropType::Pointer};
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+static constexpr PropType OfxImageEffectPropOpenGLEnabled_types[] = {PropType::Bool};
+static constexpr PropType OfxImageEffectPropOpenGLTextureIndex_types[] = {PropType::Int};
+static constexpr PropType OfxImageEffectPropOpenGLTextureTarget_types[] = {PropType::Int};
+static constexpr PropType OfxOpenGLPropPixelDepth_types[] = {PropType::Enum};
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_PARAMETRIC
+static constexpr PropType OfxParamPropParametricDimension_types[] = {PropType::Int};
+static constexpr PropType OfxParamPropParametricInteractBackground_types[] = {PropType::Pointer};
+static constexpr PropType OfxParamPropParametricRange_types[] = {PropType::Double};
+static constexpr PropType OfxParamPropParametricUIColour_types[] = {PropType::Double};
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC_V2
+static constexpr PropType OfxHostPropSupportedParametricInterpolations_types[] = {PropType::Enum};
+static constexpr PropType OfxParamParametricInterpolationCustomInterpCallbackV1_types[] = {PropType::Pointer};
+static constexpr PropType OfxParametricParamCustomInterpControlPointIndex_types[] = {PropType::Int};
+static constexpr PropType OfxParametricParamCustomInterpCurveIndex_types[] = {PropType::Int};
+static constexpr PropType OfxParametricParamCustomInterpInterpolationTime_types[] = {PropType::Double};
+static constexpr PropType OfxParametricParamCustomInterpInterpolationValue_types[] = {PropType::Double};
+#endif // OFX_SUPPORTS_PARAMETRIC_V2
 } // namespace prop_type_arrays
 
 
@@ -579,12 +898,8 @@ static inline constexpr PropDefsArray<PropDef> prop_defs = {
   openfx::span(prop_type_arrays::OfxImageEffectPropComponents_types, 1), 1, openfx::span(prop_enum_values::OfxImageEffectPropComponents.data(), prop_enum_values::OfxImageEffectPropComponents.size())},
 { "OfxImageEffectPropContext",
   openfx::span(prop_type_arrays::OfxImageEffectPropContext_types, 1), 1, openfx::span(prop_enum_values::OfxImageEffectPropContext.data(), prop_enum_values::OfxImageEffectPropContext.size())},
-{ "OfxImageEffectPropCudaEnabled",
-  openfx::span(prop_type_arrays::OfxImageEffectPropCudaEnabled_types, 1), 1, openfx::span<const char* const>()},
 { "OfxImageEffectPropCudaRenderSupported",
   openfx::span(prop_type_arrays::OfxImageEffectPropCudaRenderSupported_types, 1), 1, openfx::span(prop_enum_values::OfxImageEffectPropCudaRenderSupported.data(), prop_enum_values::OfxImageEffectPropCudaRenderSupported.size())},
-{ "OfxImageEffectPropCudaStream",
-  openfx::span(prop_type_arrays::OfxImageEffectPropCudaStream_types, 1), 1, openfx::span<const char* const>()},
 { "OfxImageEffectPropCudaStreamSupported",
   openfx::span(prop_type_arrays::OfxImageEffectPropCudaStreamSupported_types, 1), 1, openfx::span(prop_enum_values::OfxImageEffectPropCudaStreamSupported.data(), prop_enum_values::OfxImageEffectPropCudaStreamSupported.size())},
 { "OfxImageEffectPropDisplayColourspace",
@@ -621,24 +936,12 @@ static inline constexpr PropDefsArray<PropDef> prop_defs = {
   openfx::span(prop_type_arrays::OfxImageEffectPropOCIODisplay_types, 1), 1, openfx::span<const char* const>()},
 { "OfxImageEffectPropOCIOView",
   openfx::span(prop_type_arrays::OfxImageEffectPropOCIOView_types, 1), 1, openfx::span<const char* const>()},
-{ "OfxImageEffectPropOpenCLCommandQueue",
-  openfx::span(prop_type_arrays::OfxImageEffectPropOpenCLCommandQueue_types, 1), 1, openfx::span<const char* const>()},
-{ "OfxImageEffectPropOpenCLEnabled",
-  openfx::span(prop_type_arrays::OfxImageEffectPropOpenCLEnabled_types, 1), 1, openfx::span<const char* const>()},
-{ "OfxImageEffectPropOpenCLImage",
-  openfx::span(prop_type_arrays::OfxImageEffectPropOpenCLImage_types, 1), 1, openfx::span<const char* const>()},
 { "OfxImageEffectPropOpenCLRenderSupported",
   openfx::span(prop_type_arrays::OfxImageEffectPropOpenCLRenderSupported_types, 1), 1, openfx::span(prop_enum_values::OfxImageEffectPropOpenCLRenderSupported.data(), prop_enum_values::OfxImageEffectPropOpenCLRenderSupported.size())},
 { "OfxImageEffectPropOpenCLSupported",
   openfx::span(prop_type_arrays::OfxImageEffectPropOpenCLSupported_types, 1), 1, openfx::span(prop_enum_values::OfxImageEffectPropOpenCLSupported.data(), prop_enum_values::OfxImageEffectPropOpenCLSupported.size())},
-{ "OfxImageEffectPropOpenGLEnabled",
-  openfx::span(prop_type_arrays::OfxImageEffectPropOpenGLEnabled_types, 1), 1, openfx::span<const char* const>()},
 { "OfxImageEffectPropOpenGLRenderSupported",
   openfx::span(prop_type_arrays::OfxImageEffectPropOpenGLRenderSupported_types, 1), 1, openfx::span(prop_enum_values::OfxImageEffectPropOpenGLRenderSupported.data(), prop_enum_values::OfxImageEffectPropOpenGLRenderSupported.size())},
-{ "OfxImageEffectPropOpenGLTextureIndex",
-  openfx::span(prop_type_arrays::OfxImageEffectPropOpenGLTextureIndex_types, 1), 1, openfx::span<const char* const>()},
-{ "OfxImageEffectPropOpenGLTextureTarget",
-  openfx::span(prop_type_arrays::OfxImageEffectPropOpenGLTextureTarget_types, 1), 1, openfx::span<const char* const>()},
 { "OfxImageEffectPropPixelAspectRatio",
   openfx::span(prop_type_arrays::OfxImageEffectPropPixelAspectRatio_types, 1), 1, openfx::span<const char* const>()},
 { "OfxImageEffectPropPixelDepth",
@@ -727,8 +1030,6 @@ static inline constexpr PropDefsArray<PropDef> prop_defs = {
   openfx::span(prop_type_arrays::OfxInteractPropSuggestedColour_types, 1), 3, openfx::span<const char* const>()},
 { "OfxInteractPropViewport",
   openfx::span(prop_type_arrays::OfxInteractPropViewport_types, 1), 2, openfx::span<const char* const>()},
-{ "OfxOpenGLPropPixelDepth",
-  openfx::span(prop_type_arrays::OfxOpenGLPropPixelDepth_types, 1), 0, openfx::span(prop_enum_values::OfxOpenGLPropPixelDepth.data(), prop_enum_values::OfxOpenGLPropPixelDepth.size())},
 { "OfxParamHostPropMaxPages",
   openfx::span(prop_type_arrays::OfxParamHostPropMaxPages_types, 1), 1, openfx::span<const char* const>()},
 { "OfxParamHostPropMaxParameters",
@@ -751,6 +1052,8 @@ static inline constexpr PropDefsArray<PropDef> prop_defs = {
   openfx::span(prop_type_arrays::OfxParamHostPropSupportsStrChoiceAnimation_types, 1), 1, openfx::span<const char* const>()},
 { "OfxParamHostPropSupportsStringAnimation",
   openfx::span(prop_type_arrays::OfxParamHostPropSupportsStringAnimation_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxParamInterpType",
+  openfx::span(prop_type_arrays::OfxParamInterpType_types, 1), 1, openfx::span(prop_enum_values::OfxParamInterpType.data(), prop_enum_values::OfxParamInterpType.size())},
 { "OfxParamPropAnimates",
   openfx::span(prop_type_arrays::OfxParamPropAnimates_types, 1), 1, openfx::span<const char* const>()},
 { "OfxParamPropCacheInvalidation",
@@ -821,14 +1124,6 @@ static inline constexpr PropDefsArray<PropDef> prop_defs = {
   openfx::span(prop_type_arrays::OfxParamPropMin_types, 2), 0, openfx::span<const char* const>()},
 { "OfxParamPropPageChild",
   openfx::span(prop_type_arrays::OfxParamPropPageChild_types, 1), 0, openfx::span<const char* const>()},
-{ "OfxParamPropParametricDimension",
-  openfx::span(prop_type_arrays::OfxParamPropParametricDimension_types, 1), 1, openfx::span<const char* const>()},
-{ "OfxParamPropParametricInteractBackground",
-  openfx::span(prop_type_arrays::OfxParamPropParametricInteractBackground_types, 1), 1, openfx::span<const char* const>()},
-{ "OfxParamPropParametricRange",
-  openfx::span(prop_type_arrays::OfxParamPropParametricRange_types, 1), 2, openfx::span<const char* const>()},
-{ "OfxParamPropParametricUIColour",
-  openfx::span(prop_type_arrays::OfxParamPropParametricUIColour_types, 1), 0, openfx::span<const char* const>()},
 { "OfxParamPropParent",
   openfx::span(prop_type_arrays::OfxParamPropParent_types, 1), 1, openfx::span<const char* const>()},
 { "OfxParamPropPersistant",
@@ -893,6 +1188,272 @@ static inline constexpr PropDefsArray<PropDef> prop_defs = {
   openfx::span(prop_type_arrays::kOfxPropKeyString_types, 1), 1, openfx::span<const char* const>()},
 { "kOfxPropKeySym",
   openfx::span(prop_type_arrays::kOfxPropKeySym_types, 1), 1, openfx::span<const char* const>()},
+#ifdef OFX_EXTENSIONS_NATRON
+{ "NatronOfxBooleanParamPropIsToggableButton",
+  openfx::span(prop_type_arrays::NatronOfxBooleanParamPropIsToggableButton_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxExtraCreatedPlanes",
+  openfx::span(prop_type_arrays::NatronOfxExtraCreatedPlanes_types, 1), 0, openfx::span<const char* const>()},
+{ "NatronOfxGroupParamPropIsDialog",
+  openfx::span(prop_type_arrays::NatronOfxGroupParamPropIsDialog_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxHostIsNatron",
+  openfx::span(prop_type_arrays::NatronOfxHostIsNatron_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPluginUsesMultipleThread",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPluginUsesMultipleThread_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPropChannelSelector",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropChannelSelector_types, 1), 1, openfx::span(prop_enum_values::NatronOfxImageEffectPropChannelSelector.data(), prop_enum_values::NatronOfxImageEffectPropChannelSelector.size())},
+{ "NatronOfxImageEffectPropGroupId",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropGroupId_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPropInViewerContextDefaultShortcuts",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropInViewerContextDefaultShortcuts_types, 1), 0, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPropInViewerContextShortcutHasAltModifier",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropInViewerContextShortcutHasAltModifier_types, 1), 0, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPropInViewerContextShortcutHasControlModifier",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropInViewerContextShortcutHasControlModifier_types, 1), 0, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPropInViewerContextShortcutHasKeypadModifier",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropInViewerContextShortcutHasKeypadModifier_types, 1), 0, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPropInViewerContextShortcutHasMetaModifier",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropInViewerContextShortcutHasMetaModifier_types, 1), 0, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier_types, 1), 0, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPropInViewerContextShortcutSymbol",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropInViewerContextShortcutSymbol_types, 1), 0, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPropInstanceId",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropInstanceId_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPropOpenGLContextData",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropOpenGLContextData_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectPropProjectId",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectPropProjectId_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxImageEffectSelectionRectangle",
+  openfx::span(prop_type_arrays::NatronOfxImageEffectSelectionRectangle_types, 1), 4, openfx::span<const char* const>()},
+{ "NatronOfxInteractColourPicking",
+  openfx::span(prop_type_arrays::NatronOfxInteractColourPicking_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxInteractHostPropSupportsKeyModifiers",
+  openfx::span(prop_type_arrays::NatronOfxInteractHostPropSupportsKeyModifiers_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxInteractPropDrawSuiteShadows",
+  openfx::span(prop_type_arrays::NatronOfxInteractPropDrawSuiteShadows_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxInteractPropKeyModifiers",
+  openfx::span(prop_type_arrays::NatronOfxInteractPropKeyModifiers_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxPageParamPropInViewerContextIsToolbar",
+  openfx::span(prop_type_arrays::NatronOfxPageParamPropInViewerContextIsToolbar_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxParamHostPropSupportsDynamicChoices",
+  openfx::span(prop_type_arrays::NatronOfxParamHostPropSupportsDynamicChoices_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxParamPropChoiceCascading",
+  openfx::span(prop_type_arrays::NatronOfxParamPropChoiceCascading_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxParamPropChoiceHostCanAddOptions",
+  openfx::span(prop_type_arrays::NatronOfxParamPropChoiceHostCanAddOptions_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxParamPropInViewerContextCanHaveShortcut",
+  openfx::span(prop_type_arrays::NatronOfxParamPropInViewerContextCanHaveShortcut_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxParamPropInViewerContextLabel",
+  openfx::span(prop_type_arrays::NatronOfxParamPropInViewerContextLabel_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxParamPropInViewerContextLayoutHint",
+  openfx::span(prop_type_arrays::NatronOfxParamPropInViewerContextLayoutHint_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxParamPropInViewerContextLayoutPadWidth",
+  openfx::span(prop_type_arrays::NatronOfxParamPropInViewerContextLayoutPadWidth_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxParamPropInViewerContextParamsOrder",
+  openfx::span(prop_type_arrays::NatronOfxParamPropInViewerContextParamsOrder_types, 1), 0, openfx::span<const char* const>()},
+{ "NatronOfxParamPropInViewerContextSecret",
+  openfx::span(prop_type_arrays::NatronOfxParamPropInViewerContextSecret_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxParamPropIsInstanceSpecific",
+  openfx::span(prop_type_arrays::NatronOfxParamPropIsInstanceSpecific_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxParamPropTypeRectangle",
+  openfx::span(prop_type_arrays::NatronOfxParamPropTypeRectangle_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxParamTypeMatrix3x3",
+  openfx::span(prop_type_arrays::NatronOfxParamTypeMatrix3x3_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxPropDescriptionIsMarkdown",
+  openfx::span(prop_type_arrays::NatronOfxPropDescriptionIsMarkdown_types, 1), 1, openfx::span<const char* const>()},
+{ "NatronOfxPropNativeOverlays",
+  openfx::span(prop_type_arrays::NatronOfxPropNativeOverlays_types, 1), 0, openfx::span<const char* const>()},
+{ "NatronOfxPropPickerColour",
+  openfx::span(prop_type_arrays::NatronOfxPropPickerColour_types, 1), 4, openfx::span<const char* const>()},
+{ "OfxImageClipPropFormat",
+  openfx::span(prop_type_arrays::OfxImageClipPropFormat_types, 1), 4, openfx::span<const char* const>()},
+{ "OfxImageEffectPropCanDistort",
+  openfx::span(prop_type_arrays::OfxImageEffectPropCanDistort_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxInteractHostPropSupportedCursors",
+  openfx::span(prop_type_arrays::OfxInteractHostPropSupportedCursors_types, 1), 0, openfx::span(prop_enum_values::OfxInteractHostPropSupportedCursors.data(), prop_enum_values::OfxInteractHostPropSupportedCursors.size())},
+{ "OfxInteractPropCursor",
+  openfx::span(prop_type_arrays::OfxInteractPropCursor_types, 1), 1, openfx::span(prop_enum_values::OfxInteractPropCursor.data(), prop_enum_values::OfxInteractPropCursor.size())},
+{ "OfxInteractPropCursorHotSpot",
+  openfx::span(prop_type_arrays::OfxInteractPropCursorHotSpot_types, 1), 2, openfx::span<const char* const>()},
+{ "OfxInteractPropCursorImage",
+  openfx::span(prop_type_arrays::OfxInteractPropCursorImage_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxInteractPropScreenPixelRatio",
+  openfx::span(prop_type_arrays::OfxInteractPropScreenPixelRatio_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxParamPropParametricIsPeriodic",
+  openfx::span(prop_type_arrays::OfxParamPropParametricIsPeriodic_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropInverseDistortionDataFreeFunction",
+  openfx::span(prop_type_arrays::OfxPropInverseDistortionDataFreeFunction_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropInverseDistortionFunction",
+  openfx::span(prop_type_arrays::OfxPropInverseDistortionFunction_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropInverseDistortionFunctionData",
+  openfx::span(prop_type_arrays::OfxPropInverseDistortionFunctionData_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropInverseDistortionFunctionDataSize",
+  openfx::span(prop_type_arrays::OfxPropInverseDistortionFunctionDataSize_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropMatrix3x3",
+  openfx::span(prop_type_arrays::OfxPropMatrix3x3_types, 1), 9, openfx::span<const char* const>()},
+{ "kNatronOfxImageEffectPropHostMasking",
+  openfx::span(prop_type_arrays::kNatronOfxImageEffectPropHostMasking_types, 1), 1, openfx::span<const char* const>()},
+{ "kNatronOfxImageEffectPropHostMixing",
+  openfx::span(prop_type_arrays::kNatronOfxImageEffectPropHostMixing_types, 1), 1, openfx::span<const char* const>()},
+#endif // OFX_EXTENSIONS_NATRON
+#ifdef OFX_EXTENSIONS_NUKE
+{ "FnOfxImageEffectCanTransform",
+  openfx::span(prop_type_arrays::FnOfxImageEffectCanTransform_types, 1), 1, openfx::span<const char* const>()},
+{ "FnOfxParamPropGroupIsTab",
+  openfx::span(prop_type_arrays::FnOfxParamPropGroupIsTab_types, 1), 1, openfx::span<const char* const>()},
+{ "FnOfxPropMatrix2D",
+  openfx::span(prop_type_arrays::FnOfxPropMatrix2D_types, 1), 9, openfx::span<const char* const>()},
+{ "OfxImageEffectPropIdentityPlane",
+  openfx::span(prop_type_arrays::OfxImageEffectPropIdentityPlane_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxImageEffectPropRenderAllPlanes",
+  openfx::span(prop_type_arrays::OfxImageEffectPropRenderAllPlanes_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxImageEffectPropRenderPlanes",
+  openfx::span(prop_type_arrays::OfxImageEffectPropRenderPlanes_types, 1), 0, openfx::span<const char* const>()},
+{ "OfxParamPropLayoutHint",
+  openfx::span(prop_type_arrays::OfxParamPropLayoutHint_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxParamPropLayoutPadWidth",
+  openfx::span(prop_type_arrays::OfxParamPropLayoutPadWidth_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropHostBuildVersion",
+  openfx::span(prop_type_arrays::OfxPropHostBuildVersion_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropHostMajorVersion",
+  openfx::span(prop_type_arrays::OfxPropHostMajorVersion_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropHostMinorVersion",
+  openfx::span(prop_type_arrays::OfxPropHostMinorVersion_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropHostProductTitle",
+  openfx::span(prop_type_arrays::OfxPropHostProductTitle_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropOverlayColour",
+  openfx::span(prop_type_arrays::OfxPropOverlayColour_types, 1), 3, openfx::span<const char* const>()},
+{ "uk.co.thefoundry.ImageEffectPropPassThroughClip",
+  openfx::span(prop_type_arrays::FnOfxImageEffectPropPassThroughClip_types, 1), 1, openfx::span<const char* const>()},
+{ "uk.co.thefoundry.ImageEffectPropPassThroughTime",
+  openfx::span(prop_type_arrays::FnOfxImageEffectPropPassThroughTime_types, 1), 1, openfx::span<const char* const>()},
+{ "uk.co.thefoundry.ImageEffectPropPassThroughView",
+  openfx::span(prop_type_arrays::FnOfxImageEffectPropPassThroughView_types, 1), 1, openfx::span<const char* const>()},
+{ "uk.co.thefoundry.OfxImageEffectClipPropPlanesPresent",
+  openfx::span(prop_type_arrays::FnOfxImageEffectPropComponentsPresent_types, 1), 0, openfx::span(prop_enum_values::FnOfxImageEffectPropComponentsPresent.data(), prop_enum_values::FnOfxImageEffectPropComponentsPresent.size())},
+{ "uk.co.thefoundry.OfxImageEffectPropMultiPlanar",
+  openfx::span(prop_type_arrays::FnOfxImageEffectPropMultiPlanar_types, 1), 1, openfx::span<const char* const>()},
+{ "uk.co.thefoundry.OfxImageEffectPropPassThroughComponents",
+  openfx::span(prop_type_arrays::FnOfxImageEffectPropPassThroughComponents_types, 1), 1, openfx::span<const char* const>()},
+{ "uk.co.thefoundry.OfxImageEffectPropView",
+  openfx::span(prop_type_arrays::FnOfxImageEffectPropView_types, 1), 1, openfx::span<const char* const>()},
+{ "uk.co.thefoundry.OfxImageEffectPropViewAware",
+  openfx::span(prop_type_arrays::FnOfxImageEffectPropViewAware_types, 1), 1, openfx::span<const char* const>()},
+{ "uk.co.thefoundry.OfxImageEffectPropViewInvariance",
+  openfx::span(prop_type_arrays::FnOfxImageEffectPropViewInvariance_types, 1), 1, openfx::span<const char* const>()},
+#endif // OFX_EXTENSIONS_NUKE
+#ifdef OFX_EXTENSIONS_RESOLVE
+{ "OfxImageEffectPropResolvePage",
+  openfx::span(prop_type_arrays::OfxImageEffectPropResolvePage_types, 1), 1, openfx::span<const char* const>()},
+{ "kOfxImageClipPropThumbnail",
+  openfx::span(prop_type_arrays::kOfxImageClipPropThumbnail_types, 1), 1, openfx::span<const char* const>()},
+#endif // OFX_EXTENSIONS_RESOLVE
+#ifdef OFX_EXTENSIONS_TUTTLE
+{ "OfxParamPropChoiceLabelOption",
+  openfx::span(prop_type_arrays::OfxParamPropChoiceLabelOption_types, 1), 0, openfx::span<const char* const>()},
+{ "TuttleOfxImageEffectPropEvaluation",
+  openfx::span(prop_type_arrays::TuttleOfxImageEffectPropEvaluation_types, 1), 1, openfx::span<const char* const>()},
+{ "TuttleOfxImageEffectPropSupportedExtensions",
+  openfx::span(prop_type_arrays::TuttleOfxImageEffectPropSupportedExtensions_types, 1), 0, openfx::span<const char* const>()},
+#endif // OFX_EXTENSIONS_TUTTLE
+#ifdef OFX_EXTENSIONS_VEGAS
+{ "OfxHWndInteractPropLocation",
+  openfx::span(prop_type_arrays::OfxHWndInteractPropLocation_types, 1), 4, openfx::span<const char* const>()},
+{ "OfxHWndInteractPropMinSize",
+  openfx::span(prop_type_arrays::OfxHWndInteractPropMinSize_types, 1), 2, openfx::span<const char* const>()},
+{ "OfxHWndInteractPropParent",
+  openfx::span(prop_type_arrays::OfxHWndInteractPropParent_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxHWndInteractPropPrefferedSize",
+  openfx::span(prop_type_arrays::OfxHWndInteractPropPrefferedSize_types, 1), 2, openfx::span<const char* const>()},
+{ "OfxImageEffectPluginPropHWndInteractV1",
+  openfx::span(prop_type_arrays::OfxImageEffectPluginPropHWndInteractV1_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxImageEffectPropHelpContextID",
+  openfx::span(prop_type_arrays::OfxImageEffectPropHelpContextID_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxImageEffectPropHelpFile",
+  openfx::span(prop_type_arrays::OfxImageEffectPropHelpFile_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxImageEffectPropPixelOrder",
+  openfx::span(prop_type_arrays::OfxImageEffectPropPixelOrder_types, 1), 1, openfx::span(prop_enum_values::OfxImageEffectPropPixelOrder.data(), prop_enum_values::OfxImageEffectPropPixelOrder.size())},
+{ "OfxImageEffectPropRenderQuality",
+  openfx::span(prop_type_arrays::OfxImageEffectPropRenderQuality_types, 1), 1, openfx::span(prop_enum_values::OfxImageEffectPropRenderQuality.data(), prop_enum_values::OfxImageEffectPropRenderQuality.size())},
+{ "OfxImageEffectPropRenderView",
+  openfx::span(prop_type_arrays::OfxImageEffectPropRenderView_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxImageEffectPropVegasContext",
+  openfx::span(prop_type_arrays::OfxImageEffectPropVegasContext_types, 1), 1, openfx::span(prop_enum_values::OfxImageEffectPropVegasContext.data(), prop_enum_values::OfxImageEffectPropVegasContext.size())},
+{ "OfxImageEffectPropVegasUpliftGUID",
+  openfx::span(prop_type_arrays::OfxImageEffectPropVegasUpliftGUID_types, 1), 0, openfx::span<const char* const>()},
+{ "OfxImageEffectPropViewsToRender",
+  openfx::span(prop_type_arrays::OfxImageEffectPropViewsToRender_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxParamColorDefaultColorspace",
+  openfx::span(prop_type_arrays::OfxParamColorDefaultColorspace_types, 1), 1, openfx::span(prop_enum_values::OfxParamColorDefaultColorspace.data(), prop_enum_values::OfxParamColorDefaultColorspace.size())},
+{ "OfxParamPropColorWheelLevel",
+  openfx::span(prop_type_arrays::OfxParamPropColorWheelLevel_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxParamPropParameterExpanded",
+  openfx::span(prop_type_arrays::OfxParamPropParameterExpanded_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxProbPluginVegasPresetThumbnail",
+  openfx::span(prop_type_arrays::OfxProbPluginVegasPresetThumbnail_types, 1), 1, openfx::span(prop_enum_values::OfxProbPluginVegasPresetThumbnail.data(), prop_enum_values::OfxProbPluginVegasPresetThumbnail.size())},
+{ "OfxPropVegasHostAppDataDirectory",
+  openfx::span(prop_type_arrays::OfxPropVegasHostAppDataDirectory_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropVegasUpliftData",
+  openfx::span(prop_type_arrays::OfxPropVegasUpliftData_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropVegasUpliftDataLength",
+  openfx::span(prop_type_arrays::OfxPropVegasUpliftDataLength_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxPropVegasUpliftKeyframeData",
+  openfx::span(prop_type_arrays::OfxPropVegasUpliftKeyframeData_types, 1), 0, openfx::span<const char* const>()},
+{ "OfxPropVegasUpliftKeyframeDataLength",
+  openfx::span(prop_type_arrays::OfxPropVegasUpliftKeyframeDataLength_types, 1), 0, openfx::span<const char* const>()},
+{ "OfxPropVegasUpliftKeyframeInterpolation",
+  openfx::span(prop_type_arrays::OfxPropVegasUpliftKeyframeInterpolation_types, 1), 0, openfx::span(prop_enum_values::OfxPropVegasUpliftKeyframeInterpolation.data(), prop_enum_values::OfxPropVegasUpliftKeyframeInterpolation.size())},
+{ "OfxPropVegasUpliftKeyframeTime",
+  openfx::span(prop_type_arrays::OfxPropVegasUpliftKeyframeTime_types, 1), 0, openfx::span<const char* const>()},
+#endif // OFX_EXTENSIONS_VEGAS
+#ifdef OFX_SUPPORTS_CUDARENDER
+{ "OfxImageEffectPropCudaEnabled",
+  openfx::span(prop_type_arrays::OfxImageEffectPropCudaEnabled_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxImageEffectPropCudaStream",
+  openfx::span(prop_type_arrays::OfxImageEffectPropCudaStream_types, 1), 1, openfx::span<const char* const>()},
+#endif // OFX_SUPPORTS_CUDARENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
+{ "OfxImageEffectPropOpenCLCommandQueue",
+  openfx::span(prop_type_arrays::OfxImageEffectPropOpenCLCommandQueue_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxImageEffectPropOpenCLEnabled",
+  openfx::span(prop_type_arrays::OfxImageEffectPropOpenCLEnabled_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxImageEffectPropOpenCLImage",
+  openfx::span(prop_type_arrays::OfxImageEffectPropOpenCLImage_types, 1), 1, openfx::span<const char* const>()},
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+{ "OfxImageEffectPropOpenGLEnabled",
+  openfx::span(prop_type_arrays::OfxImageEffectPropOpenGLEnabled_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxImageEffectPropOpenGLTextureIndex",
+  openfx::span(prop_type_arrays::OfxImageEffectPropOpenGLTextureIndex_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxImageEffectPropOpenGLTextureTarget",
+  openfx::span(prop_type_arrays::OfxImageEffectPropOpenGLTextureTarget_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxOpenGLPropPixelDepth",
+  openfx::span(prop_type_arrays::OfxOpenGLPropPixelDepth_types, 1), 0, openfx::span(prop_enum_values::OfxOpenGLPropPixelDepth.data(), prop_enum_values::OfxOpenGLPropPixelDepth.size())},
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_PARAMETRIC
+{ "OfxParamPropParametricDimension",
+  openfx::span(prop_type_arrays::OfxParamPropParametricDimension_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxParamPropParametricInteractBackground",
+  openfx::span(prop_type_arrays::OfxParamPropParametricInteractBackground_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxParamPropParametricRange",
+  openfx::span(prop_type_arrays::OfxParamPropParametricRange_types, 1), 2, openfx::span<const char* const>()},
+{ "OfxParamPropParametricUIColour",
+  openfx::span(prop_type_arrays::OfxParamPropParametricUIColour_types, 1), 0, openfx::span<const char* const>()},
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC_V2
+{ "OfxHostPropSupportedParametricInterpolations",
+  openfx::span(prop_type_arrays::OfxHostPropSupportedParametricInterpolations_types, 1), 0, openfx::span(prop_enum_values::OfxHostPropSupportedParametricInterpolations.data(), prop_enum_values::OfxHostPropSupportedParametricInterpolations.size())},
+{ "OfxParamParametricInterpolationCustomInterpCallbackV1",
+  openfx::span(prop_type_arrays::OfxParamParametricInterpolationCustomInterpCallbackV1_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxParametricParamCustomInterpControlPointIndex",
+  openfx::span(prop_type_arrays::OfxParametricParamCustomInterpControlPointIndex_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxParametricParamCustomInterpCurveIndex",
+  openfx::span(prop_type_arrays::OfxParametricParamCustomInterpCurveIndex_types, 1), 1, openfx::span<const char* const>()},
+{ "OfxParametricParamCustomInterpInterpolationTime",
+  openfx::span(prop_type_arrays::OfxParametricParamCustomInterpInterpolationTime_types, 1), 2, openfx::span<const char* const>()},
+{ "OfxParametricParamCustomInterpInterpolationValue",
+  openfx::span(prop_type_arrays::OfxParametricParamCustomInterpInterpolationValue_types, 1), 2, openfx::span<const char* const>()},
+#endif // OFX_SUPPORTS_PARAMETRIC_V2
  }}
 };
 
@@ -943,9 +1504,7 @@ DEFINE_PROP_TRAITS(OfxImageEffectPropColourManagementConfig, const char *, false
 DEFINE_PROP_TRAITS(OfxImageEffectPropColourManagementStyle, const char *, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropComponents, const char *, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropContext, const char *, false);
-DEFINE_PROP_TRAITS(OfxImageEffectPropCudaEnabled, bool, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropCudaRenderSupported, const char *, false);
-DEFINE_PROP_TRAITS(OfxImageEffectPropCudaStream, void *, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropCudaStreamSupported, const char *, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropDisplayColourspace, const char *, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropFieldToRender, const char *, false);
@@ -964,15 +1523,9 @@ DEFINE_PROP_TRAITS(OfxImageEffectPropNoSpatialAwareness, const char *, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropOCIOConfig, const char *, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropOCIODisplay, const char *, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropOCIOView, const char *, false);
-DEFINE_PROP_TRAITS(OfxImageEffectPropOpenCLCommandQueue, void *, false);
-DEFINE_PROP_TRAITS(OfxImageEffectPropOpenCLEnabled, bool, false);
-DEFINE_PROP_TRAITS(OfxImageEffectPropOpenCLImage, void *, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropOpenCLRenderSupported, const char *, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropOpenCLSupported, const char *, false);
-DEFINE_PROP_TRAITS(OfxImageEffectPropOpenGLEnabled, bool, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropOpenGLRenderSupported, const char *, false);
-DEFINE_PROP_TRAITS(OfxImageEffectPropOpenGLTextureIndex, int, false);
-DEFINE_PROP_TRAITS(OfxImageEffectPropOpenGLTextureTarget, int, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropPixelAspectRatio, double, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropPixelDepth, const char *, false);
 DEFINE_PROP_TRAITS(OfxImageEffectPropPluginHandle, void *, false);
@@ -1017,7 +1570,6 @@ DEFINE_PROP_TRAITS(OfxInteractPropPixelScale, double, false);
 DEFINE_PROP_TRAITS(OfxInteractPropSlaveToParam, const char *, false);
 DEFINE_PROP_TRAITS(OfxInteractPropSuggestedColour, double, false);
 DEFINE_PROP_TRAITS(OfxInteractPropViewport, int, false);
-DEFINE_PROP_TRAITS(OfxOpenGLPropPixelDepth, const char *, false);
 DEFINE_PROP_TRAITS(OfxParamHostPropMaxPages, int, false);
 DEFINE_PROP_TRAITS(OfxParamHostPropMaxParameters, int, false);
 DEFINE_PROP_TRAITS(OfxParamHostPropPageRowColumnCount, int, false);
@@ -1029,6 +1581,7 @@ DEFINE_PROP_TRAITS(OfxParamHostPropSupportsParametricAnimation, bool, false);
 DEFINE_PROP_TRAITS(OfxParamHostPropSupportsStrChoice, bool, false);
 DEFINE_PROP_TRAITS(OfxParamHostPropSupportsStrChoiceAnimation, bool, false);
 DEFINE_PROP_TRAITS(OfxParamHostPropSupportsStringAnimation, bool, false);
+DEFINE_PROP_TRAITS(OfxParamInterpType, const char *, false);
 DEFINE_PROP_TRAITS(OfxParamPropAnimates, bool, false);
 DEFINE_PROP_TRAITS(OfxParamPropCacheInvalidation, const char *, false);
 DEFINE_PROP_TRAITS(OfxParamPropCanUndo, bool, false);
@@ -1064,10 +1617,6 @@ DEFINE_PROP_TRAITS(OfxParamPropIsAutoKeying, bool, false);
 DEFINE_PROP_TRAITS(OfxParamPropMax, int, true);
 DEFINE_PROP_TRAITS(OfxParamPropMin, int, true);
 DEFINE_PROP_TRAITS(OfxParamPropPageChild, const char *, false);
-DEFINE_PROP_TRAITS(OfxParamPropParametricDimension, int, false);
-DEFINE_PROP_TRAITS(OfxParamPropParametricInteractBackground, void *, false);
-DEFINE_PROP_TRAITS(OfxParamPropParametricRange, double, false);
-DEFINE_PROP_TRAITS(OfxParamPropParametricUIColour, double, false);
 DEFINE_PROP_TRAITS(OfxParamPropParent, const char *, false);
 DEFINE_PROP_TRAITS(OfxParamPropPersistant, bool, false);
 DEFINE_PROP_TRAITS(OfxParamPropPluginMayWrite, bool, false);
@@ -1100,6 +1649,149 @@ DEFINE_PROP_TRAITS(OfxImageClipPropDisplayTimeOffset, double, false);
 DEFINE_PROP_TRAITS(OfxParamPropUseHostOverlayHandle, bool, false);
 DEFINE_PROP_TRAITS(OfxPropKeyString, const char *, false);
 DEFINE_PROP_TRAITS(OfxPropKeySym, int, false);
+#ifdef OFX_EXTENSIONS_NATRON
+DEFINE_PROP_TRAITS(NatronOfxBooleanParamPropIsToggableButton, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxExtraCreatedPlanes, const char *, false);
+DEFINE_PROP_TRAITS(NatronOfxGroupParamPropIsDialog, int, false);
+DEFINE_PROP_TRAITS(NatronOfxHostIsNatron, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPluginUsesMultipleThread, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropChannelSelector, const char *, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropGroupId, const char *, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropInViewerContextDefaultShortcuts, const char *, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropInViewerContextShortcutHasAltModifier, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropInViewerContextShortcutHasControlModifier, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropInViewerContextShortcutHasKeypadModifier, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropInViewerContextShortcutHasMetaModifier, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropInViewerContextShortcutSymbol, int, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropInstanceId, const char *, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropOpenGLContextData, void *, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropProjectId, const char *, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectSelectionRectangle, double, false);
+DEFINE_PROP_TRAITS(NatronOfxInteractColourPicking, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxInteractHostPropSupportsKeyModifiers, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxInteractPropDrawSuiteShadows, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxInteractPropKeyModifiers, int, false);
+DEFINE_PROP_TRAITS(NatronOfxPageParamPropInViewerContextIsToolbar, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxParamHostPropSupportsDynamicChoices, int, false);
+DEFINE_PROP_TRAITS(NatronOfxParamPropChoiceCascading, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxParamPropChoiceHostCanAddOptions, int, false);
+DEFINE_PROP_TRAITS(NatronOfxParamPropInViewerContextCanHaveShortcut, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxParamPropInViewerContextLabel, const char *, false);
+DEFINE_PROP_TRAITS(NatronOfxParamPropInViewerContextLayoutHint, int, false);
+DEFINE_PROP_TRAITS(NatronOfxParamPropInViewerContextLayoutPadWidth, int, false);
+DEFINE_PROP_TRAITS(NatronOfxParamPropInViewerContextParamsOrder, const char *, false);
+DEFINE_PROP_TRAITS(NatronOfxParamPropInViewerContextSecret, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxParamPropIsInstanceSpecific, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxParamPropTypeRectangle, int, false);
+DEFINE_PROP_TRAITS(NatronOfxParamTypeMatrix3x3, int, false);
+DEFINE_PROP_TRAITS(NatronOfxPropDescriptionIsMarkdown, int, false);
+DEFINE_PROP_TRAITS(NatronOfxPropNativeOverlays, const char *, false);
+DEFINE_PROP_TRAITS(NatronOfxPropPickerColour, double, false);
+DEFINE_PROP_TRAITS(OfxImageClipPropFormat, int, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropCanDistort, int, false);
+DEFINE_PROP_TRAITS(OfxInteractHostPropSupportedCursors, const char *, false);
+DEFINE_PROP_TRAITS(OfxInteractPropCursor, const char *, false);
+DEFINE_PROP_TRAITS(OfxInteractPropCursorHotSpot, int, false);
+DEFINE_PROP_TRAITS(OfxInteractPropCursorImage, const char *, false);
+DEFINE_PROP_TRAITS(OfxInteractPropScreenPixelRatio, double, false);
+DEFINE_PROP_TRAITS(OfxParamPropParametricIsPeriodic, int, false);
+DEFINE_PROP_TRAITS(OfxPropInverseDistortionDataFreeFunction, void *, false);
+DEFINE_PROP_TRAITS(OfxPropInverseDistortionFunction, void *, false);
+DEFINE_PROP_TRAITS(OfxPropInverseDistortionFunctionData, void *, false);
+DEFINE_PROP_TRAITS(OfxPropInverseDistortionFunctionDataSize, int, false);
+DEFINE_PROP_TRAITS(OfxPropMatrix3x3, double, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropHostMasking, bool, false);
+DEFINE_PROP_TRAITS(NatronOfxImageEffectPropHostMixing, bool, false);
+#endif // OFX_EXTENSIONS_NATRON
+#ifdef OFX_EXTENSIONS_NUKE
+DEFINE_PROP_TRAITS(FnOfxImageEffectCanTransform, bool, false);
+DEFINE_PROP_TRAITS(FnOfxParamPropGroupIsTab, bool, false);
+DEFINE_PROP_TRAITS(FnOfxPropMatrix2D, double, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropIdentityPlane, const char *, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropRenderAllPlanes, int, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropRenderPlanes, const char *, false);
+DEFINE_PROP_TRAITS(OfxParamPropLayoutHint, int, false);
+DEFINE_PROP_TRAITS(OfxParamPropLayoutPadWidth, int, false);
+DEFINE_PROP_TRAITS(OfxPropHostBuildVersion, const char *, false);
+DEFINE_PROP_TRAITS(OfxPropHostMajorVersion, int, false);
+DEFINE_PROP_TRAITS(OfxPropHostMinorVersion, int, false);
+DEFINE_PROP_TRAITS(OfxPropHostProductTitle, const char *, false);
+DEFINE_PROP_TRAITS(OfxPropOverlayColour, double, false);
+DEFINE_PROP_TRAITS(FnOfxImageEffectPropPassThroughClip, const char *, false);
+DEFINE_PROP_TRAITS(FnOfxImageEffectPropPassThroughTime, double, false);
+DEFINE_PROP_TRAITS(FnOfxImageEffectPropPassThroughView, int, false);
+DEFINE_PROP_TRAITS(FnOfxImageEffectPropComponentsPresent, const char *, false);
+DEFINE_PROP_TRAITS(FnOfxImageEffectPropMultiPlanar, int, false);
+DEFINE_PROP_TRAITS(FnOfxImageEffectPropPassThroughComponents, int, false);
+DEFINE_PROP_TRAITS(FnOfxImageEffectPropView, int, false);
+DEFINE_PROP_TRAITS(FnOfxImageEffectPropViewAware, int, false);
+DEFINE_PROP_TRAITS(FnOfxImageEffectPropViewInvariance, int, false);
+#endif // OFX_EXTENSIONS_NUKE
+#ifdef OFX_EXTENSIONS_RESOLVE
+DEFINE_PROP_TRAITS(OfxImageEffectPropResolvePage, const char *, false);
+DEFINE_PROP_TRAITS(OfxImageClipPropThumbnail, bool, false);
+#endif // OFX_EXTENSIONS_RESOLVE
+#ifdef OFX_EXTENSIONS_TUTTLE
+DEFINE_PROP_TRAITS(OfxParamPropChoiceLabelOption, const char *, false);
+DEFINE_PROP_TRAITS(TuttleOfxImageEffectPropEvaluation, double, false);
+DEFINE_PROP_TRAITS(TuttleOfxImageEffectPropSupportedExtensions, const char *, false);
+#endif // OFX_EXTENSIONS_TUTTLE
+#ifdef OFX_EXTENSIONS_VEGAS
+DEFINE_PROP_TRAITS(OfxHWndInteractPropLocation, int, false);
+DEFINE_PROP_TRAITS(OfxHWndInteractPropMinSize, int, false);
+DEFINE_PROP_TRAITS(OfxHWndInteractPropParent, void *, false);
+DEFINE_PROP_TRAITS(OfxHWndInteractPropPrefferedSize, int, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPluginPropHWndInteractV1, void *, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropHelpContextID, int, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropHelpFile, const char *, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropPixelOrder, const char *, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropRenderQuality, const char *, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropRenderView, int, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropVegasContext, const char *, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropVegasUpliftGUID, const char *, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropViewsToRender, int, false);
+DEFINE_PROP_TRAITS(OfxParamColorDefaultColorspace, const char *, false);
+DEFINE_PROP_TRAITS(OfxParamPropColorWheelLevel, double, false);
+DEFINE_PROP_TRAITS(OfxParamPropParameterExpanded, int, false);
+DEFINE_PROP_TRAITS(OfxProbPluginVegasPresetThumbnail, const char *, false);
+DEFINE_PROP_TRAITS(OfxPropVegasHostAppDataDirectory, const char *, false);
+DEFINE_PROP_TRAITS(OfxPropVegasUpliftData, void *, false);
+DEFINE_PROP_TRAITS(OfxPropVegasUpliftDataLength, int, false);
+DEFINE_PROP_TRAITS(OfxPropVegasUpliftKeyframeData, void *, false);
+DEFINE_PROP_TRAITS(OfxPropVegasUpliftKeyframeDataLength, int, false);
+DEFINE_PROP_TRAITS(OfxPropVegasUpliftKeyframeInterpolation, const char *, false);
+DEFINE_PROP_TRAITS(OfxPropVegasUpliftKeyframeTime, double, false);
+#endif // OFX_EXTENSIONS_VEGAS
+#ifdef OFX_SUPPORTS_CUDARENDER
+DEFINE_PROP_TRAITS(OfxImageEffectPropCudaEnabled, bool, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropCudaStream, void *, false);
+#endif // OFX_SUPPORTS_CUDARENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
+DEFINE_PROP_TRAITS(OfxImageEffectPropOpenCLCommandQueue, void *, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropOpenCLEnabled, bool, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropOpenCLImage, void *, false);
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+DEFINE_PROP_TRAITS(OfxImageEffectPropOpenGLEnabled, bool, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropOpenGLTextureIndex, int, false);
+DEFINE_PROP_TRAITS(OfxImageEffectPropOpenGLTextureTarget, int, false);
+DEFINE_PROP_TRAITS(OfxOpenGLPropPixelDepth, const char *, false);
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_PARAMETRIC
+DEFINE_PROP_TRAITS(OfxParamPropParametricDimension, int, false);
+DEFINE_PROP_TRAITS(OfxParamPropParametricInteractBackground, void *, false);
+DEFINE_PROP_TRAITS(OfxParamPropParametricRange, double, false);
+DEFINE_PROP_TRAITS(OfxParamPropParametricUIColour, double, false);
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC_V2
+DEFINE_PROP_TRAITS(OfxHostPropSupportedParametricInterpolations, const char *, false);
+DEFINE_PROP_TRAITS(OfxParamParametricInterpolationCustomInterpCallbackV1, void *, false);
+DEFINE_PROP_TRAITS(OfxParametricParamCustomInterpControlPointIndex, int, false);
+DEFINE_PROP_TRAITS(OfxParametricParamCustomInterpCurveIndex, int, false);
+DEFINE_PROP_TRAITS(OfxParametricParamCustomInterpInterpolationTime, double, false);
+DEFINE_PROP_TRAITS(OfxParametricParamCustomInterpInterpolationValue, double, false);
+#endif // OFX_SUPPORTS_PARAMETRIC_V2
 } // namespace properties
 
 // Static asserts to check #define names vs. strings
@@ -1137,9 +1829,7 @@ static_assert(string_view("OfxImageEffectPropColourManagementConfig") == string_
 static_assert(string_view("OfxImageEffectPropColourManagementStyle") == string_view(kOfxImageEffectPropColourManagementStyle));
 static_assert(string_view("OfxImageEffectPropComponents") == string_view(kOfxImageEffectPropComponents));
 static_assert(string_view("OfxImageEffectPropContext") == string_view(kOfxImageEffectPropContext));
-static_assert(string_view("OfxImageEffectPropCudaEnabled") == string_view(kOfxImageEffectPropCudaEnabled));
 static_assert(string_view("OfxImageEffectPropCudaRenderSupported") == string_view(kOfxImageEffectPropCudaRenderSupported));
-static_assert(string_view("OfxImageEffectPropCudaStream") == string_view(kOfxImageEffectPropCudaStream));
 static_assert(string_view("OfxImageEffectPropCudaStreamSupported") == string_view(kOfxImageEffectPropCudaStreamSupported));
 static_assert(string_view("OfxImageEffectPropDisplayColourspace") == string_view(kOfxImageEffectPropDisplayColourspace));
 static_assert(string_view("OfxImageEffectPropFieldToRender") == string_view(kOfxImageEffectPropFieldToRender));
@@ -1158,15 +1848,9 @@ static_assert(string_view("OfxImageEffectPropNoSpatialAwareness") == string_view
 static_assert(string_view("OfxImageEffectPropOCIOConfig") == string_view(kOfxImageEffectPropOCIOConfig));
 static_assert(string_view("OfxImageEffectPropOCIODisplay") == string_view(kOfxImageEffectPropOCIODisplay));
 static_assert(string_view("OfxImageEffectPropOCIOView") == string_view(kOfxImageEffectPropOCIOView));
-static_assert(string_view("OfxImageEffectPropOpenCLCommandQueue") == string_view(kOfxImageEffectPropOpenCLCommandQueue));
-static_assert(string_view("OfxImageEffectPropOpenCLEnabled") == string_view(kOfxImageEffectPropOpenCLEnabled));
-static_assert(string_view("OfxImageEffectPropOpenCLImage") == string_view(kOfxImageEffectPropOpenCLImage));
 static_assert(string_view("OfxImageEffectPropOpenCLRenderSupported") == string_view(kOfxImageEffectPropOpenCLRenderSupported));
 static_assert(string_view("OfxImageEffectPropOpenCLSupported") == string_view(kOfxImageEffectPropOpenCLSupported));
-static_assert(string_view("OfxImageEffectPropOpenGLEnabled") == string_view(kOfxImageEffectPropOpenGLEnabled));
 static_assert(string_view("OfxImageEffectPropOpenGLRenderSupported") == string_view(kOfxImageEffectPropOpenGLRenderSupported));
-static_assert(string_view("OfxImageEffectPropOpenGLTextureIndex") == string_view(kOfxImageEffectPropOpenGLTextureIndex));
-static_assert(string_view("OfxImageEffectPropOpenGLTextureTarget") == string_view(kOfxImageEffectPropOpenGLTextureTarget));
 static_assert(string_view("OfxImageEffectPropPixelAspectRatio") == string_view(kOfxImageEffectPropProjectPixelAspectRatio));
 static_assert(string_view("OfxImageEffectPropPixelDepth") == string_view(kOfxImageEffectPropPixelDepth));
 static_assert(string_view("OfxImageEffectPropPluginHandle") == string_view(kOfxImageEffectPropPluginHandle));
@@ -1211,7 +1895,6 @@ static_assert(string_view("OfxInteractPropPixelScale") == string_view(kOfxIntera
 static_assert(string_view("OfxInteractPropSlaveToParam") == string_view(kOfxInteractPropSlaveToParam));
 static_assert(string_view("OfxInteractPropSuggestedColour") == string_view(kOfxInteractPropSuggestedColour));
 static_assert(string_view("OfxInteractPropViewport") == string_view(kOfxInteractPropViewportSize));
-static_assert(string_view("OfxOpenGLPropPixelDepth") == string_view(kOfxOpenGLPropPixelDepth));
 static_assert(string_view("OfxParamHostPropMaxPages") == string_view(kOfxParamHostPropMaxPages));
 static_assert(string_view("OfxParamHostPropMaxParameters") == string_view(kOfxParamHostPropMaxParameters));
 static_assert(string_view("OfxParamHostPropPageRowColumnCount") == string_view(kOfxParamHostPropPageRowColumnCount));
@@ -1223,6 +1906,7 @@ static_assert(string_view("OfxParamHostPropSupportsParametricAnimation") == stri
 static_assert(string_view("OfxParamHostPropSupportsStrChoice") == string_view(kOfxParamHostPropSupportsStrChoice));
 static_assert(string_view("OfxParamHostPropSupportsStrChoiceAnimation") == string_view(kOfxParamHostPropSupportsStrChoiceAnimation));
 static_assert(string_view("OfxParamHostPropSupportsStringAnimation") == string_view(kOfxParamHostPropSupportsStringAnimation));
+static_assert(string_view("OfxParamInterpType") == string_view(kOfxParamInterpType));
 static_assert(string_view("OfxParamPropAnimates") == string_view(kOfxParamPropAnimates));
 static_assert(string_view("OfxParamPropCacheInvalidation") == string_view(kOfxParamPropCacheInvalidation));
 static_assert(string_view("OfxParamPropCanUndo") == string_view(kOfxParamPropCanUndo));
@@ -1258,10 +1942,6 @@ static_assert(string_view("OfxParamPropIsAutoKeying") == string_view(kOfxParamPr
 static_assert(string_view("OfxParamPropMax") == string_view(kOfxParamPropMax));
 static_assert(string_view("OfxParamPropMin") == string_view(kOfxParamPropMin));
 static_assert(string_view("OfxParamPropPageChild") == string_view(kOfxParamPropPageChild));
-static_assert(string_view("OfxParamPropParametricDimension") == string_view(kOfxParamPropParametricDimension));
-static_assert(string_view("OfxParamPropParametricInteractBackground") == string_view(kOfxParamPropParametricInteractBackground));
-static_assert(string_view("OfxParamPropParametricRange") == string_view(kOfxParamPropParametricRange));
-static_assert(string_view("OfxParamPropParametricUIColour") == string_view(kOfxParamPropParametricUIColour));
 static_assert(string_view("OfxParamPropParent") == string_view(kOfxParamPropParent));
 static_assert(string_view("OfxParamPropPersistant") == string_view(kOfxParamPropPersistant));
 static_assert(string_view("OfxParamPropPluginMayWrite") == string_view(kOfxParamPropPluginMayWrite));
@@ -1294,6 +1974,149 @@ static_assert(string_view("kOfxImageClipPropDisplayTimeOffset") == string_view(k
 static_assert(string_view("kOfxParamPropUseHostOverlayHandle") == string_view(kOfxParamPropUseHostOverlayHandle));
 static_assert(string_view("kOfxPropKeyString") == string_view(kOfxPropKeyString));
 static_assert(string_view("kOfxPropKeySym") == string_view(kOfxPropKeySym));
+#ifdef OFX_EXTENSIONS_NATRON
+static_assert(string_view("NatronOfxBooleanParamPropIsToggableButton") == string_view(kNatronOfxBooleanParamPropIsToggableButton));
+static_assert(string_view("NatronOfxExtraCreatedPlanes") == string_view(kNatronOfxExtraCreatedPlanes));
+static_assert(string_view("NatronOfxGroupParamPropIsDialog") == string_view(kNatronOfxGroupParamPropIsDialog));
+static_assert(string_view("NatronOfxHostIsNatron") == string_view(kNatronOfxHostIsNatron));
+static_assert(string_view("NatronOfxImageEffectPluginUsesMultipleThread") == string_view(kNatronOfxImageEffectPluginUsesMultipleThread));
+static_assert(string_view("NatronOfxImageEffectPropChannelSelector") == string_view(kNatronOfxImageEffectPropChannelSelector));
+static_assert(string_view("NatronOfxImageEffectPropGroupId") == string_view(kNatronOfxImageEffectPropGroupId));
+static_assert(string_view("NatronOfxImageEffectPropInViewerContextDefaultShortcuts") == string_view(kNatronOfxImageEffectPropInViewerContextDefaultShortcuts));
+static_assert(string_view("NatronOfxImageEffectPropInViewerContextShortcutHasAltModifier") == string_view(kNatronOfxImageEffectPropInViewerContextShortcutHasAltModifier));
+static_assert(string_view("NatronOfxImageEffectPropInViewerContextShortcutHasControlModifier") == string_view(kNatronOfxImageEffectPropInViewerContextShortcutHasControlModifier));
+static_assert(string_view("NatronOfxImageEffectPropInViewerContextShortcutHasKeypadModifier") == string_view(kNatronOfxImageEffectPropInViewerContextShortcutHasKeypadModifier));
+static_assert(string_view("NatronOfxImageEffectPropInViewerContextShortcutHasMetaModifier") == string_view(kNatronOfxImageEffectPropInViewerContextShortcutHasMetaModifier));
+static_assert(string_view("NatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier") == string_view(kNatronOfxImageEffectPropInViewerContextShortcutHasShiftModifier));
+static_assert(string_view("NatronOfxImageEffectPropInViewerContextShortcutSymbol") == string_view(kNatronOfxImageEffectPropInViewerContextShortcutSymbol));
+static_assert(string_view("NatronOfxImageEffectPropInstanceId") == string_view(kNatronOfxImageEffectPropInstanceId));
+static_assert(string_view("NatronOfxImageEffectPropOpenGLContextData") == string_view(kNatronOfxImageEffectPropOpenGLContextData));
+static_assert(string_view("NatronOfxImageEffectPropProjectId") == string_view(kNatronOfxImageEffectPropProjectId));
+static_assert(string_view("NatronOfxImageEffectSelectionRectangle") == string_view(kNatronOfxImageEffectSelectionRectangle));
+static_assert(string_view("NatronOfxInteractColourPicking") == string_view(kNatronOfxInteractColourPicking));
+static_assert(string_view("NatronOfxInteractHostPropSupportsKeyModifiers") == string_view(kNatronOfxInteractHostPropSupportsKeyModifiers));
+static_assert(string_view("NatronOfxInteractPropDrawSuiteShadows") == string_view(kNatronOfxInteractPropDrawSuiteShadows));
+static_assert(string_view("NatronOfxInteractPropKeyModifiers") == string_view(kNatronOfxInteractPropKeyModifiers));
+static_assert(string_view("NatronOfxPageParamPropInViewerContextIsToolbar") == string_view(kNatronOfxParamPropInViewerContextIsInToolbar));
+static_assert(string_view("NatronOfxParamHostPropSupportsDynamicChoices") == string_view(kNatronOfxParamHostPropSupportsDynamicChoices));
+static_assert(string_view("NatronOfxParamPropChoiceCascading") == string_view(kNatronOfxParamPropChoiceCascading));
+static_assert(string_view("NatronOfxParamPropChoiceHostCanAddOptions") == string_view(kNatronOfxParamPropChoiceHostCanAddOptions));
+static_assert(string_view("NatronOfxParamPropInViewerContextCanHaveShortcut") == string_view(kNatronOfxParamPropInViewerContextCanHaveShortcut));
+static_assert(string_view("NatronOfxParamPropInViewerContextLabel") == string_view(kNatronOfxParamPropInViewerContextLabel));
+static_assert(string_view("NatronOfxParamPropInViewerContextLayoutHint") == string_view(kNatronOfxParamPropInViewerContextLayoutHint));
+static_assert(string_view("NatronOfxParamPropInViewerContextLayoutPadWidth") == string_view(kNatronOfxParamPropInViewerContextLayoutPadWidth));
+static_assert(string_view("NatronOfxParamPropInViewerContextParamsOrder") == string_view(kNatronOfxImageEffectPropInViewerContextParamsOrder));
+static_assert(string_view("NatronOfxParamPropInViewerContextSecret") == string_view(kNatronOfxParamPropInViewerContextSecret));
+static_assert(string_view("NatronOfxParamPropIsInstanceSpecific") == string_view(kNatronOfxParamPropIsInstanceSpecific));
+static_assert(string_view("NatronOfxParamPropTypeRectangle") == string_view(kNatronOfxParamPropTypeRectangle));
+static_assert(string_view("NatronOfxParamTypeMatrix3x3") == string_view(kNatronOfxParamPropDoubleTypeMatrix3x3));
+static_assert(string_view("NatronOfxPropDescriptionIsMarkdown") == string_view(kNatronOfxPropDescriptionIsMarkdown));
+static_assert(string_view("NatronOfxPropNativeOverlays") == string_view(kNatronOfxPropNativeOverlays));
+static_assert(string_view("NatronOfxPropPickerColour") == string_view(kNatronOfxPropPickerColour));
+static_assert(string_view("OfxImageClipPropFormat") == string_view(kOfxImageClipPropFormat));
+static_assert(string_view("OfxImageEffectPropCanDistort") == string_view(kOfxImageEffectPropCanDistort));
+static_assert(string_view("OfxInteractHostPropSupportedCursors") == string_view(kOfxInteractHostPropSupportedCursors));
+static_assert(string_view("OfxInteractPropCursor") == string_view(kOfxInteractPropCursor));
+static_assert(string_view("OfxInteractPropCursorHotSpot") == string_view(kOfxInteractPropCursorHotSpot));
+static_assert(string_view("OfxInteractPropCursorImage") == string_view(kOfxInteractPropCursorImage));
+static_assert(string_view("OfxInteractPropScreenPixelRatio") == string_view(kOfxInteractPropScreenPixelRatio));
+static_assert(string_view("OfxParamPropParametricIsPeriodic") == string_view(kNatronOfxParamPropParametricIsPeriodic));
+static_assert(string_view("OfxPropInverseDistortionDataFreeFunction") == string_view(kOfxPropInverseDistortionDataFreeFunction));
+static_assert(string_view("OfxPropInverseDistortionFunction") == string_view(kOfxPropInverseDistortionFunction));
+static_assert(string_view("OfxPropInverseDistortionFunctionData") == string_view(kOfxPropInverseDistortionFunctionData));
+static_assert(string_view("OfxPropInverseDistortionFunctionDataSize") == string_view(kOfxPropInverseDistortionFunctionDataSize));
+static_assert(string_view("OfxPropMatrix3x3") == string_view(kOfxPropMatrix3x3));
+static_assert(string_view("kNatronOfxImageEffectPropHostMasking") == string_view(kNatronOfxImageEffectPropHostMasking));
+static_assert(string_view("kNatronOfxImageEffectPropHostMixing") == string_view(kNatronOfxImageEffectPropHostMixing));
+#endif // OFX_EXTENSIONS_NATRON
+#ifdef OFX_EXTENSIONS_NUKE
+static_assert(string_view("FnOfxImageEffectCanTransform") == string_view(kFnOfxImageEffectCanTransform));
+static_assert(string_view("FnOfxParamPropGroupIsTab") == string_view(kFnOfxParamPropGroupIsTab));
+static_assert(string_view("FnOfxPropMatrix2D") == string_view(kFnOfxPropMatrix2D));
+static_assert(string_view("OfxImageEffectPropIdentityPlane") == string_view(kOfxImageEffectPropIdentityPlane));
+static_assert(string_view("OfxImageEffectPropRenderAllPlanes") == string_view(kOfxImageEffectPropRenderAllPlanes));
+static_assert(string_view("OfxImageEffectPropRenderPlanes") == string_view(kOfxImageEffectPropRenderPlanes));
+static_assert(string_view("OfxParamPropLayoutHint") == string_view(kOfxParamPropLayoutHint));
+static_assert(string_view("OfxParamPropLayoutPadWidth") == string_view(kOfxParamPropLayoutPadWidth));
+static_assert(string_view("OfxPropHostBuildVersion") == string_view(kOfxPropHostBuildVersion));
+static_assert(string_view("OfxPropHostMajorVersion") == string_view(kOfxPropHostMajorVersion));
+static_assert(string_view("OfxPropHostMinorVersion") == string_view(kOfxPropHostMinorVersion));
+static_assert(string_view("OfxPropHostProductTitle") == string_view(kOfxPropHostProductTitle));
+static_assert(string_view("OfxPropOverlayColour") == string_view(kOfxPropOverlayColour));
+static_assert(string_view("uk.co.thefoundry.ImageEffectPropPassThroughClip") == string_view(kFnOfxImageEffectPropPassThroughClip));
+static_assert(string_view("uk.co.thefoundry.ImageEffectPropPassThroughTime") == string_view(kFnOfxImageEffectPropPassThroughTime));
+static_assert(string_view("uk.co.thefoundry.ImageEffectPropPassThroughView") == string_view(kFnOfxImageEffectPropPassThroughView));
+static_assert(string_view("uk.co.thefoundry.OfxImageEffectClipPropPlanesPresent") == string_view(kFnOfxImageEffectPropComponentsPresent));
+static_assert(string_view("uk.co.thefoundry.OfxImageEffectPropMultiPlanar") == string_view(kFnOfxImageEffectPropMultiPlanar));
+static_assert(string_view("uk.co.thefoundry.OfxImageEffectPropPassThroughComponents") == string_view(kFnOfxImageEffectPropPassThroughComponents));
+static_assert(string_view("uk.co.thefoundry.OfxImageEffectPropView") == string_view(kFnOfxImageEffectPropView));
+static_assert(string_view("uk.co.thefoundry.OfxImageEffectPropViewAware") == string_view(kFnOfxImageEffectPropViewAware));
+static_assert(string_view("uk.co.thefoundry.OfxImageEffectPropViewInvariance") == string_view(kFnOfxImageEffectPropViewInvariance));
+#endif // OFX_EXTENSIONS_NUKE
+#ifdef OFX_EXTENSIONS_RESOLVE
+static_assert(string_view("OfxImageEffectPropResolvePage") == string_view(kOfxImageEffectPropResolvePage));
+static_assert(string_view("kOfxImageClipPropThumbnail") == string_view(kOfxImageClipPropThumbnail));
+#endif // OFX_EXTENSIONS_RESOLVE
+#ifdef OFX_EXTENSIONS_TUTTLE
+static_assert(string_view("OfxParamPropChoiceLabelOption") == string_view(kOfxParamPropChoiceLabelOption));
+static_assert(string_view("TuttleOfxImageEffectPropEvaluation") == string_view(kTuttleOfxImageEffectPropEvaluation));
+static_assert(string_view("TuttleOfxImageEffectPropSupportedExtensions") == string_view(kTuttleOfxImageEffectPropSupportedExtensions));
+#endif // OFX_EXTENSIONS_TUTTLE
+#ifdef OFX_EXTENSIONS_VEGAS
+static_assert(string_view("OfxHWndInteractPropLocation") == string_view(kOfxHWndInteractPropLocation));
+static_assert(string_view("OfxHWndInteractPropMinSize") == string_view(kOfxHWndInteractPropMinSize));
+static_assert(string_view("OfxHWndInteractPropParent") == string_view(kOfxHWndInteractPropParent));
+static_assert(string_view("OfxHWndInteractPropPrefferedSize") == string_view(kOfxHWndInteractPropPreferredSize));
+static_assert(string_view("OfxImageEffectPluginPropHWndInteractV1") == string_view(kOfxImageEffectPluginPropHWndInteractV1));
+static_assert(string_view("OfxImageEffectPropHelpContextID") == string_view(kOfxImageEffectPropHelpContextID));
+static_assert(string_view("OfxImageEffectPropHelpFile") == string_view(kOfxImageEffectPropHelpFile));
+static_assert(string_view("OfxImageEffectPropPixelOrder") == string_view(kOfxImagePropPixelOrder));
+static_assert(string_view("OfxImageEffectPropRenderQuality") == string_view(kOfxImageEffectPropRenderQuality));
+static_assert(string_view("OfxImageEffectPropRenderView") == string_view(kOfxImageEffectPropRenderView));
+static_assert(string_view("OfxImageEffectPropVegasContext") == string_view(kOfxImageEffectPropVegasContext));
+static_assert(string_view("OfxImageEffectPropVegasUpliftGUID") == string_view(kOfxImageEffectPropVegasUpliftGUID));
+static_assert(string_view("OfxImageEffectPropViewsToRender") == string_view(kOfxImageEffectPropViewsToRender));
+static_assert(string_view("OfxParamColorDefaultColorspace") == string_view(kOfxParamColorDefaultColorspace));
+static_assert(string_view("OfxParamPropColorWheelLevel") == string_view(kOfxParamPropColorWheelLevel));
+static_assert(string_view("OfxParamPropParameterExpanded") == string_view(kOfxParamPropParameterExpanded));
+static_assert(string_view("OfxProbPluginVegasPresetThumbnail") == string_view(kOfxProbPluginVegasPresetThumbnail));
+static_assert(string_view("OfxPropVegasHostAppDataDirectory") == string_view(kOfxPropVegasHostAppDataDirectory));
+static_assert(string_view("OfxPropVegasUpliftData") == string_view(kOfxPropVegasUpliftData));
+static_assert(string_view("OfxPropVegasUpliftDataLength") == string_view(kOfxPropVegasUpliftDataLength));
+static_assert(string_view("OfxPropVegasUpliftKeyframeData") == string_view(kOfxPropVegasUpliftKeyframeData));
+static_assert(string_view("OfxPropVegasUpliftKeyframeDataLength") == string_view(kOfxPropVegasUpliftKeyframeDataLength));
+static_assert(string_view("OfxPropVegasUpliftKeyframeInterpolation") == string_view(kOfxPropVegasUpliftKeyframeInterpolation));
+static_assert(string_view("OfxPropVegasUpliftKeyframeTime") == string_view(kOfxPropVegasUpliftKeyframeTime));
+#endif // OFX_EXTENSIONS_VEGAS
+#ifdef OFX_SUPPORTS_CUDARENDER
+static_assert(string_view("OfxImageEffectPropCudaEnabled") == string_view(kOfxImageEffectPropCudaEnabled));
+static_assert(string_view("OfxImageEffectPropCudaStream") == string_view(kOfxImageEffectPropCudaStream));
+#endif // OFX_SUPPORTS_CUDARENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
+static_assert(string_view("OfxImageEffectPropOpenCLCommandQueue") == string_view(kOfxImageEffectPropOpenCLCommandQueue));
+static_assert(string_view("OfxImageEffectPropOpenCLEnabled") == string_view(kOfxImageEffectPropOpenCLEnabled));
+static_assert(string_view("OfxImageEffectPropOpenCLImage") == string_view(kOfxImageEffectPropOpenCLImage));
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+static_assert(string_view("OfxImageEffectPropOpenGLEnabled") == string_view(kOfxImageEffectPropOpenGLEnabled));
+static_assert(string_view("OfxImageEffectPropOpenGLTextureIndex") == string_view(kOfxImageEffectPropOpenGLTextureIndex));
+static_assert(string_view("OfxImageEffectPropOpenGLTextureTarget") == string_view(kOfxImageEffectPropOpenGLTextureTarget));
+static_assert(string_view("OfxOpenGLPropPixelDepth") == string_view(kOfxOpenGLPropPixelDepth));
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_PARAMETRIC
+static_assert(string_view("OfxParamPropParametricDimension") == string_view(kOfxParamPropParametricDimension));
+static_assert(string_view("OfxParamPropParametricInteractBackground") == string_view(kOfxParamPropParametricInteractBackground));
+static_assert(string_view("OfxParamPropParametricRange") == string_view(kOfxParamPropParametricRange));
+static_assert(string_view("OfxParamPropParametricUIColour") == string_view(kOfxParamPropParametricUIColour));
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC_V2
+static_assert(string_view("OfxHostPropSupportedParametricInterpolations") == string_view(kOfxHostPropSupportedParametricInterpolations));
+static_assert(string_view("OfxParamParametricInterpolationCustomInterpCallbackV1") == string_view(kOfxParamParametricInterpolationCustomInterpCallbackV1));
+static_assert(string_view("OfxParametricParamCustomInterpControlPointIndex") == string_view(kOfxParametricParamCustomInterpControlPointIndex));
+static_assert(string_view("OfxParametricParamCustomInterpCurveIndex") == string_view(kOfxParametricParamCustomInterpCurveIndex));
+static_assert(string_view("OfxParametricParamCustomInterpInterpolationTime") == string_view(kOfxParametricParamCustomInterpInterpolationTime));
+static_assert(string_view("OfxParametricParamCustomInterpInterpolationValue") == string_view(kOfxParametricParamCustomInterpInterpolationValue));
+#endif // OFX_SUPPORTS_PARAMETRIC_V2
 
 // ... and enum values vs their #defines
 static_assert(string_view("OfxFieldNone") == string_view(kOfxImageFieldNone));
@@ -1368,11 +2191,9 @@ static_assert(string_view("OfxFieldNone") == string_view(kOfxImageFieldNone));
 static_assert(string_view("OfxFieldBoth") == string_view(kOfxImageFieldBoth));
 static_assert(string_view("OfxFieldLower") == string_view(kOfxImageFieldLower));
 static_assert(string_view("OfxFieldUpper") == string_view(kOfxImageFieldUpper));
-static_assert(string_view("OfxBitDepthNone") == string_view(kOfxBitDepthNone));
-static_assert(string_view("OfxBitDepthByte") == string_view(kOfxBitDepthByte));
-static_assert(string_view("OfxBitDepthShort") == string_view(kOfxBitDepthShort));
-static_assert(string_view("OfxBitDepthHalf") == string_view(kOfxBitDepthHalf));
-static_assert(string_view("OfxBitDepthFloat") == string_view(kOfxBitDepthFloat));
+static_assert(string_view("OfxParamInterpTypeConstantStep") == string_view(kOfxParamInterpTypeConstantStep));
+static_assert(string_view("OfxParamInterpTypeLinear") == string_view(kOfxParamInterpTypeLinear));
+static_assert(string_view("OfxParamInterpTypeSmooth") == string_view(kOfxParamInterpTypeSmooth));
 static_assert(string_view("OfxParamInvalidateValueChange") == string_view(kOfxParamInvalidateValueChange));
 static_assert(string_view("OfxParamInvalidateValueChangeToEnd") == string_view(kOfxParamInvalidateValueChangeToEnd));
 static_assert(string_view("OfxParamInvalidateAll") == string_view(kOfxParamInvalidateAll));
@@ -1401,5 +2222,125 @@ static_assert(string_view("OfxParamStringIsRichTextFormat") == string_view(kOfxP
 static_assert(string_view("OfxChangeUserEdited") == string_view(kOfxChangeUserEdited));
 static_assert(string_view("OfxChangePluginEdited") == string_view(kOfxChangePluginEdited));
 static_assert(string_view("OfxChangeTime") == string_view(kOfxChangeTime));
+#ifdef OFX_EXTENSIONS_NATRON
+static_assert(string_view("OfxImageComponentNone") == string_view(kOfxImageComponentNone));
+static_assert(string_view("OfxImageComponentRGBA") == string_view(kOfxImageComponentRGBA));
+static_assert(string_view("OfxImageComponentRGB") == string_view(kOfxImageComponentRGB));
+static_assert(string_view("OfxImageComponentAlpha") == string_view(kOfxImageComponentAlpha));
+static_assert(string_view("default") == string_view(kOfxInteractCursorDefault));
+static_assert(string_view("none") == string_view(kOfxInteractCursorNone));
+static_assert(string_view("OfxInteractCursorCustom") == string_view(kOfxInteractCursorCustom));
+static_assert(string_view("pointer") == string_view(kOfxInteractCursorPointer));
+static_assert(string_view("crosshair") == string_view(kOfxInteractCursorCrosshair));
+static_assert(string_view("text") == string_view(kOfxInteractCursorText));
+static_assert(string_view("wait") == string_view(kOfxInteractCursorWait));
+static_assert(string_view("progress") == string_view(kOfxInteractCursorProgress));
+static_assert(string_view("not-allowed") == string_view(kOfxInteractCursorNotAllowed));
+static_assert(string_view("help") == string_view(kOfxInteractCursorHelp));
+static_assert(string_view("cell") == string_view(kOfxInteractCursorCell));
+static_assert(string_view("copy") == string_view(kOfxInteractCursorCopy));
+static_assert(string_view("move") == string_view(kOfxInteractCursorMove));
+static_assert(string_view("grab") == string_view(kOfxInteractCursorGrab));
+static_assert(string_view("grabbing") == string_view(kOfxInteractCursorGrabbing));
+static_assert(string_view("all-scroll") == string_view(kOfxInteractCursorAllScroll));
+static_assert(string_view("col-resize") == string_view(kOfxInteractCursorColResize));
+static_assert(string_view("row-resize") == string_view(kOfxInteractCursorRowResize));
+static_assert(string_view("ew-resize") == string_view(kOfxInteractCursorEWResize));
+static_assert(string_view("ns-resize") == string_view(kOfxInteractCursorNSResize));
+static_assert(string_view("nesw-resize") == string_view(kOfxInteractCursorNESWResize));
+static_assert(string_view("nwse-resize") == string_view(kOfxInteractCursorNWSEResize));
+static_assert(string_view("zoom-in") == string_view(kOfxInteractCursorZoomIn));
+static_assert(string_view("zoom-out") == string_view(kOfxInteractCursorZoomOut));
+static_assert(string_view("default") == string_view(kOfxInteractCursorDefault));
+static_assert(string_view("none") == string_view(kOfxInteractCursorNone));
+static_assert(string_view("OfxInteractCursorCustom") == string_view(kOfxInteractCursorCustom));
+static_assert(string_view("pointer") == string_view(kOfxInteractCursorPointer));
+static_assert(string_view("crosshair") == string_view(kOfxInteractCursorCrosshair));
+static_assert(string_view("text") == string_view(kOfxInteractCursorText));
+static_assert(string_view("wait") == string_view(kOfxInteractCursorWait));
+static_assert(string_view("progress") == string_view(kOfxInteractCursorProgress));
+static_assert(string_view("not-allowed") == string_view(kOfxInteractCursorNotAllowed));
+static_assert(string_view("help") == string_view(kOfxInteractCursorHelp));
+static_assert(string_view("cell") == string_view(kOfxInteractCursorCell));
+static_assert(string_view("copy") == string_view(kOfxInteractCursorCopy));
+static_assert(string_view("move") == string_view(kOfxInteractCursorMove));
+static_assert(string_view("grab") == string_view(kOfxInteractCursorGrab));
+static_assert(string_view("grabbing") == string_view(kOfxInteractCursorGrabbing));
+static_assert(string_view("all-scroll") == string_view(kOfxInteractCursorAllScroll));
+static_assert(string_view("col-resize") == string_view(kOfxInteractCursorColResize));
+static_assert(string_view("row-resize") == string_view(kOfxInteractCursorRowResize));
+static_assert(string_view("ew-resize") == string_view(kOfxInteractCursorEWResize));
+static_assert(string_view("ns-resize") == string_view(kOfxInteractCursorNSResize));
+static_assert(string_view("nesw-resize") == string_view(kOfxInteractCursorNESWResize));
+static_assert(string_view("nwse-resize") == string_view(kOfxInteractCursorNWSEResize));
+static_assert(string_view("zoom-in") == string_view(kOfxInteractCursorZoomIn));
+static_assert(string_view("zoom-out") == string_view(kOfxInteractCursorZoomOut));
+#endif // OFX_EXTENSIONS_NATRON
+#ifdef OFX_EXTENSIONS_NUKE
+static_assert(string_view("uk.co.thefoundry.OfxImagePlaneColour") == string_view(kFnOfxImagePlaneColour));
+static_assert(string_view("uk.co.thefoundry.OfxImagePlaneBackMotionVector") == string_view(kFnOfxImagePlaneBackwardMotionVector));
+static_assert(string_view("uk.co.thefoundry.OfxImagePlaneForwardMotionVector") == string_view(kFnOfxImagePlaneForwardMotionVector));
+static_assert(string_view("uk.co.thefoundry.OfxImagePlaneStereoDisparityLeft") == string_view(kFnOfxImagePlaneStereoDisparityLeft));
+static_assert(string_view("uk.co.thefoundry.OfxImagePlaneStereoDisparityRight") == string_view(kFnOfxImagePlaneStereoDisparityRight));
+#endif // OFX_EXTENSIONS_NUKE
+#ifdef OFX_EXTENSIONS_RESOLVE
+#endif // OFX_EXTENSIONS_RESOLVE
+#ifdef OFX_EXTENSIONS_TUTTLE
+#endif // OFX_EXTENSIONS_TUTTLE
+#ifdef OFX_EXTENSIONS_VEGAS
+static_assert(string_view("OfxImagePixelOrderRGBA") == string_view(kOfxImagePixelOrderRGBA));
+static_assert(string_view("OfxImagePixelOrderBGRA") == string_view(kOfxImagePixelOrderBGRA));
+static_assert(string_view("OfxImageEffectPropRenderQualityDraft") == string_view(kOfxImageEffectPropRenderQualityDraft));
+static_assert(string_view("OfxImageEffectPropRenderQualityPreview") == string_view(kOfxImageEffectPropRenderQualityPreview));
+static_assert(string_view("OfxImageEffectPropRenderQualityGood") == string_view(kOfxImageEffectPropRenderQualityGood));
+static_assert(string_view("OfxImageEffectPropRenderQualityBest") == string_view(kOfxImageEffectPropRenderQualityBest));
+static_assert(string_view("OfxImageEffectPropVegasContextUnknown") == string_view(kOfxImageEffectPropVegasContextUnknown));
+static_assert(string_view("OfxImageEffectPropVegasContextMedia") == string_view(kOfxImageEffectPropVegasContextMedia));
+static_assert(string_view("OfxImageEffectPropVegasContextTrack") == string_view(kOfxImageEffectPropVegasContextTrack));
+static_assert(string_view("OfxImageEffectPropVegasContextEvent") == string_view(kOfxImageEffectPropVegasContextEvent));
+static_assert(string_view("OfxImageEffectPropVegasContextEventFadeIn") == string_view(kOfxImageEffectPropVegasContextEventFadeIn));
+static_assert(string_view("OfxImageEffectPropVegasContextEventFadeOut") == string_view(kOfxImageEffectPropVegasContextEventFadeOut));
+static_assert(string_view("OfxImageEffectPropVegasContextProject") == string_view(kOfxImageEffectPropVegasContextProject));
+static_assert(string_view("OfxImageEffectPropVegasContextGenerator") == string_view(kOfxImageEffectPropVegasContextGenerator));
+static_assert(string_view("OfxParamColorColorspaceRGB") == string_view(kOfxParamColorColorspaceRGB));
+static_assert(string_view("OfxParamColorColorspaceHSL") == string_view(kOfxParamColorColorspaceHSL));
+static_assert(string_view("OfxParamColorColorspaceHSV") == string_view(kOfxParamColorColorspaceHSV));
+static_assert(string_view("OfxParamColorColorspaceLab") == string_view(kOfxParamColorColorspaceLab));
+static_assert(string_view("OfxProbPluginVegasPresetThumbnailDefault") == string_view(kOfxProbPluginVegasPresetThumbnailDefault));
+static_assert(string_view("OfxProbPluginVegasPresetThumbnailSolidImage") == string_view(kOfxProbPluginVegasPresetThumbnailSolidImage));
+static_assert(string_view("OfxProbPluginVegasPresetThumbnailImageWithAlpha") == string_view(kOfxProbPluginVegasPresetThumbnailImageWithAlpha));
+static_assert(string_view("OfxVegasKeyframeInterpolationUnknown") == string_view(kOfxVegasKeyframeInterpolationUnknown));
+static_assert(string_view("OfxVegasKeyframeInterpolationLinear") == string_view(kOfxVegasKeyframeInterpolationLinear));
+static_assert(string_view("OfxVegasKeyframeInterpolationFast") == string_view(kOfxVegasKeyframeInterpolationFast));
+static_assert(string_view("OfxVegasKeyframeInterpolationSlow") == string_view(kOfxVegasKeyframeInterpolationSlow));
+static_assert(string_view("OfxVegasKeyframeInterpolationSmooth") == string_view(kOfxVegasKeyframeInterpolationSmooth));
+static_assert(string_view("OfxVegasKeyframeInterpolationSharp") == string_view(kOfxVegasKeyframeInterpolationSharp));
+static_assert(string_view("OfxVegasKeyframeInterpolationHold") == string_view(kOfxVegasKeyframeInterpolationHold));
+static_assert(string_view("OfxVegasKeyframeInterpolationManual") == string_view(kOfxVegasKeyframeInterpolationManual));
+static_assert(string_view("OfxVegasKeyframeInterpolationSplit") == string_view(kOfxVegasKeyframeInterpolationSplit));
+#endif // OFX_EXTENSIONS_VEGAS
+#ifdef OFX_SUPPORTS_CUDARENDER
+#endif // OFX_SUPPORTS_CUDARENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+static_assert(string_view("OfxBitDepthNone") == string_view(kOfxBitDepthNone));
+static_assert(string_view("OfxBitDepthByte") == string_view(kOfxBitDepthByte));
+static_assert(string_view("OfxBitDepthShort") == string_view(kOfxBitDepthShort));
+static_assert(string_view("OfxBitDepthHalf") == string_view(kOfxBitDepthHalf));
+static_assert(string_view("OfxBitDepthFloat") == string_view(kOfxBitDepthFloat));
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_PARAMETRIC
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC_V2
+static_assert(string_view("OfxHostParametricInterpolationDefault") == string_view(kOfxHostParametricInterpolationDefault));
+static_assert(string_view("OfxHostParametricInterpolationConstant") == string_view(kOfxHostParametricInterpolationConstant));
+static_assert(string_view("OfxHostParametricInterpolationLinear") == string_view(kOfxHostParametricInterpolationLinear));
+static_assert(string_view("OfxHostParametricInterpolationHorizontal") == string_view(kOfxHostParametricInterpolationHorizontal));
+static_assert(string_view("OfxHostParametricInterpolationSmooth") == string_view(kOfxHostParametricInterpolationSmooth));
+static_assert(string_view("OfxHostParametricInterpolationCubic") == string_view(kOfxHostParametricInterpolationCubic));
+static_assert(string_view("OfxHostParametricInterpolationCatmullRom") == string_view(kOfxHostParametricInterpolationCatmullRom));
+static_assert(string_view("OfxHostParametricInterpolationCustom") == string_view(kOfxHostParametricInterpolationCustom));
+#endif // OFX_SUPPORTS_PARAMETRIC_V2
 } // namespace assertions
 } // namespace openfx

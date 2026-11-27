@@ -16,6 +16,12 @@ import yaml
 import logging
 from pathlib import Path
 from ofx_prop_utils import get_properties_from_headers, get_propsets_from_headers, get_actions_from_headers
+import ofx_prop_utils
+import ofx_fork_props
+
+# NatronGitHub fork: the @propdef metadata also comes from the extension headers in include/nuke/
+# and include/tuttle/ (as for scripts/check-props.py)
+ofx_prop_utils.extract_all_inline_metadata = ofx_fork_props.all_inline_metadata
 
 # Set up basic configuration for logging
 logging.basicConfig(
@@ -234,6 +240,16 @@ def get_cname(propname, props_metadata):
     return props_metadata[propname].get("cname", "k" + propname)
 
 
+# NatronGitHub fork: C++ names of the properties whose string isn't one (the Nuke extension's
+# "uk.co.thefoundry...."): the macro name without its "k". Filled in by main().
+_CPP_NAMES = {}
+
+
+def ident(propname):
+    """The C++ name of the property in the generated arrays: its string, or _CPP_NAMES's."""
+    return _CPP_NAMES.get(propname, propname)
+
+
 def get_prop_id(propname):
     """HACK ALERT: a few props' names (string values) start with k.
     Those are also the #define names. If we use those as PropId enum
@@ -241,6 +257,8 @@ def get_prop_id(propname):
     compile errors. This means the names to be looked up always don't
     have the "k". We could prefix them or something but this should be
     OK."""
+    if propname in _CPP_NAMES:
+        return _CPP_NAMES[propname]
     if propname.startswith("k"):
         return propname[1:]
     return propname
@@ -376,7 +394,43 @@ def check_props_used_by_set(props_by_set, props_by_action, props_metadata):
     return errs
 
 
-def gen_props_metadata(props_metadata, value_to_cname, outfile_path: Path):
+# NatronGitHub fork: the guarded properties (an extension's, or an optional feature's:
+# ofx_fork_props.property_guards()) are in the openfx-cpp headers under the #ifdef of their macro.
+# The unguarded properties come first, then each macro's, so the unguarded PropIds don't depend on
+# the macros. {property string: macro}, filled in by main().
+_GUARDS = {}
+
+
+def guarded(props_metadata, outfile):
+    """The properties in PropId order; writes each macro's #ifdef/#endif around its properties."""
+    def key(p):
+        return (_GUARDS.get(p, ""), p)
+    macro = None
+    for p in sorted(props_metadata, key=key):
+        m = key(p)[0] or None
+        if m != macro:
+            if macro:
+                outfile.write(f"#endif // {macro}\n")
+            outfile.write(f"#ifdef {m}\n")
+            macro = m
+        yield p
+    if macro:
+        outfile.write(f"#endif // {macro}\n")
+
+
+def guard_each(props, outfile, name=lambda p: p):
+    """Each property of props, with the #ifdef/#endif of its macro written around what the loop
+    body writes for it (NatronGitHub fork)."""
+    for p in props:
+        m = _GUARDS.get(name(p))
+        if m:
+            outfile.write(f"#ifdef {m}\n")
+        yield p
+        if m:
+            outfile.write(f"#endif // {m}\n")
+
+
+def gen_props_metadata(props_metadata, value_to_cname, outfile_path: Path, ext_headers=None):
     """Generate a header file with metadata for each prop"""
     with open(outfile_path, "w") as outfile:
         outfile.write(generated_source_header)
@@ -393,7 +447,13 @@ def gen_props_metadata(props_metadata, value_to_cname, outfile_path: Path):
 #include <ofxParametricParam.h>
 #include <ofxKeySyms.h>
 #include <ofxOld.h>
-
+""")
+        # NatronGitHub fork: each extension's own headers, under its macro
+        for ext, headers in sorted((ext_headers or {}).items()):
+            macro = ofx_fork_props.EXTENSION_MACROS[ext]
+            outfile.write(f"#ifdef {macro}\n" + "".join(f"#include <{h}>\n" for h in headers)
+                          + f"#endif // {macro}\n")
+        outfile.write("""
 #include "ofxSpan.h"
 
 namespace openfx {
@@ -413,7 +473,7 @@ enum class PropType {
         outfile.write(f"//Property ID enum for compile-time lookup and type safety\n")
         outfile.write(f"enum class PropId {{\n")
         id = 0
-        for p in sorted(props_metadata):
+        for p in guarded(props_metadata, outfile):
             pname = get_prop_id(p)
             orig_name_msg = ""
             if pname != p:
@@ -429,11 +489,11 @@ enum class PropType {
             "// Separate arrays for enum-values for enum props, to keep everything constexpr\n"
         )
         outfile.write("namespace prop_enum_values {\n")
-        for p in sorted(props_metadata):
+        for p in guarded(props_metadata, outfile):
             md = props_metadata[p]
             if md["type"] == "enum":
                 values = "{" + ",".join(f'"{v}"' for v in md["values"]) + "}"
-                outfile.write(f"constexpr std::array {p} =\n  {values};\n")
+                outfile.write(f"constexpr std::array {ident(p)} =\n  {values};\n")
         outfile.write("} // namespace prop_enum_values\n")
         # Property definitions
 
@@ -443,7 +503,7 @@ enum class PropType {
 namespace prop_type_arrays {
 """)
         # Generate type arrays for each property
-        for p in sorted(props_metadata):
+        for p in guarded(props_metadata, outfile):
             md = props_metadata[p]
             types = md.get("type")
             if isinstance(types, str):
@@ -452,7 +512,7 @@ namespace prop_type_arrays {
                 "{" + ",".join(f"PropType::{t.capitalize()}" for t in types) + "}"
             )
             outfile.write(
-                f"static constexpr PropType {p}_types[] = {prop_type_defs};\n"
+                f"static constexpr PropType {ident(p)}_types[] = {prop_type_defs};\n"
             )
         outfile.write("} // namespace prop_type_arrays\n\n")
 
@@ -487,7 +547,7 @@ static inline constexpr PropDefsArray<PropDef> prop_defs = {
   {{
 """)
 
-        for p in sorted(props_metadata):
+        for p in guarded(props_metadata, outfile):
             try:
                 # name (id field removed - it was never used)
                 prop_def = f'{{ "{p}",\n  '
@@ -497,13 +557,13 @@ static inline constexpr PropDefsArray<PropDef> prop_defs = {
                     types = (types,)
                 # types - use span pointing to type array
                 type_count = len(types)
-                prop_def += f"openfx::span(prop_type_arrays::{p}_types, {type_count}), "
+                prop_def += f"openfx::span(prop_type_arrays::{ident(p)}_types, {type_count}), "
                 # dimension
                 prop_def += f"{md['dimension']}, "
                 # enum values - use span
                 if md["type"] == "enum":
                     assert isinstance(md["values"], list)
-                    prop_def += f"openfx::span(prop_enum_values::{p}.data(), prop_enum_values::{p}.size())"
+                    prop_def += f"openfx::span(prop_enum_values::{ident(p)}.data(), prop_enum_values::{ident(p)}.size())"
                 else:
                     prop_def += "openfx::span<const char* const>()"
                 prop_def += "},\n"
@@ -531,7 +591,7 @@ struct PropTraits<PropId::id> { \\
 
 """)
 
-        for p in sorted(props_metadata):
+        for p in guarded(props_metadata, outfile):
             try:
                 md = props_metadata[p]
                 types = md.get("type")
@@ -557,7 +617,7 @@ struct PropTraits<PropId::id> { \\
         # Generate static asserts to ensure our constants match the string values
         outfile.write("// Static asserts to check #define names vs. strings\n")
         outfile.write("namespace assertions {\nusing std::string_view;\n\n")
-        for p in sorted(props_metadata):
+        for p in guarded(props_metadata, outfile):
             cname = get_cname(p, props_metadata)
             outfile.write(
                 f'static_assert(string_view("{p}") == string_view({cname}));\n'
@@ -567,7 +627,7 @@ struct PropTraits<PropId::id> { \\
         # @propdef value (issue #247) fails to compile. enum_value_cname raises
         # here if a value looks like an OFX constant but names no macro.
         outfile.write("\n// ... and enum values vs their #defines\n")
-        for p in sorted(props_metadata):
+        for p in guarded(props_metadata, outfile):
             md = props_metadata[p]
             if md["type"] != "enum":
                 continue
@@ -632,6 +692,12 @@ struct Prop {
                     f'{{ "{p["name"]}", prop_defs[PropId::{get_prop_id(p["name"])}], {host_write}, {plugin_write}, {host_optional} }}'
                 )
             propdefs_str = ",\n   ".join(propdefs)
+            macros = [_GUARDS.get(p) for p in props_for_set(pset, props_by_set)]
+            if any(macros):  # NatronGitHub fork: each guarded entry under its #ifdef
+                propdefs_str = "".join(f"#ifdef {m}\n   {d},\n#endif // {m}\n" if m else f"   {d},\n"
+                                       for m, d in zip(macros, propdefs))
+                outfile.write(f'// {pset}\n{{ "{pset}", {{\n{propdefs_str} }} }},\n')
+                continue
             outfile.write(f'// {pset}\n{{ "{pset}", {{\n   {propdefs_str} }} }},\n')
         outfile.write("};\n\n")
 
@@ -809,7 +875,8 @@ public:
             generated_methods = set()
 
             # Generate methods for each property
-            for prop in props_for_set(pset_name, props_by_set, name_only=False):
+            for prop in guard_each(props_for_set(pset_name, props_by_set, name_only=False), outfile,
+                                   lambda prop: prop["name"]):
                 propname = prop["name"]
                 write_access = prop["write"]
                 is_host_optional = prop.get("host_optional") == "true"
@@ -1231,9 +1298,27 @@ def main(args):
     if not errs and args.verbose:
         print(" ✔️ ALL OK")
 
+    _GUARDS.update(ofx_fork_props.property_guards(include_dir))
+    for p in props_metadata:
+        if not p.isidentifier():
+            name = get_cname(p, props_metadata)[1:]
+            taken = {get_prop_id(q) for q in props_metadata} | {ident(q) for q in props_metadata}
+            if name in taken:
+                raise ValueError(f"{p}: its C++ name {name} is already a property's")
+            _CPP_NAMES[p] = name
+
+    # NatronGitHub fork: the property sets and actions list standard properties only, so the
+    # tables generated from them (ofxPropsBySet.h, the accessors) need no extension #ifdef
+    ext_in_sets = sorted(p["name"] for pset in all_propsets for p in props_for_set(pset, all_propsets, False)
+                         if ofx_fork_props.extension_of(p["name"], props_metadata.get(p["name"], {})))
+    if ext_in_sets:
+        raise ValueError(f"extension properties in a @propset or action: {ext_in_sets}; "
+                         "gen-props.py guards them only in ofxPropsMetadata.h")
+
     if args.verbose:
         print(f"=== Generating {args.props_metadata}")
-    gen_props_metadata(props_metadata, value_to_cname, dest_path / args.props_metadata)
+    gen_props_metadata(props_metadata, value_to_cname, dest_path / args.props_metadata,
+                       ofx_fork_props.extension_headers(include_dir))
 
     if args.verbose:
         print(f"=== Generating props by set header {args.props_by_set}")

@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cassert>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string_view>

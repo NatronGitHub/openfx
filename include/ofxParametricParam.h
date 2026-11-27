@@ -331,7 +331,7 @@ typedef struct OfxParametricParameterSuiteV1 {
       - OfxHostParametricInterpolationCubic
       - OfxHostParametricInterpolationCatmullRom
       - OfxHostParametricInterpolationCustom
-    extension: natron
+    extension: parametric_v2
 */
 #define kOfxHostPropSupportedParametricInterpolations "OfxHostPropSupportedParametricInterpolations"
 
@@ -412,7 +412,7 @@ typedef OfxStatus (OfxParametricParamCustomInterpFuncV1)(OfxParamSetHandle insta
     @propdef
     type: double
     dimension: 2
-    extension: natron
+    extension: parametric_v2
 */
 #define kOfxParametricParamCustomInterpInterpolationTime "OfxParametricParamCustomInterpInterpolationTime"
 
@@ -423,7 +423,7 @@ typedef OfxStatus (OfxParametricParamCustomInterpFuncV1)(OfxParamSetHandle insta
     @propdef
     type: double
     dimension: 2
-    extension: natron
+    extension: parametric_v2
 */
 #define kOfxParametricParamCustomInterpInterpolationValue "OfxParametricParamCustomInterpInterpolationValue"
 
@@ -434,7 +434,7 @@ typedef OfxStatus (OfxParametricParamCustomInterpFuncV1)(OfxParamSetHandle insta
     @propdef
     type: int
     dimension: 1
-    extension: natron
+    extension: parametric_v2
 */
 #define kOfxParametricParamCustomInterpControlPointIndex "OfxParametricParamCustomInterpControlPointIndex"
 
@@ -445,7 +445,7 @@ typedef OfxStatus (OfxParametricParamCustomInterpFuncV1)(OfxParamSetHandle insta
     @propdef
     type: int
     dimension: 1
-    extension: natron
+    extension: parametric_v2
 */
 #define kOfxParametricParamCustomInterpCurveIndex "OfxParametricParamCustomInterpCurveIndex"
 
@@ -459,7 +459,7 @@ typedef OfxStatus (OfxParametricParamCustomInterpFuncV1)(OfxParamSetHandle insta
     @propdef
     type: pointer
     dimension: 1
-    extension: natron
+    extension: parametric_v2
 */
 #define kOfxParamParametricInterpolationCustomInterpCallbackV1 "OfxParamParametricInterpolationCustomInterpCallbackV1"
 

@@ -43,15 +43,49 @@ pixel() { ppm "$1" | awk -v x="$2" -v y="$3" 'NR == 1 { n = 2 + ($2 - 1 - y) * $
 # expect NAME GOT EXPECTED
 expect() { if [ "$2" != "$3" ]; then printf '%s: FAILED\nexpected:\n%s\ngot:\n%s\n' "$1" "$3" "$(echo "$2" | head -5)"; exit 1; fi; echo "$1: OK"; }
 
+# The views of each frame, read from what hostDemo renders: two with the Nuke or Vegas extension
+# (left and right: files X.0l.ppm and X.0r.ppm, report entries with view 0 and 1), else one
+# (X.0.ppm); one with --ofx14 or --ofx11, as views are an extension (ofxSonyVegas.h,
+# kOfxImageEffectPropViewsToRender: "1 for a single view, 2 for stereo"). The default input pattern
+# is grey, or with the Vegas extension red in view 0 and cyan in view 1 (hostDemoClipInstance.cpp):
+# at t=1 it is white with black digits, so at (0,0) Invert gives 255 minus the pattern's colour.
+# nv: the number of views, views: their indices; vegas: 1 for the red and cyan pattern; vsfx K: the
+# suffix of view K's files; inv1 K: the 8-bit Invert of the pattern's colour at value 1 in view K.
+# Every check below that reads output files reads each view's, unless it says otherwise.
+renderviews() { python3 -I -c 'import json, sys
+print(" ".join("%s:%s" % (x["view"], x["output"]["files"][0]) for x in json.load(open(sys.argv[1]))["renders"]))' "$1"; }
+rm -f views.json views-ofx14.json views-ofx11.json
+run hostdemo-views.log --frames 1 -o Views --report views.json
+nv=$(renderviews views.json | wc -w | tr -d ' ')
+views=$(seq 0 $((nv - 1)))
+vsfx() { if [ "$nv" = 2 ]; then if [ "$1" = 0 ]; then echo l; else echo r; fi; fi; }
+expect "views: the report and the files of each view" "$(renderviews views.json)" \
+  "$(if [ "$nv" = 2 ]; then echo "0:Views.1l.ppm 1:Views.1r.ppm"; else echo "0:Views.1.ppm"; fi)"
+case "$nv:$(pixel Views.1$(vsfx 0).ppm 0 0):$(if [ "$nv" = 2 ]; then pixel Views.1r.ppm 0 0; fi)" in
+  "1:0 0 0:" | "2:0 0 0:0 0 0") vegas=0 ;;
+  "2:0 255 255:255 0 0") vegas=1 ;;
+  *) echo "views: Invert of the default pattern at t=1 is neither black nor the inverse of the Vegas red and cyan:"
+     for k in $views; do echo "view $k: $(pixel Views.1$(vsfx $k).ppm 0 0)"; done; exit 1 ;;
+esac
+inv1() { if [ $vegas = 0 ]; then echo "0 0 0"; elif [ "$1" = 0 ]; then echo "0 255 255"; else echo "255 0 0"; fi; }
+echo "views: $nv per frame, the default pattern $(if [ $vegas = 1 ]; then echo "red and cyan (Vegas)"; else echo grey; fi)"
+for p in ofx14 ofx11; do
+  run hostdemo-views-$p.log --$p --frames 1 -o Views-$p --report views-$p.json
+  expect "--$p: one view, as view 0 of the default host" "$(renderviews views-$p.json) $(pixel Views-$p.1.ppm 0 0)" \
+    "0:Views-$p.1.ppm $(inv1 0)"
+done
+
 # Render the invert plug-in with hostDemo. The input frames are black (t=0) and
 # white (t=1), with digits drawn in the other colour (from (50,50), y up): inverted,
-# nearly every pixel of frame 0 is white and of frame 1 is black. The pixel (57,52) is
-# in the first digit, so it checks that the PPM rows are written top row first.
+# nearly every pixel of frame 0 is white and of frame 1 is black (inv1 with Vegas). The pixel
+# (57,52) is in the first digit, so it checks that the PPM rows are written top row first.
 run hostdemo.log
-for f in "Output.0.ppm 255 0" "Output.1.ppm 0 255"; do
-  set -- $f
-  hist "$1" | sed -n 2p | awk -v v="$2" -v f="$1" '{ print f": most frequent pixel", $2, $3, $4, "("$1"x)"; exit ($2 != v || $3 != v || $4 != v || $1 < 400000) }'
-  expect "$1: digit pixel (57,52)" "$(pixel "$1" 57 52)" "$3 $3 $3"
+for k in $views; do
+  for f in "Output.0$(vsfx $k).ppm|255 255 255|$(inv1 $k)" "Output.1$(vsfx $k).ppm|$(inv1 $k)|255 255 255"; do
+    IFS='|' read -r o bg digit <<< "$f"
+    hist $o | sed -n 2p | awk -v v="$bg" -v f=$o '{ print f": most frequent pixel", $2, $3, $4, "("$1"x)"; exit ($2 " " $3 " " $4 != v || $1 < 400000) }'
+    expect "$o: digit pixel (57,52)" "$(pixel $o 57 52)" "$digit"
+  done
 done
 
 # Invert on a solid RGBA input, at float and byte depths: (0.25, 0.5, 1) gives (0.75, 0.5, 0),
@@ -59,9 +93,12 @@ done
 for f in "float 191 128 0" "byte 191 127 0"; do
   set -- $f
   run hostdemo-$1.log -d $1 -i Source=solid:0.25,0.5,1,1 -o Invert-$1
-  grep -q "OfxBitDepth$(echo ${1:0:1} | tr a-z A-Z)${1:1} OfxImageComponentRGBA" Invert-$1.0.ppm || { echo "Invert-$1.0.ppm: not a $1 RGBA image"; head -4 Invert-$1.0.ppm; exit 1; }
-  expect Invert-$1.0.ppm "$(hist Invert-$1.0.ppm)" "720 576
+  for k in $views; do
+    o=Invert-$1.0$(vsfx $k).ppm
+    grep -q "OfxBitDepth$(echo ${1:0:1} | tr a-z A-Z)${1:1} OfxImageComponentRGBA" $o || { echo "$o: not a $1 RGBA image"; head -4 $o; exit 1; }
+    expect $o "$(hist $o)" "720 576
 414720 $2 $3 $4"
+  done
 done
 
 # The DepthConverter example (Examples/DepthConverter, CMake builds only) must address whole RGBA
@@ -71,10 +108,13 @@ done
 if grep -q "^Plug-in:uk.co.thefoundry.DepthConverterExample$" cachedemo.log; then
   for d in byte short float; do
     run hostdemo-depthconverter-$d.log -p uk.co.thefoundry.DepthConverterExample -d $d -i Source=ramp --frames 0 -o DepthConverter-$d
-    bad=$(ppm DepthConverter-$d.0.ppm | awk 'NR > 1 { x = (NR - 2) % 720; v = int(((2 * x + 1) * 255 + 720) / 1440)
-      if (!bad && ($1 != v || $2 != v || $3 != v)) bad = "pixel (" x "," 575 - int((NR - 2) / 720) "): " $0 ", expected " v }
-      END { print bad }')
-    expect "DepthConverter-$d.0.ppm: the input ramp" "$bad" ""
+    for k in $views; do
+      o=DepthConverter-$d.0$(vsfx $k).ppm
+      bad=$(ppm $o | awk 'NR > 1 { x = (NR - 2) % 720; v = int(((2 * x + 1) * 255 + 720) / 1440)
+        if (!bad && ($1 != v || $2 != v || $3 != v)) bad = "pixel (" x "," 575 - int((NR - 2) / 720) "): " $0 ", expected " v }
+        END { print bad }')
+      expect "$o: the input ramp" "$bad" ""
+    done
   done
 fi
 
@@ -83,8 +123,10 @@ fi
 # alpha) scales no pixel. --quiet prints nothing on stdout.
 basic="-p net.sf.openfx.basicPlugin -c general -d float -i Source=solid:0.5,0.25,0.125,1 scale=2"
 test -z "$(hostdemo $basic -i Mask=solid:1,1,1,0 -o BasicMask0 2>/dev/null)" || { echo "hostDemo --quiet: output on stdout"; exit 1; }
-expect BasicMask0.0.ppm "$(hist BasicMask0.0.ppm)" "720 576
+for k in $views; do
+  expect BasicMask0.0$(vsfx $k).ppm "$(hist BasicMask0.0$(vsfx $k).ppm)" "720 576
 414720 128 64 32"
+done
 
 # A mandatory clip can't be disconnected ("Any clip that is not optional will *always* be
 # connected during a render action")
@@ -101,18 +143,28 @@ pfmpixel() { od -A n -t f4 -j $((16 + ($3 * 720 + $2) * $4 * 4)) -N $(($4 * 4)) 
   awk '{ for (i = 1; i <= NF; i++) printf "%s%g", (n++ ? " " : ""), $i } END { print "" }'; }
 
 # PFM round trip. RT1 = Invert(default pattern), in float: white with the time drawn in black
-# from (50,50). The pixel (57,52) is in the first digit, so it is black, and the pixel at the
-# same place from the top (57,523) is white: this checks that the PFM rows are bottom to top.
+# (with Vegas: in invf) from (50,50). The pixel (57,52) is in the first digit, so it is black, and
+# the pixel at the same place from the top (57,523) is white: this checks that the PFM rows are
+# bottom to top. invf K, patf K: inv1 K, and the pattern's colour at value 1 in view K, in floats.
+invf() { inv1 "$1" | awk '{ print $1 / 255, $2 / 255, $3 / 255 }'; }
+patf() { inv1 "$1" | awk '{ print 1 - $1 / 255, 1 - $2 / 255, 1 - $3 / 255 }'; }
 run hostdemo-rt1.log -d float --format pfm -o RT1
-expect "RT1.0.pfm: header" "$(head -c 16 RT1.0.pfm | tr '\n' ' ')" "PF 720 576 -1.0 "
-expect "RT1.0.pfm: size" "$(wc -c < RT1.0.pfm | tr -d ' ')" "$((16 + 720 * 576 * 12))"
-expect "RT1.0.pfm: pixels (57,52) and (57,523)" "$(pfmpixel RT1.0.pfm 57 52 3) $(pfmpixel RT1.0.pfm 57 523 3)" "0 0 0 1 1 1"
-# the alpha of the RGBA output (1 inverted: 0) goes to a separate Pf file
-expect "RT1.0.alpha.pfm: header" "$(head -c 16 RT1.0.alpha.pfm | tr '\n' ' ')" "Pf 720 576 -1.0 "
-expect "RT1.0.alpha.pfm: size and pixel (57,52)" "$(wc -c < RT1.0.alpha.pfm | tr -d ' ') $(pfmpixel RT1.0.alpha.pfm 57 52 1)" "$((16 + 720 * 576 * 4)) 0"
-# RT2 = Invert(RT1.0.pfm) is the original pattern: black with the time in white
-run hostdemo-rt2.log -d float -i Source=file:RT1.0.pfm --format pfm -o RT2
-expect "RT2.0.pfm: pixels (57,52) and (57,523)" "$(pfmpixel RT2.0.pfm 57 52 3) $(pfmpixel RT2.0.pfm 57 523 3)" "1 1 1 0 0 0"
+for k in $views; do
+  o=RT1.0$(vsfx $k)
+  expect "$o.pfm: header" "$(head -c 16 $o.pfm | tr '\n' ' ')" "PF 720 576 -1.0 "
+  expect "$o.pfm: size" "$(wc -c < $o.pfm | tr -d ' ')" "$((16 + 720 * 576 * 12))"
+  expect "$o.pfm: pixels (57,52) and (57,523)" "$(pfmpixel $o.pfm 57 52 3) $(pfmpixel $o.pfm 57 523 3)" "$(invf $k) 1 1 1"
+  # the alpha of the RGBA output (1 inverted: 0) goes to a separate Pf file
+  expect "$o.alpha.pfm: header" "$(head -c 16 $o.alpha.pfm | tr '\n' ' ')" "Pf 720 576 -1.0 "
+  expect "$o.alpha.pfm: size and pixel (57,52)" "$(wc -c < $o.alpha.pfm | tr -d ' ') $(pfmpixel $o.alpha.pfm 57 52 1)" "$((16 + 720 * 576 * 4)) 0"
+done
+# RT2 = Invert(RT1's view 0) is the original pattern of view 0, in every view (a file input is the
+# same in every view): black with the time in white (with Vegas: red)
+run hostdemo-rt2.log -d float -i Source=file:RT1.0$(vsfx 0).pfm --format pfm -o RT2
+for k in $views; do
+  o=RT2.0$(vsfx $k).pfm
+  expect "$o: pixels (57,52) and (57,523)" "$(pfmpixel $o 57 52 3) $(pfmpixel $o 57 523 3)" "$(patf 0) 0 0 0"
+done
 # only little-endian PFM files (negative scale) are read
 { printf 'Pf\n1 1\n1.0\n'; printf '\0\0\0\0'; } > big-endian.pfm
 fails hostdemo-pfm-scale.log "only little-endian" -i Source=file:big-endian.pfm
@@ -122,8 +174,13 @@ rm -f report.json describe.json changed.json dot.json fail.json escape.json keys
 
 # jcheck NAME FILE CODE: run the Python statements CODE (assertions) with r = the JSON document in
 # FILE, using only the standard library. Any failed assertion or missing key fails the check.
+# CODE may also use nv, sfx (the file suffix of each view: [""], or ["l", "r"]) and pat (the colour
+# of the default pattern at value 1 in each view: grey, or red and cyan with Vegas).
 jcheck() { python3 -I -c 'import json, math, sys
 name, path, code = sys.argv[1:4]
+nv, vegas = int(sys.argv[4]), sys.argv[5] == "1"
+sfx = ["l", "r"] if nv == 2 else [""]
+pat = [[1, 0, 0], [0, 1, 1]] if vegas else [[1, 1, 1]] * nv
 try:
     with open(path) as f:
         r = json.load(f)
@@ -131,7 +188,7 @@ try:
 except Exception as e:
     print("%s: FAILED (%s: %s)" % (name, type(e).__name__, e))
     sys.exit(1)
-print(name + ": OK")' "$@"; }
+print(name + ": OK")' "$@" "$nv" "$vegas"; }
 
 # --report on Invert (filter context): the RoD is the input RoD, Invert is not an identity, the
 # frames needed are [t,t], the clip preferences map both clips to float RGBA, and the output
@@ -151,7 +208,7 @@ for c in ("Source", "Output"):
 assert cp["outputPremultiplication"] == "OfxImageAlphaUnPremultiplied" and cp["outputFrameRate"] == 25
 assert cp["outputFielding"] == "OfxFieldNone" and cp["frameVarying"] is False and cp["continuousSamples"] is False
 assert r["timeDomain"] is None  # only called in the general context
-assert [(x["time"], x["view"]) for x in r["renders"]] == [(0, 0), (1, 0)]
+assert [(x["time"], x["view"]) for x in r["renders"]] == [(t, v) for t in (0, 1) for v in range(nv)]
 for x in r["renders"]:
     t = x["time"]
     assert x["regionOfDefinition"]["ok"] and x["regionOfDefinition"]["rod"] == x["inputs"]["Source"]["regionOfDefinition"] == [0, 0, 768, 576]
@@ -163,7 +220,7 @@ for x in r["renders"]:
     o = x["output"]
     assert (o["w"], o["h"], o["bounds"], o["depth"], o["comps"]) == (720, 576, [0, 0, 720, 576], "float", "RGBA")
     assert o["min"] == o["max"] == o["mean"] == [0.75, 0.5, 0, 0] and o["nan"] == 0
-    assert o["files"] == ["Report.%d.ppm" % t] and len(o["crc32"]) == 8
+    assert o["files"] == ["Report.%d%s.ppm" % (t, sfx[x["view"]])] and len(o["crc32"]) == 8
 assert r["messages"] == [] and r["progress"] == []
 '
 
@@ -225,7 +282,7 @@ for x in r["renders"]:
     assert o["bounds"] == x["renderWindow"] == px, (o["bounds"], px)
     assert (o["w"], o["h"]) == (px[2] - px[0], px[3] - px[1]) == (95, 100)
     assert x["inputs"]["Source"] == {"connected": False, "regionOfDefinition": None}
-assert len(r["renders"]) == 2
+assert len(r["renders"]) == 2 * nv
 '
 
 # Degenerate inputs must not make NaNs (NaN audit): the gamma example, where the mask is 0, gives
@@ -249,7 +306,7 @@ run hostdemo-unwritten2.log -p net.sf.openfx.propertyTester -d float -o PropTest
 echo "hostDemo --allow-unwritten: OK"
 
 # strings are escaped: a file name with a quote, a backslash, a tab and a non-ASCII (UTF-8) letter
-esc=$(printf 'esc"a\\b\tc\303\251.pfm'); cp RT1.0.alpha.pfm "$esc"
+esc=$(printf 'esc"a\\b\tc\303\251.pfm'); cp RT1.0$(vsfx 0).alpha.pfm "$esc"
 run hostdemo-escape.log -d float -i "Source=file:$esc" -o Escape --report escape.json
 jcheck "--report: string escaping" escape.json '
 assert r["inputs"]["Source"]["spec"] == "file:esc\"a\\b\tcé.pfm", r["inputs"]["Source"]["spec"]
@@ -258,37 +315,41 @@ assert r["renders"][0]["output"]["w"] == 720
 
 # Node primitives, for a Python graph executor: any times, a render scale and a render window
 # (pixels at that scale). Invert of the default pattern at t=0.5 is 0.5 (and alpha 0) outside the
-# digits. Then the output, positioned with its bounds (file:...@x1,y1, pixels at the render scale),
-# is an input with the same RoD, and Invert gives back the pattern. --query renders nothing.
+# digits (with Vegas: 1 - 0.5 pat). Then the output of view 0, positioned with its bounds
+# (file:...@x1,y1, pixels at the render scale), is an input with the same RoD, and Invert gives back
+# the pattern of view 0 in every view. --query renders nothing.
 rm -f node1.json node2.json query.json Node1.* Node2.* Query.*
 run hostdemo-node1.log -d float --format pfm --frames 0.5,2 --scale 0.5 --window 10,20,110,70 -o Node1 --report node1.json
 jcheck "--frames, --scale, --window" node1.json '
 assert r["frames"] == [0.5, 2] and r["renderScale"] == [0.5, 0.5] and r["window"] == [10, 20, 110, 70]
-assert [x["time"] for x in r["renders"]] == [0.5, 2]
+assert [(x["time"], x["view"]) for x in r["renders"]] == [(t, v) for t in (0.5, 2) for v in range(nv)]
 par = 768. / 720.
 for x in r["renders"]:
     assert x["renderScale"] == [0.5, 0.5] and x["renderWindow"] == x["output"]["bounds"] == [10, 20, 110, 70]
     assert x["regionsOfInterest"]["clips"]["Source"] == [10 / 0.5 * par, 40, 110 / 0.5 * par, 140]
-o = r["renders"][0]["output"]
-assert (o["min"], o["max"]) == ([0.5, 0.5, 0.5, 0], [0.5, 0.5, 0.5, 0]), o
-assert r["renders"][0]["output"]["files"][0] == "Node1.0.5.pfm"
+for x in r["renders"][:nv]:
+    o = x["output"]
+    assert o["min"] == o["max"] == [1 - 0.5 * c for c in pat[x["view"]]] + [0], o
+    assert o["files"][0] == "Node1.0.5%s.pfm" % sfx[x["view"]]
 '
-run hostdemo-node2.log -d float --format pfm --frames 0.5 --scale 0.5 -i Source=file:Node1.0.5.pfm@10,20 -o Node2 --report node2.json
+node1=Node1.0.5$(vsfx 0)
+run hostdemo-node2.log -d float --format pfm --frames 0.5 --scale 0.5 -i Source=file:$node1.pfm@10,20 -o Node2 --report node2.json
 jcheck "positioned PFM input" node2.json '
 par = 768. / 720.
-x = r["renders"][0]
-assert x["inputs"]["Source"]["regionOfDefinition"] == [10 / 0.5 * par, 40, 110 / 0.5 * par, 140]
-assert x["renderWindow"] == x["output"]["bounds"] == [10, 20, 110, 70]
-assert x["output"]["min"][:3] == x["output"]["max"][:3] == [0.5, 0.5, 0.5]
+assert len(r["renders"]) == nv
+for x in r["renders"]:
+    assert x["inputs"]["Source"]["regionOfDefinition"] == [10 / 0.5 * par, 40, 110 / 0.5 * par, 140]
+    assert x["renderWindow"] == x["output"]["bounds"] == [10, 20, 110, 70]
+    assert x["output"]["min"][:3] == x["output"]["max"][:3] == [0.5 * c for c in pat[0]], x["output"]
 '
 # with its alpha file and premultiplication state: Node1's alpha is 0, and Invert gives alpha 1
-run hostdemo-node3.log -d float --format pfm --frames 0.5 --scale 0.5 -i "Source=file:Node1.0.5.pfm+Node1.0.5.alpha.pfm@10,20#premult" -o Node3 --report node3.json
+run hostdemo-node3.log -d float --format pfm --frames 0.5 --scale 0.5 -i "Source=file:$node1.pfm+$node1.alpha.pfm@10,20#premult" -o Node3 --report node3.json
 jcheck "PFM input with alpha and premultiplication" node3.json '
-x = r["renders"][0]
-assert x["output"]["min"] == x["output"]["max"] == [0.5, 0.5, 0.5, 1], x["output"]
+for x in r["renders"]:
+    assert x["output"]["min"] == x["output"]["max"] == [0.5 * c for c in pat[0]] + [1], x["output"]
 assert r["inputs"]["Source"]["spec"].endswith("#premult")
 '
-fails hostdemo-alpha.log "the alpha file must be a Pf file" -i "Source=file:Node1.0.5.pfm+Node1.0.5.pfm"
+fails hostdemo-alpha.log "the alpha file must be a Pf file" -i "Source=file:$node1.pfm+$node1.pfm"
 run hostdemo-query.log -d float --frames 3 --query -o Query --report query.json
 test -z "$(ls Query.* 2>/dev/null)" || { echo "hostDemo --query: rendered"; exit 1; }
 jcheck "--query" query.json '
@@ -340,11 +401,16 @@ grep -q "doesn.t support tiles: rendering the whole RoD" hostdemo-notiles.log ||
 # a solid input gives a solid output only if hostDemo fetches the whole RoD (no tiles); with tiles,
 # the output has other values outside the small RoI. Two frames: the --window warning only once.
 run hostdemo-smallroi.log --frames 0,1 -i Source=solid:0.25,0.5,0,1 -s supportsTiles=0 -s testSmallRoI=1 --window 100,100,164,148 -o SmallRoI
-expect "supportsTiles=0 testSmallRoI=1: whole-RoD input" "$(hist SmallRoI.0.ppm)" "720 576
+for k in $views; do
+  expect "supportsTiles=0 testSmallRoI=1: whole-RoD input, SmallRoI.0$(vsfx $k).ppm" "$(hist SmallRoI.0$(vsfx $k).ppm)" "720 576
 414720 191 127 255"
+done
 [ "$(grep -c "rendering the whole RoD" hostdemo-smallroi.log)" = 1 ] || { echo "the --window warning isn't printed once"; cat hostdemo-smallroi.log; exit 1; }
 run hostdemo-smallroi-tiles.log --frames 0 -i Source=solid:0.25,0.5,0,1 -s testSmallRoI=1 -o SmallRoITiles
-[ "$(hist SmallRoITiles.0.ppm | wc -l)" -gt 2 ] || { echo "testSmallRoI=1 with tiles: the output should not be solid"; hist SmallRoITiles.0.ppm; exit 1; }
+for k in $views; do
+  o=SmallRoITiles.0$(vsfx $k).ppm
+  [ "$(hist $o | wc -l)" -gt 2 ] || { echo "testSmallRoI=1 with tiles: the output $o should not be solid"; hist $o; exit 1; }
+done
 # an input RoD too large for hostDemo: the RoI is fetched instead (with a warning)
 run hostdemo-hugerod.log -d float --frames 0 -i Source=rod:0,0,40000,40000 -s supportsTiles=0 --window 0,0,64,64 -o HugeRoD
 grep -q "is too large for hostDemo: rendering --window" hostdemo-hugerod.log &&
@@ -368,10 +434,12 @@ run hostdemo-keys.log -p net.sf.openfx.basicPlugin -c general -i Source=solid:0.
 jcheck "keys" keys.json '
 p = r["params"]["scale"]
 assert p["keys"] == [[0, 1], [4, 1.2], [10, 2]] and p["value"] == 1, p
-v = [x["params"]["scale"] for x in r["renders"]]
-assert v[0] == 1 and abs(v[1] - 4 / 3) < 1e-12 and v[2] == 2 and v[3] == 2, v
-m = [x["output"]["mean"][0] for x in r["renders"]]
-assert abs(m[1] - 0.5 * 4 / 3) < 1e-6 and abs(m[2] - 1) < 1e-6, m
+assert [x["view"] for x in r["renders"]] == list(range(nv)) * 4
+for k in range(nv):
+    v = [x["params"]["scale"] for x in r["renders"] if x["view"] == k]
+    assert v[0] == 1 and abs(v[1] - 4 / 3) < 1e-12 and v[2] == 2 and v[3] == 2, v
+    m = [x["output"]["mean"][0] for x in r["renders"] if x["view"] == k]
+    assert abs(m[1] - 0.5 * 4 / 3) < 1e-6 and abs(m[2] - 1) < 1e-6, m
 assert [a["time"] for a in r["actions"] if a.get("param") == "scale" and a["action"] == "instanceChanged"] == [0, 10, 4]
 '
 # push buttons (-s name), paramSetValueAtTime from instanceChanged (Tester's analyseButton keys
@@ -388,7 +456,7 @@ assert len(k) == 25 and all(t == v for t, v in k), k
 run hostdemo-renderkeys.log -p net.sf.openfx.GenericTestPlugin -s keysDouble@0=1 -s keysDouble@10=3 --frames 5,10 -d float --report render-keys.json -o RenderKeys
 jcheck "paramGetValue in render" render-keys.json '
 assert r["ok"] and r["messages"] == [], r["messages"]
-assert [x["params"]["keysDouble"] for x in r["renders"]] == [2, 3]
+assert [(x["view"], x["params"]["keysDouble"]) for x in r["renders"]] == [(k, v) for v in (2, 3) for k in range(nv)]
 '
 fails hostdemo-keynoanim.log "doesn't animate" -p net.sf.openfx.GenericTestPlugin -s animateDbl@1=2
 fails hostdemo-keytime.log "invalid key time" -s supportsTiles@x=1
@@ -502,7 +570,7 @@ sweep_render() { local mode=$1 id=$2 ctx=$3; shift 3; rm -f "sweep-$mode.json"
   hostdemo "$@" -p "$id" -c "$ctx" --frames 0 -o "Sweep-$mode" --report "sweep-$mode.json" >> "sweep-$mode.log" 2>&1; }
 # sweep_json FILE...: one line per file: for a describe, the number of contexts that work and the
 # context to render (filter, else general, else -); for a report, the host profile and the crc32
-# of the first render's output (- if none). A missing or unreadable file gives "-".
+# of the first render's output (view 0; - if none). A missing or unreadable file gives "-".
 sweep_json() { python3 -I -c 'import json, sys
 for path in sys.argv[1:]:
     try:
