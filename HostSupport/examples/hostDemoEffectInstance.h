@@ -48,6 +48,9 @@ namespace MyHost {
     std::vector<ProgressRecord> _progress; ///< the progresses started by the plug-in, in order
     double _timeLineTime; ///< the time of the current action (timeLineGetTime)
     bool _refusePersistentMessages; ///< setRefusePersistentMessages()
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    int _nViews = 1; ///< setViewCount()
+#endif
 #ifdef HOSTDEMO_OPENGL
     OFX::Host::OpenGL::RenderSession *_glSession = nullptr; ///< setOpenGLSession()
 #endif
@@ -243,11 +246,17 @@ namespace MyHost {
     OFX::Host::OpenCL::RenderSession *getOpenCLSession() const { return _clSession; }
 #endif
 
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    /// the number of views that hostDemo renders for each frame (Host::viewCount(); 1 by default)
+    void setViewCount(int nViews) { _nViews = nViews; }
+#endif
+
 #ifdef OFX_EXTENSIONS_NUKE
-    /// Returns the number of views
+    /// Returns the number of views: the ones hostDemo renders (setViewCount())
     virtual OfxStatus getViewCount(int *nViews) const;
           
-    /// Returns the view textual representation
+    /// Returns the view textual representation: "main" for a single view, else "left" and "right"
+    /// (kOfxStatErrBadIndex and "" for another index).
     /// The string is owned by the host and must be valid throughout the calling action
     virtual OfxStatus getViewName(int viewIndex, const char** name) const;
 #endif

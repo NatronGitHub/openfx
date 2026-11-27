@@ -12,7 +12,7 @@ import pytest
 
 import ofxhost
 from ofxhost.graph import Files, Graph, Node, load
-from ofxhost.testing import assert_close, check_backend, suite_function
+from ofxhost.testing import assert_close, check_backend, suite_function, views
 
 check_backend("inprocess")  # (the whole module: skipped, or failed with OFXH_REQUIRE=1)
 from ofxhost import graphhost, inprocess  # noqa: E402
@@ -157,18 +157,22 @@ def test_output_files_and_report(sample_plugins, tmp_path, fmt):
     r = render(sample_plugins, INVERT, inputs={"Source": "ramp"}, depth="byte", frames=[0, 1], window=(0, 0, 8, 6),
                extra_args=["--format", fmt, "-o", "out/x", "--report", "r.json"])
     files = [x["output"]["files"] for x in r.report["renders"]]
+    v = views()
+    stems = v.stems("out/x", 0) + v.stems("out/x", 1)
     if fmt == "pfm":
-        assert files == [["out/x.0.pfm", "out/x.0.alpha.pfm"], ["out/x.1.pfm", "out/x.1.alpha.pfm"]]
-        rgb = ofxhost.read_pfm(tmp_path / "out/x.0.pfm")
-        alpha = ofxhost.read_pfm(tmp_path / "out/x.0.alpha.pfm")
-        assert np.array_equal(np.dstack([rgb, alpha]), r.outputs[0])
+        assert files == [[f"{x}.pfm", f"{x}.alpha.pfm"] for x in stems]
+        for x, key in zip(stems, v.keys(0)):
+            rgb = ofxhost.read_pfm(tmp_path / f"{x}.pfm")
+            alpha = ofxhost.read_pfm(tmp_path / f"{x}.alpha.pfm")
+            assert np.array_equal(np.dstack([rgb, alpha]), r.outputs[key])
     else:
-        assert files == [["out/x.0.ppm"], ["out/x.1.ppm"]]
-        text = (tmp_path / "out/x.0.ppm").read_text().split("\n")
-        assert text[:5] == ["P3", "# OfxBitDepthByte OfxImageComponentRGBA, converted to 8 bits", "# bounds 0 0 8 6",
-                            "8 6", "255"]
-        v = np.array([[int(c) for c in line.split()] for line in text[5:] if line]).reshape(6, 8, 3)
-        assert np.array_equal(v, np.round(r.outputs[0][..., :3] * 255).astype(int))
+        assert files == [[f"{x}.ppm"] for x in stems]
+        for x, key in zip(stems, v.keys(0)):
+            text = (tmp_path / f"{x}.ppm").read_text().split("\n")
+            assert text[:5] == ["P3", "# OfxBitDepthByte OfxImageComponentRGBA, converted to 8 bits",
+                                "# bounds 0 0 8 6", "8 6", "255"]
+            p = np.array([[int(c) for c in line.split()] for line in text[5:] if line]).reshape(6, 8, 3)
+            assert np.array_equal(p, np.round(r.outputs[key][..., :3] * 255).astype(int))
     assert json.loads((tmp_path / "r.json").read_text()) == json.loads(json.dumps(r.report))
 
 
@@ -265,7 +269,8 @@ def test_worker_threads_fetch_the_output_first(sample_plugins, monkeypatch, host
     assert len({h for _, h in seen["images"]}) == 1  # one image
     assert len(set(seen["data"])) == 1 and seen["data"][0]
     assert seen["rods"] == [(0, (0., 0., 768., 576.))] * n
-    assert len(made) == n + 1  # (each worker's get_image(), then the main thread's)
+    # (each worker's get_image(), then the main thread's, and the main thread's in each other view)
+    assert len(made) == n + (views().count if host == "inprocess" else 1)
     del r
     gc.collect()
     assert [w for w in made if w() is not None] == []  # (none leaked)

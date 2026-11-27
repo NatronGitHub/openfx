@@ -1589,6 +1589,10 @@ OfxStatus PyEffectInstance::getViewCount(int *nViews) const
 OfxStatus PyEffectInstance::getViewName(int viewIndex, const char **name) const
 {
   return callPython(StatusFallback{kOfxStatFailed}, [&] {
+    if (viewIndex < 0 || viewIndex >= nb::cast<int>(_py.attr("view_count"))) {
+      *name = "";
+      return kOfxStatErrBadIndex;  // (as hostDemo and Natron: view_name() is called for the views only)
+    }
     // (the cached string, not a reference to it: GCC's -Wdangling-reference would see one bound
     // to the result of a call with a temporary argument)
     *name = cached(_viewNames[viewIndex], nb::cast<std::string>(_py.attr("view_name")(viewIndex))).c_str();

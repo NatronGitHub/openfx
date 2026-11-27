@@ -18,7 +18,7 @@ import pytest
 
 from ofxhost import _batch
 from ofxhost.hostdemo import is_batch, run_batch, scan_options
-from ofxhost.testing import check_backend
+from ofxhost.testing import check_backend, views, without_support_debug
 
 PYDIR = Path(__file__).resolve().parents[1]  # HostSupport/examples/python
 
@@ -32,6 +32,11 @@ HOOK = "OFXHOST_BATCH_TEST_HOOK"
 
 def _line(args) -> str:
     return " ".join(shlex.quote(a) for a in args)
+
+
+def _ppm_files(directory: Path, prefix: str, t: float) -> list[Path]:
+    """The output files of frame t of a run with -o prefix (the default --format ppm): one per view."""
+    return [directory / f"{x}.ppm" for x in views().stems(prefix, t)]
 
 
 # --- the parser (no ofxh needed) ------------------------------------------------------------
@@ -174,7 +179,7 @@ def test_same_as_single_runs(tmp_path, env, single_runs, opts):
         assert r["args"] == args and r["cwd"] == str(bd) and r["env"] == {}
         assert (r["exitStatus"], r["ok"], r["crashed"], r["timedOut"]) == (s.returncode, s.returncode == 0, False,
                                                                              False), (args, r["stderr"])
-        assert r["stdout"] == s.stdout, args
+        assert without_support_debug(r["stdout"]) == without_support_debug(s.stdout), args
         if "--reuse-host" not in opts and "--fresh-host-per-plugin" not in opts:
             assert r["stderr"] == s.stderr, args
         else:  # (what plug-ins print during the scan, e.g. a failed describe, only once per host)
@@ -190,7 +195,8 @@ def test_same_as_single_runs(tmp_path, env, single_runs, opts):
     names = sorted(x.name for x in sd.iterdir())
     assert names == sorted(x.name for x in bd.iterdir())
     for n in names:
-        assert (sd / n).read_bytes() == (bd / n).read_bytes(), n
+        if n != "ofxPluginLog.txt":  # (the Support library's debug log: handles, addresses, and one scan per host)
+            assert (sd / n).read_bytes() == (bd / n).read_bytes(), n
 
 
 def test_cwd_env_and_report_file(tmp_path, env, sample_plugins):
@@ -211,8 +217,8 @@ def test_cwd_env_and_report_file(tmp_path, env, sample_plugins):
     assert [r["cwd"] for r in recs] == [str(tmp_path / "x"), str(tmp_path / "y"), str(tmp_path),
                                         str(tmp_path / "nowhere"), str(tmp_path)]
     assert recs[0]["env"] == {"OFX_PLUGIN_PATH": path} and recs[2]["env"] == {}
-    assert (tmp_path / "x" / "out.0.ppm").exists() and (tmp_path / "y" / "out.1.ppm").exists()
-    assert not (tmp_path / "out.0.ppm").exists()
+    assert all(f.exists() for f in _ppm_files(tmp_path / "x", "out", 0) + _ppm_files(tmp_path / "y", "out", 1))
+    assert not any(f.exists() for f in _ppm_files(tmp_path, "out", 0))
     assert "not found" in recs[2]["stderr"]
     assert "no directory" in recs[3]["stderr"]
     assert "--batch inside a batch" in recs[4]["stderr"]
@@ -242,6 +248,24 @@ def test_host_lifetime(tmp_path, env, host, expected):
     assert [(r["worker"], r["seq"]) for r in recs] == [([0, 1], n) for n in range(1, 7)]
 
 
+@pytest.mark.parametrize("args,expected", [
+    (["--gpu=opengl", "--gpu=opencl"], ("opencl", "")),
+    (["--gpu=opencl", "--gpu=cpu"], ("", "")),
+    (["--gpu=opencl", "--gpu=opengl"], ("opengl", "")),
+    (["--gpu=opengl", "--gpu-renderer=egl-device:0"], ("opengl", "egl-device:0")),
+    (["--gpu-renderer=glx:1", "--gpu=opengl", "--gpu-renderer=cgl:0"], ("opengl", "cgl:0")),
+    (["-o", "--gpu=opengl"], ("", "")),  # (-o's value)
+])
+def test_host_key_gpu(ofxh_dir, args, expected):
+    """The host options that a command needs (whether a kept host can run it) have its GPU render options as the
+    command gives them to the host: the last --gpu and the last --gpu-renderer, as hostDemo's parsing takes them."""
+    from ofxhost import hostdemo
+    o = hostdemo._parse(args, "hostDemo")
+    assert (o["gpu"], o["gpu_renderer"]) == expected
+    options = _batch._host_key(scan_options(args)[1], args)[2]
+    assert (options.gpu, options.gpu_renderer) == expected
+
+
 def test_hook_not_inherited(tmp_path, env):
     """The test hook only works from the command's own --env."""
     recs = run_batch([[*Q, "-p", INVERT, "--frames", "0"]], cwd=tmp_path, env=dict(env, **{HOOK: "kill"}))
@@ -255,12 +279,12 @@ def test_unload_between_commands(tmp_path, env, host):
     there is a worker event, not the next command's crash (the command runs in a new worker)."""
     recs = run_batch([_hook_line("unload"), _hook_line("host", "--ofx14")], host=host, cwd=tmp_path, env=env)
     assert [r["ok"] for r in recs] == [True, True]
-    assert all("unload" not in r["stdout"] + r["stderr"] for r in recs), recs
+    assert all("unload" not in without_support_debug(r["stdout"]) + r["stderr"] for r in recs), recs
     recs = run_batch([_hook_line("unload-crash"), _hook_line("host", "--ofx14"), _hook_line("host", "--ofx14")],
                      host=host, cwd=tmp_path, env=env)
     cmds, events = recs[:3], recs[3:]
     assert [r["ok"] for r in cmds] == [True, True, True], cmds
-    assert all("unload" not in r["stdout"] + r["stderr"] for r in cmds)
+    assert all("unload" not in without_support_debug(r["stdout"]) + r["stderr"] for r in cmds)
     assert [(r["worker"], r["seq"]) for r in cmds] == [([0, 1], 1), ([0, 2], 1), ([0, 2], 2)]
     assert len(events) == 1 and events[0]["event"] == "died" and events[0]["line"] is None
     assert events[0]["exitStatus"] == 5 and events[0]["crashed"] and events[0]["worker"] == [0, 1]
@@ -360,7 +384,7 @@ def test_crash_and_timeout(tmp_path, env):
     gen = 1
     for k, h in enumerate(hooks):
         before, r, after = recs[2 * k], recs[2 * k + 1], recs[2 * k + 2]
-        assert before["ok"] and before["stdout"] == "batch test hook: host none\n", before
+        assert before["ok"] and without_support_debug(before["stdout"]) == "batch test hook: host none\n", before
         assert before["worker"] == r["worker"] == [0, gen] and r["seq"] == before["seq"] + 1
         assert not r["ok"], r
         assert f"batch test hook: {h}\n" in r["stdout"], r
@@ -395,7 +419,7 @@ def test_cli_timeouts(tmp_path, env):
     assert 1 <= recs[0]["seconds"] < 30
     assert "Timeout (0:00:01)!" in recs[0]["stderr"]
     assert "1 failed (0 crashed, 1 timed out)" in p.stderr
-    assert (tmp_path / "z.0.ppm").exists()
+    assert all(f.exists() for f in _ppm_files(tmp_path, "z", 0))
 
 
 def test_cli_crash_exit_status(tmp_path, env):
@@ -406,7 +430,7 @@ def test_cli_crash_exit_status(tmp_path, env):
     recs = [json.loads(x) for x in p.stdout.splitlines()]
     assert [(r["crashed"], r["ok"]) for r in recs] == [(True, False), (False, True)]
     assert "1 failed (1 crashed, 0 timed out)" in p.stderr
-    assert (tmp_path / "z.0.ppm").exists()
+    assert all(f.exists() for f in _ppm_files(tmp_path, "z", 0))
 
 
 def test_cli_closed_stdout(tmp_path, env):
@@ -423,7 +447,7 @@ def test_cli_closed_stdout(tmp_path, env):
                            timeout=300)
     assert p.returncode == 3, err
     assert "cannot write the records" in err and "Traceback" not in err
-    assert (tmp_path / "b.0.ppm").exists()
+    assert all(f.exists() for f in _ppm_files(tmp_path, "b", 0))
 
 
 def test_api_commands(tmp_path, env):
@@ -438,8 +462,8 @@ def test_api_commands(tmp_path, env):
     assert seen == recs
     assert [r["ok"] for r in recs] == [True, True, True, False]
     assert [r["line"] for r in recs] == [1, 2, 3, 4]
-    for f in ("s.0.ppm", "l.0.ppm", "sub/d.0.ppm"):
-        assert (tmp_path / f).exists(), f
+    for f in _ppm_files(tmp_path, "s", 0) + _ppm_files(tmp_path, "l", 0) + _ppm_files(tmp_path, "sub/d", 0):
+        assert f.exists(), f
     with pytest.raises(ValueError):
         run_batch([], host="sometimes")
     with pytest.raises(ValueError):
@@ -460,7 +484,7 @@ def test_on_record_raises(tmp_path, env):
     assert len(calls) == 1
     assert [r["ok"] for r in e.value.records] == [True] * 3
     assert isinstance(e.value.__cause__, BrokenPipeError)
-    assert (tmp_path / "c.0.ppm").exists()
+    assert all(f.exists() for f in _ppm_files(tmp_path, "c", 0))
 
 
 def test_internal_error_record(tmp_path, env, monkeypatch):

@@ -2439,7 +2439,7 @@ static int run(int argc, char **argv)
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
         // render a stereoscopic frame: left and right views (one view with --ofx14 or --ofx11:
         // views are an extension)
-        const int nViews = profile == MyHost::Profile::eDefault ? 2 : 1;
+        const int nViews = myHost.viewCount();
         for (int view = 0; ret == 0 && view < nViews; ++view) {
           std::ostringstream ss;
           ss << outputPrefix << "." << tname.str() << (nViews == 1 ? "" : view == 0 ? "l" : "r");

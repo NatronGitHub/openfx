@@ -4256,8 +4256,7 @@ namespace OFX {
             return kOfxStatErrBadHandle;
           }
 
-          effectInstance->getViewName(view, viewName);
-          return kOfxStatOK;
+          return effectInstance->getViewName(view, viewName);
         } catch (...) {
           *viewName = 0;
           return kOfxStatErrBadHandle;
@@ -4286,8 +4285,7 @@ namespace OFX {
             return kOfxStatErrBadHandle;
           }
 
-          effectInstance->getViewCount(nViews);
-          return kOfxStatOK;
+          return effectInstance->getViewCount(nViews);
         } catch (...) {
           *nViews = 0;
           return kOfxStatErrBadHandle;

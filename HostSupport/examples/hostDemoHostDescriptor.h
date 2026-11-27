@@ -55,6 +55,12 @@ namespace MyHost {
     /// false with restrictToOFX14() or restrictToOFX11()
     virtual bool supportsOfxSetHost() const { return _profile == Profile::eDefault; }
 
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    /// the number of views rendered for each frame: two (a stereoscopic frame, left and right),
+    /// or one with restrictToOFX14() or restrictToOFX11() (views are an extension)
+    int viewCount() const { return _profile == Profile::eDefault ? 2 : 1; }
+#endif
+
     /// true if the environment variable OFX_HOSTDEMO_KEEP_LOADED is 1: the scanned plug-ins stay
     /// loaded (one kOfxActionLoad and kOfxActionDescribe), instead of being unloaded after the
     /// scan and loaded again at their first use (for the checks of both behaviours)

@@ -25,7 +25,7 @@ from . import specs, split_components, write_json
 from .constants import kOfxBitDepthByte, kOfxBitDepthFloat, kOfxBitDepthShort, kOfxImageEffectContextFilter
 from .specs import CLIP_LENGTH, parse_double, parse_int, parse_n
 
-__all__ = ["main", "run", "run_batch", "is_batch", "scan_options", "host_components", "USAGE"]
+__all__ = ["main", "run", "run_batch", "is_batch", "scan_options", "host_components", "host_gpu", "USAGE"]
 
 _DEFAULT_PLUGIN = "net.sf.openfx.invertPlugin"
 
@@ -185,6 +185,25 @@ def host_components(args: Sequence[str]) -> tuple[str, ...]:
             i += 1  # (a value, which may be "--components")
         i += 1
     return comps
+
+
+def host_gpu(args: Sequence[str]) -> tuple[str, str]:
+    """The host's GPU render that a command line gives: (gpu, gpu_renderer), as _parse() takes them.
+
+    gpu: its last --gpu=opengl, --gpu=opencl or --gpu=cpu that isn't the value of another option: "opengl", "opencl",
+    or "" (--gpu=cpu, or none); gpu_renderer: the value of its last --gpu-renderer=, or "".
+    """
+    gpu = renderer = ""
+    i = 0
+    while i < len(args):
+        if args[i] in _VALUE_OPTIONS:
+            i += 1  # (a value, which may be "--gpu=opengl")
+        elif args[i] in ("--gpu=opengl", "--gpu=opencl", "--gpu=cpu"):
+            gpu = "" if args[i] == "--gpu=cpu" else args[i][len("--gpu="):]
+        elif args[i].startswith("--gpu-renderer="):
+            renderer = args[i][len("--gpu-renderer="):]
+        i += 1
+    return gpu, renderer
 
 
 def _parse_input_plane(o: dict, v: str) -> None:

@@ -142,25 +142,19 @@ jobs:
         env:
           OFX_CMAKE_EXTRA_ARGS: -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE=${{ env.pythonLocation }}/bin/python
         run: .github/scripts/cmake-build-test.sh
-      - name: The extensions on (Natron, Nuke, Vegas, TuttleOFX, Resolve) - DrawSuite self-tests and the ofxh tests
+      - name: The extensions on (Natron, Nuke, Vegas, TuttleOFX, Resolve) - DrawSuite self-tests and the Python tests
         run: |
-          # cmake-build-test.sh builds with the extensions off: build and run the two DrawSuite
-          # self-tests and the Support library self-test with OFX_EXTENSIONS_NATRON (no GL context
-          # here: the property reading and the backend state, the drawing with the fake OpenGL
-          # table, the native overlay decoding), and the ofxh module with the
-          # plug-ins and hostDemo that its tests use, so that its code for the extensions compiles
-          # and runs; and test_backends.py and test_hostdemo_cli.py, which compare the in-process
-          # backend and its hostDemo command line with hostDemo there (two views per frame with Nuke
-          # or Vegas; the other ofxhost tests expect one)
+          # cmake-build-test.sh builds with the extensions off: build everything with them on, and run
+          # the two DrawSuite self-tests and the Support library self-test with OFX_EXTENSIONS_NATRON
+          # (no GL context here: the property reading and the backend state, the drawing with the fake
+          # OpenGL table, the native overlay decoding), and the Python tests: the ofxh module's, and
+          # the ofxhost and sample plug-in tests on both backends (two views per frame with Nuke or
+          # Vegas), so that the code for the extensions compiles and runs
           set -eo pipefail
           cmake -S . -B build-ci-natron -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLE_PLUGINS=ON \
             -DBUILD_EXAMPLE_HOSTS=ON -DOFX_HOSTSUPPORT_OPENGL=ON -DOFX_HOSTSUPPORT_OPENCL=ON $OFX_EXT_CMAKE \
             -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
-          cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test support-library-test ofxh \
-            hostDemo suiteHandleChecks example-Basic-support example-ChoiceParams-support example-Generator-support \
-            example-Invert-support example-Tester-support example-Retimer-support example-MultiBundle-support \
-            example-Rectangle example-PropTester example-MultiplyGPU-support example-GPUGain-support example-OpenGL openglRenderChecks \
-            openclRenderChecks
+          cmake --build build-ci-natron --parallel 4
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test && Support/support-library-test)
           # openfx::HostSupportOpenGL with the Natron context data (EGL, Mesa llvmpipe; OFXH_REQUIRE=1)
           OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/examples/openglRenderChecks
@@ -174,7 +168,7 @@ jobs:
           PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" python -m pytest -m "not opencl" HostSupport/python/tests
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" \
-            python -m pytest -m "not opencl" HostSupport/examples/python/tests/test_backends.py HostSupport/examples/python/tests/test_hostdemo_cli.py
+            python -m pytest -m "not opencl" HostSupport/examples/python/tests Support/Plugins/tests
           # the GPU tests of ofxh and of the command lines with GLX too (Xvfb, Mesa llvmpipe): ofxh's
           # renderers of OFXH_OPENGL_BACKENDS, and --gpu-renderers (which lists GLX after EGL there)
           OFXH_OPENGL_BACKENDS=glx PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \

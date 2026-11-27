@@ -17,15 +17,17 @@ from __future__ import annotations
 
 import ctypes
 import os
+import re
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import pytest
 
-from . import BACKENDS, HostDemoNotFound, find_hostdemo
+from . import BACKENDS, HostDemoNotFound, _output_key, _time_name, find_hostdemo
 
 __all__ = ["assert_close", "suite_function", "find_hostdemo_or_skip", "hostdemo", "backend", "backend_available",
-           "selected_backends", "check_backend", "pytest_configure"]
+           "selected_backends", "check_backend", "pytest_configure", "Views", "views", "without_support_debug"]
 
 
 def assert_close(actual, expected, atol: float = 0.0, rtol: float = 0.0, *,
@@ -79,6 +81,61 @@ def suite_function(name: str, version: int, index: int, prototype):
     suite = ofxh.fetch_suite(name, version)
     assert suite, f"no suite {name} {version}"
     return prototype(ctypes.c_void_p.from_address(suite + index * ctypes.sizeof(ctypes.c_void_p)).value)
+
+
+class Views(NamedTuple):
+    """The views that hostDemo and the in-process backend render for each frame (see views())."""
+
+    suffixes: tuple[str, ...]  # ("",) for one view, ("l", "r") for two (left and right)
+    vegas: bool  # the Vegas extension: the "default" input is red in view 0 and cyan in view 1, not grey
+
+    @property
+    def count(self) -> int:
+        return len(self.suffixes)
+
+    def keys(self, t: float) -> list:
+        """The keys of frame t in RenderResult.outputs, alpha and images, one per view: [t] or [(t, "l"), (t, "r")]."""
+        return [_output_key(t, v) for v in self.suffixes]
+
+    def key(self, t: float):
+        """The key of frame t's view 0."""
+        return self.keys(t)[0]
+
+    def stems(self, prefix: str, t: float) -> list[str]:
+        """hostDemo's output file names of frame t without their extension, one per view: x.0, or x.0l and x.0r."""
+        return [f"{prefix}.{_time_name(t)}{v}" for v in self.suffixes]
+
+
+def views(ofx14: bool = False) -> Views:
+    """The views of a render, from ofxh.build_config (hostDemo is built with the same options).
+
+    With the Nuke or Vegas extension, both backends render two views for each frame, but one with --ofx14 (the views
+    are an extension). Skips the test if the ofxh module can't be imported (fails with OFXH_REQUIRE=1).
+    """
+    check_backend("inprocess")
+    import ofxh  # (not at the top: ofxhost.testing doesn't need ofxh)
+
+    vegas = bool(ofxh.build_config.get("OFX_EXTENSIONS_VEGAS"))
+    stereo = not ofx14 and (vegas or bool(ofxh.build_config.get("OFX_EXTENSIONS_NUKE")))
+    return Views(("l", "r") if stereo else ("",), vegas)
+
+
+# what the Support library's debug builds print on stdout: where a plug-in's log is (ofxsLog.cpp), and the call stack
+# after "Throwing suite exception! ..." (ofxsCore.cpp: backtrace_symbols() lines). (The plug-in messages that hostDemo
+# prints have no newline: the text may start in a line.)
+_SUPPORT_DEBUG = re.compile(r'INFO: OFX Log is "[^\n]*", working directory is "[^\n]*"\n'
+                            r'|(Throwing suite exception! [^\n]*\n)(?:(?:\d+ +[^\n]* 0x[0-9a-f]+ [^\n]*'
+                            r'|[^\n]*\[0x[0-9a-f]+\])\n)+')
+
+
+def without_support_debug(stdout: str) -> str:
+    """A run's stdout without what differs between runs in the Support library's debug builds.
+
+    That is the line where a plug-in's log is (it names the current directory, and a plug-in prints it once in each
+    process: once for a kept host), and the call stack of a suite exception (its addresses and the host's frames;
+    the "Throwing suite exception! ..." line stays). Release builds print neither.
+    """
+    return _SUPPORT_DEBUG.sub(r"\1", stdout)
 
 
 def find_hostdemo_or_skip(host_binary=None) -> Path:
