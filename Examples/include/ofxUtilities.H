@@ -1,6 +1,8 @@
 #ifndef __ofxUtilities_H_
 #define __ofxUtilities_H_
 
+#include <atomic>
+
 #include "ofxMessage.h"
 #include "ofxPixels.h"
 
@@ -37,6 +39,35 @@ ofxuFetchHostSuites(void)
   if(!gEffectHost || !gPropHost || !gParamHost || !gMemoryHost || !gThreadHost)
     return kOfxStatErrMissingHostFeature;
   return kOfxStatOK;
+}
+
+// post the error of a failed render on the instance, before returning kOfxStatFailed ("something
+// wrong, but no error code appropriate, plugin to post message", kOfxImageEffectActionRender in
+// ofxImageEffect.h). The message is persistent with the message suite V2 (posted is then set, for
+// ofxuClearRenderError()), else (or if the host refuses it) transient.
+inline void
+ofxuPostRenderError(OfxImageEffectHandle instance, std::atomic<bool> &posted, const char *text)
+{
+  OfxMessageSuiteV2 *messageSuiteV2 = (OfxMessageSuiteV2 *) gHost->fetchSuite(gHost->host, kOfxMessageSuite, 2);
+  if(messageSuiteV2 && messageSuiteV2->setPersistentMessage(instance, kOfxMessageError, "", "%s", text) == kOfxStatOK) {
+    posted = true;
+    return;
+  }
+  if(gMessageSuite)
+    gMessageSuite->message(instance, kOfxMessageError, "", "%s", text);
+}
+
+// after a render that worked: clear the persistent message of an earlier failed render, if
+// ofxuPostRenderError() posted one ("Persistent messages are associated with an effect handle
+// until explicitly cleared by an effect", ofxMessage.h)
+inline void
+ofxuClearRenderError(OfxImageEffectHandle instance, std::atomic<bool> &posted)
+{
+  if(!posted.exchange(false))
+    return;
+  OfxMessageSuiteV2 *messageSuiteV2 = (OfxMessageSuiteV2 *) gHost->fetchSuite(gHost->host, kOfxMessageSuite, 2);
+  if(messageSuiteV2)
+    messageSuiteV2->clearPersistentMessage(instance);
 }
 
 // is the clip or image unpremultiplied or not

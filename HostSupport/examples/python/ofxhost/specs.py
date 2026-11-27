@@ -20,15 +20,16 @@ from typing import Any
 import numpy as np
 
 from . import Image, _time_name, resolve_file_spec, split_components
-from .constants import kOfxImageEffectContextFilter, kOfxImageEffectContextGeneral
+from .constants import (kOfxImageComponentAlpha, kOfxImageComponentRGB, kOfxImageComponentRGBA,
+                        kOfxImageEffectContextFilter, kOfxImageEffectContextGeneral)
 from .pfm import merge_alpha, read_pfm
 from .pixels import check_array, to_rgba
 from .rects import INT_MAX, INT_MIN, MAX_IMAGE_PIXELS
 
-__all__ = ["CLIP_LENGTH", "CONTEXTS", "INPUT_FORMS", "SCALE_EXPECTED", "WINDOW_EXPECTED", "not_found", "valid_scale",
-           "valid_window", "frame_named_twice", "Spec", "SpecError", "parse_double", "parse_int", "parse_bool",
-           "parse_n", "parse_spec", "array_spec", "input_spec", "resolve_spec", "read_file", "pattern",
-           "from_components"]
+__all__ = ["CLIP_LENGTH", "COMPONENTS_EXPECTED", "CONTEXTS", "HOST_COMPONENTS", "INPUT_FORMS", "SCALE_EXPECTED",
+           "WINDOW_EXPECTED", "not_found", "valid_scale", "valid_window", "frame_named_twice", "Spec", "SpecError",
+           "parse_double", "parse_int", "parse_bool", "parse_n", "parse_host_components", "parse_spec", "array_spec",
+           "input_spec", "resolve_spec", "read_file", "pattern", "from_components"]
 
 CLIP_LENGTH = 1.0  # (hostDemo's OFXHOSTDEMOCLIPLENGTH: the default input is black at t=0, white at t=1)
 _MAX_FLOAT32 = 3.4028234663852886e38
@@ -88,11 +89,21 @@ def parse_n(s: str, n: int, parse: Callable[[str], Any]) -> list | None:
 CONTEXTS = {"filter": kOfxImageEffectContextFilter, kOfxImageEffectContextFilter: kOfxImageEffectContextFilter,
             "general": kOfxImageEffectContextGeneral, kOfxImageEffectContextGeneral: kOfxImageEffectContextGeneral}
 SCALE_EXPECTED = "expected s or sx,sy in (0,1]"
+# --components: the host's kOfxImageEffectPropSupportedComponents by default (hostDemoHostDescriptor.cpp)
+HOST_COMPONENTS = (kOfxImageComponentRGBA, kOfxImageComponentAlpha)
+_HOST_COMPONENT_NAMES = {"rgba": kOfxImageComponentRGBA, "rgb": kOfxImageComponentRGB, "alpha": kOfxImageComponentAlpha}
+COMPONENTS_EXPECTED = "expected distinct rgba, rgb or alpha, comma-separated"
 # -i: the forms of an input spec
 INPUT_FORMS = ("Clip=default|solid:r,g,b,a|ramp|checker:N|rod:x1,y1,x2,y2|none|file:rgb.pfm[+alpha.pfm][@x1,y1]"
                "[#premult|#unpremult|#opaque]")
 WINDOW_EXPECTED = ("expected x1,y1,x2,y2 with x1<x2 and y1<y2, at most 1000000 pixels wide or high and 2^28 "
                    "pixels in all")
+
+
+def parse_host_components(s: str) -> tuple[str, ...] | None:
+    """--components c,...: distinct rgba, rgb or alpha, as OFX names in order; None if invalid."""
+    comps = tuple(_HOST_COMPONENT_NAMES.get(c) for c in s.split(","))
+    return comps if None not in comps and len(set(comps)) == len(comps) else None
 
 
 def not_found(plugin: str, major: int = -1) -> str:

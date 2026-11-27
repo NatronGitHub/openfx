@@ -40,15 +40,17 @@ from .constants import (kFnOfxImageEffectPropComponentsPresent, kFnOfxImageEffec
                         kOfxImageComponentAlpha, kOfxImageComponentNone, kOfxImageComponentRGB,
                         kOfxImageComponentRGBA, kOfxImageEffectContextGeneral,
                         kOfxImageEffectOutputClipName, kOfxImageEffectPropOpenGLRenderSupported,
-                        kOfxImageEffectPropSupportedPixelDepths, kOfxParamPropAnimates,
+                        kOfxImageEffectPropSupportedComponents, kOfxImageEffectPropSupportedPixelDepths,
+                        kOfxParamPropAnimates,
                         kOfxParamPropChoiceOption, kOfxParamPropEnabled, kOfxParamPropSecret, kOfxPluginPropFilePath,
                         kOfxPropName)
 from .pfm import alpha_path, encode_pfm, split_alpha
 from .pixels import BYTES, NCOMPS, stats, to_depth, to_float
 from .rects import MAX_IMAGE_PIXELS, fits, intersect, is_empty, scale_pair, to_pixels
-from .specs import (CLIP_LENGTH, CONTEXTS, INPUT_FORMS, SCALE_EXPECTED, WINDOW_EXPECTED, Spec, SpecError,
-                    frame_named_twice, from_components, input_spec, not_found, parse_bool, parse_double, parse_int,
-                    parse_n, pattern, resolve_spec, valid_scale, valid_window)
+from .specs import (CLIP_LENGTH, COMPONENTS_EXPECTED, CONTEXTS, HOST_COMPONENTS, INPUT_FORMS, SCALE_EXPECTED,
+                    WINDOW_EXPECTED, Spec, SpecError, frame_named_twice, from_components, input_spec, not_found,
+                    parse_bool, parse_double, parse_host_components, parse_int, parse_n, pattern, resolve_spec,
+                    valid_scale, valid_window)
 
 __all__ = ["render", "describe", "shutdown", "session", "ensure_host", "Session", "Job", "run_job", "json_safe",
            "capture_enabled"]
@@ -141,10 +143,12 @@ def _one_at_a_time(f):
 class _Host(ofxh.Host):
     """hostDemo's Host (hostDemoHostDescriptor.cpp): its messages go to stdout, questions are answered yes."""
 
-    def __init__(self, opengl_render: bool = False, multiplane: bool = False):
+    def __init__(self, opengl_render: bool = False, multiplane: bool = False,
+                 components: tuple = HOST_COMPONENTS):
         super().__init__()
         self.opengl_render = opengl_render
         self.multiplane = multiplane
+        self.components = components
 
     def init_properties(self, props):
         # hostDemo --opengl-describe (an OFX 1.4 host property: also kept by profile="ofx14")
@@ -158,6 +162,9 @@ class _Host(ofxh.Host):
         # (its images make float16 arrays), which this host's image code doesn't make. (Before the
         # OFX 1.4 restriction: it is an OFX 1.4 host property, kept by profile="ofx14".)
         props[kOfxImageEffectPropSupportedPixelDepths] = tuple(ofxh.ofx_name("depth", d) for d in DEPTHS)
+        # hostDemo --components (an OFX 1.4 host property: also kept by profile="ofx14"); the images
+        # may have any of the three components, whatever this says
+        props[kOfxImageEffectPropSupportedComponents] = tuple(self.components)
 
     def message(self, message_type, message_id, text):
         prefix = {"log": "Log : ", "fatal": "Error : ", "error": "Error : ",
@@ -395,6 +402,7 @@ class HostOptions(NamedTuple):
     opengl_render: bool = False
     normalised_defaults: bool = True
     multiplane: bool = False
+    components: tuple = HOST_COMPONENTS
 
 
 @dataclasses.dataclass(frozen=True)
@@ -427,7 +435,8 @@ def shutdown() -> None:
 
 
 def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_paths: bool = False,
-                opengl_render: bool = False, normalised_defaults: bool = True, multiplane: bool = False) -> None:
+                opengl_render: bool = False, normalised_defaults: bool = True, multiplane: bool = False,
+                components: Sequence[str] = HOST_COMPONENTS) -> None:
     """Make sure the backend's ofxh host is initialized with these settings.
 
     ofxh has one host per process: a new one replaces the backend's own, but not another one.
@@ -443,6 +452,8 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
             --no-normalised-defaults, see ofxh.init()).
         multiplane: a multi-plane host (kFnOfxImageEffectPropMultiPlanar, hostDemo's --multiplane;
             Nuke extension builds).
+        components: the host's kOfxImageEffectPropSupportedComponents, OFX names (hostDemo's
+            --components).
 
     Raises:
         RuntimeError: another ofxh host is initialized.
@@ -450,7 +461,7 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
     global _session
     options = HostOptions(keep_loaded=bool(keep_loaded), use_std_paths=bool(use_std_paths),
                           opengl_render=bool(opengl_render), normalised_defaults=bool(normalised_defaults),
-                          multiplane=bool(multiplane))
+                          multiplane=bool(multiplane), components=tuple(components))
     if _session is not None and ofxh.host() is not _session.host:
         _session = None  # (shut down by someone else)
     if _session is not None and (_session.dirs, _session.profile, _session.options) == (dirs, profile, options):
@@ -462,7 +473,7 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
                                "backend=\"subprocess\"")
         ofxh.shutdown()
         _session = None
-    host = _Host(opengl_render, multiplane)
+    host = _Host(opengl_render, multiplane, options.components)
     ofxh.init(host, list(dirs), use_std_paths=use_std_paths, use_env_path=False, profile=profile,
               keep_loaded=keep_loaded, normalised_defaults=normalised_defaults)
     _session = Session(host, dirs, profile, options)
@@ -509,13 +520,14 @@ class _Extra:
     format: str | None = None  # --format: ppm or pfm (None: not given)
     prefix: str | None = None  # -o (None: not given)
     report: str | None = None  # --report
+    components: tuple = HOST_COMPONENTS  # --components
 
 
 def _extra(extra_args: Sequence[str]) -> _Extra:
     """The hostDemo options that the in-process backend takes in extra_args.
 
     --ofx14, --no-normalised-defaults, --allow-unwritten, -m MAJOR, -s ASSIGNMENT (before the params'),
-    --format ppm|pfm, -o PREFIX and --report FILE.
+    --format ppm|pfm, -o PREFIX, --report FILE and --components C,...
     """
     x = _Extra()
     args = list(extra_args)
@@ -530,7 +542,7 @@ def _extra(extra_args: Sequence[str]) -> _Extra:
             x.allow_unwritten = True
         elif a in ("--quiet", "--no-cache", "--no-std-paths"):
             pass
-        elif a in ("-m", "-s", "--format", "-o", "--report") and i + 1 < len(args):
+        elif a in ("-m", "-s", "--format", "-o", "--report", "--components") and i + 1 < len(args):
             i += 1
             v = args[i]
             if a == "-m":
@@ -545,12 +557,17 @@ def _extra(extra_args: Sequence[str]) -> _Extra:
                 x.format = v
             elif a == "-o":
                 x.prefix = v
+            elif a == "--components":
+                comps = parse_host_components(v)
+                if comps is None:
+                    raise _Usage(f'Error: invalid components "{v}", {COMPONENTS_EXPECTED}')
+                x.components = comps
             else:
                 x.report = v
         else:
             raise ValueError(f"extra_args {a!r}: not supported by the in-process backend (supported: --ofx14, "
                              "--no-normalised-defaults, --allow-unwritten, -m MAJOR, -s ASSIGNMENT, --format ppm|pfm, "
-                             "-o PREFIX, --report FILE)")
+                             "-o PREFIX, --report FILE, --components C,...)")
         i += 1
     return x
 
@@ -566,7 +583,8 @@ class Job:
     no files. keep_loaded, use_std_paths, normalised_defaults: of the host (see ofxh.init()).
     multiplane: a multi-plane host (hostDemo's --multiplane, Nuke extension builds); planes: the
     other planes of the inputs, [(clip, plane, specs.Spec)] (-i Clip@Plane=spec; plane: a short name,
-    e.g. BackMotionVector).
+    e.g. BackMotionVector). components: the host's supported components, OFX names (hostDemo's
+    --components).
     """
     plugin_id: str
     context: str
@@ -588,6 +606,7 @@ class Job:
     normalised_defaults: bool = True
     multiplane: bool = False
     planes: list[tuple[str, str, Spec]] = dataclasses.field(default_factory=list)
+    components: tuple = HOST_COMPONENTS
 
 
 class _Run:
@@ -997,7 +1016,7 @@ def run_job(dirs: tuple, job: Job) -> tuple[int, dict, dict]:
     run = _Run(job)
     profile = "ofx14" if job.ofx14 else "default"
     ensure_host(dirs, profile, job.keep_loaded, job.use_std_paths, normalised_defaults=job.normalised_defaults,
-                multiplane=job.multiplane)
+                multiplane=job.multiplane, components=job.components)
     plugin = ofxh.get_plugin(job.plugin_id, job.major)
     report: dict = {"schema": "hostDemo.report", "schemaVersion": 1, "ok": False, "plugin": {"id": job.plugin_id},
                     "context": job.context, "host": {"name": ofxh.host().props[kOfxPropName][0], "profile": profile},
@@ -1366,7 +1385,7 @@ def render(bundle_paths, plugin_id: str, context: str = "filter", inputs: Mappin
             # (hostDemo's order: the -s of extra_args, then those of params; its default format: ppm)
             job = Job(plugin_id, ctx, specs, x.assignments + assignments, depth, fr, sc, win, query=query,
                       ofx14=x.ofx14, normalised_defaults=x.normalised_defaults, allow_unwritten=x.allow_unwritten,
-                      major=x.major,
+                      major=x.major, components=x.components,
                       fmt=x.format or ("ppm" if x.prefix is not None else None),
                       prefix=x.prefix if x.prefix is not None else OUTPUT_PREFIX, out_dir=out_dir)
             ret, report, outputs = run_job(dirs, job)
@@ -1411,7 +1430,8 @@ def describe(bundle_paths, plugin_id: str, context: str | None = None, extra_arg
             x = _extra(extra_args)
             if context:
                 _context(context)
-            ensure_host(dirs, "ofx14" if x.ofx14 else "default", normalised_defaults=x.normalised_defaults)
+            ensure_host(dirs, "ofx14" if x.ofx14 else "default", normalised_defaults=x.normalised_defaults,
+                        components=x.components)
             plugin = ofxh.get_plugin(plugin_id, x.major)
             if plugin is None:
                 stdio.write(2, not_found(plugin_id) + "\n")

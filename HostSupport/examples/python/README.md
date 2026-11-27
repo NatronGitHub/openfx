@@ -168,6 +168,16 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   `supportsDefaultCoordinateSystem()` is false, and the defaults are taken as canonical
   coordinates. The report's `params` then show the values such a host gives. In Python:
   `extra_args=["--no-normalised-defaults"]` (`ofxh.init(normalised_defaults=False)`).
+- `--components c,...` sets the host descriptor's kOfxImageEffectPropSupportedComponents ("the
+  components supported by a clip or host"): distinct `rgba`, `rgb` or `alpha`, in order (default
+  `rgba,alpha`). Only what a plug-in reads changes: the inputs and outputs may have any of the
+  three, whatever it says. A plug-in that offers an RGB output only to a host that supports RGB
+  (e.g. SupportExt's generators) then gets an RGB output, which the report's
+  `clipPreferences.clips.Output.components` shows, and which is written as a PF file (PFM) or a
+  PPM.
+- With other `--components` than the default, hostDemo uses its own plug-in cache file, e.g.
+  hostDemoPluginCache-components-rgba-rgb-alpha.xml (a plug-in may describe itself differently to
+  such a host). In Python: `extra_args=["--components", "rgba,rgb,alpha"]`, on both backends.
 - The other `-i` specs: `default` (a grey level t: black at t=0, white at t=1, with the time
   drawn in the reverse colour), `solid:r,g,b,a`, `ramp` (0 at the left to 1 at the right),
   `checker:N` (N-pixel squares of 0 and 1), `none` (disconnected, optional clips only).

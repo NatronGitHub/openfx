@@ -198,6 +198,20 @@ cache file, ``hostDemoPluginCache-ofx11.xml``, and the report's
 ``host.profile`` is ``"ofx11"``. The Python host's in-process backend has
 no such profile.
 
+The Host's Components: ``--components``
+---------------------------------------
+
+hostDemo's host descriptor lists RGBA and Alpha in
+:c:macro:`kOfxImageEffectPropSupportedComponents`. ``--components
+rgba,rgb,alpha`` (distinct ``rgba``, ``rgb`` or ``alpha``, in order) sets
+that list, so that a plug-in which offers an RGB output only to a host
+that supports RGB can be tested. The images themselves may have any of the
+three components, whatever the list. A list other than the default uses
+its own plug-in cache file, e.g.
+``hostDemoPluginCache-components-rgba-rgb-alpha.xml``, because a plug-in
+may describe itself differently to such a host. ``python -m
+ofxhost.hostdemo`` takes the same option.
+
 The Code, as an Example Host
 ----------------------------
 

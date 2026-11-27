@@ -51,6 +51,10 @@ struct MyInstanceData {
   OfxParamHandle redChoiceParam;
   OfxParamHandle greenChoiceParam;
   OfxParamHandle blueChoiceParam;
+
+  // a render error was posted (ofxuPostRenderError()): clear it after the next render that works.
+  // Renders of an instance may be concurrent.
+  std::atomic<bool> renderErrorPosted{false};
 };
 
 /* mandatory function to set up the host structures */
@@ -414,7 +418,8 @@ static OfxStatus render( OfxImageEffectHandle  instance,
 
     // see if they have the same depths and bytes and all
     if(srcBitDepth != dstBitDepth) {
-      throw OfxuStatusException(kOfxStatErrImageFormat);
+      ofxuPostRenderError(instance, myData->renderErrorPosted, "The Source and Output images have different depths");
+      throw OfxuStatusException(kOfxStatFailed);
     }
 
     float rScale = 1.f, gScale = 1.f, bScale = 1.f, aScale = 1.f;
@@ -488,11 +493,14 @@ static OfxStatus render( OfxImageEffectHandle  instance,
       break;
     }
     }
+    // the render worked: clear the error of an earlier one
+    ofxuClearRenderError(instance, myData->renderErrorPosted);
   }
   catch(OfxuNoImageException &) {
     // if we were interrupted, the failed fetch is fine, just return kOfxStatOK
     // otherwise, something weird happened
     if(!gEffectHost->abort(instance)) {
+      ofxuPostRenderError(instance, myData->renderErrorPosted, "The host gave no source or output image");
       status = kOfxStatFailed;
     }
   }

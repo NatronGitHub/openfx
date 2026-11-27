@@ -27,6 +27,7 @@ RETIMER = "net.sf.openfx.retimer"
 PROPTESTER = "net.sf.openfx.propertyTester"
 MULTIPLY = "net.sf.openfx.MultiplyGPU"
 OPENGL = "com.genarts:OpenGLSamplePlugin"
+NOISE = "net.sf.openfx.noisePlugin"
 
 
 @pytest.fixture(scope="module")
@@ -148,8 +149,13 @@ Q = ["--no-std-paths", "--no-cache", "--quiet"]
     # openfx-io tests/hostdemo/run.sh, openfx-arena run.cmake: the default PPM output, the default input
     [*Q, "-p", INVERT, "-c", "filter", "-o", "out", "--report", "r.json"],
     [*Q, "-p", INVERT, "-c", "filter", "--frames", "0", "-o", "out", "-d", "float", "--report", "r.json"],
+    # --components: an RGB output (Noise's rgbOutput, in a host that supports RGB), as PFM and PPM
+    [*Q, "--components", "rgba,rgb,alpha", "-p", NOISE, "-c", "general", "-d", "float", "--format", "pfm", "-o",
+     "out", "--report", "r.json", "--frames", "0", "-i", "Source=none", "rgbOutput=1"],
+    [*Q, "--components", "rgb,rgba", "-p", NOISE, "-c", "general", "-o", "out", "--report", "r.json", "--frames",
+     "0", "-i", "Source=none", "rgbOutput=1"],
 ], ids=["misc-invert", "misc-basic", "misc-file-window", "misc-window-outside", "misc-keys", "misc-button",
-        "misc-choices", "inf", "gmic-ofx14", "io-ppm", "arena-ppm"])
+        "misc-choices", "inf", "gmic-ofx14", "io-ppm", "arena-ppm", "rgb-output-pfm", "rgb-output-ppm"])
 def test_same_as_hostdemo(tmp_path, hosts, sample_plugins, args):
     rgb = np.random.default_rng(0).random((24, 32, 3), dtype=np.float32)
     s, i, sd, idir = _compare(tmp_path, hosts, sample_plugins, args, files=[("in.pfm", ofxhost.encode_pfm(rgb))])
@@ -206,6 +212,8 @@ def test_run_errors(tmp_path, hosts, sample_plugins, args):
     ["-i", "Source@BackMotionVector=ramp#rgb"], ["-i", "Source@StereoDisparityLeft=file:in.pfm#premult#alpha"],
     ["-i", "Source@StereoDisparityLeft=ramp", "-i", "Source@StereoDisparityLeft=checker:4"],
     ["-p"], ["--opengl-describe"], ["--opengl-describe", "--report", "r.json"],
+    ["--components", "rgba,bogus"], ["--components", "rgb,rgb"], ["--components", ""], ["--components"],
+    ["--components", "OfxImageComponentRGB"],
 ], ids=lambda a: " ".join(a))
 def test_usage_errors(tmp_path, hosts, sample_plugins, args):
     """Command-line errors: exit status 1, hostDemo's message (its first line), no report."""
@@ -213,6 +221,19 @@ def test_usage_errors(tmp_path, hosts, sample_plugins, args):
     assert s.returncode == i.returncode == 1
     first = [x for x in s.stderr.splitlines() if x.startswith("Error")][:1]
     assert first and first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]
+
+
+def test_components_cache_file(tmp_path, hosts, sample_plugins):
+    """hostDemo --components: a list other than the default gets its own plug-in cache file."""
+    hostdemo, ofxh_dir = hosts
+    for comps, cache in (("rgba,alpha", "hostDemoPluginCache.xml"),
+                         ("rgba,rgb,alpha", "hostDemoPluginCache-components-rgba-rgb-alpha.xml")):
+        d = tmp_path / comps.replace(",", "-")
+        d.mkdir()
+        p = _run([str(hostdemo), "--no-std-paths", "--quiet", "--components", comps, "-p", INVERT, "--describe",
+                  "d.json"], d, _env(sample_plugins, ofxh_dir))
+        assert p.returncode == 0, p.stderr
+        assert sorted(x.name for x in d.glob("hostDemoPluginCache*.xml")) == [cache]
 
 
 def test_plane_components_suffix(tmp_path, hosts, sample_plugins):
@@ -323,7 +344,7 @@ def test_help(tmp_path, hosts, sample_plugins):
     assert s.returncode == i.returncode == 0
     for opt in ("-p id", "--format ppm|pfm", "--report file.json", "--describe file.json", "--ofx14", "--ofx11",
                 "--opengl-describe", "--quiet", "#rgb, #alpha or #rgba", "--no-normalised-defaults",
-                "--multiplane", "-i Clip@Plane=spec"):
+                "--multiplane", "-i Clip@Plane=spec", "--components c,..."):
         assert opt in s.stdout and opt in i.stdout
 
 
