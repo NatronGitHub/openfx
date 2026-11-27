@@ -67,6 +67,10 @@ hostDemo's command line, in-process on the HostSupport Python bindings (ofxhost.
                      (kOfxImageEffectPropOpenGLRenderSupported "true"), to describe OpenGL-only plug-ins
   --components c,... the host's supported components (kOfxImageEffectPropSupportedComponents):
                      distinct rgba, rgb or alpha, in order (default: rgba,alpha)
+  --gpu=MODE         cpu (the default) or opengl: render with OpenGL the plug-ins that can (an
+                     offscreen context: EGL on Linux, CGL on macOS, WGL on Windows), on the CPU
+                     without a context, or if the OpenGL render fails (kOfxStatGPURenderFailed...)
+                     and the plug-in can; the --report renders get "openGL" and "cpuRetry"
   --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,
                      the GetClipComponents action; Nuke-extension builds only)
   --no-normalised-defaults  be a host without normalised parameter defaults: double params
@@ -301,7 +305,7 @@ def _parse(argv: list[str], prog: str) -> dict:
     """
     o = {"plugin": _DEFAULT_PLUGIN, "major": -1, "context": kOfxImageEffectContextFilter, "prefix": "Output",
          "depth": "byte", "assignments": [], "inputs": [], "report": "", "describe": "", "std_paths": True,
-         "planes": [], "multiplane": False, "quiet": False, "ofx14": False, "opengl_describe": False,
+         "planes": [], "multiplane": False, "quiet": False, "ofx14": False, "opengl_describe": False, "gpu": False,
          "normalised_defaults": True, "allow_unwritten": False, "format": "ppm", "frames": None, "scale": (1., 1.),
          "window": None, "query": False, "components": specs.HOST_COMPONENTS}
     seen: set = set()
@@ -317,7 +321,9 @@ def _parse(argv: list[str], prog: str) -> dict:
             # hostDemo's OFX 1.1 profile changes the plug-in descriptors and instances too (no
             # kOfxImageEffectInstancePropSequentialRender): ofxh.init() has no such profile
             _fail("Error: --ofx11: the in-process backend has no OFX 1.1 host profile: use hostDemo")
-        if arg in _FLAGS:
+        if arg in ("--gpu=opengl", "--gpu=cpu"):
+            o["gpu"] = arg == "--gpu=opengl"
+        elif arg in _FLAGS:
             key, value = _FLAGS[arg]
             if key is not None:
                 o[key] = value
@@ -342,7 +348,7 @@ def _parse(argv: list[str], prog: str) -> dict:
     if o["report"] and o["describe"]:
         _fail("Error: --report and --describe can't be used together (--describe creates no instance)")
     if o["opengl_describe"] and not o["describe"]:
-        _fail("Error: --opengl-describe needs --describe (hostDemo can't render with OpenGL)")
+        _fail("Error: --opengl-describe needs --describe (to render with OpenGL: --gpu=opengl)")
     if o["planes"] and not o["multiplane"]:
         _fail("Error: -i Clip@Plane=spec needs --multiplane")
     if o["multiplane"] and o["ofx14"]:
@@ -403,6 +409,9 @@ def run(argv: list[str], prog: str = "hostdemo", shutdown: bool = True) -> int:
         return 1
     _preload()
     from . import inprocess as ip
+    if o["gpu"] and not ip.ofxh.build_config.get("OFX_HOSTSUPPORT_OPENGL"):
+        _err("Error: --gpu=opengl: ofxh was built without OFX_HOSTSUPPORT_OPENGL")
+        return 1
     keep = os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1"
     dirs = host_dirs()
     profile = "ofx14" if o["ofx14"] else "default"
@@ -411,13 +420,13 @@ def run(argv: list[str], prog: str = "hostdemo", shutdown: bool = True) -> int:
             return _describe(ip, o, dirs, profile, keep)
         if not o["quiet"]:
             ip.ensure_host(dirs, profile, keep, o["std_paths"], normalised_defaults=o["normalised_defaults"],
-                           multiplane=o["multiplane"], components=o["components"])
+                           multiplane=o["multiplane"], components=o["components"], gpu=o["gpu"])
             _dump(ip.ofxh)
         job = ip.Job(o["plugin"], o["context"], o["inputs"], o["assignments"], o["depth"], o["frames"], o["scale"],
                      o["window"], query=o["query"], ofx14=o["ofx14"], allow_unwritten=o["allow_unwritten"],
                      major=o["major"], fmt=o["format"], prefix=o["prefix"], keep_loaded=keep,
                      use_std_paths=o["std_paths"], normalised_defaults=o["normalised_defaults"],
-                     multiplane=o["multiplane"], planes=o["planes"], components=o["components"])
+                     multiplane=o["multiplane"], planes=o["planes"], components=o["components"], gpu=o["gpu"])
         ret, report, _ = ip.run_job(dirs, job)
         if o["report"] and not _write_json(o["report"], report):
             ret = 1
@@ -436,7 +445,7 @@ def _describe(ip, o: dict, dirs: tuple, profile: str, keep: bool) -> int:
         return 1
     ip.ensure_host(dirs, profile, keep, o["std_paths"], opengl_render=o["opengl_describe"],
                    normalised_defaults=o["normalised_defaults"], multiplane=o["multiplane"],
-                   components=o["components"])
+                   components=o["components"], gpu=o["gpu"])
     if not o["quiet"]:
         _dump(ip.ofxh)
     plugin = ip.ofxh.get_plugin(o["plugin"], o["major"])

@@ -68,6 +68,23 @@ namespace OFX {
       /// Pass hostHasOpenGL false for an instance whose Attachment::failed().
       RenderMode chooseRenderMode(const ImageEffect::Instance &effect, bool hostHasOpenGL);
 
+      class RenderSession;
+
+      /// After an OpenGL action of session that returned st: whether OpenGL failed, in a way after
+      /// which the host may render on the CPU: an input texture failed (RenderSession::inputFailed());
+      /// kOfxStatGLRenderFailed, "the host should retry the render with OpenGL rendering disabled";
+      /// kOfxStatGLOutOfMemory, after which "the host may choose to free resources on the GPU and
+      /// retry the OpenGL render, rather than immediately falling back to CPU rendering";
+      /// kOfxStatErrMemory from clipLoadTexture, "after which the host can decide to retry the
+      /// operation with CPU based processing" (ofxGPURender.h)
+      bool openGLFailed(const RenderSession &session, OfxStatus st);
+
+      /// After an OpenGL action of effect in session that returned st: the host may render it again
+      /// on the CPU. OpenGL failed (openGLFailed()), and the plug-in can render on the CPU
+      /// (chooseRenderMode(effect, false) is RenderMode::CPU: not "needed", and
+      /// kOfxImageEffectPropCPURenderSupported isn't "false")
+      bool cpuRetryAllowed(const ImageEffect::Instance &effect, const RenderSession &session, OfxStatus st);
+
       /// The OpenGL context an instance is attached to. The host keeps one per instance, and
       /// destroys it before the instance (that sends kOfxActionOpenGLContextDetached) and before
       /// the contexts.

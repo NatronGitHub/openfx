@@ -81,6 +81,10 @@ struct MyInstanceData {
   // handles to our parameters
   OfxParamHandle scaleParam;
   OfxParamHandle sourceScaleParam;
+
+  // a render error was posted (ofxuPostRenderError()): clear it after the next render that works.
+  // Atomic: renders of one instance may run on several threads.
+  std::atomic<bool> renderErrorPosted{false};
 };
 
 /* mandatory function to set up the host structures */
@@ -314,9 +318,12 @@ static OfxStatus render( OfxImageEffectHandle  instance,
 	  renderWindow.x1, renderWindow.y1,
 	  renderWindow.x2, renderWindow.y2));
 
-  // For this test, we only process in OpenGL mode.
+  // This plug-in renders only with OpenGL ("needed", see describe()): a host shouldn't call it with
+  // OpenGL disabled. The render action returns "kOfxStatFailed, something wrong, but no error code
+  // appropriate, plugin to post message" (ofxImageEffect.h, kOfxImageEffectActionRender)
   if (!gl_enabled) {
-    return kOfxStatErrImageFormat;
+    ofxuPostRenderError(instance, myData->renderErrorPosted, "OFX OpenGL Example: this plug-in renders only with OpenGL");
+    return kOfxStatFailed;
   }
 
   // get the output image texture
@@ -325,6 +332,12 @@ static OfxStatus render( OfxImageEffectHandle  instance,
   if (status != kOfxStatOK) {
     return status;
   }
+  // the handles are freed before the action returns: "texture handle to be disposed of by
+  // clipFreeTexture before the action returns" (ofxGPURender.h, clipLoadTexture)
+  struct FreeTextures {
+    OfxPropertySetHandle *a, *b;
+    ~FreeTextures() { if (*a) gOpenGLSuite->clipFreeTexture(*a); if (*b) gOpenGLSuite->clipFreeTexture(*b); }
+  } freeTextures = { &sourceImg, &outputImg };
   status = gPropHost->propGetInt(outputImg, kOfxImageEffectPropOpenGLTextureIndex,
 				 0, &output_texture_index);
   if (status != kOfxStatOK) {
@@ -377,6 +390,16 @@ static OfxStatus render( OfxImageEffectHandle  instance,
 
   glPushAttrib(GL_ALL_ATTRIB_BITS);
   glDisable(GL_BLEND);
+  // the host sets the viewport to the render window; "After this, it is completely up to the effect
+  // to choose what OpenGL operations to render with, including projections and so on"
+  // (ofxGPURender.h): draw in pixels from the bottom left of the render window
+  glMatrixMode(GL_PROJECTION);
+  glPushMatrix();
+  glLoadIdentity();
+  glOrtho(0., w, 0., h, -1., 1.);
+  glMatrixMode(GL_MODELVIEW);
+  glPushMatrix();
+  glLoadIdentity();
 
   // Draw black into dest to start
   glBegin(GL_QUADS);
@@ -405,7 +428,6 @@ static OfxStatus render( OfxImageEffectHandle  instance,
   float tymax = 1;
 
   // now draw the textured quad containing the source
-  glBegin(GL_QUADS);
   glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
   glBegin (GL_QUADS);
   glTexCoord2f (0, tymin);
@@ -431,14 +453,14 @@ static OfxStatus render( OfxImageEffectHandle  instance,
   glVertex2f(WIDTH * scale, 10);
   glEnd();
 
-  // done; clean up.
-  glPopAttrib();
+  ofxuClearRenderError(instance, myData->renderErrorPosted);
 
-  // release the data pointers
-  if(sourceImg)
-    gOpenGLSuite->clipFreeTexture(sourceImg);
-  if(outputImg)
-    gOpenGLSuite->clipFreeTexture(outputImg);
+  // done; clean up (the texture handles are freed by freeTextures)
+  glMatrixMode(GL_PROJECTION);
+  glPopMatrix();
+  glMatrixMode(GL_MODELVIEW);
+  glPopMatrix();
+  glPopAttrib();
 
   return status;
 }
@@ -552,14 +574,21 @@ describe(OfxImageEffectHandle  effect)
   gPropHost->propSetString(effectProps, kOfxImageEffectPropSupportedContexts, 0, kOfxImageEffectContextFilter);
   gPropHost->propSetString(effectProps, kOfxImageEffectPropSupportedContexts, 1, kOfxImageEffectContextGeneral);
 
-  // we support OpenGL rendering (could also say "needed" here)
-  gPropHost->propSetString(effectProps, kOfxImageEffectPropOpenGLRenderSupported, 0, "true");
+  // This plug-in renders only with OpenGL: "needed" - "only for plug-ins, this means that an plug-in
+  // has to have OpenGL support, without which it cannot work." ("true" would mean "it is capable of
+  // CPU based rendering in the absence of a GPU", ofxGPURender.h, kOfxImageEffectPropOpenGLRenderSupported)
+  gPropHost->propSetString(effectProps, kOfxImageEffectPropOpenGLRenderSupported, 0, "needed");
 
   {
     const char *s = NULL;
     stat = gPropHost->propGetString(gHost->host, kOfxImageEffectPropOpenGLRenderSupported, 0, &s);
     DPRINT(("Host has OpenGL render support: %s (stat=%d)\n", s, stat));
     gHostSupportsOpenGL = stat == 0 && !strcmp(s, "true");
+  }
+  // "Effects that cannot run without OpenGL support should examine this in kOfxActionDescribe action
+  // and return a kOfxStatErrMissingHostFeature status flag if it is not set to "true"." (ofxGPURender.h)
+  if (!gHostSupportsOpenGL || !gOpenGLSuite) {
+    return kOfxStatErrMissingHostFeature;
   }
 
   // we support all the OpenGL bit depths

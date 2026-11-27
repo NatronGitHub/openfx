@@ -58,7 +58,8 @@ foreach(PLUGIN IN LISTS PLUGINS)
 	target_link_libraries(${TGT} PRIVATE OfxSupport)
 	# only the plug-ins whose overlays call OpenGL themselves link it: the Support library loads it
 	# at run time (DrawArgs::getDrawContext(), used by Basic), so the others load without OpenGL
-	if(PLUGIN STREQUAL "ChoiceParams" OR PLUGIN STREQUAL "MultiBundle" OR PLUGIN STREQUAL "Tester")
+	if(PLUGIN STREQUAL "ChoiceParams" OR PLUGIN STREQUAL "MultiBundle" OR PLUGIN STREQUAL "Tester"
+	   OR (PLUGIN STREQUAL "GPUGain" AND OFX_SUPPORTS_OPENGLRENDER))
 		target_link_libraries(${TGT} PRIVATE OpenGL::GL)
 	endif()
 	target_include_directories(${TGT} PRIVATE ${OFX_SUPPORT_PLUGINS_INCLUDE_DIR})

@@ -12,12 +12,14 @@
 
 #include <array>
 #include <cstdlib>
+#include <functional>
 #include <list>
 #include <map>
 #include <memory>
 #include <optional>
 #include <utility>
 
+#include "ofxGPURender.h"  // kOfxStatGLRenderFailed, kOfxImageEffectPropOpenGLRenderSupported
 #include "ofxMessage.h"
 #include "ofxParametricParam.h"  // kOfxParamTypeParametric
 #include "ofxhHost.h"  // kOfxHostSupportHostPointer
@@ -137,6 +139,126 @@ static State &state()
   // action) must not be deleted after the interpreter is finalized
   static State *s = new State;
   return *s;
+}
+
+#ifdef OFXH_OPENGL
+namespace GL = OFX::Host::OpenGL;
+
+/// the OpenGL render mode of the instance (chooseRenderMode()): with the host's context and the
+/// instance's attachment if opengl, else as without a context (the CPU retry)
+static GL::RenderMode renderMode(PyEffectInstance *p, bool opengl)
+{
+  PyHost *h = state().host.get();
+  const bool hasGL = opengl && h && h->_glContext && !(p->_glAttachment && p->_glAttachment->failed());
+  return GL::chooseRenderMode(*p, hasGL);
+}
+
+/// An action of the instance with OpenGL (action(openGLRender, contextData)) in a RenderSession, with
+/// output (the output clip, for the render action) as the render target over window, as hostDemo's
+/// withOpenGL(). Sets p->_glResult: "not_sent" (not attached: the action wasn't called); "retry"
+/// (GL::cpuRetryAllowed(): OpenGL failed, and the plug-in can render on the CPU); "failed" (OpenGL
+/// failed, GL::openGLFailed(), or threw); else "ok". Without the GIL.
+static OfxStatus withOpenGL(PyEffectInstance *p, OHIE::ClipInstance *output, OfxTime t, const OfxRectI &window,
+                            const std::function<OfxStatus(bool, void *)> &action)
+{
+  PyHost *h = state().host.get();
+  p->_glResult = "not_sent";
+  p->_glError.clear();
+  if (!p->_glAttachment) {
+    p->_glAttachment.reset(new GL::Attachment(*p));
+  }
+  GL::CurrentContext current(*h->_glContext);
+  GL::RenderSession session(*p->_glAttachment, current);
+  if (!session.ok()) {
+    return session.status();
+  }
+  OHIE::Image *out = nullptr;
+  OfxStatus st = kOfxStatFailed;
+  // (if it throws: OpenGL failed, retried on the CPU if the plug-in can, as hostDemo)
+  p->_glResult = renderMode(p, false) == GL::RenderMode::CPU ? "retry" : "failed";
+  try {
+    if (output) {
+      out = output->getImage(t, nullptr); // (the output image of this render)
+      if (!out) {
+        return kOfxStatFailed;
+      }
+      session.setOutput(*out, window);
+    }
+    // the session of the action, also when it throws (E.6)
+    struct SessionScope {
+      PyEffectInstance *p;
+      ~SessionScope() { p->_glSession = nullptr; }
+    } scope = { p };
+    p->_glSession = &session;
+    st = action(true, p->_glAttachment->contextData());
+    const bool failed = GL::openGLFailed(session, st);
+    if (out && st == kOfxStatOK && !failed) {
+      session.readOutput();
+    }
+    p->_glResult = !failed ? "ok" : GL::cpuRetryAllowed(*p, session, st) ? "retry" : "failed";
+  } catch (const std::exception &e) {
+    p->_glError = e.what(); // (opengl_error: the in-process backend prints it, as hostDemo)
+  }
+  if (out) {
+    out->releaseReference();
+  }
+  return st;
+}
+
+#endif
+
+/// opengl=True needs an OpenGL context and an instance that renders with OpenGL: else ValueError
+/// (called before the action's scopes; runAction() checks again)
+static void checkOpenGL(PyEffectInstance *p, bool opengl, const std::string &what)
+{
+  if (!opengl) {
+    return;
+  }
+#ifdef OFXH_OPENGL
+  PyHost *h = state().host.get();
+  if (!h || !h->_glContext) {
+    raiseError(PyExc_ValueError, what + ": opengl=True needs an OpenGL context (ofxh.init(opengl=True), "
+               "ofxh.opengl_context())");
+  }
+  const GL::RenderMode mode = renderMode(p, true);
+  if (mode != GL::RenderMode::OpenGL) {
+    raiseError(PyExc_ValueError, what + ": opengl=True: the instance doesn't render with OpenGL (render_mode() is \"" +
+               (mode == GL::RenderMode::CPU ? "cpu" : "none") + "\")");
+  }
+#else
+  (void)p;
+  raiseError(PyExc_ValueError, what + ": opengl=True: ofxh was built without OFX_HOSTSUPPORT_OPENGL");
+#endif
+}
+
+/// An action, with OpenGL if opengl (withOpenGL(), with output as the render target), else without:
+/// act(openGLRender, contextData). kOfxImageEffectPropOpenGLEnabled means something only "When a
+/// plug-in and host have established they can both use OpenGL renders" (ofxGPURender.h): opengl=True
+/// raises ValueError unless the instance renders with OpenGL (render_mode()). Takes the GIL off.
+static OfxStatus runAction(PyEffectInstance *p, bool opengl, const std::string &what, OHIE::ClipInstance *output,
+                           OfxTime t, const OfxRectI &window, int view, const std::function<OfxStatus(bool, void *)> &act)
+{
+  (void)output;
+  (void)t;
+  (void)window;
+  (void)view;
+  if (!opengl) {
+    return withoutGil([&] { return act(false, nullptr); });
+  }
+#ifdef OFXH_OPENGL
+  checkOpenGL(p, opengl, what);
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+  if (output) {
+    // the view of this render first, as hostDemo: renderAction() sets it, which releases the output
+    // image of another view, and the render target is made of this one before
+    output->setView(view);
+  }
+#endif
+  return withoutGil([&] { return withOpenGL(p, output, t, window, act); });
+#else
+  checkOpenGL(p, opengl, what);
+  return kOfxStatFailed;
+#endif
 }
 
 static void requireInit()
@@ -500,7 +622,7 @@ static OH::PluginCache *makePluginCache(bool useEnvPath)
 }
 
 static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnvPath, const std::string &profile,
-                 bool keepLoaded, bool normalisedDefaults)
+                 bool keepLoaded, bool normalisedDefaults, bool opengl)
 {
   State &st = state();
   if (st.initialized) {
@@ -511,6 +633,11 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
   if (profile != "default" && profile != "ofx14") {
     raiseError(PyExc_ValueError, "ofxh.init(): profile \"" + profile + "\": expected \"default\" or \"ofx14\"");
   }
+#ifndef OFXH_OPENGL
+  if (opengl) {
+    raiseError(PyExc_ValueError, "ofxh.init(): opengl=True: ofxh was built without OFX_HOSTSUPPORT_OPENGL");
+  }
+#endif
   if (!nb::isinstance<HostBase>(host)) {
     raiseError(PyExc_TypeError, "ofxh.init(): host must be an ofxh.Host");
   }
@@ -538,6 +665,16 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
   st.host = std::make_unique<PyHost>(host, hb.ref);
   st.host->_keepLoaded = keepLoaded;
   st.host->_normalisedDefaults = normalisedDefaults;
+#ifdef OFXH_OPENGL
+  if (opengl) {
+    // before the scan: without a context, the host doesn't say it supports OpenGL
+    PyHost *h = st.host.get();
+    withoutGil([&] {
+      h->_glContext = GL::createContext(GL::Hooks(), GL::defaultBackends(), -1, &h->_glError);
+      return 0;
+    });
+  }
+#endif
   st.initialized = true;
   st.profile = profile;
   try {
@@ -549,6 +686,12 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
     if (!st.initialized || st.host == nullptr) {
       raiseError(PyExc_RuntimeError, "ofxh.init(): the host was shut down during init_properties()");
     }
+#ifdef OFXH_OPENGL
+    if (st.host->_glContext) {
+      // (an OFX 1.4 host property)
+      st.host->getProperties().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "true");
+    }
+#endif
     if (profile == "ofx14") {
       // (after init_properties(): as hostDemo, only the OFX 1.4 properties remain)
       st.host->restrictToOFX14();
@@ -645,6 +788,11 @@ static void bindBuildConfig(nb::module_ &m)
   OFXH_DEF(OFX_SUPPORTS_PARAMETRIC, true)
 #else
   OFXH_DEF(OFX_SUPPORTS_PARAMETRIC, false)
+#endif
+#ifdef OFXH_OPENGL
+  OFXH_DEF(OFX_HOSTSUPPORT_OPENGL, true)
+#else
+  OFXH_DEF(OFX_HOSTSUPPORT_OPENGL, false)
 #endif
 #undef OFXH_DEF
   m.attr("build_config") = d;
@@ -1197,37 +1345,45 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
     }, "time"_a, "Returns (Stat, {clip: [(t1, t2), ...]}).")
     .def("begin_sequence_render_action", [](InstanceBase &s, double first, double last, double step, bool interactive,
                                             const Point &renderScale, bool sequential, bool interactiveRender, bool draft,
-                                            int view) {
+                                            int view, bool opengl) {
       PyEffectInstance *p = s.get();
       checkView(view, false);
       requireNotRendering(p, "begin_sequence_render_action()");
+      checkOpenGL(p, opengl, "begin_sequence_render_action()");
       ActionScope scope;
       OfxStatus st;
       {
         RenderScaleScope rs(p, toPoint(renderScale));
-        st = withoutGil([&] { return p->beginRenderAction(first, last, step, interactive, toPoint(renderScale), sequential, interactiveRender,
+        auto act = [&](bool openGLRender, void *contextData) {
+          (void)openGLRender;
+          (void)contextData;
+          return p->beginRenderAction(first, last, step, interactive, toPoint(renderScale), sequential, interactiveRender,
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-                                  false,
+                                  openGLRender,
 #ifdef OFX_EXTENSIONS_NATRON
-                                  nullptr,
+                                  contextData,
 #endif
 #endif
                                   draft
 #ifdef OFX_EXTENSIONS_NUKE
                                   , view
 #endif
-                                  ); });
+                                  );
+        };
+        const OfxRectI none = { 0, 0, 0, 0 };
+        st = runAction(p, opengl, "begin_sequence_render_action()", nullptr, first, none, view, act);
       }
       scope.check("beginSequenceRender", &st);
       return stat(st);
     }, "first"_a, "last"_a, "step"_a = 1., "interactive"_a = false, "render_scale"_a = Point(1., 1.),
-       "sequential"_a = true, "interactive_render"_a = false, "draft"_a = false, "view"_a = 0)
+       "sequential"_a = true, "interactive_render"_a = false, "draft"_a = false, "view"_a = 0, "opengl"_a = false)
     .def("render_action", [](InstanceBase &s, double time, const RectI &window, const Point &renderScale,
                              const std::string &field, bool sequential, bool interactiveRender, bool draft, int view,
-                             int nViews, const std::vector<std::string> &planes) {
+                             int nViews, const std::vector<std::string> &planes, bool opengl) {
       PyEffectInstance *p = s.get();
       checkView(view, true, nViews);
       requireNotRendering(p, "render_action()");
+      checkOpenGL(p, opengl, "render_action()");
       if (planes.size() != 1) {
         raiseError(PyExc_ValueError, "planes: ofxh renders one plane per render action");
       }
@@ -1265,11 +1421,14 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
       TimeLineScope tl(p, time);
       {
         RenderScope rs(p, toPoint(renderScale), toRectI(window));
-        st = withoutGil([&] { return p->renderAction(time, fieldName(field), toRectI(window), toPoint(renderScale), sequential, interactiveRender,
+        auto act = [&](bool openGLRender, void *contextData) {
+          (void)openGLRender;
+          (void)contextData;
+          return p->renderAction(time, fieldName(field), toRectI(window), toPoint(renderScale), sequential, interactiveRender,
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-                             false,
+                             openGLRender,
 #ifdef OFX_EXTENSIONS_NATRON
-                             nullptr,
+                             contextData,
 #endif
 #endif
                              draft
@@ -1282,7 +1441,10 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
 #ifdef OFX_EXTENSIONS_NUKE
                              , pl
 #endif
-                             ); });
+                             );
+        };
+        st = runAction(p, opengl, "render_action()", p->getClip(kOfxImageEffectOutputClipName), time, toRectI(window),
+                       view, act);
       }
       // the output image of this render (the clip keeps the array, not the C++ image)
       nb::dict out;
@@ -1300,7 +1462,7 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
       return nb::make_tuple(stat(st), out);
     }, "time"_a, "render_window"_a, "render_scale"_a = Point(1., 1.), "field"_a = "none", "sequential"_a = true,
        "interactive_render"_a = false, "draft"_a = false, "view"_a = 0, "n_views"_a = 1,
-       "planes"_a = std::vector<std::string>(1, "Colour"),
+       "planes"_a = std::vector<std::string>(1, "Colour"), "opengl"_a = false,
        "kOfxImageEffectActionRender. render_window: pixels at the render scale. Returns (Stat, {plane:\n"
        "the output ImageData the plug-in fetched}) (empty if it fetched none). ofxh renders one plane,\n"
        "the colour plane; view and n_views need the Nuke or Vegas extensions (see build_config).\n"
@@ -1309,34 +1471,61 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
        "get_clip_preferences_action() before: ofxh doesn't run them for you. If\n"
        "get_image() gives no valid output image, ofxh gives the plug-in one over the render window (a\n"
        "plug-in may not check), asks it to abort, and the action returns Stat.Failed and raises\n"
-       "CallbackError.")
+       "CallbackError.\n"
+       "opengl: render with OpenGL (ofxh.init(opengl=True); kOfxImageEffectPropOpenGLEnabled 1) in a\n"
+       "RenderSession: the plug-in loads its textures with clipLoadTexture, the output texture is read\n"
+       "back into the output image; opengl_result says how it went. Also for the sequence actions.")
+#ifdef OFXH_OPENGL
+    .def("render_mode", [](InstanceBase &s, bool opengl) -> std::string {
+      const GL::RenderMode m = renderMode(s.get(), opengl);
+      return m == GL::RenderMode::OpenGL ? "opengl" : m == GL::RenderMode::CPU ? "cpu" : "none";
+    }, "opengl"_a = true,
+       "How the instance renders (chooseRenderMode(), from kOfxImageEffectPropOpenGLRenderSupported and\n"
+       "kOfxImageEffectPropCPURenderSupported): \"opengl\", \"cpu\" or \"none\" (it needs OpenGL); with\n"
+       "the host's OpenGL context if opengl (unless Attached or Detached failed), else as without one.")
+    .def_prop_ro("opengl_error", [](InstanceBase &s) { return s.get()->_glError; },
+       "The error that stopped the last action with opengl=True (an OpenGL error, as hostDemo's \"Error:\n"
+       "OpenGL render: ...\"), or \"\".")
+    .def_prop_ro("opengl_result", [](InstanceBase &s) { return s.get()->_glResult; },
+       "The last action with opengl=True: \"ok\"; \"not_sent\" (the instance couldn't be attached: the\n"
+       "action wasn't sent); \"retry\" (an input texture failed, or kOfxStatGPURenderFailed,\n"
+       "kOfxStatGPUOutOfMemory or kOfxStatErrMemory, and the plug-in can render on the CPU: render it\n"
+       "again there); \"failed\" (the same, or an error, for a plug-in that can't); \"\" if none.")
+#endif
     .def("end_sequence_render_action", [](InstanceBase &s, double first, double last, double step, bool interactive,
                                           const Point &renderScale, bool sequential, bool interactiveRender, bool draft,
-                                          int view) {
+                                          int view, bool opengl) {
       PyEffectInstance *p = s.get();
       checkView(view, false);
       requireNotRendering(p, "end_sequence_render_action()");
+      checkOpenGL(p, opengl, "end_sequence_render_action()");
       ActionScope scope;
       OfxStatus st;
       {
         RenderScaleScope rs(p, toPoint(renderScale));
-        st = withoutGil([&] { return p->endRenderAction(first, last, step, interactive, toPoint(renderScale), sequential, interactiveRender,
+        auto act = [&](bool openGLRender, void *contextData) {
+          (void)openGLRender;
+          (void)contextData;
+          return p->endRenderAction(first, last, step, interactive, toPoint(renderScale), sequential, interactiveRender,
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-                                false,
+                                  openGLRender,
 #ifdef OFX_EXTENSIONS_NATRON
-                                nullptr,
+                                  contextData,
 #endif
 #endif
-                                draft
+                                  draft
 #ifdef OFX_EXTENSIONS_NUKE
-                                , view
+                                  , view
 #endif
-                                ); });
+                                  );
+        };
+        const OfxRectI none = { 0, 0, 0, 0 };
+        st = runAction(p, opengl, "end_sequence_render_action()", nullptr, first, none, view, act);
       }
       scope.check("endSequenceRender", &st);
       return stat(st);
     }, "first"_a, "last"_a, "step"_a = 1., "interactive"_a = false, "render_scale"_a = Point(1., 1.),
-       "sequential"_a = true, "interactive_render"_a = false, "draft"_a = false, "view"_a = 0)
+       "sequential"_a = true, "interactive_render"_a = false, "draft"_a = false, "view"_a = 0, "opengl"_a = false)
     .def("get_time_domain_action", [](InstanceBase &s) {
       PyEffectInstance *p = s.get();
       OfxRangeD r;
@@ -1608,6 +1797,7 @@ static void bindFunctions(nb::module_ &m)
 {
   m.def("init", &init, "host"_a, "plugin_dirs"_a.none() = nb::none(), "use_std_paths"_a = false,
         "use_env_path"_a = true, "profile"_a = "default", "keep_loaded"_a = false, "normalised_defaults"_a = true,
+        "opengl"_a = false,
         "Initialize HostSupport with this host (an ofxh.Host), and scan the plug-ins of plugin_dirs, of\n"
         "OFX_PLUGIN_PATH if use_env_path, and of the standard locations if use_std_paths. One host per\n"
         "process: RuntimeError if one is initialized; call shutdown() before another init(). If it raises,\n"
@@ -1624,7 +1814,33 @@ static void bindFunctions(nb::module_ &m)
         "plug-in loads it again.\n"
         "normalised_defaults: False for a host without normalised parameter defaults, as hostDemo\n"
         "--no-normalised-defaults: the double param descriptors have no kOfxParamPropDefaultCoordinateSystem\n"
-        "(a plug-in's set fails with kOfxStatErrUnknown), so their defaults are canonical.");
+        "(a plug-in's set fails with kOfxStatErrUnknown), so their defaults are canonical.\n"
+        "opengl: create an offscreen OpenGL context (openfx::HostSupportOpenGL, builds with\n"
+        "OFX_HOSTSUPPORT_OPENGL) before the scan; if it is made, the host's\n"
+        "kOfxImageEffectPropOpenGLRenderSupported is \"true\", and the actions may take opengl=True. See\n"
+        "opengl_context().");
+  m.def("opengl_context", []() -> nb::object {
+    nb::dict d;
+#ifdef OFXH_OPENGL
+    const PyHost *h = state().host.get();
+    if (!h || (!h->_glContext && h->_glError.empty())) {
+      return nb::none();
+    }
+    if (!h->_glContext) {
+      d["error"] = h->_glError;
+      return d;
+    }
+    const GL::RendererInfo &info = h->_glContext->info();
+    d["backend"] = GL::backendName(info.backend);
+    d["renderer"] = info.renderer;
+    d["vendor"] = info.vendor;
+    d["version"] = info.version;
+    return d;
+#else
+    return nb::none();
+#endif
+  }, "The OpenGL context of ofxh.init(opengl=True): {\"backend\", \"renderer\", \"vendor\", \"version\"},\n"
+     "or {\"error\": why} if none could be made; None without opengl=True (or OFX_HOSTSUPPORT_OPENGL).");
   m.def("shutdown", &shutdown,
         "Close the open instances, unload the plug-ins and delete the plug-in cache and the host. Also\n"
         "called at exit. Not in an action or a callback.");

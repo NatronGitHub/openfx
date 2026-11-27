@@ -472,9 +472,6 @@ namespace {
   typedef GLboolean_ (OFXH_GLAPIENTRY *IsTextureFn)(unsigned int);
   typedef void (OFXH_GLAPIENTRY *ClearColorFn)(float, float, float, float);
   typedef void (OFXH_GLAPIENTRY *ClearFn)(unsigned int);
-  typedef void (OFXH_GLAPIENTRY *MatrixModeFn)(unsigned int);
-  typedef void (OFXH_GLAPIENTRY *LoadIdentityFn)();
-  typedef void (OFXH_GLAPIENTRY *OrthoFn)(double, double, double, double, double, double);
   typedef void (OFXH_GLAPIENTRY *EnumFn)(unsigned int);
   typedef void (OFXH_GLAPIENTRY *BindTextureFn)(unsigned int, unsigned int);
   typedef void (OFXH_GLAPIENTRY *TexEnviFn)(unsigned int, unsigned int, int);
@@ -943,20 +940,6 @@ namespace {
     output->releaseOutputImage();
     ImageEffect::Image *outputImage = output->getImage(0., nullptr);
     session.setOutput(*outputImage, window);
-    // Examples/OpenGL draws in pixels from the bottom left of the render window but sets no
-    // projection, although "it is completely up to the effect to choose what OpenGL operations to
-    // render with, including projections and so on" (ofxGPURender.h, OFX 1.5.1): RenderSession
-    // leaves the matrices alone, so this test sets that projection for the plug-in.
-    {
-      const MatrixModeFn matrixMode = reinterpret_cast<MatrixModeFn>(context.getProcAddress("glMatrixMode"));
-      const LoadIdentityFn loadIdentity = reinterpret_cast<LoadIdentityFn>(context.getProcAddress("glLoadIdentity"));
-      const OrthoFn ortho = reinterpret_cast<OrthoFn>(context.getProcAddress("glOrtho"));
-      matrixMode(0x1701); // GL_PROJECTION
-      loadIdentity();
-      ortho(0., window.x2 - window.x1, 0., window.y2 - window.y1, -1., 1.);
-      matrixMode(0x1700); // GL_MODELVIEW
-      loadIdentity();
-    }
     instance.session = &session;
     instance.inputTextures.clear();
 #ifdef OFX_EXTENSIONS_NUKE
@@ -1161,7 +1144,9 @@ namespace {
     check("createInstanceAction", created == kOfxStatOK || created == kOfxStatReplyDefault);
     check("getClipPreferences", instance->getClipPreferences());
 
-    // kOfxImageEffectPropOpenGLRenderSupported "true": OpenGL if the host has it, else the CPU
+    // Examples/OpenGL says "needed"; with "true": OpenGL if the host has it, else the CPU
+    check("chooseRenderMode(\"needed\", OpenGL) = OpenGL", GL::chooseRenderMode(*instance, true) == GL::RenderMode::OpenGL);
+    instance->getProps().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "true");
     check("chooseRenderMode(\"true\", OpenGL) = OpenGL", GL::chooseRenderMode(*instance, true) == GL::RenderMode::OpenGL);
     check("chooseRenderMode(\"true\", no OpenGL) = CPU", GL::chooseRenderMode(*instance, false) == GL::RenderMode::CPU);
     instance->getProps().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "needed");

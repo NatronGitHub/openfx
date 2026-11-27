@@ -54,6 +54,12 @@
 #include "hostDemoEffectInstance.h"
 #include "hostDemoClipInstance.h"
 #include "hostDemoParamInstance.h"
+#ifdef HOSTDEMO_OPENGL
+#include <functional>
+#include <memory>
+#include "ofxhOpenGLContext.h"
+#include "ofxhOpenGLRender.h"
+#endif
    
 ////////////////////////////////////////////////////////////////////////////////
 // By default, this example code renders the example 'invert' plugin built
@@ -763,6 +769,10 @@ static void usage(const char* prog)
     "                     (kOfxImageEffectPropOpenGLRenderSupported \"true\"), to describe OpenGL-only plug-ins\n"
     "  --components c,... the host's supported components (kOfxImageEffectPropSupportedComponents):\n"
     "                     distinct rgba, rgb or alpha, in order (default: rgba,alpha)\n"
+    "  --gpu=MODE         cpu (the default) or opengl: render with OpenGL the plug-ins that can (an\n"
+    "                     offscreen context: EGL on Linux, CGL on macOS, WGL on Windows), on the CPU\n"
+    "                     without a context, or if the OpenGL render fails (kOfxStatGPURenderFailed...)\n"
+    "                     and the plug-in can; the --report renders get \"openGL\" and \"cpuRetry\"\n"
     "  --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,\n"
     "                     the GetClipComponents action; Nuke-extension builds only)\n"
     "  --no-normalised-defaults  be a host without normalised parameter defaults: double params\n"
@@ -1017,11 +1027,76 @@ static bool setParamFromString(OFX::Host::ImageEffect::Instance* instance, const
 // render the frame t (and view) and write the output image to base.ppm (or base.pfm). If rep is
 // not NULL, the results of the actions are added to it.
 // Returns false (after printing an error) on failure.
+/// --gpu=opengl (HOSTDEMO_OPENGL builds): see below
+struct OpenGLHost;
+
+#ifdef HOSTDEMO_OPENGL
+namespace GL = OFX::Host::OpenGL;
+
+/// --gpu=opengl: the OpenGL context of hostDemo (one render at a time) and the instance's attachment
+struct OpenGLHost {
+  std::unique_ptr<GL::Context> context;
+  std::unique_ptr<GL::Attachment> attachment;
+  /// how the instance renders now (OpenGL, the CPU, or neither)
+  GL::RenderMode mode(const MyHost::MyEffectInstance& instance) const
+  {
+    return GL::chooseRenderMode(instance, context && attachment && !attachment->failed());
+  }
+};
+
+/// An action of the instance with OpenGL (action(openGLRender, contextData)) in a RenderSession, with
+/// output (the output clip, for the render action) as the render target over window. glFailed: OpenGL
+/// couldn't be used (the instance wasn't attached), or GL::openGLFailed(); cpuRetry: then the host
+/// may render on the CPU (GL::cpuRetryAllowed(): the plug-in can).
+static OfxStatus withOpenGL(OpenGLHost& gl, MyHost::MyEffectInstance& instance, MyHost::MyClipInstance* output,
+                            OfxTime t, const OfxRectI& window, const std::function<OfxStatus(bool, void*)>& action,
+                            bool& glFailed, bool& cpuRetry)
+{
+  GL::CurrentContext current(*gl.context);
+  GL::RenderSession session(*gl.attachment, current);
+  glFailed = true;
+  cpuRetry = GL::chooseRenderMode(instance, false) == GL::RenderMode::CPU;
+  if (!session.ok()) {
+    return session.status();
+  }
+  OFX::Host::ImageEffect::Image* out = NULL;
+  OfxStatus st = kOfxStatFailed;
+  try {
+    if (output) {
+      out = output->getImage(t, NULL); // (the output image of this render)
+      if (!out) {
+        return kOfxStatFailed;
+      }
+      session.setOutput(*out, window);
+    }
+    // the session of the action, also when it throws (E.6)
+    struct SessionScope {
+      MyHost::MyEffectInstance& instance;
+      SessionScope(MyHost::MyEffectInstance& i, GL::RenderSession* s) : instance(i) { instance.setOpenGLSession(s); }
+      ~SessionScope() { instance.setOpenGLSession(NULL); }
+    } scope(instance, &session);
+    st = action(true, gl.attachment->contextData());
+    glFailed = GL::openGLFailed(session, st);
+    cpuRetry = GL::cpuRetryAllowed(instance, session, st);
+    if (out && st == kOfxStatOK && !glFailed) {
+      session.readOutput();
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Error: OpenGL render: " << e.what() << std::endl;
+    glFailed = true;
+  }
+  if (out) {
+    out->releaseReference();
+  }
+  return st;
+}
+#endif
+
 static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstance* outputClip,
                         OfxTime t, int view, int nViews, const OfxPointD& renderScale,
                         const OfxRectI* window, bool query, bool sequential,
                         bool allowUnwritten, const std::string& base, OutputFormat format,
-                        bool multiPlane, Json* rep)
+                        bool multiPlane, Json* rep, OpenGLHost* openGL)
 {
   const std::string fname = base + (format == eFormatPFM ? ".pfm" : ".ppm");
   (void)nViews;
@@ -1231,16 +1306,19 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
   std::list<std::string> planes;
   planes.push_back(kFnOfxImagePlaneColour);
 #endif
-  stat = instance->renderAction(t, //OfxTime      time,
+  auto render = [&](bool openGLRender, void* contextData) {
+    (void)openGLRender;
+    (void)contextData;
+    return instance->renderAction(t, //OfxTime      time,
                                 kOfxImageFieldNone, // const std::string &  field,
                                 renderWindow, // const OfxRectI &renderRoI,
                                 renderScale, // OfxPointD   renderScale,
                                 sequential, // bool     sequentialRender,
                                 false, // bool     interactiveRender,
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-                                false, // bool     openGLRender,
+                                openGLRender, // bool     openGLRender,
 #  ifdef OFX_EXTENSIONS_NATRON
-                                NULL, // void*    contextData,
+                                contextData, // void*    contextData,
 #  endif
 #endif
                                 false // bool     draftRender
@@ -1257,11 +1335,47 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
                                 planes // const std::list<std::string>& planes
 #endif
                                 );
+  };
+  bool usedOpenGL = false, cpuRetry = false;
+#ifdef HOSTDEMO_OPENGL
+  OpenGLHost* gl = openGL;
+  const GL::RenderMode mode = gl ? gl->mode(*instance) : GL::RenderMode::CPU;
+  if (mode == GL::RenderMode::OpenGL) {
+    bool glFailed = false, retry = false;
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    // the view of this render first: renderAction() sets it, which releases the output image of
+    // another view, and the render target is made of this one before
+    outputClip->setView(view);
+#endif
+    stat = withOpenGL(*gl, *instance, outputClip, t, renderWindow, render, glFailed, retry);
+    usedOpenGL = !glFailed;
+    if (glFailed && retry) {
+      // render again on the CPU, with a new output image
+      cpuRetry = true;
+      outputClip->releaseOutputImage();
+      stat = render(false, NULL);
+    } else if (glFailed && stat == kOfxStatOK) {
+      stat = kOfxStatFailed;
+    }
+  } else if (mode == GL::RenderMode::None) {
+    std::cerr << "Error: the plug-in needs OpenGL (kOfxImageEffectPropOpenGLRenderSupported \"needed\"), "
+                 "and hostDemo has no OpenGL context for it" << std::endl;
+    stat = kOfxStatFailed;
+  } else
+#endif
+  {
+    stat = render(false, NULL);
+  }
   instance->clearRenderState();
   // the render is OK if the action succeeded (kOfxStatOK only) and the image fetches too
   Json& renderJ = r["render"] = actionJson(stat);
   renderJ["ok"] = stat == kOfxStatOK && MyHost::gImageErrors == imageErrors;
   renderJ["imageFetchErrors"] = MyHost::gImageErrors - imageErrors;
+  if (openGL) {
+    // --gpu=opengl: whether OpenGL rendered this frame, and whether the CPU rendered it again
+    renderJ["openGL"] = usedOpenGL;
+    renderJ["cpuRetry"] = cpuRetry;
+  }
   r["output"] = Json();
 
   // get the output image buffer
@@ -1322,6 +1436,7 @@ static int run(int argc, char **argv)
   MyHost::Profile profile = MyHost::Profile::eDefault; ///< --ofx14, --ofx11
   bool ofx14And11 = false;     ///< both --ofx14 and --ofx11
   bool openglDescribe = false; ///< --opengl-describe
+  bool gpuOpenGL = false;      ///< --gpu=opengl
   bool multiPlane = false;     ///< --multiplane
   /// --components: kOfxImageEffectPropSupportedComponents of the host descriptor, and their short names
   std::vector<std::string> hostComponents, hostComponentNames;
@@ -1360,6 +1475,8 @@ static int run(int argc, char **argv)
       profile = p;
     } else if (arg == "--opengl-describe") {
       openglDescribe = true;
+    } else if (arg == "--gpu=opengl" || arg == "--gpu=cpu") {
+      gpuOpenGL = arg == "--gpu=opengl";
     } else if (arg == "--multiplane") {
 #ifdef OFX_EXTENSIONS_NUKE
       multiPlane = true;
@@ -1556,9 +1673,15 @@ static int run(int argc, char **argv)
   // a host whose kOfxImageEffectPropOpenGLRenderSupported is "true" must render with OpenGL when
   // the plug-in needs it, which hostDemo can't: describe only
   if (openglDescribe && describePath.empty()) {
-    std::cerr << "Error: --opengl-describe needs --describe (hostDemo can't render with OpenGL)" << std::endl;
+    std::cerr << "Error: --opengl-describe needs --describe (to render with OpenGL: --gpu=opengl)" << std::endl;
     return 1;
   }
+#ifndef HOSTDEMO_OPENGL
+  if (gpuOpenGL) {
+    std::cerr << "Error: --gpu=opengl: hostDemo was built without OFX_HOSTSUPPORT_OPENGL" << std::endl;
+    return 1;
+  }
+#endif
 #ifndef OFX_SUPPORTS_OPENGLRENDER
   if (openglDescribe) {
     std::cerr << "Error: --opengl-describe: hostDemo was built without OFX_SUPPORTS_OPENGLRENDER (no OpenGL render suite)" << std::endl;
@@ -1573,8 +1696,8 @@ static int run(int argc, char **argv)
     std::cerr << "Error: --multiplane and --ofx14 can't be used together (OFX 1.4 has no plane suite)" << std::endl;
     return 1;
   }
-  if (ofx14And11 || (profile == MyHost::Profile::eOFX11 && (multiPlane || openglDescribe))) {
-    std::cerr << "Error: --ofx11 can't be used with --ofx14, --multiplane or --opengl-describe" << std::endl;
+  if (ofx14And11 || (profile == MyHost::Profile::eOFX11 && (multiPlane || openglDescribe || gpuOpenGL))) {
+    std::cerr << "Error: --ofx11 can't be used with --ofx14, --multiplane, --opengl-describe or --gpu=opengl" << std::endl;
     return 1;
   }
   if (profile == MyHost::Profile::eOFX11 && inputDepth == kOfxBitDepthShort) {
@@ -1589,6 +1712,21 @@ static int run(int argc, char **argv)
   // this must be called before the first call to getPluginCache()
   OFX::Host::PluginCache::useStdOFXPluginsLocation(useStdPaths);
 
+#ifdef HOSTDEMO_OPENGL
+  // --gpu=opengl: the context, created first: without one, the host doesn't say it supports OpenGL
+  OpenGLHost gl;
+  if (gpuOpenGL) {
+    GL::Hooks hooks;
+    std::string why;
+    gl.context = GL::createContext(hooks, GL::defaultBackends(), -1, &why);
+    if (!gl.context) {
+      std::cerr << "Warning: --gpu=opengl: no OpenGL context (" << why << "): rendering on the CPU" << std::endl;
+    }
+  }
+  const bool hostOpenGL = gl.context != nullptr;
+#else
+  const bool hostOpenGL = false;
+#endif
   // set the version label in the global cache
   // (the plug-ins may describe themselves differently to an OFX 1.4 host, to a host with
   // OpenGL render, to a multi-plane host, or to a host with other components: another cache)
@@ -1602,7 +1740,7 @@ static int run(int argc, char **argv)
   }
   const std::string cacheSuffix =
     (profile == MyHost::Profile::eDefault ? std::string() : std::string("-") + MyHost::profileName(profile)) +
-    (openglDescribe ? "-opengl" : "") + (multiPlane ? "-multiplane" : "") + componentsSuffix;
+    (openglDescribe || hostOpenGL ? "-opengl" : "") + (multiPlane ? "-multiplane" : "") + componentsSuffix;
   OFX::Host::PluginCache::getPluginCache()->setCacheVersion("hostDemoV1" + cacheSuffix);
   const std::string cachePath = "hostDemoPluginCache" + cacheSuffix + ".xml";
 
@@ -1615,7 +1753,7 @@ static int run(int argc, char **argv)
   } else if (profile == MyHost::Profile::eOFX11) {
     myHost.restrictToOFX11();
   }
-  if (openglDescribe) {
+  if (openglDescribe || hostOpenGL) {
     // (an OFX 1.4 host property: also with --ofx14)
     myHost.getProperties().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "true");
   }
@@ -1760,6 +1898,17 @@ static int run(int argc, char **argv)
       ~DestroyInstanceGuard() { if (instance) { instance->destroyInstanceAction(); } }
     } destroyInstanceGuard = { instance.get() };
     MyHost::MyEffectInstance* myInstance = dynamic_cast<MyHost::MyEffectInstance*>(instance.get());
+#ifdef HOSTDEMO_OPENGL
+    // the instance's OpenGL attachment: kOfxActionOpenGLContextDetached is sent at its end, before
+    // kOfxActionDestroyInstance (this guard is destroyed before destroyInstanceGuard)
+    struct DetachGuard {
+      OpenGLHost &gl;
+      ~DetachGuard() { gl.attachment.reset(); }
+    } detachGuard = { gl };
+    if (myInstance && gl.context) {
+      gl.attachment.reset(new GL::Attachment(*myInstance));
+    }
+#endif
 
     if(!myInstance) {
       std::cerr << "Error: could not create an instance of plug-in \"" << pluginId << "\" in the " << context << " context." << std::endl;
@@ -1993,20 +2142,55 @@ static int run(int argc, char **argv)
 
       // say we are about to render a bunch of frames (not for --query: the query actions may
       // be called outside a render sequence)
+      // Begin/EndSequenceRender, with OpenGL if the instance renders with it (kOfxImageEffectPropOpenGLEnabled
+      // is in their inArgs too), else without
+      auto sequence = [&](bool begin, bool openGLRender, void* contextData) {
+        (void)openGLRender;
+        (void)contextData;
+        return (instance.get()->*(begin ? &OFX::Host::ImageEffect::Instance::beginRenderAction
+                                        : &OFX::Host::ImageEffect::Instance::endRenderAction))(
+          firstFrame, lastFrame, frameStep, false, renderScale, sequential, /*interactive=*/false,
+#ifdef OFX_SUPPORTS_OPENGLRENDER
+          openGLRender,
+#ifdef OFX_EXTENSIONS_NATRON
+          contextData,
+#endif
+#endif
+          /*draftRender=*/false
+#ifdef OFX_EXTENSIONS_NUKE
+          , 0 /* view*/
+#endif
+          );
+      };
+      OpenGLHost* openGLArg = NULL; // renderFrame()'s (--gpu=opengl)
+      // whether BeginSequenceRender ran with OpenGL: EndSequenceRender does the same (the pair
+      // shares kOfxImageEffectPropOpenGLEnabled)
+      bool sequenceOpenGL = false;
+      auto sequenceAction = [&](bool begin) {
+#ifdef HOSTDEMO_OPENGL
+        if (begin) {
+          sequenceOpenGL = gl.context && gl.mode(*myInstance) == GL::RenderMode::OpenGL;
+        }
+        if (sequenceOpenGL) {
+          bool glFailed = false, retry = false, sent = false;
+          const OfxRectI none = { 0, 0, 0, 0 };
+          const OfxStatus st = withOpenGL(gl, *myInstance, NULL, firstFrame, none,
+                                          [&](bool on, void* data) { sent = true; return sequence(begin, on, data); }, glFailed, retry);
+          if (sent) {
+            return st;
+          }
+          // (not attached: without OpenGL, and End too)
+          sequenceOpenGL = false;
+        }
+#endif
+        return sequence(begin, false, NULL);
+      };
       OfxStatus stat = kOfxStatOK;
+#ifdef HOSTDEMO_OPENGL
+      openGLArg = gpuOpenGL ? &gl : NULL;
+#endif
       if (!query) {
-        stat = instance->beginRenderAction(firstFrame, lastFrame, frameStep, false, renderScale, sequential, /*interactive=*/false,
-#                                        ifdef OFX_SUPPORTS_OPENGLRENDER
-                                           /*openGLRender=*/false,
-#                                        ifdef OFX_EXTENSIONS_NATRON
-                                           /*contextData=*/NULL,
-#                                        endif
-#                                        endif
-                                           /*draftRender=*/false
-#                                        ifdef OFX_EXTENSIONS_NUKE
-                                           , 0 /* view*/
-#                                        endif
-                                           );
+        stat = sequenceAction(true);
         actions.push(namedActionJson("beginSequenceRender", actionJson(stat)));
         if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
           std::cerr << "Error: begin render action failed (status " << stat << ")" << std::endl;
@@ -2028,7 +2212,7 @@ static int run(int argc, char **argv)
           std::ostringstream ss;
           ss << outputPrefix << "." << tname.str() << (nViews == 1 ? "" : view == 0 ? "l" : "r");
           Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-          if (!renderFrame(myInstance, outputClip, t, view, nViews, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r)) {
+          if (!renderFrame(myInstance, outputClip, t, view, nViews, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r, openGLArg)) {
             ret = 1;
           }
         }
@@ -2036,25 +2220,14 @@ static int run(int argc, char **argv)
         std::ostringstream ss;
         ss << outputPrefix << "." << tname.str();
         Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r)) {
+        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r, openGLArg)) {
           ret = 1;
         }
 #endif
       }
 
       if (!query) {
-        stat = instance->endRenderAction(firstFrame, lastFrame, frameStep, false, renderScale, sequential, /*interactive=*/false,
-#                               ifdef OFX_SUPPORTS_OPENGLRENDER
-                                  /*openGLRender=*/false,
-#                               ifdef OFX_EXTENSIONS_NATRON
-                                  /*contextData=*/NULL,
-#                               endif
-#                               endif
-                                  /*draftRender=*/false
-#                               ifdef OFX_EXTENSIONS_NUKE
-                                  , 0 /* view*/
-#                               endif
-                                  );
+        stat = sequenceAction(false);
         actions.push(namedActionJson("endSequenceRender", actionJson(stat)));
         if (stat != kOfxStatOK && stat != kOfxStatReplyDefault) {
           std::cerr << "Error: end render action failed (status " << stat << ")" << std::endl;

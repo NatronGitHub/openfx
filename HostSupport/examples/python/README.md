@@ -209,7 +209,16 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   are plain times, not `(t, "l"|"r")`. The report's `host.profile` is "ofx14" (else
   "default"). It uses its own plug-in cache file, hostDemoPluginCache-ofx14.xml. In Python:
   `extra_args=["--ofx14"]`.
-- `--ofx11` (not with `--ofx14`, `--multiplane` or `--opengl-describe`) makes hostDemo an OFX 1.1
+- `--gpu=opengl` renders with OpenGL the plug-ins that can (kOfxImageEffectPropOpenGLRenderSupported
+  "true" or "needed"), on an offscreen context of openfx::HostSupportOpenGL (EGL on Linux, CGL on
+  macOS, WGL on Windows; builds with `OFX_HOSTSUPPORT_OPENGL`): the host then says it supports OpenGL render. Without
+  a context it warns and renders on the CPU, and a plug-in that needs OpenGL fails. After an OpenGL
+  failure (kOfxStatGPURenderFailed, kOfxStatGPUOutOfMemory, kOfxStatErrMemory, or an input texture
+  that couldn't be made), the frame is rendered again on the CPU if the plug-in can. In Python:
+  `extra_args=["--gpu=opengl"]`; the ofxh module's `init(opengl=True)`, `render_mode()`, `opengl=True`
+  on the render actions (refused unless `render_mode()` is "opengl"), `opengl_result` and
+  `opengl_error` are what the in-process backend uses.
+- `--ofx11` (not with `--ofx14`, `--multiplane`, `--opengl-describe` or `--gpu=opengl`) makes hostDemo an OFX 1.1
   host modelled on VEGAS Pro (openfx-misc's README-hosts.txt), to check that a plug-in still
   works there: the host descriptor has only the OFX 1.1 host properties, and kOfxPropAPIVersion
   1.1 (no kOfxPropVersion, kOfxImageEffectInstancePropSequentialRender or kOfxPropHostOSHandle),
@@ -303,7 +312,8 @@ supportsTiles {effect, clips {Clip: bool}} (the instance's values, which a plug-
 instanceChanged: without tiles, the render window is the whole RoD and the input images are
 whole-RoD, if hostDemo can make images that large), renderWindow, isIdentity {ok, status, identity, clip, time}, framesNeeded {ok, status, clips
 {Clip: [[min,max]...]}}, regionsOfInterest {ok, status, regionOfInterest, clips {Clip:
-rect}}, render {ok, status, imageFetchErrors}, output}. `output` is null if nothing was
+rect}}, render {ok, status, imageFetchErrors[, openGL, cpuRetry]}, output}. `openGL` and `cpuRetry` (with
+`--gpu=opengl` only): OpenGL rendered the frame; the CPU rendered it again after OpenGL failed. `output` is null if nothing was
 written, else {w, h, bounds, depth (byte|short|float), comps (RGBA|RGB|Alpha), min, max,
 mean (per component, in the native range of the depth, NaN left out), nan (the number of
 pixels with a NaN component), crc32 (zlib's CRC-32 of the pixel bytes within the bounds, row

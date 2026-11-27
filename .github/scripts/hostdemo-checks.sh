@@ -456,8 +456,8 @@ if grep -q "^Plug-in:io.aswf.openfx.example.ColourspacePluginCore$" cachedemo.lo
   echo "--ofx14: no OFX 1.5 host properties: OK"
 fi
 
-# --opengl-describe is for --describe only: hostDemo can't render with OpenGL (test_hostdemo_cli.py
-# checks what the OpenGL example sees with it)
+# --opengl-describe is for --describe only (rendering with OpenGL is --gpu=opengl; test_hostdemo_cli.py
+# checks what the OpenGL example sees with either)
 fails hostdemo-opengl-render.log "needs --describe" --opengl-describe -p net.sf.openfx.invertPlugin
 # The plug-in cache stays valid while a binary's mtime and size don't change, but the binary's list
 # of plug-ins may change (e.g. openfx-gmic's depends on a user file): a cached plug-in must be the
@@ -489,7 +489,7 @@ fi
 # StrChoice param, blue scale 1). A plug-in with no context to render is described by both hosts
 # instead. All must succeed, except the plug-ins in $needs_more, which need a feature hostDemo
 # doesn't have and fail in both hosts: an overlay host (the Overlay and Custom examples: describe
-# fails), OpenGL (the OpenGL example: render fails), the effect's identity (the DrawSuite
+# fails), OpenGL (the OpenGL example, without --gpu=opengl: describe fails), the effect's identity (the DrawSuite
 # example's render writes nothing: it relies on isIdentity), an output clip in the filter context
 # (the Test example).
 needs_more=" uk.co.thefoundry.BasicOverlayPlugin uk.co.thefoundry.CustomParamPlugin com.genarts:OpenGLSamplePlugin uk.co.thefoundry.BasicDrawSuitePlugin net.sf.openfx:PropertyTestPlugin "

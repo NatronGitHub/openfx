@@ -156,7 +156,7 @@ jobs:
           cmake --build build-ci-natron --parallel 4 --target drawsuite-opengl-test drawcontext-opengl-test support-library-test ofxh \
             hostDemo suiteHandleChecks example-Basic-support example-ChoiceParams-support example-Generator-support \
             example-Invert-support example-Tester-support example-Retimer-support example-MultiBundle-support \
-            example-Rectangle example-PropTester example-MultiplyGPU-support example-OpenGL openglRenderChecks
+            example-Rectangle example-PropTester example-MultiplyGPU-support example-GPUGain-support example-OpenGL openglRenderChecks
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test && Support/support-library-test)
           # openfx::HostSupportOpenGL with the Natron context data (EGL, Mesa llvmpipe; OFXH_REQUIRE=1)
           OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/examples/openglRenderChecks

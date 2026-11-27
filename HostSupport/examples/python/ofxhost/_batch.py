@@ -216,7 +216,8 @@ def _host_key(flags: set, args: Sequence[str]) -> tuple:
             HostOptions(keep_loaded=os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1",
                         use_std_paths="--no-std-paths" not in flags, opengl_render="--opengl-describe" in flags,
                         normalised_defaults="--no-normalised-defaults" not in flags,
-                        multiplane="--multiplane" in flags, components=host_components(args)))
+                        multiplane="--multiplane" in flags, components=host_components(args),
+                        gpu="--gpu=opengl" in flags))
 
 
 _hosts: list = []  # (the test hook "host": the hosts seen, kept so that their ids aren't reused)
