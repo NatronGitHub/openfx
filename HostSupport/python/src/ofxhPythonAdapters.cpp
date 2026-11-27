@@ -1286,10 +1286,19 @@ OHIE::Texture *PyClipInstance::loadTexture(OfxTime time, const char *format, con
 }
 #endif
 
-OHIE::Image *PyClipInstance::forOpenCL(OHIE::Image *image)
+OHIE::Image *PyClipInstance::forGPU(OHIE::Image *image)
 {
 #ifdef OFXH_OPENCL
   if (OFX::Host::OpenCL::RenderSession *session = _effect->_clSession.load()) {
+    OHIE::Image *copy = session->getImage(*this, image);
+    if (image) {
+      image->releaseReference();
+    }
+    return copy;
+  }
+#endif
+#ifdef OFXH_METAL
+  if (OFX::Host::Metal::RenderSession *session = _effect->_mtSession.load()) {
     OHIE::Image *copy = session->getImage(*this, image);
     if (image) {
       image->releaseReference();
@@ -1302,7 +1311,7 @@ OHIE::Image *PyClipInstance::forOpenCL(OHIE::Image *image)
 
 OHIE::Image *PyClipInstance::getImage(OfxTime time, const OfxRectD *optionalBounds)
 {
-  return forOpenCL(fetchImage(time, _view, optionalBounds));
+  return forGPU(fetchImage(time, _view, optionalBounds));
 }
 
 #ifdef OFX_EXTENSIONS_NUKE
@@ -1313,7 +1322,7 @@ OHIE::Image *PyClipInstance::getImagePlane(OfxTime time, int view, const std::st
   // images that ofxh can make (planeComponents()). The output has the colour plane only (ofxh
   // renders one plane per render action).
   if (plane == kFnOfxImagePlaneColour) {
-    return forOpenCL(fetchImage(time, view < 0 ? _view : view, optionalBounds));
+    return forGPU(fetchImage(time, view < 0 ? _view : view, optionalBounds));
   }
   if (isOutput() || planeComponents(plane).empty()) {
     return nullptr;
@@ -1322,7 +1331,7 @@ OHIE::Image *PyClipInstance::getImagePlane(OfxTime time, int view, const std::st
   if (std::find(present.begin(), present.end(), plane) == present.end()) {
     return nullptr;
   }
-  return forOpenCL(fetchImage(time, view < 0 ? _view : view, optionalBounds, plane));
+  return forGPU(fetchImage(time, view < 0 ? _view : view, optionalBounds, plane));
 }
 
 const std::vector<std::string> &PyClipInstance::getComponentsPresent() const OFX_EXCEPTION_SPEC
@@ -1358,7 +1367,7 @@ OfxRectD PyClipInstance::getRegionOfDefinition(OfxTime time, int view) const
 OHIE::Image *PyClipInstance::getStereoscopicImage(OfxTime time, int view, const OfxRectD *optionalBounds)
 {
   // (the output clip gives its image of the current render, whatever the view)
-  return forOpenCL(fetchImage(time, view, optionalBounds));
+  return forGPU(fetchImage(time, view, optionalBounds));
 }
 #endif
 

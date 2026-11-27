@@ -5,6 +5,7 @@
 
 #include "ofxhOpenCLRender.h"
 #include "ofxhOpenCLFunctions.h"
+#include "../gpu/ofxhGPUImages.h"
 
 #include "ofxGPURender.h"
 
@@ -20,6 +21,9 @@ namespace OFX {
     namespace OpenCL {
 
       using namespace Detail;
+      using GPU::PixelLayout;
+      using GPU::componentCount;
+      using GPU::intersect;
 
       /// the plug-in supports OpenCL Buffers: kOfxImageEffectPropOpenCLRenderSupported "true" - "the
       /// host or plug-in can support OpenCL Buffers render" (ofxGPURender.h), or "needed", a value
@@ -95,36 +99,6 @@ namespace OFX {
         return why.empty();
       }
 
-      /// the bytes of a component of depth, 0 if unknown
-      static int componentBytes(const std::string &depth)
-      {
-        if (depth == kOfxBitDepthByte) {
-          return 1;
-        }
-        if (depth == kOfxBitDepthShort || depth == kOfxBitDepthHalf) {
-          return 2;
-        }
-        if (depth == kOfxBitDepthFloat) {
-          return 4;
-        }
-        return 0;
-      }
-
-      /// the number of components, 0 if unknown
-      static int componentCount(const std::string &components)
-      {
-        if (components == kOfxImageComponentRGBA) {
-          return 4;
-        }
-        if (components == kOfxImageComponentRGB) {
-          return 3;
-        }
-        if (components == kOfxImageComponentAlpha) {
-          return 1;
-        }
-        return 0;
-      }
-
       /// the OpenCL Image channel type of depth (channel order CL_RGBA)
       static cl_uint channelType(const std::string &depth)
       {
@@ -160,6 +134,7 @@ namespace OFX {
                                image.getStringProperty(kOfxImagePropField),
                                image.getStringProperty(kOfxImagePropUniqueIdentifier))
           , _session(session)
+          , _images(*session._images)
           , _mem(mem.get())
         {
           // the CPU image's, which the copy keeps
@@ -174,17 +149,13 @@ namespace OFX {
             // is the same cl_mem
             setPointerProperty(kOfxImageEffectPropOpenCLImage, _mem);
           }
-          std::lock_guard<std::mutex> lock(_session._mutex);
-          _session._handles.insert(this);
+          _images.add(this);
           mem.release(); // (owned from here)
         }
 
         ~Handle() override
         {
-          {
-            std::lock_guard<std::mutex> lock(_session._mutex);
-            _session._handles.erase(this);
-          }
+          _images.remove(this);
           const Device &device = _session._queue.device();
           try {
             device.driverCall([&] { device.cl().ReleaseMemObject(_mem); });
@@ -197,6 +168,8 @@ namespace OFX {
 
       private:
         RenderSession &_session;
+        /// (not through _session: its unique_ptr is null while ~SessionImages deletes the images left)
+        GPU::SessionImages &_images;
         cl_mem _mem;
       };
 
@@ -206,89 +179,22 @@ namespace OFX {
         , _ok(sessionAllowed(effect, queue, mode))
         , _scope(effect, _ok ? ImageEffect::GPURenderScope::API::OpenCL : ImageEffect::GPURenderScope::API::CPU,
                  queue.native())
+        , _images(new GPU::SessionImages("OpenCL", [&queue](LogLevel level, const std::string &message) {
+            queue.device().log(level, message);
+          }))
       {
       }
 
-      RenderSession::~RenderSession()
-      {
-        if (_output) {
-          _output->releaseReference();
-        }
-        std::vector<Handle *> left;
-        {
-          std::lock_guard<std::mutex> lock(_mutex);
-          left.assign(_handles.begin(), _handles.end());
-        }
-        // "image handle to be disposed of by clipReleaseImage before the action returns"
-        // (clipGetImage): the handles left are the plug-in's leaks
-        if (!left.empty()) {
-          _queue.device().log(LogLevel::Warning, "OpenCL: the plug-in didn't release " + std::to_string(left.size()) +
-                              " image(s) with clipReleaseImage");
-        }
-        for (Handle *h : left) {
-          delete h;
-        }
-      }
+      RenderSession::~RenderSession() = default; // (_images: the output, and the images not released)
 
       bool RenderSession::failed() const
       {
-        std::lock_guard<std::mutex> lock(_mutex);
-        return _failed;
+        return _images->failed();
       }
 
       int RenderSession::liveImages() const
       {
-        std::lock_guard<std::mutex> lock(_mutex);
-        return static_cast<int>(_handles.size());
-      }
-
-      void RenderSession::fail(const std::string &why)
-      {
-        {
-          std::lock_guard<std::mutex> lock(_mutex);
-          _failed = true;
-        }
-        _queue.device().log(LogLevel::Error, "OpenCL: " + why);
-      }
-
-      /// the pixel layout of an image: its bounds, pixel size and CPU pixels
-      struct PixelLayout {
-        OfxRectI bounds;
-        int pixelBytes;  ///< 0: depth or components unknown
-        int components;
-        char *data;      ///< the pixel at (bounds.x1, bounds.y1)
-        int rowBytes;    ///< may be negative
-        std::string depth, componentsName;
-
-        explicit PixelLayout(const ImageEffect::Image &image)
-          : bounds(image.getBounds())
-          , depth(image.getStringProperty(kOfxImageEffectPropPixelDepth))
-          , componentsName(image.getStringProperty(kOfxImageEffectPropComponents))
-        {
-          components = componentCount(componentsName);
-          pixelBytes = componentBytes(depth) * components;
-          data = static_cast<char *>(image.getPointerProperty(kOfxImagePropData));
-          rowBytes = image.getIntProperty(kOfxImagePropRowBytes);
-        }
-        int width() const { return bounds.x2 - bounds.x1; }
-        int height() const { return bounds.y2 - bounds.y1; }
-        /// the CPU pixel at (x, y)
-        char *at(int x, int y) const
-        {
-          return data + static_cast<std::ptrdiff_t>(y - bounds.y1) * rowBytes +
-            static_cast<std::ptrdiff_t>(x - bounds.x1) * pixelBytes;
-        }
-      };
-
-      /// r within b, empty (x1 == x2) if they don't overlap
-      static OfxRectI intersect(const OfxRectI &r, const OfxRectI &b)
-      {
-        OfxRectI i = { std::max(r.x1, b.x1), std::max(r.y1, b.y1), std::min(r.x2, b.x2), std::min(r.y2, b.y2) };
-        if (i.x2 <= i.x1 || i.y2 <= i.y1) {
-          i.x2 = i.x1;
-          i.y2 = i.y1;
-        }
-        return i;
+        return _images->liveImages();
       }
 
       int RenderSession::transfer(void *memory, const ImageEffect::Image &image, const OfxRectI &rect, bool write)
@@ -304,9 +210,7 @@ namespace OFX {
         const size_t rowSize = static_cast<size_t>(w) * static_cast<size_t>(l.pixelBytes);
         std::vector<char> staging(rowSize * static_cast<size_t>(h));
         if (write) {
-          for (int y = 0; y < h; ++y) {
-            std::memcpy(&staging[rowSize * static_cast<size_t>(y)], l.at(r.x1, r.y1 + y), rowSize);
-          }
+          GPU::copyRect(l, r, staging.data(), rowSize, r.x1, r.y1, /*toRows=*/true);
         }
         const Device &device = _queue.device();
         const CLFunctions &cl = device.cl();
@@ -332,9 +236,7 @@ namespace OFX {
           }
         });
         if (err == kCLSuccess && !write) {
-          for (int y = 0; y < h; ++y) {
-            std::memcpy(l.at(r.x1, r.y1 + y), &staging[rowSize * static_cast<size_t>(y)], rowSize);
-          }
+          GPU::copyRect(l, r, staging.data(), rowSize, r.x1, r.y1, /*toRows=*/false);
         }
         return err;
       }
@@ -343,23 +245,18 @@ namespace OFX {
                                                  const OfxRectI &rect)
       {
         if (!_ok) {
-          fail("no OpenCL render in this session (see its constructor)");
+          _images->fail("no OpenCL render in this session (see its constructor)");
           return nullptr;
         }
         const PixelLayout l(image);
         const int w = l.width(), h = l.height();
-        if (l.pixelBytes == 0) {
-          fail("an image of depth " + l.depth + " and components " + l.componentsName + " can't be copied");
-          return nullptr;
-        }
-        if (w <= 0 || h <= 0 || !l.data) {
-          fail(!l.data ? "an image without pixel data" : "an empty image can't be an OpenCL buffer or image");
+        if (!_images->copyable(l, "an OpenCL buffer or image")) {
           return nullptr;
         }
         const bool images = _mode == RenderMode::Images;
         if (images && l.components != 4) {
           // OFX doesn't say which OpenCL Image format other components have
-          fail("an image of components " + l.componentsName + " can't be an OpenCL Image (RGBA only)");
+          _images->fail("an image of components " + l.componentsName + " can't be an OpenCL Image (RGBA only)");
           return nullptr;
         }
         const size_t packed = static_cast<size_t>(w) * static_cast<size_t>(l.pixelBytes);
@@ -382,7 +279,7 @@ namespace OFX {
           err = transfer(mem, image, rect, /*write=*/true);
         }
         if (!mem || err != kCLSuccess) {
-          fail(std::string(images ? "an OpenCL Image of " : "an OpenCL buffer of ") + std::to_string(w) + "x" +
+          _images->fail(std::string(images ? "an OpenCL Image of " : "an OpenCL buffer of ") + std::to_string(w) + "x" +
                std::to_string(h) + " " + l.componentsName + " " + l.depth + ": " + errorName(err));
           return nullptr;
         }
@@ -393,36 +290,30 @@ namespace OFX {
       ImageEffect::Image *RenderSession::setOutput(ImageEffect::ClipInstance &clip, ImageEffect::Image &image,
                                                    const OfxRectI &renderWindow)
       {
-        if (_output) {
-          _output->releaseReference();
-          _output = nullptr;
-        }
-        _outputClip = &clip;
-        _outputImage = &image;
-        _renderWindow = renderWindow;
-        _output = copy(clip, image, renderWindow);
-        return _output;
+        return _images->setOutput(clip, image, renderWindow, [this](ImageEffect::ClipInstance &c, const ImageEffect::Image &i,
+                                                                    const OfxRectI &r) { return copy(c, i, r); });
       }
 
       bool RenderSession::readOutput()
       {
-        if (!_output || !_outputImage) {
-          fail("no output to read back");
+        if (!_images->hasOutput()) {
           return false;
         }
         if (!_queue.finish()) {
-          fail("the render's commands failed (clFinish)");
+          _images->fail("the render's commands failed (clFinish)");
           return false;
         }
-        if (!_outputImage->getPointerProperty(kOfxImagePropData)) {
-          fail("an output image without pixel data");
+        ImageEffect::Image &outputImage = *_images->outputImage();
+        if (!outputImage.getPointerProperty(kOfxImagePropData)) {
+          _images->fail("an output image without pixel data");
           return false;
         }
         // the render window only: the plug-in renders "the window (in PixelCoordinates) to render"
         // (kOfxImageEffectPropRenderWindow), and the host's other pixels stay as they are
-        const cl_int err = transfer(_output->mem(), *_outputImage, _renderWindow, /*write=*/false);
+        const cl_int err = transfer(static_cast<Handle *>(_images->output())->mem(), outputImage, _images->renderWindow(),
+                                    /*write=*/false);
         if (err != kCLSuccess) {
-          fail("reading the output back: " + errorName(err));
+          _images->fail("reading the output back: " + errorName(err));
           return false;
         }
         return true;
@@ -430,14 +321,8 @@ namespace OFX {
 
       ImageEffect::Image *RenderSession::getImage(ImageEffect::ClipInstance &clip, ImageEffect::Image *image)
       {
-        if (&clip == _outputClip) {
-          std::lock_guard<std::mutex> lock(_mutex);
-          if (_output) {
-            _output->addReference();
-          }
-          return _output;
-        }
-        return image ? copy(clip, *image, image->getBounds()) : nullptr;
+        return _images->getImage(clip, image, [this](ImageEffect::ClipInstance &c, const ImageEffect::Image &i,
+                                                     const OfxRectI &r) { return copy(c, i, r); });
       }
 
     } // OpenCL

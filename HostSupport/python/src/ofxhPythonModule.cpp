@@ -11,6 +11,7 @@
 #include <nanobind/stl/vector.h>
 
 #include <array>
+#include <atomic>
 #include <cstdlib>
 #include <functional>
 #include <list>
@@ -232,26 +233,60 @@ static const char *modeName(CL::RenderMode m)
   return "none";
 }
 
-/// An action of the instance with OpenCL in a RenderSession of mode on a queue of the host's
-/// device: act(false, nullptr), with output's image (the render action) as the session's output over
-/// window, read back after. Sets p->_clResult: "not_sent" (the session refused the mode: the action wasn't
-/// called); "retry" (CL::cpuRetryAllowed()); "failed" (CL::openCLFailed(), or it threw); else
-/// "ok". Without the GIL.
-static OfxStatus withOpenCL(PyEffectInstance *p, CL::RenderMode mode, OHIE::ClipInstance *output, OfxTime t,
-                            const OfxRectI &window, const std::function<OfxStatus(bool, void *)> &act)
+/// (withGPU())
+static bool gpuFailed(const CL::RenderSession &session, OfxStatus st) { return CL::openCLFailed(session, st); }
+#endif
+
+#ifdef OFXH_METAL
+namespace MT = OFX::Host::Metal;
+
+/// the Metal render mode of the instance (MT::chooseRenderMode()) with the host's device (buffers and
+/// textures), preferring textures if preferTextures; without a device, as without Metal
+static MT::RenderMode renderModeMT(PyEffectInstance *p, bool preferTextures)
 {
   PyHost *h = state().host.get();
-  p->_clResult = "not_sent";
-  p->_clError.clear();
+  const bool device = h && h->_mtDevice;
+  return MT::chooseRenderMode(*p, device, device, preferTextures);
+}
+
+static const char *modeName(MT::RenderMode m)
+{
+  switch (m) {
+  case MT::RenderMode::Buffers: return "metal-buffers";
+  case MT::RenderMode::Textures: return "metal-textures";
+  case MT::RenderMode::CPU: return "cpu";
+  case MT::RenderMode::None: break;
+  }
+  return "none";
+}
+
+/// (withGPU())
+static bool gpuFailed(const MT::RenderSession &session, OfxStatus st) { return MT::metalFailed(session, st); }
+#endif
+
+#if defined(OFXH_OPENCL) || defined(OFXH_METAL)
+/// An action of the instance on a Queue of device, in a Session (CL:: or MT::RenderSession, made with
+/// sessionArgs: the OpenCL mode): act(false, nullptr), with output's image (the render action) as the
+/// session's output over window, read back after. slot, result and error are the instance's for the
+/// API (_clSession, _clResult, _clError, or the _mt ones). Sets result: "not_sent" (the session
+/// refused it: the action wasn't called); "retry" (the API's cpuRetryAllowed()); "failed" (its
+/// openCLFailed() or metalFailed(), or it threw); else "ok". Without the GIL.
+template <class Queue, class Session, class Device, class... SessionArgs>
+static OfxStatus withGPU(PyEffectInstance *p, Device &device, std::atomic<Session *> &slot, std::string &result,
+                         std::string &error, OHIE::ClipInstance *output, OfxTime t, const OfxRectI &window,
+                         const std::function<OfxStatus(bool, void *)> &act, SessionArgs... sessionArgs)
+{
+  result = "not_sent";
+  error.clear();
   OHIE::Image *out = nullptr;
   OfxStatus st = kOfxStatFailed;
   {
-    CL::Queue queue(*h->_clDevice);
-    CL::RenderSession session(*p, queue, mode);
+    Queue queue(device);
+    Session session(*p, queue, sessionArgs...);
     if (!session.ok()) {
       return kOfxStatFailed;
     }
-    p->_clResult = CL::cpuRetryAllowed(*p, session, kOfxStatGPURenderFailed) ? "retry" : "failed";
+    result = cpuRetryAllowed(*p, session, kOfxStatGPURenderFailed) ? "retry" : "failed"; // (the API's, by ADL)
     try {
       if (output) {
         out = output->getImage(t, nullptr); // (the output image of this render, before the session)
@@ -264,19 +299,19 @@ static OfxStatus withOpenCL(PyEffectInstance *p, CL::RenderMode mode, OHIE::Clip
       }
       // the session of the action, also when it throws (E.6)
       struct SessionScope {
-        PyEffectInstance *p;
-        ~SessionScope() { p->_clSession = nullptr; }
-      } scope = { p };
-      p->_clSession = &session;
+        std::atomic<Session *> &slot;
+        ~SessionScope() { slot = nullptr; }
+      } scope = { slot };
+      slot = &session;
       st = act(false, nullptr);
-      p->_clSession = nullptr;
+      slot = nullptr;
       if (out && st == kOfxStatOK && !session.failed()) {
         session.readOutput();
       }
-      const bool failed = CL::openCLFailed(session, st);
-      p->_clResult = !failed ? "ok" : CL::cpuRetryAllowed(*p, session, st) ? "retry" : "failed";
+      const bool failed = gpuFailed(session, st);
+      result = !failed ? "ok" : cpuRetryAllowed(*p, session, st) ? "retry" : "failed";
     } catch (const std::exception &e) {
-      p->_clError = e.what();
+      error = e.what();
     }
   }
   if (out) {
@@ -285,6 +320,20 @@ static OfxStatus withOpenCL(PyEffectInstance *p, CL::RenderMode mode, OHIE::Clip
   return st;
 }
 #endif
+
+/// The ValueError of an action's GPU option (checkOpenCL(), checkMetal()): option ("opencl",
+/// "metal=True") needs device ("an OpenCL device"...), which hint gives, and an instance that
+/// renders with it (modeOk; else notMode says why)
+static void requireGPU(const std::string &what, const std::string &option, const std::string &device,
+                       const std::string &hint, bool hasDevice, bool modeOk, const std::function<std::string()> &notMode)
+{
+  if (!hasDevice) {
+    raiseError(PyExc_ValueError, what + ": " + option + " needs " + device + " (" + hint + ")");
+  }
+  if (!modeOk) {
+    raiseError(PyExc_ValueError, what + ": " + notMode());
+  }
+}
 
 /// opencl ("", "buffers" or "images") must be "" or the instance's OpenCL mode with the host's
 /// device: else ValueError (called before the action's scopes)
@@ -301,19 +350,46 @@ static void checkOpenCL(PyEffectInstance *p, bool opengl, const std::string &ope
   }
 #ifdef OFXH_OPENCL
   PyHost *h = state().host.get();
-  if (!h || !h->_clDevice) {
-    raiseError(PyExc_ValueError, what + ": opencl needs an OpenCL device (ofxh.init(opencl=True), ofxh.opencl_device())");
-  }
   const bool images = opencl == "images";
   const CL::RenderMode mode = renderModeCL(p, images);
-  if (mode != (images ? CL::RenderMode::Images : CL::RenderMode::Buffers)) {
-    raiseError(PyExc_ValueError, what + ": opencl=\"" + opencl + "\": the instance doesn't render with OpenCL " +
-               (images ? "Images" : "Buffers") + " (render_mode(opencl=True" + (images ? ", prefer_images=True" : "") +
-               ") is \"" + modeName(mode) + "\")");
-  }
+  requireGPU(what, "opencl", "an OpenCL device", "ofxh.init(opencl=True), ofxh.opencl_device()", h && h->_clDevice,
+             mode == (images ? CL::RenderMode::Images : CL::RenderMode::Buffers), [&] {
+               return "opencl=\"" + opencl + "\": the instance doesn't render with OpenCL " +
+                 (images ? "Images" : "Buffers") + " (render_mode(opencl=True" + (images ? ", prefer_images=True" : "") +
+                 ") is \"" + modeName(mode) + "\")";
+             });
 #else
   (void)p;
   raiseError(PyExc_ValueError, what + ": opencl: ofxh was built without OFX_HOSTSUPPORT_OPENCL");
+#endif
+}
+
+/// metal ("", "buffers" or "textures") must be "" or the instance's Metal mode with the host's
+/// device: else ValueError (called before the action's scopes)
+static void checkMetal(PyEffectInstance *p, bool opengl, const std::string &opencl, const std::string &metal,
+                       const std::string &what)
+{
+  if (metal.empty()) {
+    return;
+  }
+  if (metal != "buffers" && metal != "textures") {
+    raiseError(PyExc_ValueError, what + ": metal=\"" + metal + "\": expected \"\", \"buffers\" or \"textures\"");
+  }
+  if (opengl || !opencl.empty()) {
+    raiseError(PyExc_ValueError, what + ": metal can't be used with opengl or opencl");
+  }
+#ifdef OFXH_METAL
+  PyHost *h = state().host.get();
+  const bool textures = metal == "textures";
+  const MT::RenderMode mode = renderModeMT(p, textures);
+  requireGPU(what, "metal", "a Metal device", "ofxh.init(metal=True), ofxh.metal_device()", h && h->_mtDevice,
+             mode == (textures ? MT::RenderMode::Textures : MT::RenderMode::Buffers), [&] {
+               return "metal=\"" + metal + "\": the instance doesn't render with Metal " + (textures ? "textures" : "buffers") +
+                 " (render_mode(metal=True" + (textures ? ", prefer_textures=True" : "") + ") is \"" + modeName(mode) + "\")";
+             });
+#else
+  (void)p;
+  raiseError(PyExc_ValueError, what + ": metal: ofxh was built without OFX_HOSTSUPPORT_METAL");
 #endif
 }
 
@@ -345,8 +421,10 @@ static void checkOpenGL(PyEffectInstance *p, bool opengl, const std::string &wha
 /// act(openGLRender, contextData). kOfxImageEffectPropOpenGLEnabled means something only "When a
 /// plug-in and host have established they can both use OpenGL renders" (ofxGPURender.h): opengl=True
 /// raises ValueError unless the instance renders with OpenGL (render_mode()). Takes the GIL off.
-/// With opencl ("buffers" or "images"), the same with OpenCL (withOpenCL(); checkOpenCL()).
-static OfxStatus runAction(PyEffectInstance *p, bool opengl, const std::string &opencl, const std::string &what,
+/// With opencl ("buffers" or "images"), the same with OpenCL (withGPU(); checkOpenCL()); with metal,
+/// with Metal (withGPU(); checkMetal()).
+static OfxStatus runAction(PyEffectInstance *p, bool opengl, const std::string &opencl, const std::string &metal,
+                           const std::string &what,
                            OHIE::ClipInstance *output, OfxTime t, const OfxRectI &window, int view,
                            const std::function<OfxStatus(bool, void *)> &act)
 {
@@ -354,6 +432,25 @@ static OfxStatus runAction(PyEffectInstance *p, bool opengl, const std::string &
   (void)t;
   (void)window;
   (void)view;
+  if (!metal.empty()) {
+    checkMetal(p, opengl, opencl, metal, what);
+#ifdef OFXH_METAL
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    if (output) {
+      output->setView(view); // (as for OpenGL below)
+    }
+#endif
+    PyHost *h = state().host.get();
+    const MT::RenderMode mode = metal == "textures" ? MT::RenderMode::Textures : MT::RenderMode::Buffers;
+    return withoutGil([&] {
+      MT::AutoreleasePool pool; // (the plug-in's autoreleased Metal objects)
+      return withGPU<MT::Queue, MT::RenderSession>(p, *h->_mtDevice, p->_mtSession, p->_mtResult, p->_mtError, output, t,
+                                                   window, act, mode);
+    });
+#else
+    return kOfxStatFailed;
+#endif
+  }
   if (!opencl.empty()) {
     checkOpenCL(p, opengl, opencl, what);
 #ifdef OFXH_OPENCL
@@ -363,7 +460,11 @@ static OfxStatus runAction(PyEffectInstance *p, bool opengl, const std::string &
     }
 #endif
     const CL::RenderMode mode = opencl == "images" ? CL::RenderMode::Images : CL::RenderMode::Buffers;
-    return withoutGil([&] { return withOpenCL(p, mode, output, t, window, act); });
+    PyHost *h = state().host.get();
+    return withoutGil([&] {
+      return withGPU<CL::Queue, CL::RenderSession>(p, *h->_clDevice, p->_clSession, p->_clResult, p->_clError, output, t,
+                                                   window, act, mode);
+    });
 #else
     return kOfxStatFailed;
 #endif
@@ -792,7 +893,7 @@ static nb::dict rendererDict(const GL::RendererInfo &info)
 
 static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnvPath, const std::string &profile,
                  bool keepLoaded, bool normalisedDefaults, bool opengl, nb::object openglBackends, int openglRenderer,
-                 bool opencl, nb::object openclDevice)
+                 bool opencl, nb::object openclDevice, bool metal, int metalDevice)
 {
   State &st = state();
   if (st.initialized) {
@@ -820,6 +921,14 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
     raiseError(PyExc_ValueError, "ofxh.init(): opencl=True: ofxh was built without OFX_HOSTSUPPORT_OPENCL");
   }
 #endif
+#ifndef OFXH_METAL
+  if (metal) {
+    raiseError(PyExc_ValueError, "ofxh.init(): metal=True: ofxh was built without OFX_HOSTSUPPORT_METAL");
+  }
+#endif
+  if (metalDevice < -1) {
+    raiseError(PyExc_ValueError, "ofxh.init(): metal_device must be -1 (the default device) or an index of metal_devices()");
+  }
   // opencl_device: (platform, device), indices of opencl_devices(); None: the default device
   int clPlatform = -1, clDevice = -1;
   if (!openclDevice.is_none()) {
@@ -894,6 +1003,18 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
   (void)clPlatform;
   (void)clDevice;
 #endif
+#ifdef OFXH_METAL
+  if (metal) {
+    // before the scan: without a device, the host doesn't say it supports Metal
+    PyHost *h = st.host.get();
+    withoutGil([&] {
+      h->_mtDevice = MT::createDevice(MT::Hooks(), metalDevice, &h->_mtError);
+      return 0;
+    });
+  }
+#else
+  (void)metalDevice;
+#endif
   st.initialized = true;
   st.profile = profile;
   try {
@@ -919,6 +1040,15 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
       st.host->getProperties().setStringProperty(kOfxImageEffectPropOpenCLRenderSupported, "true");
       st.host->getProperties().setStringProperty(kOfxImageEffectPropOpenCLSupported,
                                                  st.host->_clDevice->info().imageSupport ? "true" : "false");
+    }
+#endif
+#ifdef OFXH_METAL
+    if (st.host->_mtDevice) {
+      // kOfxImageEffectPropMetalRenderSupported, "Indicates whether a host or plug-in can support Metal
+      // render" (ofxGPURender.h, host descriptor; an OFX 1.5 property, which the ofx14 profile removes)
+      st.host->getProperties().setStringProperty(kOfxImageEffectPropMetalRenderSupported, "true");
+      // "The host sets it on the host descriptor" (kOfxImageEffectPropMetalTextureSupported, upstream main)
+      st.host->getProperties().setStringProperty(kOfxImageEffectPropMetalTextureSupported, "true");
     }
 #endif
     if (profile == "ofx14") {
@@ -1027,6 +1157,11 @@ static void bindBuildConfig(nb::module_ &m)
   OFXH_DEF(OFX_HOSTSUPPORT_OPENCL, true)
 #else
   OFXH_DEF(OFX_HOSTSUPPORT_OPENCL, false)
+#endif
+#ifdef OFXH_METAL
+  OFXH_DEF(OFX_HOSTSUPPORT_METAL, true)
+#else
+  OFXH_DEF(OFX_HOSTSUPPORT_METAL, false)
 #endif
 #undef OFXH_DEF
   m.attr("build_config") = d;
@@ -1582,12 +1717,13 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
     }, "time"_a, "Returns (Stat, {clip: [(t1, t2), ...]}).")
     .def("begin_sequence_render_action", [](InstanceBase &s, double first, double last, double step, bool interactive,
                                             const Point &renderScale, bool sequential, bool interactiveRender, bool draft,
-                                            int view, bool opengl, const std::string &opencl) {
+                                            int view, bool opengl, const std::string &opencl, const std::string &metal) {
       PyEffectInstance *p = s.get();
       checkView(view, false);
       requireNotRendering(p, "begin_sequence_render_action()");
-      checkOpenGL(p, opengl && opencl.empty(), "begin_sequence_render_action()");
+      checkOpenGL(p, opengl && opencl.empty() && metal.empty(), "begin_sequence_render_action()");
       checkOpenCL(p, opengl, opencl, "begin_sequence_render_action()");
+      checkMetal(p, opengl, opencl, metal, "begin_sequence_render_action()");
       ActionScope scope;
       OfxStatus st;
       {
@@ -1609,22 +1745,23 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
                                   );
         };
         const OfxRectI none = { 0, 0, 0, 0 };
-        st = runAction(p, opengl, opencl, "begin_sequence_render_action()", nullptr, first, none, view, act);
+        st = runAction(p, opengl, opencl, metal, "begin_sequence_render_action()", nullptr, first, none, view, act);
       }
       scope.check("beginSequenceRender", &st);
       return stat(st);
     }, "first"_a, "last"_a, "step"_a = 1., "interactive"_a = false, "render_scale"_a = Point(1., 1.),
        "sequential"_a = true, "interactive_render"_a = false, "draft"_a = false, "view"_a = 0, "opengl"_a = false,
-       "opencl"_a = "")
+       "opencl"_a = "", "metal"_a = "")
     .def("render_action", [](InstanceBase &s, double time, const RectI &window, const Point &renderScale,
                              const std::string &field, bool sequential, bool interactiveRender, bool draft, int view,
                              int nViews, const std::vector<std::string> &planes, bool opengl,
-                             const std::string &opencl) {
+                             const std::string &opencl, const std::string &metal) {
       PyEffectInstance *p = s.get();
       checkView(view, true, nViews);
       requireNotRendering(p, "render_action()");
-      checkOpenGL(p, opengl && opencl.empty(), "render_action()");
+      checkOpenGL(p, opengl && opencl.empty() && metal.empty(), "render_action()");
       checkOpenCL(p, opengl, opencl, "render_action()");
+      checkMetal(p, opengl, opencl, metal, "render_action()");
       if (planes.size() != 1) {
         raiseError(PyExc_ValueError, "planes: ofxh renders one plane per render action");
       }
@@ -1684,7 +1821,7 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
 #endif
                              );
         };
-        st = runAction(p, opengl, opencl, "render_action()", p->getClip(kOfxImageEffectOutputClipName), time, toRectI(window),
+        st = runAction(p, opengl, opencl, metal, "render_action()", p->getClip(kOfxImageEffectOutputClipName), time, toRectI(window),
                        view, act);
       }
       // the output image of this render (the clip keeps the array, not the C++ image)
@@ -1703,7 +1840,7 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
       return nb::make_tuple(stat(st), out);
     }, "time"_a, "render_window"_a, "render_scale"_a = Point(1., 1.), "field"_a = "none", "sequential"_a = true,
        "interactive_render"_a = false, "draft"_a = false, "view"_a = 0, "n_views"_a = 1,
-       "planes"_a = std::vector<std::string>(1, "Colour"), "opengl"_a = false, "opencl"_a = "",
+       "planes"_a = std::vector<std::string>(1, "Colour"), "opengl"_a = false, "opencl"_a = "", "metal"_a = "",
        "kOfxImageEffectActionRender. render_window: pixels at the render scale. Returns (Stat, {plane:\n"
        "the output ImageData the plug-in fetched}) (empty if it fetched none). ofxh renders one plane,\n"
        "the colour plane; view and n_views need the Nuke or Vegas extensions (see build_config).\n"
@@ -1720,10 +1857,24 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
        "kOfxImageEffectPropOpenCLEnabled 1 and kOfxImageEffectPropOpenCLCommandQueue) in a RenderSession:\n"
        "get_image()'s images are given to the plug-in as OpenCL buffers or images, and the output is read\n"
        "back into the output image; refused (ValueError) unless render_mode(opencl=True, prefer_images=...)\n"
-       "is that mode; opencl_result says how it went. Also for the sequence actions. Not with opengl.")
-    .def("render_mode", [](InstanceBase &s, bool opengl, bool opencl, bool preferImages) -> std::string {
+       "is that mode; opencl_result says how it went. Also for the sequence actions. Not with opengl.\n"
+       "metal: \"buffers\" or \"textures\": render with Metal (ofxh.init(metal=True);\n"
+       "kOfxImageEffectPropMetalEnabled 1, or kOfxImageEffectPropMetalTextureEnabled 1, and\n"
+       "kOfxImageEffectPropMetalCommandQueue) in a RenderSession, likewise; refused (ValueError) unless\n"
+       "render_mode(metal=True, prefer_textures=...) is that mode; metal_result says how it went. Not with\n"
+       "opengl or opencl.")
+    .def("render_mode", [](InstanceBase &s, bool opengl, bool opencl, bool preferImages, bool metal,
+                           bool preferTextures) -> std::string {
       PyEffectInstance *p = s.get();
       (void)preferImages;
+      (void)preferTextures;
+      if (metal) {
+#ifdef OFXH_METAL
+        return modeName(renderModeMT(p, preferTextures));
+#else
+        raiseError(PyExc_ValueError, "render_mode(metal=True): ofxh was built without OFX_HOSTSUPPORT_METAL");
+#endif
+      }
       if (opencl) {
 #ifdef OFXH_OPENCL
         return modeName(renderModeCL(p, preferImages));
@@ -1738,8 +1889,12 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
       (void)opengl;
       return OHIE::canRenderOnCPU(*p) ? "cpu" : "none";
 #endif
-    }, "opengl"_a = true, "opencl"_a = false, "prefer_images"_a = false,
-       "How the instance renders. With opencl (CL::chooseRenderMode(), from\n"
+    }, "opengl"_a = true, "opencl"_a = false, "prefer_images"_a = false, "metal"_a = false, "prefer_textures"_a = false,
+       "How the instance renders. With metal (MT::chooseRenderMode(), from\n"
+       "kOfxImageEffectPropMetalRenderSupported, kOfxImageEffectPropMetalTextureSupported and\n"
+       "kOfxImageEffectPropCPURenderSupported, with the device of ofxh.init(metal=True)): \"metal-buffers\",\n"
+       "\"metal-textures\" (if both, textures only if prefer_textures; RGBA and Alpha clips only), \"cpu\" or\n"
+       "\"none\". With opencl (CL::chooseRenderMode(), from\n"
        "kOfxImageEffectPropOpenCLRenderSupported (Buffers), kOfxImageEffectPropOpenCLSupported (Images)\n"
        "and kOfxImageEffectPropCPURenderSupported, with the device of ofxh.init(opencl=True)):\n"
        "\"opencl-buffers\", \"opencl-images\" (if both, Images only if prefer_images), \"cpu\" or \"none\".\n"
@@ -1750,6 +1905,13 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
        "Whether the plug-in can render on the CPU (HostSupport's ImageEffect::canRenderOnCPU(): its\n"
        "kOfxImageEffectPropCPURenderSupported isn't \"false\"), the rule of the CPU retry after a GPU\n"
        "render that wasn't sent or failed.")
+#ifdef OFXH_METAL
+    .def_prop_ro("metal_error", [](InstanceBase &s) { return s.get()->_mtError; },
+       "The error that stopped the last action with metal (an exception, as hostDemo's \"Error: Metal\n"
+       "render: ...\"), or \"\".")
+    .def_prop_ro("metal_result", [](InstanceBase &s) { return s.get()->_mtResult; },
+       "The last action with metal, as opencl_result: \"ok\", \"not_sent\", \"retry\", \"failed\", or \"\" if none.")
+#endif
 #ifdef OFXH_OPENCL
     .def_prop_ro("opencl_error", [](InstanceBase &s) { return s.get()->_clError; },
        "The error that stopped the last action with opencl (an exception, as hostDemo's \"Error: OpenCL\n"
@@ -1773,12 +1935,13 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
 #endif
     .def("end_sequence_render_action", [](InstanceBase &s, double first, double last, double step, bool interactive,
                                           const Point &renderScale, bool sequential, bool interactiveRender, bool draft,
-                                          int view, bool opengl, const std::string &opencl) {
+                                          int view, bool opengl, const std::string &opencl, const std::string &metal) {
       PyEffectInstance *p = s.get();
       checkView(view, false);
       requireNotRendering(p, "end_sequence_render_action()");
-      checkOpenGL(p, opengl && opencl.empty(), "end_sequence_render_action()");
+      checkOpenGL(p, opengl && opencl.empty() && metal.empty(), "end_sequence_render_action()");
       checkOpenCL(p, opengl, opencl, "end_sequence_render_action()");
+      checkMetal(p, opengl, opencl, metal, "end_sequence_render_action()");
       ActionScope scope;
       OfxStatus st;
       {
@@ -1800,13 +1963,13 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
                                   );
         };
         const OfxRectI none = { 0, 0, 0, 0 };
-        st = runAction(p, opengl, opencl, "end_sequence_render_action()", nullptr, first, none, view, act);
+        st = runAction(p, opengl, opencl, metal, "end_sequence_render_action()", nullptr, first, none, view, act);
       }
       scope.check("endSequenceRender", &st);
       return stat(st);
     }, "first"_a, "last"_a, "step"_a = 1., "interactive"_a = false, "render_scale"_a = Point(1., 1.),
        "sequential"_a = true, "interactive_render"_a = false, "draft"_a = false, "view"_a = 0, "opengl"_a = false,
-       "opencl"_a = "")
+       "opencl"_a = "", "metal"_a = "")
     .def("get_time_domain_action", [](InstanceBase &s) {
       PyEffectInstance *p = s.get();
       OfxRangeD r;
@@ -2074,6 +2237,22 @@ static void bindClipInstance(nb::module_ &m)
     }, "bounds"_a, "An empty NumPy array for an image of these bounds (pixels), of the clip's depth and components.");
 }
 
+#ifdef OFXH_METAL
+/// a DeviceInfo for metal_devices() and metal_device()
+static nb::dict deviceDict(const MT::DeviceInfo &info)
+{
+  nb::dict d;
+  d["index"] = info.index;
+  d["name"] = info.name;
+  d["registry_id"] = info.registryID;
+  d["system_default"] = info.systemDefault;
+  d["unified_memory"] = info.unifiedMemory;
+  d["recommended_max_working_set_size"] = info.recommendedMaxWorkingSetSize;
+  d["max_buffer_length"] = info.maxBufferLength;
+  return d;
+}
+#endif
+
 #ifdef OFXH_OPENCL
 /// a DeviceInfo for opencl_devices() and opencl_device()
 static nb::dict deviceDict(const CL::DeviceInfo &info)
@@ -2099,7 +2278,7 @@ static void bindFunctions(nb::module_ &m)
   m.def("init", &init, "host"_a, "plugin_dirs"_a.none() = nb::none(), "use_std_paths"_a = false,
         "use_env_path"_a = true, "profile"_a = "default", "keep_loaded"_a = false, "normalised_defaults"_a = true,
         "opengl"_a = false, "opengl_backends"_a.none() = nb::none(), "opengl_renderer"_a = -1,
-        "opencl"_a = false, "opencl_device"_a.none() = nb::none(),
+        "opencl"_a = false, "opencl_device"_a.none() = nb::none(), "metal"_a = false, "metal_device"_a = -1,
         "Initialize HostSupport with this host (an ofxh.Host), and scan the plug-ins of plugin_dirs, of\n"
         "OFX_PLUGIN_PATH if use_env_path, and of the standard locations if use_std_paths. One host per\n"
         "process: RuntimeError if one is initialized; call shutdown() before another init(). If it raises,\n"
@@ -2131,7 +2310,12 @@ static void bindFunctions(nb::module_ &m)
         "before the scan, on opencl_device, (platform, device) of opencl_devices(), or by default the first\n"
         "GPU, else the first device; if it is made, the host's kOfxImageEffectPropOpenCLRenderSupported\n"
         "(Buffers) is \"true\", and kOfxImageEffectPropOpenCLSupported (Images) too if the device has\n"
-        "images, and the actions may take opencl=\"buffers\" or \"images\". See opencl_device().");
+        "images, and the actions may take opencl=\"buffers\" or \"images\". See opencl_device().\n"
+        "metal: likewise with a Metal device (openfx::HostSupportMetal, macOS builds with OFX_HOSTSUPPORT_METAL),\n"
+        "metal_device, an index of metal_devices(), or by default (-1) the system default device; if it is made,\n"
+        "the host's kOfxImageEffectPropMetalRenderSupported (buffers) and kOfxImageEffectPropMetalTextureSupported\n"
+        "(textures) are \"true\", and the actions may take metal=\"buffers\" or \"textures\".\n"
+        "See metal_device().");
 
   m.def("opengl_renderers", [](nb::object backends) {
     nb::list r;
@@ -2206,6 +2390,40 @@ static void bindFunctions(nb::module_ &m)
 #endif
   }, "The OpenCL device of ofxh.init(opencl=True), as opencl_devices() gives it, or {\"error\": why} if\n"
      "none could be made; None without opencl=True (or OFX_HOSTSUPPORT_OPENCL).");
+  m.def("metal_devices", []() {
+    nb::list l;
+#ifdef OFXH_METAL
+    std::vector<MT::DeviceInfo> devices;
+    withoutGil([&] {
+      devices = MT::listDevices(MT::Hooks());
+      return 0;
+    });
+    for (const MT::DeviceInfo &info : devices) {
+      l.append(deviceDict(info));
+    }
+#endif
+    return l;
+  }, "The Metal devices (openfx::HostSupportMetal's listDevices()), as dicts {\"index\" (for\n"
+     "init(metal_device=...)), \"name\", \"registry_id\", \"system_default\",\n"
+     "\"unified_memory\", \"recommended_max_working_set_size\", \"max_buffer_length\"}; [] without\n"
+     "Metal (or OFX_HOSTSUPPORT_METAL). Needs no init().");
+  m.def("metal_device", []() -> nb::object {
+#ifdef OFXH_METAL
+    const PyHost *h = state().host.get();
+    if (!h || (!h->_mtDevice && h->_mtError.empty())) {
+      return nb::none();
+    }
+    if (!h->_mtDevice) {
+      nb::dict d;
+      d["error"] = h->_mtError;
+      return d;
+    }
+    return deviceDict(h->_mtDevice->info());
+#else
+    return nb::none();
+#endif
+  }, "The Metal device of ofxh.init(metal=True), as metal_devices() gives it, or {\"error\": why} if none\n"
+     "could be made; None without metal=True (or OFX_HOSTSUPPORT_METAL).");
   m.def("shutdown", &shutdown,
         "Close the open instances, unload the plug-ins and delete the plug-in cache and the host. Also\n"
         "called at exit. Not in an action or a callback.");

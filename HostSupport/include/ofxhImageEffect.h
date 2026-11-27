@@ -544,6 +544,11 @@ namespace OFX {
       /// effect (beginRenderAction(), renderAction(), endRenderAction()) have, in their inArgs:
       /// - API OpenCL: kOfxImageEffectPropOpenCLEnabled 1 and kOfxImageEffectPropOpenCLCommandQueue
       ///   queue (a cl_command_queue);
+      /// - API Metal: kOfxImageEffectPropMetalEnabled 1 and kOfxImageEffectPropMetalCommandQueue
+      ///   queue (an id<MTLCommandQueue>);
+      /// - API MetalTextures: kOfxImageEffectPropMetalTextureEnabled 1 (after OFX 1.5.1) and
+      ///   kOfxImageEffectPropMetalCommandQueue queue, with kOfxImageEffectPropMetalEnabled 0: "a host
+      ///   MUST NOT set both properties to 1" (ofxGPURender.h, upstream main);
       /// - API CUDA: kOfxImageEffectPropCudaEnabled 1, and kOfxImageEffectPropCudaStream queue (a
       ///   CUstream, the runtime API's cudaStream_t) if queue isn't NULL and
       ///   cudaStreamsSupported(effect): it "will only be set if the host and plug-in both support
@@ -555,10 +560,14 @@ namespace OFX {
       ///
       /// "If a plug-in and host have both set kOfxImageEffectPropOpenCLRenderSupported="true" or
       /// have both set kOfxImageEffectPropOpenCLSupported="true" then the host MAY set this property
-      /// to indicate that it is passing images as OpenCL Buffers or Images", and likewise for
-      /// kOfxImageEffectPropCudaRenderSupported and "CUDA memory pointers" (ofxGPURender.h): open it
-      /// only then, and return those images from ClipInstance::getImage() meanwhile
-      /// (openfx::HostSupportOpenCL's RenderSession does both, ofxhOpenCLRender.h). As with
+      /// to indicate that it is passing images as OpenCL Buffers or Images", likewise for
+      /// kOfxImageEffectPropCudaRenderSupported and "CUDA memory pointers", and "If a plug-in and
+      /// host have both set kOfxImageEffectPropMetalRenderSupported="true" then the host MAY set
+      /// this property to indicate that it is passing images as Metal buffers", and likewise with
+      /// kOfxImageEffectPropMetalTextureSupported for Metal textures (ofxGPURender.h): open it only
+      /// then, and return those images from ClipInstance::getImage() meanwhile (the RenderSession of
+      /// openfx::HostSupportOpenCL, ofxhOpenCLRender.h, and of openfx::HostSupportMetal,
+      /// ofxhMetalRender.h, do both). As with
       /// ThumbnailRenderScope, keep it alive from beginRenderAction() to endRenderAction() on each
       /// thread that sends them.
       ///
@@ -566,7 +575,7 @@ namespace OFX {
       /// thread that created it, innermost first (asserted in debug builds).
       class GPURenderScope {
       public:
-        enum class API { CPU, OpenCL, CUDA };
+        enum class API { CPU, OpenCL, Metal, MetalTextures, CUDA };
         /// api CPU: as without a scope (e.g. a nested render of the same instance on the CPU)
         GPURenderScope(const Instance &effect, API api, void *queue);
         ~GPURenderScope();
@@ -584,8 +593,8 @@ namespace OFX {
         std::thread::id _thread;
       };
 
-      /// The CPU retry after a failed GPU render (OpenGL, OpenCL...), shared by the GPU components
-      /// (ofxhOpenGLRender.h, ofxhOpenCLRender.h):
+      /// The CPU retry after a failed GPU render (OpenGL, OpenCL, Metal...), shared by the GPU
+      /// components (ofxhOpenGLRender.h, ofxhOpenCLRender.h, ofxhMetalRender.h):
       /// st is a GPU failure after which the host may render on the CPU: kOfxStatGPURenderFailed
       /// ("GPU render failed in a non-memory-related way"), kOfxStatGPUOutOfMemory ("GPU render ran
       /// out of memory") or kOfxStatErrMemory (ofxGPURender.h)

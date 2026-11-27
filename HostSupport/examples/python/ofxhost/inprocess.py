@@ -410,7 +410,7 @@ class HostOptions(NamedTuple):
     normalised_defaults: bool = True
     multiplane: bool = False
     components: tuple = HOST_COMPONENTS
-    gpu: str = ""  # "", "opengl" or "opencl"
+    gpu: str = ""  # "", "opengl", "opencl" or "metal"
     gpu_renderer: str = ""
 
 
@@ -477,7 +477,8 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
             --components).
         gpu: "opengl", an OpenGL context (hostDemo's --gpu=opengl, ofxh.init(opengl=True)): if it is
             made, the host says it supports OpenGL render, and renders with it the plug-ins that can.
-            "opencl", the same with an OpenCL device (--gpu=opencl, ofxh.init(opencl=True)). "": neither.
+            "opencl", the same with an OpenCL device (--gpu=opencl, ofxh.init(opencl=True)); "metal", with a
+            Metal device (--gpu=metal, ofxh.init(metal=True)). "": none.
         gpu_renderer: with gpu "opengl", the renderer of the context, "BACKEND:ID" (a renderer of
             ofxh.opengl_renderers(), see specs.parse_gpu_renderer()); "" for the default.
 
@@ -513,7 +514,7 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
     try:
         ofxh.init(host, list(dirs), use_std_paths=use_std_paths, use_env_path=False, profile=profile,
                   keep_loaded=keep_loaded, normalised_defaults=normalised_defaults, opengl=gpu == "opengl",
-                  opencl=gpu == "opencl", **gl_choice)
+                  opencl=gpu == "opencl", metal=gpu == "metal", **gl_choice)
     except ValueError as e:
         if gl_choice and hasattr(e, "opengl_error"):
             raise OpenGLRendererError(gpu_renderer, e.opengl_error) from e
@@ -654,7 +655,7 @@ class Job:
     multiplane: bool = False
     planes: list[tuple[str, str, Spec]] = dataclasses.field(default_factory=list)
     components: tuple = HOST_COMPONENTS
-    gpu: str = ""  # hostDemo's --gpu=opengl or opencl: "opengl" or "opencl"
+    gpu: str = ""  # hostDemo's --gpu=opengl, opencl or metal: "opengl", "opencl" or "metal"
     gpu_renderer: str = ""  # with gpu "opengl": BACKEND:ID (not in hostDemo)
 
 
@@ -961,19 +962,21 @@ def _frame_render(run: _Run, inst, t: float, view: int, av: int, render_window, 
     run.render_rod = (t, av, tuple(rod))  # (the output's RoD during the render: see _Clip)
     errors = run.image_errors
 
-    def render(opengl: bool, opencl: str = ""):
+    def render(opengl: bool, opencl: str = "", metal: str = ""):
         return run.call2("render", inst.render_action, t, render_window, run.job.scale, "none",
                          sequential=sequential, interactive_render=False, draft=False,
                          view=view if (_NUKE or _VEGAS) else 0, n_views=run.n_views if _VEGAS else 1,
-                         opengl=opengl, opencl=opencl)
+                         opengl=opengl, opencl=opencl, metal=metal)
 
-    used_gl = used_cl = cpu_retry = False
+    used_gl = used_cl = used_mt = cpu_retry = False
     try:
         # hostDemo's renderFrame() with --gpu=opengl: OpenGL if the plug-in and the host can, the CPU if
         # OpenGL failed and the plug-in can render on the CPU (see hostDemo's withOpenGL()); the same
-        # with --gpu=opencl (withOpenCL())
+        # with --gpu=opencl (withOpenCL()) and --gpu=metal (withMetal())
         if run.job.gpu == "opencl":
             mode = inst.render_mode(opencl=True)
+        elif run.job.gpu == "metal":
+            mode = inst.render_mode(metal=True)
         else:
             mode = inst.render_mode() if run.job.gpu else "cpu"
         if mode in ("opencl-buffers", "opencl-images"):
@@ -987,9 +990,21 @@ def _frame_render(run: _Run, inst, t: float, view: int, av: int, render_window, 
                 st, planes = render(False)
             elif not used_cl and int(st) == ofxh.Stat.OK:
                 st = ofxh.Stat.Failed
-        elif mode == "none" and run.job.gpu == "opencl":
+        elif mode in ("metal-buffers", "metal-textures"):
+            st, planes = render(False, metal=mode[len("metal-"):])
+            if inst.metal_error:
+                run.err(f"Error: Metal render: {inst.metal_error}")
+            used_mt = inst.metal_result == "ok"
+            # (as with OpenCL above)
+            if inst.metal_result == "retry" or (inst.metal_result == "not_sent" and inst.can_render_on_cpu()):
+                cpu_retry = True
+                st, planes = render(False)
+            elif not used_mt and int(st) == ofxh.Stat.OK:
+                st = ofxh.Stat.Failed
+        elif mode == "none" and run.job.gpu in ("opencl", "metal"):
+            api = "OpenCL" if run.job.gpu == "opencl" else "Metal"
             run.err('Error: the plug-in can\'t render on the CPU (kOfxImageEffectPropCPURenderSupported "false"), '
-                    "and hostDemo has no OpenCL device it can use")
+                    f"and hostDemo has no {api} device it can use")
             st, planes = ofxh.Stat.Failed, {}
         elif mode == "opengl":
             st, planes = render(True)
@@ -1020,6 +1035,9 @@ def _frame_render(run: _Run, inst, t: float, view: int, av: int, render_window, 
         render_j["cpuRetry"] = cpu_retry
     elif run.job.gpu == "opencl":
         render_j["openCL"] = used_cl
+        render_j["cpuRetry"] = cpu_retry
+    elif run.job.gpu == "metal":
+        render_j["metal"] = used_mt
         render_j["cpuRetry"] = cpu_retry
     r["output"] = None
     image = planes.get("Colour")
@@ -1128,6 +1146,9 @@ def run_job(dirs: tuple, job: Job) -> tuple[int, dict, dict]:
     cl_error = (ofxh.opencl_device() or {}).get("error") if job.gpu == "opencl" else None
     if cl_error:
         run.err(f"Warning: --gpu=opencl: no OpenCL device ({cl_error}): rendering on the CPU")
+    mt_error = (ofxh.metal_device() or {}).get("error") if job.gpu == "metal" else None
+    if mt_error:
+        run.err(f"Warning: --gpu=metal: no Metal device ({mt_error}): rendering on the CPU")
     plugin = ofxh.get_plugin(job.plugin_id, job.major)
     report: dict = {"schema": "hostDemo.report", "schemaVersion": 1, "ok": False, "plugin": {"id": job.plugin_id},
                     "context": job.context, "host": {"name": ofxh.host().props[kOfxPropName][0], "profile": profile},
@@ -1317,17 +1338,25 @@ def _render_sequence(run: _Run, inst, report: dict) -> None:
 
     seq_gl = False  # BeginSequenceRender ran with OpenGL: EndSequenceRender does the same (hostDemo)
     seq_cl = ""  # likewise with OpenCL, in this mode ("buffers" or "images")
+    seq_mt = ""  # likewise with Metal, in this mode ("buffers" or "textures")
 
     def sequence(name: str, action, begin: bool):
         # with OpenGL if the instance renders with it, else (or if it couldn't be attached) without.
         # (If render_mode() changed between Begin and End, ofxh would refuse End with opengl=True, where
         # hostDemo would send it: the plug-in's OpenGL support doesn't change during a sequence here.)
-        # The same with OpenCL (refused by the session: without OpenCL).
-        nonlocal seq_gl, seq_cl
+        # The same with OpenCL and Metal (refused by the session: without them).
+        nonlocal seq_gl, seq_cl, seq_mt
         if begin:
             seq_gl = job.gpu == "opengl" and inst.render_mode() == "opengl"
             mode = inst.render_mode(opencl=True) if job.gpu == "opencl" else ""
             seq_cl = mode[len("opencl-"):] if mode.startswith("opencl-") else ""
+            mode = inst.render_mode(metal=True) if job.gpu == "metal" else ""
+            seq_mt = mode[len("metal-"):] if mode.startswith("metal-") else ""
+        if seq_mt:
+            st = run.call(name, action, first, last, metal=seq_mt, **seq)
+            if inst.metal_result != "not_sent":
+                return st
+            seq_mt = ""
         if seq_cl:
             st = run.call(name, action, first, last, opencl=seq_cl, **seq)
             if inst.opencl_result != "not_sent":

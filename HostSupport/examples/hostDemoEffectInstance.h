@@ -15,6 +15,9 @@
 #ifdef HOSTDEMO_OPENCL
 #include "ofxhOpenCLRender.h"
 #endif
+#ifdef HOSTDEMO_METAL
+#include "ofxhMetalRender.h"
+#endif
 
 namespace MyHost {
 
@@ -55,7 +58,10 @@ namespace MyHost {
     OFX::Host::OpenGL::RenderSession *_glSession = nullptr; ///< setOpenGLSession()
 #endif
 #ifdef HOSTDEMO_OPENCL
-    OFX::Host::OpenCL::RenderSession *_clSession = nullptr; ///< setOpenCLSession()
+    OFX::Host::OpenCL::RenderSession *_clSession = nullptr; ///< setGPUSession()
+#endif
+#ifdef HOSTDEMO_METAL
+    OFX::Host::Metal::RenderSession *_mtSession = nullptr; ///< setGPUSession()
 #endif
 
     /// format, print (on stdout) and record a message
@@ -242,8 +248,14 @@ namespace MyHost {
 #ifdef HOSTDEMO_OPENCL
     /// --gpu=opencl: the session of the OpenCL action in progress, whose images MyClipInstance's
     /// getImage() gives (nullptr outside; read on the plug-in's threads too, set before the action)
-    void setOpenCLSession(OFX::Host::OpenCL::RenderSession *session) { _clSession = session; }
+    void setGPUSession(OFX::Host::OpenCL::RenderSession *session) { _clSession = session; }
     OFX::Host::OpenCL::RenderSession *getOpenCLSession() const { return _clSession; }
+#endif
+#ifdef HOSTDEMO_METAL
+    /// --gpu=metal: the session of the Metal action in progress, whose images MyClipInstance's
+    /// getImage() gives (nullptr outside; read on the plug-in's threads too, set before the action)
+    void setGPUSession(OFX::Host::Metal::RenderSession *session) { _mtSession = session; }
+    OFX::Host::Metal::RenderSession *getMetalSession() const { return _mtSession; }
 #endif
 
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)

@@ -266,6 +266,8 @@ static nb::dict effectFlagsJson(const Prop::Set &p)
   j["cudaRenderSupported"] = propJson(p, kOfxImageEffectPropCudaRenderSupported);
   j["cudaStreamSupported"] = propJson(p, kOfxImageEffectPropCudaStreamSupported);
   j["metalRenderSupported"] = propJson(p, kOfxImageEffectPropMetalRenderSupported);
+  // ("false" or "true"; upstream main, after OFX 1.5.1)
+  j["metalTextureSupported"] = propJson(p, kOfxImageEffectPropMetalTextureSupported);
   j["cpuRenderSupported"] = propJson(p, kOfxImageEffectPropCPURenderSupported);
   return j;
 }

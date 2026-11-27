@@ -52,11 +52,12 @@
 #include "ofxhImageEffect.h"
 #include "ofxhOpenCLDevice.h"
 
-#include <mutex>
-#include <set>
+#include <memory>
 
 namespace OFX {
   namespace Host {
+    namespace GPU { class SessionImages; } // (internal: src/gpu/ofxhGPUImages.h)
+
     namespace OpenCL {
 
       /// how to render an instance
@@ -157,19 +158,12 @@ namespace OFX {
         /// copies the pixels of rect (within image's bounds) between image and mem, an OpenCL buffer
         /// or image of image's bounds; a cl_int status
         int transfer(void *mem, const ImageEffect::Image &image, const OfxRectI &rect, bool write);
-        void fail(const std::string &why);
 
         Queue &_queue;
         RenderMode _mode;
         bool _ok;
         ImageEffect::GPURenderScope _scope;
-        ImageEffect::ClipInstance *_outputClip = nullptr;
-        ImageEffect::Image *_outputImage = nullptr; ///< the host's
-        OfxRectI _renderWindow = { 0, 0, 0, 0 };   ///< of setOutput()
-        Handle *_output = nullptr;                  ///< (the session's reference)
-        mutable std::mutex _mutex;
-        std::set<Handle *> _handles;
-        bool _failed = false;
+        std::unique_ptr<GPU::SessionImages> _images;  ///< the images, the output, failed()
       };
 
     } // OpenCL

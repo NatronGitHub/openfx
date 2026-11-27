@@ -1200,11 +1200,21 @@ namespace MyHost {
   }
 #endif
 
-  OFX::Host::ImageEffect::Image* MyClipInstance::forOpenCL(OFX::Host::ImageEffect::Image* image)
+  OFX::Host::ImageEffect::Image* MyClipInstance::forGPU(OFX::Host::ImageEffect::Image* image)
   {
 #ifdef HOSTDEMO_OPENCL
     if (OFX::Host::OpenCL::RenderSession *session = _effect->getOpenCLSession()) {
       // --gpu=opencl: the image as an OpenCL buffer or image (the session's output, for the output)
+      OFX::Host::ImageEffect::Image* copy = session->getImage(*this, image);
+      if (image) {
+        image->releaseReference();
+      }
+      return copy;
+    }
+#endif
+#ifdef HOSTDEMO_METAL
+    if (OFX::Host::Metal::RenderSession *session = _effect->getMetalSession()) {
+      // --gpu=metal: the image as a Metal buffer (the session's output, for the output)
       OFX::Host::ImageEffect::Image* copy = session->getImage(*this, image);
       if (image) {
         image->releaseReference();
@@ -1218,9 +1228,9 @@ namespace MyHost {
   OFX::Host::ImageEffect::Image* MyClipInstance::getImage(OfxTime time, const OfxRectD *optionalBounds)
   {
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
-    return forOpenCL(fetchImage(time, _view, optionalBounds));
+    return forGPU(fetchImage(time, _view, optionalBounds));
 #else
-    return forOpenCL(fetchImage(time, 0, optionalBounds));
+    return forGPU(fetchImage(time, 0, optionalBounds));
 #endif
   }
 
@@ -1249,7 +1259,7 @@ namespace MyHost {
       }
       extra = &it->second;
     }
-    return forOpenCL(fetchImage(time, view < 0 ? _view : view, optionalBounds, extra));
+    return forGPU(fetchImage(time, view < 0 ? _view : view, optionalBounds, extra));
   }
 
   const std::vector<std::string>& MyClipInstance::getComponentsPresent() const OFX_EXCEPTION_SPEC
@@ -1277,7 +1287,7 @@ namespace MyHost {
   /// If bounds is not null, fetch the indicated section of the canonical image plane.
   OFX::Host::ImageEffect::Image* MyClipInstance::getStereoscopicImage(OfxTime time, int view, const OfxRectD *optionalBounds)
   {
-    return forOpenCL(fetchImage(time, view, optionalBounds));
+    return forGPU(fetchImage(time, view, optionalBounds));
   }
 #endif
 

@@ -241,6 +241,14 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   `render_mode(opencl=True, prefer_images=...)` ("opencl-buffers", "opencl-images", "cpu" or "none"),
   `opencl="buffers"` or `"images"` on the render actions (refused unless `render_mode()` is that mode),
   `opencl_result` and `opencl_error` are what the in-process backend uses.
+- `--gpu=metal` (macOS, builds with `OFX_HOSTSUPPORT_METAL`) does the same with Metal, on the system default
+  Metal device of openfx::HostSupportMetal: the host sets kOfxImageEffectPropMetalRenderSupported (buffers) and
+  kOfxImageEffectPropMetalTextureSupported (textures) to "true". A plug-in that supports buffers ("true" or
+  "needed") gets Metal buffers; one with textures only gets Metal textures if its clips are RGBA or Alpha; the
+  others render on the CPU. Not with `--ofx14`. In Python: the ofxh module's `metal_devices()`,
+  `init(metal=True, metal_device=index)`, `metal_device()`, `render_mode(metal=True, prefer_textures=...)`
+  ("metal-buffers", "metal-textures", "cpu" or "none"), `metal="buffers"` or `"textures"` on the render actions
+  (refused unless `render_mode()` is that mode), `metal_result` and `metal_error`.
 - `--ofx11` (not with `--ofx14`, `--multiplane`, `--opengl-describe` or `--gpu=opengl`) makes hostDemo an OFX 1.1
   host modelled on VEGAS Pro (openfx-misc's README-hosts.txt), to check that a plug-in still
   works there: the host descriptor has only the OFX 1.1 host properties, and kOfxPropAPIVersion
@@ -335,9 +343,10 @@ supportsTiles {effect, clips {Clip: bool}} (the instance's values, which a plug-
 instanceChanged: without tiles, the render window is the whole RoD and the input images are
 whole-RoD, if hostDemo can make images that large), renderWindow, isIdentity {ok, status, identity, clip, time}, framesNeeded {ok, status, clips
 {Clip: [[min,max]...]}}, regionsOfInterest {ok, status, regionOfInterest, clips {Clip:
-rect}}, render {ok, status, imageFetchErrors[, openGL | openCL, cpuRetry]}, output}. `openGL` and `cpuRetry` (with
+rect}}, render {ok, status, imageFetchErrors[, openGL | openCL | metal, cpuRetry]}, output}. `openGL` and `cpuRetry` (with
 `--gpu=opengl` only): OpenGL rendered the frame; the CPU rendered it again after OpenGL failed. `openCL` and
-`cpuRetry` (with `--gpu=opencl` only): the same for OpenCL. `output` is null if nothing was
+`cpuRetry` (with `--gpu=opencl` only): the same for OpenCL; `metal` and `cpuRetry` (with `--gpu=metal` only),
+for Metal. `output` is null if nothing was
 written, else {w, h, bounds, depth (byte|short|float), comps (RGBA|RGB|Alpha), min, max,
 mean (per component, in the native range of the depth, NaN left out), nan (the number of
 pixels with a NaN component), crc32 (zlib's CRC-32 of the pixel bytes within the bounds, row
@@ -354,7 +363,7 @@ supportsMultiResolution, temporalClipAccess, supportsMultipleClipDepths,
 supportsMultipleClipPARs, fieldRenderTwiceAlways, singleInstance, hostFrameThreading,
 renderThreadSafety, sequentialRender, clipPreferencesSlaveParams, openGLRenderSupported,
 openCLRenderSupported, cudaRenderSupported, cudaStreamSupported, metalRenderSupported,
-cpuRenderSupported. clips: {name, label, hint, optional, isMask, supportedComponents,
+metalTextureSupported, cpuRenderSupported. clips: {name, label, hint, optional, isMask, supportedComponents,
 temporalClipAccess, supportsTiles, fieldExtraction, secret}. params, in definition order:
 {name, type, label, hint, scriptName, secret, enabled, parent, page, dimension, default, min,
 max, displayMin, displayMax, doubleType, choiceOptions, animates, evaluateOnChange,
