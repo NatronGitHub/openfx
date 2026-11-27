@@ -889,7 +889,7 @@ the current action
 
    When rendering using OpenCL Buffers, the cl_mem of the buffers are retrieved using ::kOfxImagePropData.
    When rendering using OpenCL Images, the cl_mem of the images are retrieved using ::kOfxImageEffectPropOpenCLImage.
-   If both ::kOfxImageEffectPropOpenCLSupported (Buffers) and ::kOfxImageEffectPropOpenCLRenderSupported (Images) are
+   If both ::kOfxImageEffectPropOpenCLRenderSupported (Buffers) and ::kOfxImageEffectPropOpenCLSupported (Images) are
    enabled by the plug-in, it should use ::kOfxImageEffectPropOpenCLImage to determine which is being used by the host.
 
    - Valid Values
