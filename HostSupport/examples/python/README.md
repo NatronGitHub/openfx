@@ -225,6 +225,19 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   that renderer, e.g. `--gpu-renderer=egl-device:1`. If that context can't be made, it is an error
   (status 1, no report), not a fallback to the CPU. In Python: `ofxh.opengl_renderers(backends)`,
   and `ofxh.init(opengl=True, opengl_backends=[...], opengl_renderer=id)`.
+- `--gpu=opencl` renders with OpenCL the plug-ins that can, on an OpenCL device of
+  openfx::HostSupportOpenCL (the first GPU, else the first device; builds with `OFX_HOSTSUPPORT_OPENCL`):
+  the host then sets kOfxImageEffectPropOpenCLRenderSupported (Buffers) to "true", and
+  kOfxImageEffectPropOpenCLSupported (Images) too if the device has images. A plug-in that supports
+  Buffers ("true" or "needed") gets OpenCL buffers; one with Images only gets OpenCL images if its clips
+  are RGBA; the others render on the CPU. Without a device it warns and renders on the CPU. After an
+  OpenCL failure (an image that couldn't be copied, kOfxStatGPURenderFailed, kOfxStatGPUOutOfMemory,
+  kOfxStatErrMemory), the frame is rendered again on the CPU if kOfxImageEffectPropCPURenderSupported
+  isn't "false". Not with `--ofx14`. In Python: `extra_args=["--gpu=opencl"]`; the ofxh module's
+  `opencl_devices()`, `init(opencl=True, opencl_device=(platform, device))`, `opencl_device()`,
+  `render_mode(opencl=True, prefer_images=...)` ("opencl-buffers", "opencl-images", "cpu" or "none"),
+  `opencl="buffers"` or `"images"` on the render actions (refused unless `render_mode()` is that mode),
+  `opencl_result` and `opencl_error` are what the in-process backend uses.
 - `--ofx11` (not with `--ofx14`, `--multiplane`, `--opengl-describe` or `--gpu=opengl`) makes hostDemo an OFX 1.1
   host modelled on VEGAS Pro (openfx-misc's README-hosts.txt), to check that a plug-in still
   works there: the host descriptor has only the OFX 1.1 host properties, and kOfxPropAPIVersion
@@ -319,8 +332,9 @@ supportsTiles {effect, clips {Clip: bool}} (the instance's values, which a plug-
 instanceChanged: without tiles, the render window is the whole RoD and the input images are
 whole-RoD, if hostDemo can make images that large), renderWindow, isIdentity {ok, status, identity, clip, time}, framesNeeded {ok, status, clips
 {Clip: [[min,max]...]}}, regionsOfInterest {ok, status, regionOfInterest, clips {Clip:
-rect}}, render {ok, status, imageFetchErrors[, openGL, cpuRetry]}, output}. `openGL` and `cpuRetry` (with
-`--gpu=opengl` only): OpenGL rendered the frame; the CPU rendered it again after OpenGL failed. `output` is null if nothing was
+rect}}, render {ok, status, imageFetchErrors[, openGL | openCL, cpuRetry]}, output}. `openGL` and `cpuRetry` (with
+`--gpu=opengl` only): OpenGL rendered the frame; the CPU rendered it again after OpenGL failed. `openCL` and
+`cpuRetry` (with `--gpu=opencl` only): the same for OpenCL. `output` is null if nothing was
 written, else {w, h, bounds, depth (byte|short|float), comps (RGBA|RGB|Alpha), min, max,
 mean (per component, in the native range of the depth, NaN left out), nan (the number of
 pixels with a NaN component), crc32 (zlib's CRC-32 of the pixel bytes within the bounds, row

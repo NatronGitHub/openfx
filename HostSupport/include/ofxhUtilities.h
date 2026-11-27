@@ -52,6 +52,17 @@
 
 namespace OFX {
 
+  namespace Host {
+    /// the level of a message to the Hooks::log of the GPU components (openfx::HostSupportOpenGL,
+    /// openfx::HostSupportOpenCL), so that a host can give them one logger
+    enum class LogLevel {
+      Error,    ///< an action, a texture, an image copy, a device or a queue failed
+      Warning,  ///< a fallback (a backend that failed before another one worked), a leak
+      Info,     ///< the chosen renderer or device
+      Debug     ///< details, e.g. a renderer that listRenderers() couldn't open
+    };
+  }
+
   /// class that is a std::vector of std::strings
   typedef std::vector<std::string> StringVec;
 

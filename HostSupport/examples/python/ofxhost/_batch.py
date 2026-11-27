@@ -217,7 +217,7 @@ def _host_key(flags: set, args: Sequence[str]) -> tuple:
                         use_std_paths="--no-std-paths" not in flags, opengl_render="--opengl-describe" in flags,
                         normalised_defaults="--no-normalised-defaults" not in flags,
                         multiplane="--multiplane" in flags, components=host_components(args),
-                        gpu="--gpu=opengl" in flags))
+                        gpu=next((f[len("--gpu="):] for f in ("--gpu=opengl", "--gpu=opencl") if f in flags), "")))
 
 
 _hosts: list = []  # (the test hook "host": the hosts seen, kept so that their ids aren't reused)

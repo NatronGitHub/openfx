@@ -531,3 +531,73 @@ def test_gpu_renderers(tmp_path, hosts, sample_plugins):
         assert s.returncode == i.returncode == 1, (bad, gpu, s.stderr, i.stderr)
         assert s.stderr.splitlines()[:1] == i.stderr.splitlines()[:1], (bad, gpu)
         assert not (sd / "r.json").exists() and not (idir / "r.json").exists(), (bad, gpu)
+
+
+# --- --gpu=opencl ------------------------------------------------------------------------------
+
+def _need_opencl(tmp_path, hosts, sample_plugins):
+    """--gpu=opencl renders with OpenCL here: ofxh has OFX_HOSTSUPPORT_OPENCL, GPUGain was built with its
+    OpenCL kernels, and hostDemo gets an OpenCL device; else fail (the tests are marked opencl: CI runs
+    them only where it has all three, and deselects them elsewhere) or skip (OFXH_REQUIRE unset)."""
+    import ofxh
+    why = None
+    if not ofxh.build_config.get("OFX_HOSTSUPPORT_OPENCL"):
+        why = "ofxh was built without OFX_HOSTSUPPORT_OPENCL"
+    else:
+        probe = tmp_path / "probe"
+        probe.mkdir()
+        p = _run([str(hosts[0]), *Q, "-p", GPUGAIN, "--describe", "d.json", "--gpu=opencl"], probe,
+                 _env(sample_plugins, hosts[1]))
+        flags = _strict((probe / "d.json").read_text())["contexts"]["OfxImageEffectContextFilter"]["flags"] \
+            if p.returncode == 0 else {}
+        if p.returncode != 0 or "no OpenCL device" in p.stderr:
+            why = (p.stderr.strip().splitlines() or ["hostDemo --gpu=opencl failed"])[0]
+        elif flags.get("openCLRenderSupported") != "true":
+            why = "GPUGain was built without OpenCL (OFX_SUPPORTS_OPENCLRENDER)"
+    if why:
+        if os.environ.get("OFXH_REQUIRE") == "1":
+            pytest.fail(f"{why} (OFXH_REQUIRE=1)")
+        pytest.skip(why)
+
+
+def _cl_flags(d):
+    """The (openCL, cpuRetry, ok) of the renders (one per view: two in Nuke or Vegas builds)."""
+    return {(r["openCL"], r["cpuRetry"], r["ok"]) for r in _renders(d)}
+
+
+@pytest.mark.opencl
+def test_gpu_opencl_gpugain(tmp_path, hosts, sample_plugins):
+    """--gpu=opencl with GPUGain (OpenCL Buffers and Images, and a CPU path): OpenCL Buffers give the
+    CPU render's pixels, and both backends give the same report and files. (The CPU retry after an
+    OpenCL failure is tested on the ofxh module and in openclRenderChecks, without a source: hostDemo
+    refuses to disconnect GPUGain's mandatory Source.)"""
+    _need_opencl(tmp_path, hosts, sample_plugins)
+    args = ["-p", GPUGAIN, "-d", "float", "-i", "Source=checker:5", "scale=0.5", "--frames", "0",
+            "--format", "pfm", "-o", "out", "--report", "r.json"]
+    _, _, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=opencl", *args])
+    assert _cl_flags(sd) == {(True, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert "openCL" not in _renders(cd)[0]
+    assert _files(sd) == _files(cd)  # the OpenCL render's pixels are the CPU render's
+
+
+@pytest.mark.opencl
+def test_gpu_opencl_cpu_plugin(tmp_path, hosts, sample_plugins):
+    """--gpu=opencl with Invert, which has no OpenCL render: it renders on the CPU, as without
+    --gpu=opencl (kOfxImageEffectPropOpenCLEnabled is only for plug-ins that "have both set"
+    kOfxImageEffectPropOpenCLRenderSupported or kOfxImageEffectPropOpenCLSupported to "true")."""
+    _need_opencl(tmp_path, hosts, sample_plugins)
+    args = ["-p", INVERT, "-i", "Source=ramp", "--frames", "0", "-o", "out", "--report", "r.json"]
+    _, _, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=opencl", *args])
+    assert _cl_flags(sd) == {(False, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert _files(sd) == _files(cd)
+
+
+def test_gpu_opencl_usage(tmp_path, hosts, sample_plugins):
+    """--gpu=opencl with --ofx14 is refused by both, with hostDemo's message (OpenCL render is OFX 1.5)."""
+    (s, _), (i, _) = both(tmp_path, hosts, sample_plugins, [*Q, "--gpu=opencl", "--ofx14", "-p", INVERT])
+    assert s.returncode == i.returncode == 1
+    first = [x for x in s.stderr.splitlines() if x.startswith("Error")][:1]
+    assert first == ["Error: --gpu=opencl can't be used with --ofx14 or --ofx11 (OpenCL render is OFX 1.5)"]
+    assert first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]

@@ -54,6 +54,7 @@
 #include "ofxhOpenGLRender.h"
 #include "ofxhOpenGLTexture.h"
 #include "ofxhPluginCache.h"
+#include "ofxhUtilities.h"
 #include "hostDemoEffectInstance.h"
 #include "hostDemoClipInstance.h"
 #include "hostDemoHostDescriptor.h"
@@ -85,6 +86,26 @@ namespace {
   {
     std::printf("%s: %s\n", ok ? "ok" : "FAILED", what.c_str());
     gFailures += ok ? 0 : 1;
+  }
+
+  /// adds the error of a pixel component to maxError: a NaN (a pixel the plug-in didn't write,
+  /// which keeps hostDemo's sentinel) makes it infinite (std::max would drop it)
+  void addError(float &maxError, float value, float expected)
+  {
+    const float e = std::fabs(value - expected);
+    if (OFX::IsNaN(e) || e > maxError) {
+      maxError = OFX::IsNaN(e) ? INFINITY : e;
+    }
+  }
+
+  /// addError() counts an unwritten (NaN) pixel as an error
+  void checkAddError()
+  {
+    float m = 0.f;
+    addError(m, 0.25f, 0.5f);
+    addError(m, NAN, 0.5f);
+    addError(m, 0.5f, 0.5f);
+    check("an unwritten (NaN) pixel counts as an infinite error", m == INFINITY);
   }
 
   bool required()
@@ -1075,7 +1096,7 @@ namespace {
             const int n = out->getNComponents(); // 4, or 1 (Alpha: the red rectangle's alpha is 1)
             for (int c = 0; c < n; ++c) {
               const float expected = red ? (n == 1 || c == 0 || c == 3 ? 1.f : 0.f) : in->getComponentFloat(x, y, c);
-              result.maxError = std::max(result.maxError, std::fabs(out->getComponentFloat(x, y, c) - expected));
+              addError(result.maxError, out->getComponentFloat(x, y, c), expected);
             }
             lo = std::min(lo, in->getComponentFloat(x, y, 0));
             hi = std::max(hi, in->getComponentFloat(x, y, 0));
@@ -1090,6 +1111,45 @@ namespace {
     instance.clearRenderState();
     outputImage->releaseReference();
     return result;
+  }
+
+  /// readOutput() copies the render window back, and leaves the host's other pixels: a pixel outside the
+  /// window, changed after setOutput(), keeps its new value (the output image is the clip's, over window;
+  /// the session's render window is smaller)
+  void checkReadbackWindow(GLTestInstance &instance, GL::Attachment &attachment, GL::Context &context)
+  {
+    const OfxPointD scale = { 1., 1. };
+    const OfxRectI window = { 0, 0, 64, 48 }, inner = { 8, 8, 32, 24 };
+    std::map<ImageEffect::ClipInstance *, OfxRectD> rois;
+    instance.setRenderState(scale, window, rois);
+    MyHost::MyClipInstance *output = dynamic_cast<MyHost::MyClipInstance *>(instance.getClip(kOfxImageEffectOutputClipName));
+    output->releaseOutputImage();
+    ImageEffect::Image *image = output->getImage(0., nullptr);
+    MyHost::MyImage *out = dynamic_cast<MyHost::MyImage *>(image);
+    {
+      GL::CurrentContext current(context);
+      GL::RenderSession session(attachment, current);
+      if (session.ok() && out) {
+        session.setOutput(*image, inner);
+        const size_t pixel = static_cast<size_t>(out->getNComponents() * out->getBytesPerComponent());
+        unsigned char *outside = const_cast<unsigned char *>(out->getPixelData(40, 30));
+        std::vector<unsigned char> marker(pixel, 0x5A);
+        std::memcpy(outside, marker.data(), pixel); // (after setOutput())
+        session.readOutput();
+        const bool kept = std::memcmp(out->getPixelData(40, 30), marker.data(), pixel) == 0;
+        // inside: the cleared texture (transparent black)
+        bool cleared = true;
+        for (int c = 0; c < out->getNComponents(); ++c) {
+          cleared = cleared && out->getComponentFloat(10, 10, c) == 0.f;
+        }
+        check("readOutput() with a render window smaller than the output image: a pixel outside it, changed after "
+              "setOutput(), keeps its value, and the window is read back", kept && cleared);
+      } else {
+        check("a RenderSession and an output image for the readback window check", false);
+      }
+    }
+    image->releaseReference();
+    instance.clearRenderState();
   }
 
   /// a RenderSession of the instance on context (no render): ok()
@@ -1518,6 +1578,7 @@ namespace {
       check("clipFreeTexture: input textures deleted", r.inputTexturesDeleted);
       check("clipFreeTexture: the output texture kept for the host", r.outputTextureKept);
       check("attachment: c1", attachment.context() == &c1);
+      checkReadbackWindow(*instance, attachment, c1);
 
       r = glRender(*instance, attachment, c1, window, "checker:5");
       check("second render on c1: no other context action", r.status == kOfxStatOK && instance->actions.size() == 1);
@@ -1582,6 +1643,7 @@ namespace {
 
 int main()
 {
+  checkAddError();
   checkBackendNames();
   if (!parseBackends()) {
     return 1;
@@ -1592,7 +1654,7 @@ int main()
   checkSuspend();
 
   GL::Hooks hooks;
-  hooks.log = [](GL::LogLevel level, const std::string &message) {
+  hooks.log = [](OFX::Host::LogLevel level, const std::string &message) {
     static const char *const kLevels[] = { "error", "warning", "info", "debug" };
     std::printf("  [%s] %s\n", kLevels[static_cast<int>(level)], message.c_str());
   };

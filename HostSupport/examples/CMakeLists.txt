@@ -11,6 +11,11 @@ if(OFX_HOSTSUPPORT_OPENGL)
 	target_link_libraries(hostDemo PRIVATE OfxHostOpenGL)
 	target_compile_definitions(hostDemo PRIVATE HOSTDEMO_OPENGL)
 endif()
+if(OFX_HOSTSUPPORT_OPENCL)
+	# --gpu=opencl (openfx::HostSupportOpenCL)
+	target_link_libraries(hostDemo PRIVATE OfxHostOpenCL)
+	target_compile_definitions(hostDemo PRIVATE HOSTDEMO_OPENCL)
+endif()
 
 add_executable(cacheDemo cacheDemo.cpp)
 target_link_libraries(cacheDemo PRIVATE OfxHost)
@@ -43,6 +48,18 @@ if(OFX_HOSTSUPPORT_OPENGL)
 		hostDemoHostDescriptor.cpp
 		hostDemoParamInstance.cpp)
 	target_link_libraries(openglRenderChecks PRIVATE OfxHostOpenGL)
+endif()
+
+# checks of openfx::HostSupportOpenCL, with Support/Plugins/GPUGain built with
+# OFX_SUPPORTS_OPENCLRENDER (skipped without an OpenCL device or the plug-in, unless OFXH_REQUIRE=1)
+if(OFX_HOSTSUPPORT_OPENCL)
+	add_executable(openclRenderChecks
+		openclRenderChecks.cpp
+		hostDemoClipInstance.cpp
+		hostDemoEffectInstance.cpp
+		hostDemoHostDescriptor.cpp
+		hostDemoParamInstance.cpp)
+	target_link_libraries(openclRenderChecks PRIVATE OfxHostOpenCL)
 endif()
 
 if(OFX_INSTALL) # (OFF under add_subdirectory(openfx))

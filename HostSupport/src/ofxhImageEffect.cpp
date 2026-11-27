@@ -4,6 +4,7 @@
 #include <math.h>
 #include <new> // std::bad_alloc
 #include <iostream>
+#include <cassert>
 
 // ofx
 #include "ofxCore.h"
@@ -608,6 +609,53 @@ namespace OFX {
       {
         const bool thumbnail = effect ? effect->isThumbnailRender() : gThumbnailRenderThread;
         inArgs.setStringProperty(kOfxImageEffectPropThumbnailRender, thumbnail ? "true" : "false");
+      }
+
+      /// see GPURenderScope: the innermost scope of the thread
+      static thread_local GPURenderScope *gGPURenderScope = nullptr;
+
+      GPURenderScope::GPURenderScope(const Instance &effect, API api, void *queue)
+        : _effect(effect), _api(api), _queue(api == API::CPU ? nullptr : queue), _previous(gGPURenderScope)
+        , _thread(std::this_thread::get_id())
+      {
+        gGPURenderScope = this;
+      }
+
+      GPURenderScope::~GPURenderScope()
+      {
+        // an automatic object: destroyed on its own thread, innermost first
+        assert(gGPURenderScope == this && std::this_thread::get_id() == _thread);
+        gGPURenderScope = _previous;
+      }
+
+      bool gpuRenderFailed(OfxStatus st)
+      {
+        return st == kOfxStatGPURenderFailed || st == kOfxStatGPUOutOfMemory || st == kOfxStatErrMemory;
+      }
+
+      bool canRenderOnCPU(const Instance &effect)
+      {
+        return effect.getProps().getStringProperty(kOfxImageEffectPropCPURenderSupported) != "false";
+      }
+
+      const GPURenderScope *GPURenderScope::find(const Instance &effect)
+      {
+        for (const GPURenderScope *s = gGPURenderScope; s; s = s->_previous) {
+          if (&s->_effect == &effect) {
+            return s;
+          }
+        }
+        return nullptr;
+      }
+
+      /// kOfxImageEffectPropOpenCLEnabled and kOfxImageEffectPropOpenCLCommandQueue of the inArgs
+      /// of BeginSequenceRender, Render and EndSequenceRender (which have them): see GPURenderScope
+      static void setGPURenderArgs(Property::Set &inArgs, const Instance &effect)
+      {
+        const GPURenderScope *scope = GPURenderScope::find(effect);
+        const bool openCL = scope && scope->api() == GPURenderScope::API::OpenCL;
+        inArgs.setIntProperty(kOfxImageEffectPropOpenCLEnabled, openCL ? 1 : 0);
+        inArgs.setPointerProperty(kOfxImageEffectPropOpenCLCommandQueue, openCL ? scope->queue() : nullptr);
       }
 
       bool Instance::isNoSpatialAwarenessRender() const
@@ -1468,6 +1516,7 @@ namespace OFX {
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
         setThumbnailRenderArg(inArgs, this);
         inArgs.addProperties(ofx15MetalTextureArgs);
+        setGPURenderArgs(inArgs, *this);
         inArgs.addProperties(ofx151NoSpatialAwarenessArgs);
         setNoSpatialAwarenessArg(inArgs);
         setBehaviourWhenUnlicensedArg(inArgs);
@@ -1581,6 +1630,7 @@ namespace OFX {
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
         setThumbnailRenderArg(inArgs, this);
         inArgs.addProperties(ofx15MetalTextureArgs);
+        setGPURenderArgs(inArgs, *this);
         inArgs.addProperties(ofx151NoSpatialAwarenessArgs);
         setNoSpatialAwarenessArg(inArgs);
         setBehaviourWhenUnlicensedArg(inArgs);
@@ -1700,6 +1750,7 @@ namespace OFX {
         inArgs.addProperties(ofx15ThumbnailRenderArgs);
         setThumbnailRenderArg(inArgs, this);
         inArgs.addProperties(ofx15MetalTextureArgs);
+        setGPURenderArgs(inArgs, *this);
 
         inArgs.setDoubleProperty(kOfxImageEffectPropFrameStep,step);
 

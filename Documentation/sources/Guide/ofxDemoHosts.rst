@@ -239,6 +239,31 @@ disabled" (``ofxGPURender.h``). The report's renders then have ``openGL``
 [0, 1], which gives the CPU render's pixels, and returns
 :c:macro:`kOfxStatGPURenderFailed` for the others.
 
+OpenCL Rendering: ``--gpu=opencl``
+----------------------------------
+
+With ``--gpu=opencl`` (builds with ``OFX_HOSTSUPPORT_OPENCL``), both hosts
+render on an OpenCL device of ``openfx::HostSupportOpenCL`` (the first GPU,
+else the first device; PoCL's CPU device in the Linux CI job). The host
+descriptor then sets :c:macro:`kOfxImageEffectPropOpenCLRenderSupported`
+(Buffers) to ``"true"``, and :c:macro:`kOfxImageEffectPropOpenCLSupported`
+(Images) too if the device has images. A plug-in that supports Buffers
+(``"true"``, or ``"needed"``) renders with OpenCL Buffers; one that supports
+only Images renders with OpenCL Images if its clips are RGBA; the others
+render on the CPU. The actions then get
+:c:macro:`kOfxImageEffectPropOpenCLEnabled` 1 and
+:c:macro:`kOfxImageEffectPropOpenCLCommandQueue`, and the images of
+``clipGetImage`` are OpenCL buffers or images, copied from the CPU ones; the
+output is copied back. After a failure (an image that couldn't be copied,
+:c:macro:`kOfxStatGPURenderFailed`, :c:macro:`kOfxStatGPUOutOfMemory` or
+:c:macro:`kOfxStatErrMemory`), the frame is rendered again on the CPU if
+:c:macro:`kOfxImageEffectPropCPURenderSupported` isn't ``"false"``: "If a
+call using OpenCL rendering fails, the host may re-attempt using CPU buffers
+instead" (``ofxGPURender.h``). The report's renders then have ``openCL`` and
+``cpuRetry``. Not with ``--ofx14`` or ``--ofx11``: OpenCL render is OFX 1.5.
+GPUGain, built with ``OFX_SUPPORTS_OPENCLRENDER``, has OpenCL Buffers and
+Images kernels.
+
 The Code, as an Example Host
 ----------------------------
 

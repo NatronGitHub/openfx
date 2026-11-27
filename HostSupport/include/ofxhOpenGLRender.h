@@ -78,7 +78,8 @@ namespace OFX {
       /// kOfxStatGLOutOfMemory, after which "the host may choose to free resources on the GPU and
       /// retry the OpenGL render, rather than immediately falling back to CPU rendering";
       /// kOfxStatErrMemory from clipLoadTexture, "after which the host can decide to retry the
-      /// operation with CPU based processing" (ofxGPURender.h)
+      /// operation with CPU based processing" (ofxGPURender.h). The statuses are
+      /// ImageEffect::gpuRenderFailed() (ofxhImageEffect.h), shared with the other GPU components.
       bool openGLFailed(const RenderSession &session, OfxStatus st);
 
       /// After an OpenGL action of effect in session that returned st: the host may render it again

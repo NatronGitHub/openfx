@@ -15,6 +15,8 @@
 #include "ofxhParam.h"
 #include "ofxhMemory.h"
 #include "ofxhInteract.h"
+
+#include <thread>
 #ifdef OFX_EXTENSIONS_NATRON
 #include "ofxNatron.h"
 #endif
@@ -526,6 +528,54 @@ namespace OFX {
 
       /// same, according to effect->isThumbnailRender() (or isThumbnailRenderThread() if effect is NULL)
       void setThumbnailRenderArg(Property::Set &inArgs, const Instance *effect);
+
+      /// OFX 1.5 GPU render other than OpenGL (ofxGPURender.h): while the scope is alive, the
+      /// BeginSequenceRender, Render and EndSequenceRender actions that the calling thread sends to
+      /// effect (beginRenderAction(), renderAction(), endRenderAction()) have
+      /// kOfxImageEffectPropOpenCLEnabled 1 and kOfxImageEffectPropOpenCLCommandQueue queue (a
+      /// cl_command_queue) in their inArgs; without one, 0 and NULL. Other instances' actions,
+      /// e.g. those of a render nested in a clipGetImage() on this thread, are left alone. Scopes
+      /// nest: the innermost one for effect applies.
+      ///
+      /// "If a plug-in and host have both set kOfxImageEffectPropOpenCLRenderSupported="true" or
+      /// have both set kOfxImageEffectPropOpenCLSupported="true" then the host MAY set this property
+      /// to indicate that it is passing images as OpenCL Buffers or Images" (ofxGPURender.h): open
+      /// it only then, and return those images from ClipInstance::getImage() meanwhile
+      /// (openfx::HostSupportOpenCL's RenderSession does both, ofxhOpenCLRender.h). As with
+      /// ThumbnailRenderScope, keep it alive from beginRenderAction() to endRenderAction() on each
+      /// thread that sends them.
+      ///
+      /// An automatic object: the scopes of a thread are a stack, so each one is destroyed on the
+      /// thread that created it, innermost first (asserted in debug builds).
+      class GPURenderScope {
+      public:
+        enum class API { CPU, OpenCL };
+        /// api CPU: as without a scope (e.g. a nested render of the same instance on the CPU)
+        GPURenderScope(const Instance &effect, API api, void *queue);
+        ~GPURenderScope();
+        GPURenderScope(const GPURenderScope &) = delete;
+        GPURenderScope &operator=(const GPURenderScope &) = delete;
+        /// the innermost scope of the calling thread for effect, nullptr if none
+        static const GPURenderScope *find(const Instance &effect);
+        API api() const { return _api; }
+        void *queue() const { return _queue; }
+      private:
+        const Instance &_effect;
+        API _api;
+        void *_queue;
+        GPURenderScope *_previous;
+        std::thread::id _thread;
+      };
+
+      /// The CPU retry after a failed GPU render (OpenGL, OpenCL...), shared by the GPU components
+      /// (ofxhOpenGLRender.h, ofxhOpenCLRender.h):
+      /// st is a GPU failure after which the host may render on the CPU: kOfxStatGPURenderFailed
+      /// ("GPU render failed in a non-memory-related way"), kOfxStatGPUOutOfMemory ("GPU render ran
+      /// out of memory") or kOfxStatErrMemory (ofxGPURender.h)
+      bool gpuRenderFailed(OfxStatus st);
+      /// the plug-in can render on the CPU: its kOfxImageEffectPropCPURenderSupported isn't "false"
+      /// ("the host or plug-in does not support CPU rendering", ofxGPURender.h, OFX 1.5.1)
+      bool canRenderOnCPU(const Instance &effect);
 
       /// an image effect plugin instance.
       ///

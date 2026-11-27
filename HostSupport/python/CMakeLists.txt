@@ -64,6 +64,11 @@ if(TARGET OfxHostOpenGL)
   target_link_libraries(ofxh PRIVATE OfxHostOpenGL)
   target_compile_definitions(ofxh PRIVATE OFXH_OPENGL)
 endif()
+if(TARGET OfxHostOpenCL)
+  # OpenCL renders (ofxh.init(opencl=True)): openfx::HostSupportOpenCL (OFX_HOSTSUPPORT_OPENCL)
+  target_link_libraries(ofxh PRIVATE OfxHostOpenCL)
+  target_compile_definitions(ofxh PRIVATE OFXH_OPENCL)
+endif()
 target_compile_features(ofxh PRIVATE cxx_std_17)
 set_target_properties(ofxh PROPERTIES
   CXX_VISIBILITY_PRESET hidden

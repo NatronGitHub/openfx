@@ -54,6 +54,22 @@ if(OFX_HOSTSUPPORT_OPENGL)
 	add_library(openfx::HostSupportOpenGL ALIAS OfxHostOpenGL)
 endif()
 
+# openfx::HostSupportOpenCL: OpenCL devices, command queues and renders (ofxhOpenCLDevice.h,
+# ofxhOpenCLRender.h). OpenCL (the ICD loader, or the macOS framework) is loaded at run time: no
+# build dependency.
+if(OFX_HOSTSUPPORT_OPENCL)
+	file(GLOB OFX_HOSTSUPPORT_OPENCL_FILES "${OFX_HOSTSUPPORT_LIBRARY_DIR}/opencl/*.cpp" "${OFX_HOSTSUPPORT_LIBRARY_DIR}/opencl/*.h")
+	add_library(OfxHostOpenCL STATIC ${OFX_HOSTSUPPORT_OPENCL_FILES})
+	set_target_properties(OfxHostOpenCL PROPERTIES
+		POSITION_INDEPENDENT_CODE ON
+		EXPORT_NAME HostSupportOpenCL)
+	target_link_libraries(OfxHostOpenCL PUBLIC OfxHost)
+	if(UNIX)
+		target_link_libraries(OfxHostOpenCL PRIVATE ${CMAKE_DL_LIBS})
+	endif()
+	add_library(openfx::HostSupportOpenCL ALIAS OfxHostOpenCL)
+endif()
+
 if(BUILD_EXAMPLE_HOSTS)
 	if(OFX_SUPPORTS_MULTITHREAD)
 		# hostDemo and cacheDemo don't implement the multi-thread suite functions that

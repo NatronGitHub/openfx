@@ -477,6 +477,55 @@ same: ``suspend()`` the session's ``CurrentContext`` before rendering, and
 of ``ofxhOpenGLRender.h`` shows the sequence, and
 ``HostSupport/examples/openglRenderChecks.cpp`` runs it.
 
+OpenCL Rendering
+----------------
+
+With OpenCL ("OpenCL Acceleration of Rendering", ``ofxGPURender.h``), the
+host passes the images of a render as OpenCL buffers
+(:c:macro:`kOfxImageEffectPropOpenCLRenderSupported`, the ``cl_mem`` in
+:c:macro:`kOfxImagePropData`) or OpenCL images
+(:c:macro:`kOfxImageEffectPropOpenCLSupported`, the ``cl_mem`` in
+:c:macro:`kOfxImageEffectPropOpenCLImage`), and sets
+:c:macro:`kOfxImageEffectPropOpenCLEnabled` and
+:c:macro:`kOfxImageEffectPropOpenCLCommandQueue` in the arguments of the
+BeginSequenceRender, Render and EndSequenceRender actions. HostSupport sets
+those two while an ``ImageEffect::GPURenderScope`` is alive on the calling
+thread for the instance (``ofxhImageEffect.h``); without one, they are 0 and
+NULL.
+
+The optional library ``openfx::HostSupportOpenCL`` (CMake option
+``OFX_HOSTSUPPORT_OPENCL``, off by default) does the rest for hosts that
+don't have their own OpenCL code. It needs no OpenCL SDK: the OpenCL ICD
+loader (the OpenCL framework on macOS) is loaded at run time, unless the
+host gives its own loader.
+
+-  ``ofxhOpenCLDevice.h``: the devices of the OpenCL platforms, a context
+   on one of them (``createDevice()``), and ``Queue``, which lends a
+   render one of the device's in-order command queues;
+-  ``ofxhOpenCLRender.h``: ``chooseRenderMode()`` (OpenCL buffers, OpenCL
+   images, the CPU, or none of them) and ``RenderSession``, which opens the
+   ``GPURenderScope`` (only if both the plug-in and the host descriptor
+   support the mode, as the spec requires before
+   :c:macro:`kOfxImageEffectPropOpenCLEnabled` is set) and copies the images
+   of a render: the host's
+   ``ClipInstance::getImage()`` override returns
+   ``RenderSession::getImage()`` during the render, with the CPU image it
+   would return, and ``readOutput()`` copies the output back to the host's
+   image.
+
+The images keep the bounds, depth and components of the CPU images, with
+no conversion: buffers are packed, and OpenCL images are ``CL_RGBA``. OFX
+does not say how other components map to OpenCL images, so
+``chooseRenderMode()`` uses OpenCL images only when the clips are RGBA, and
+OpenCL buffers or the CPU otherwise. After a failure, the host
+may render on the CPU ("If a call using OpenCL rendering fails, the host may
+re-attempt using CPU buffers instead"): ``cpuRetryAllowed()`` says when the
+plug-in can. The rule is the OpenGL one, ``ImageEffect::gpuRenderFailed()``
+and ``ImageEffect::canRenderOnCPU()`` in ``ofxhImageEffect.h``; OpenGL adds
+that a plug-in whose :c:macro:`kOfxImageEffectPropOpenGLRenderSupported` is
+``"needed"`` has no CPU render. ``HostSupport/examples/openclRenderChecks.cpp`` runs a render
+with the GPUGain sample.
+
 Building a Host with HostSupport
 ================================
 

@@ -12,6 +12,9 @@
 #ifdef HOSTDEMO_OPENGL
 #include "ofxhOpenGLRender.h"
 #endif
+#ifdef HOSTDEMO_OPENCL
+#include "ofxhOpenCLRender.h"
+#endif
 
 namespace MyHost {
 
@@ -47,6 +50,9 @@ namespace MyHost {
     bool _refusePersistentMessages; ///< setRefusePersistentMessages()
 #ifdef HOSTDEMO_OPENGL
     OFX::Host::OpenGL::RenderSession *_glSession = nullptr; ///< setOpenGLSession()
+#endif
+#ifdef HOSTDEMO_OPENCL
+    OFX::Host::OpenCL::RenderSession *_clSession = nullptr; ///< setOpenCLSession()
 #endif
 
     /// format, print (on stdout) and record a message
@@ -229,6 +235,12 @@ namespace MyHost {
     /// forwards to (nullptr outside)
     void setOpenGLSession(OFX::Host::OpenGL::RenderSession *session) { _glSession = session; }
     OFX::Host::OpenGL::RenderSession *getOpenGLSession() const { return _glSession; }
+#endif
+#ifdef HOSTDEMO_OPENCL
+    /// --gpu=opencl: the session of the OpenCL action in progress, whose images MyClipInstance's
+    /// getImage() gives (nullptr outside; read on the plug-in's threads too, set before the action)
+    void setOpenCLSession(OFX::Host::OpenCL::RenderSession *session) { _clSession = session; }
+    OFX::Host::OpenCL::RenderSession *getOpenCLSession() const { return _clSession; }
 #endif
 
 #ifdef OFX_EXTENSIONS_NUKE

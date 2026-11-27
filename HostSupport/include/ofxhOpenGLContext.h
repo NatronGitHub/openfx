@@ -56,6 +56,8 @@
     }
 */
 
+#include "ofxhUtilities.h"
+
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -91,17 +93,10 @@ namespace OFX {
       /// (Linux and BSD: EGLSurfaceless, EGLDevice, GLX; macOS: CGL; Windows: WGL)
       std::vector<Backend> defaultBackends();
 
-      /// the level of a Hooks::log message
-      enum class LogLevel {
-        Error,    ///< an action or a texture failed
-        Warning,  ///< a fallback: a backend that failed before another one worked, a texture leak
-        Info,     ///< the chosen renderer
-        Debug     ///< details, e.g. a renderer that listRenderers() couldn't open
-      };
 
       /// Services the host gives the contexts; all optional
       struct Hooks {
-        /// receives the messages, with their level (default: dropped)
+        /// receives the messages, with their level (OFX::Host::LogLevel, ofxhUtilities.h; default: dropped)
         std::function<void(LogLevel level, const std::string &message)> log;
         /// runs call, a call into the context API or the OpenGL driver. Drivers may raise
         /// floating-point exceptions: a host that unmasks them masks them here (default: calls it).

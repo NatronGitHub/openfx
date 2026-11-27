@@ -207,6 +207,9 @@ namespace MyHost {
     /// was given, or the RoD outside of render) clipped to the RoD; plane: an extra plane of an input
     /// (NULL: the colour plane). Returns NULL if the clip is disconnected or the bounds are empty.
     MyImage* fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds, const InputPlane* plane = NULL);
+    /// --gpu=opencl, in an OpenCL action of the effect: image's OpenCL copy (RenderSession::getImage(),
+    /// the session's output for the output clip); else image. Takes image's reference.
+    OFX::Host::ImageEffect::Image* forOpenCL(OFX::Host::ImageEffect::Image* image);
 
     /// the RoD of the clip at the given time and view, in canonical coordinates: the PAL SD frame
     /// for a connected input (for a PFM file, its size in pixels at the clip's PAR), empty (0,0,0,0) for a disconnected one, and the result of the

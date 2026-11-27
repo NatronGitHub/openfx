@@ -60,6 +60,12 @@
 #include "ofxhOpenGLContext.h"
 #include "ofxhOpenGLRender.h"
 #endif
+#ifdef HOSTDEMO_OPENCL
+#include <functional>
+#include <memory>
+#include "ofxhOpenCLDevice.h"
+#include "ofxhOpenCLRender.h"
+#endif
    
 ////////////////////////////////////////////////////////////////////////////////
 // By default, this example code renders the example 'invert' plugin built
@@ -772,7 +778,10 @@ static void usage(const char* prog)
     "  --gpu=MODE         cpu (the default) or opengl: render with OpenGL the plug-ins that can (an\n"
     "                     offscreen context: EGL or GLX on Linux, CGL on macOS, WGL on Windows), on the CPU\n"
     "                     without a context, or if the OpenGL render fails (kOfxStatGPURenderFailed...)\n"
-    "                     and the plug-in can; the --report renders get \"openGL\" and \"cpuRetry\"\n"
+    "                     and the plug-in can; the --report renders get \"openGL\" and \"cpuRetry\".\n"
+    "                     opencl: the same with OpenCL (the first GPU device, else the first device;\n"
+    "                     OpenCL Buffers, or Images for a plug-in with Images only and RGBA clips);\n"
+    "                     the --report renders get \"openCL\" and \"cpuRetry\"\n"
     "  --gpu-renderer=BACKEND:ID  with --gpu=opengl: the renderer of the context, one of --gpu-renderers\n"
     "                     (e.g. egl-device:0, glx:-1, cgl:<renderer ID>); no context on it is an error\n"
     "  --gpu-renderers    list the OpenGL renderers as BACKEND:ID and their names, and exit\n"
@@ -1095,11 +1104,83 @@ static OfxStatus withOpenGL(OpenGLHost& gl, MyHost::MyEffectInstance& instance, 
 }
 #endif
 
+/// --gpu=opencl (HOSTDEMO_OPENCL builds): see below
+struct OpenCLHost;
+
+#ifdef HOSTDEMO_OPENCL
+namespace CL = OFX::Host::OpenCL;
+
+/// --gpu=opencl: the OpenCL device of hostDemo (a context, and the queues lent to its renders)
+struct OpenCLHost {
+  std::unique_ptr<CL::Device> device;
+  /// how the instance renders now: OpenCL Buffers (preferred when the plug-in can do both), OpenCL
+  /// Images, the CPU, or neither
+  CL::RenderMode mode(const MyHost::MyEffectInstance& instance) const
+  {
+    return CL::chooseRenderMode(instance, device != nullptr, device && device->info().imageSupport);
+  }
+};
+
+/// An action of the instance with OpenCL in a RenderSession of mode (action()), with the render window of
+/// output's image (the render action) copied to OpenCL and read back after. sent: the session accepted the mode
+/// (else the action wasn't sent); clFailed: CL::openCLFailed(), or not sent; cpuRetry: then the host
+/// may render on the CPU (CL::cpuRetryAllowed()).
+static OfxStatus withOpenCL(OpenCLHost& cl, MyHost::MyEffectInstance& instance, MyHost::MyClipInstance* output,
+                            OfxTime t, const OfxRectI& window, CL::RenderMode mode, const std::function<OfxStatus()>& action,
+                            bool& sent, bool& clFailed, bool& cpuRetry)
+{
+  sent = false;
+  clFailed = true;
+  cpuRetry = OFX::Host::ImageEffect::canRenderOnCPU(instance);
+  OFX::Host::ImageEffect::Image* out = NULL;
+  OfxStatus st = kOfxStatFailed;
+  {
+    CL::Queue queue(*cl.device);
+    CL::RenderSession session(instance, queue, mode);
+    if (!session.ok()) {
+      return kOfxStatFailed;
+    }
+    try {
+      if (output) {
+        out = output->getImage(t, NULL); // (the output image of this render, before the session)
+        if (!out || !session.setOutput(*output, *out, window)) {
+          if (out) {
+            out->releaseReference();
+          }
+          return kOfxStatFailed;
+        }
+      }
+      // the session of the action, also when it throws (E.6)
+      struct SessionScope {
+        MyHost::MyEffectInstance& instance;
+        SessionScope(MyHost::MyEffectInstance& i, CL::RenderSession* s) : instance(i) { instance.setOpenCLSession(s); }
+        ~SessionScope() { instance.setOpenCLSession(NULL); }
+      } scope(instance, &session);
+      sent = true;
+      st = action();
+      instance.setOpenCLSession(NULL);
+      if (out && st == kOfxStatOK && !session.failed()) {
+        session.readOutput();
+      }
+      clFailed = CL::openCLFailed(session, st);
+      cpuRetry = CL::cpuRetryAllowed(instance, session, st);
+    } catch (const std::exception& e) {
+      std::cerr << "Error: OpenCL render: " << e.what() << std::endl;
+      clFailed = true;
+    }
+  }
+  if (out) {
+    out->releaseReference();
+  }
+  return st;
+}
+#endif
+
 static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstance* outputClip,
                         OfxTime t, int view, int nViews, const OfxPointD& renderScale,
                         const OfxRectI* window, bool query, bool sequential,
                         bool allowUnwritten, const std::string& base, OutputFormat format,
-                        bool multiPlane, Json* rep, OpenGLHost* openGL)
+                        bool multiPlane, Json* rep, OpenGLHost* openGL, OpenCLHost* openCL)
 {
   const std::string fname = base + (format == eFormatPFM ? ".pfm" : ".ppm");
   (void)nViews;
@@ -1339,11 +1420,42 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
 #endif
                                 );
   };
-  bool usedOpenGL = false, cpuRetry = false;
+  bool usedOpenGL = false, cpuRetry = false, usedOpenCL = false, openCLDone = false;
+#ifdef HOSTDEMO_OPENCL
+  const CL::RenderMode clMode = openCL ? openCL->mode(*instance) : CL::RenderMode::CPU;
+  if (clMode == CL::RenderMode::Buffers || clMode == CL::RenderMode::Images) {
+    openCLDone = true;
+    bool sent = false, clFailed = false, retry = false;
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    // the view of this render first, as with OpenGL below
+    outputClip->setView(view);
+#endif
+    stat = withOpenCL(*openCL, *instance, outputClip, t, renderWindow, clMode, [&] { return render(false, NULL); }, sent,
+                      clFailed, retry);
+    usedOpenCL = sent && !clFailed;
+    if (!usedOpenCL && retry) {
+      // render again on the CPU, with a new output image
+      cpuRetry = true;
+      outputClip->releaseOutputImage();
+      stat = render(false, NULL);
+    } else if (!usedOpenCL && stat == kOfxStatOK) {
+      stat = kOfxStatFailed;
+    }
+  } else if (openCL && clMode == CL::RenderMode::None) {
+    openCLDone = true;
+    std::cerr << "Error: the plug-in can't render on the CPU (kOfxImageEffectPropCPURenderSupported \"false\"), "
+                 "and hostDemo has no OpenCL device it can use" << std::endl;
+    stat = kOfxStatFailed;
+  }
+#else
+  (void)openCL;
+#endif
 #ifdef HOSTDEMO_OPENGL
   OpenGLHost* gl = openGL;
   const GL::RenderMode mode = gl ? gl->mode(*instance) : GL::RenderMode::CPU;
-  if (mode == GL::RenderMode::OpenGL) {
+  if (openCLDone) {
+    // (rendered with OpenCL above)
+  } else if (mode == GL::RenderMode::OpenGL) {
     bool glFailed = false, retry = false;
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
     // the view of this render first: renderAction() sets it, which releases the output image of
@@ -1365,6 +1477,10 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
                  "and hostDemo has no OpenGL context for it" << std::endl;
     stat = kOfxStatFailed;
   } else
+#else
+  if (openCLDone) {
+    // (rendered with OpenCL above)
+  } else
 #endif
   {
     stat = render(false, NULL);
@@ -1377,6 +1493,11 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
   if (openGL) {
     // --gpu=opengl: whether OpenGL rendered this frame, and whether the CPU rendered it again
     renderJ["openGL"] = usedOpenGL;
+    renderJ["cpuRetry"] = cpuRetry;
+  }
+  if (openCL) {
+    // --gpu=opencl: whether OpenCL rendered this frame, and whether the CPU rendered it again
+    renderJ["openCL"] = usedOpenCL;
     renderJ["cpuRetry"] = cpuRetry;
   }
   r["output"] = Json();
@@ -1442,6 +1563,7 @@ static int run(int argc, char **argv)
   bool gpuOpenGL = false;      ///< --gpu=opengl
   std::string gpuRenderer;     ///< --gpu-renderer=BACKEND:ID
   bool gpuRenderers = false;   ///< --gpu-renderers
+  bool gpuOpenCL = false;      ///< --gpu=opencl
   bool multiPlane = false;     ///< --multiplane
   /// --components: kOfxImageEffectPropSupportedComponents of the host descriptor, and their short names
   std::vector<std::string> hostComponents, hostComponentNames;
@@ -1480,8 +1602,9 @@ static int run(int argc, char **argv)
       profile = p;
     } else if (arg == "--opengl-describe") {
       openglDescribe = true;
-    } else if (arg == "--gpu=opengl" || arg == "--gpu=cpu") {
+    } else if (arg == "--gpu=opengl" || arg == "--gpu=opencl" || arg == "--gpu=cpu") {
       gpuOpenGL = arg == "--gpu=opengl";
+      gpuOpenCL = arg == "--gpu=opencl";
     } else if (arg.compare(0, 15, "--gpu-renderer=") == 0) {
       gpuRenderer = arg.substr(15);
     } else if (arg == "--gpu-renderers") {
@@ -1745,6 +1868,18 @@ static int run(int argc, char **argv)
     std::cerr << "Error: --ofx11 can't be used with --ofx14, --multiplane, --opengl-describe or --gpu=opengl" << std::endl;
     return 1;
   }
+  // (the OpenCL properties are OFX 1.5: an OFX 1.4 or 1.1 host has none)
+  if (profile != MyHost::Profile::eDefault && gpuOpenCL) {
+    std::cerr << "Error: --gpu=opencl can't be used with --ofx14 or --ofx11 (OpenCL render is OFX 1.5)" << std::endl;
+    return 1;
+  }
+  // (after the option conflicts, as the Python host, which checks its ofxh build after parsing)
+#ifndef HOSTDEMO_OPENCL
+  if (gpuOpenCL) {
+    std::cerr << "Error: --gpu=opencl: hostDemo was built without OFX_HOSTSUPPORT_OPENCL" << std::endl;
+    return 1;
+  }
+#endif
   if (profile == MyHost::Profile::eOFX11 && inputDepth == kOfxBitDepthShort) {
     std::cerr << "Error: -d short: the --ofx11 host only supports byte and float depths" << std::endl;
     return 1;
@@ -1777,6 +1912,22 @@ static int run(int argc, char **argv)
 #else
   const bool hostOpenGL = false;
 #endif
+#ifdef HOSTDEMO_OPENCL
+  // --gpu=opencl: the device (by default the first GPU, else the first device), created first:
+  // without one, the host doesn't say it supports OpenCL
+  OpenCLHost cl;
+  if (gpuOpenCL) {
+    std::string why;
+    cl.device = CL::createDevice(CL::Hooks(), -1, -1, &why);
+    if (!cl.device) {
+      std::cerr << "Warning: --gpu=opencl: no OpenCL device (" << why << "): rendering on the CPU" << std::endl;
+    }
+  }
+  const bool hostOpenCL = cl.device != nullptr;
+  const bool hostOpenCLImages = hostOpenCL && cl.device->info().imageSupport;
+#else
+  const bool hostOpenCL = false, hostOpenCLImages = false;
+#endif
   // set the version label in the global cache
   // (the plug-ins may describe themselves differently to an OFX 1.4 host, to a host with
   // OpenGL render, to a multi-plane host, or to a host with other components: another cache)
@@ -1790,7 +1941,8 @@ static int run(int argc, char **argv)
   }
   const std::string cacheSuffix =
     (profile == MyHost::Profile::eDefault ? std::string() : std::string("-") + MyHost::profileName(profile)) +
-    (openglDescribe || hostOpenGL ? "-opengl" : "") + (multiPlane ? "-multiplane" : "") + componentsSuffix;
+    (openglDescribe || hostOpenGL ? "-opengl" : "") + (hostOpenCL ? (hostOpenCLImages ? "-opencl-images" : "-opencl") : "") +
+    (multiPlane ? "-multiplane" : "") + componentsSuffix;
   OFX::Host::PluginCache::getPluginCache()->setCacheVersion("hostDemoV1" + cacheSuffix);
   const std::string cachePath = "hostDemoPluginCache" + cacheSuffix + ".xml";
 
@@ -1806,6 +1958,13 @@ static int run(int argc, char **argv)
   if (openglDescribe || hostOpenGL) {
     // (an OFX 1.4 host property: also with --ofx14)
     myHost.getProperties().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "true");
+  }
+  if (hostOpenCL) {
+    // "a host indicates it supports OpenCL acceleration by setting kOfxImageEffectPropOpenCLSupported
+    // (Images) and/or kOfxImageEffectPropOpenCLRenderSupported (Buffers) on it's descriptor"
+    // (ofxGPURender.h): Images if the device has them
+    myHost.getProperties().setStringProperty(kOfxImageEffectPropOpenCLRenderSupported, "true");
+    myHost.getProperties().setStringProperty(kOfxImageEffectPropOpenCLSupported, hostOpenCLImages ? "true" : "false");
   }
   if (!hostComponents.empty()) {
     // "This list of strings indicate what component types are supported by a host" (an OFX 1.4
@@ -2213,10 +2372,30 @@ static int run(int argc, char **argv)
           );
       };
       OpenGLHost* openGLArg = NULL; // renderFrame()'s (--gpu=opengl)
+      OpenCLHost* openCLArg = NULL; // renderFrame()'s (--gpu=opencl)
       // whether BeginSequenceRender ran with OpenGL: EndSequenceRender does the same (the pair
-      // shares kOfxImageEffectPropOpenGLEnabled)
+      // shares kOfxImageEffectPropOpenGLEnabled); likewise with OpenCL, in the same mode
       bool sequenceOpenGL = false;
+#ifdef HOSTDEMO_OPENCL
+      CL::RenderMode sequenceOpenCL = CL::RenderMode::CPU;
+#endif
       auto sequenceAction = [&](bool begin) {
+#ifdef HOSTDEMO_OPENCL
+        if (begin) {
+          sequenceOpenCL = cl.device ? cl.mode(*myInstance) : CL::RenderMode::CPU;
+        }
+        if (sequenceOpenCL == CL::RenderMode::Buffers || sequenceOpenCL == CL::RenderMode::Images) {
+          bool sent = false, clFailed = false, retry = false;
+          const OfxRectI noWindow = { 0, 0, 0, 0 };
+          const OfxStatus st = withOpenCL(cl, *myInstance, NULL, firstFrame, noWindow, sequenceOpenCL,
+                                          [&] { return sequence(begin, false, NULL); }, sent, clFailed, retry);
+          if (sent) {
+            return st;
+          }
+          // (refused by the session: without OpenCL, and End too)
+          sequenceOpenCL = CL::RenderMode::CPU;
+        }
+#endif
 #ifdef HOSTDEMO_OPENGL
         if (begin) {
           sequenceOpenGL = gl.context && gl.mode(*myInstance) == GL::RenderMode::OpenGL;
@@ -2238,6 +2417,9 @@ static int run(int argc, char **argv)
       OfxStatus stat = kOfxStatOK;
 #ifdef HOSTDEMO_OPENGL
       openGLArg = gpuOpenGL ? &gl : NULL;
+#endif
+#ifdef HOSTDEMO_OPENCL
+      openCLArg = gpuOpenCL ? &cl : NULL;
 #endif
       if (!query) {
         stat = sequenceAction(true);
@@ -2262,7 +2444,7 @@ static int run(int argc, char **argv)
           std::ostringstream ss;
           ss << outputPrefix << "." << tname.str() << (nViews == 1 ? "" : view == 0 ? "l" : "r");
           Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-          if (!renderFrame(myInstance, outputClip, t, view, nViews, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r, openGLArg)) {
+          if (!renderFrame(myInstance, outputClip, t, view, nViews, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r, openGLArg, openCLArg)) {
             ret = 1;
           }
         }
@@ -2270,7 +2452,7 @@ static int run(int argc, char **argv)
         std::ostringstream ss;
         ss << outputPrefix << "." << tname.str();
         Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r, openGLArg)) {
+        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r, openGLArg, openCLArg)) {
           ret = 1;
         }
 #endif
