@@ -81,14 +81,14 @@ DaVinci Resolve (``OFX_EXTENSIONS_RESOLVE``)
 
 Resolve introduced several properties before they were standardized:
 
-- CUDA, CUDA stream, Metal and OpenCL rendering, now standard in
-  ``ofxGPURender.h`` (OFX 1.5); the fork keeps the original
-  ``OFX_EXTENSIONS_RESOLVE`` block of ``ofxImageEffect.h``, whose definitions
-  are token-identical to ``ofxGPURender.h``;
+- CUDA, CUDA stream, Metal and OpenCL rendering, standard since OFX 1.5:
+  include ``ofxGPURender.h`` for them (``ofxImageEffect.h`` no longer
+  defines them under ``OFX_EXTENSIONS_RESOLVE``);
 - the string-valued choice parameter (``kOfxParamTypeStrChoice``,
   ``kOfxParamPropChoiceEnum``), standard since OFX 1.5 and no longer behind
   ``OFX_EXTENSIONS_RESOLVE`` in this fork;
-- ``kOfxImageEffectPropNoSpatialAwareness``, standard since OFX 1.5.1;
+- ``kOfxImageEffectPropNoSpatialAwareness``, standard since OFX 1.5.1 and
+  defined in ``ofxImageEffect.h`` in every build;
 - Resolve-only properties such as ``kOfxImageEffectPropResolvePage`` and
   ``kOfxImageClipPropThumbnail``.
 

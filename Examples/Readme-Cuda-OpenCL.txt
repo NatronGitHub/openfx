@@ -3,10 +3,11 @@ GPU render examples: Cuda, OpenCL and Metal
 
 The Cuda and OpenCL examples were contributed by Blackmagic Design (as of 21
 April 2015) for the GPU render extensions of DaVinci Resolve, which were
-defined in ofxImageEffect.h under OFX_EXTENSIONS_RESOLVE. These extensions
+first defined in ofxImageEffect.h under OFX_EXTENSIONS_RESOLVE. These extensions
 became standard in OFX 1.5, in include/ofxGPURender.h, with CUDA streams, Metal,
-and OpenCL images. The examples now use ofxGPURender.h (OFX_EXTENSIONS_RESOLVE
-is no longer needed), and the Metal example was added.
+and OpenCL images, and are now defined there only. The examples use
+ofxGPURender.h (OFX_EXTENSIONS_RESOLVE is not needed), and the Metal example
+was added.
 
 The directories:
 
