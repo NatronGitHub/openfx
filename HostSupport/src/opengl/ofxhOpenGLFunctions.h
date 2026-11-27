@@ -137,6 +137,17 @@ namespace OFX {
           return false;
         }
 
+        /// at most this many glGetError() calls to clear the errors (a lost context may report
+        /// errors forever)
+        static const int kMaxGLErrors = 16;
+
+        /// clears the errors OpenGL recorded
+        inline void clearGLErrors(const GLFunctions &gl)
+        {
+          for (int i = 0; i < kMaxGLErrors && gl.GetError() != kGLNoError; ++i) {
+          }
+        }
+
         /// runs call through hooks.driverCall, or directly if the host gave none
         template <typename F>
         void driverCall(const Hooks &hooks, F &&call)

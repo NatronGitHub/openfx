@@ -47,6 +47,7 @@
 */
 
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <list>
 #include <memory>
@@ -80,10 +81,18 @@ namespace OFX {
       /// (Linux and BSD: EGLSurfaceless, EGLDevice; macOS: CGL; Windows: WGL)
       std::vector<Backend> defaultBackends();
 
+      /// the level of a Hooks::log message
+      enum class LogLevel {
+        Error,    ///< an action or a texture failed
+        Warning,  ///< a fallback: a backend that failed before another one worked, a texture leak
+        Info,     ///< the chosen renderer
+        Debug     ///< details, e.g. a renderer that listRenderers() couldn't open
+      };
+
       /// Services the host gives the contexts; all optional
       struct Hooks {
-        /// receives the errors and the chosen renderer (default: dropped)
-        std::function<void(const std::string &message)> log;
+        /// receives the messages, with their level (default: dropped)
+        std::function<void(LogLevel level, const std::string &message)> log;
         /// runs call, a call into the context API or the OpenGL driver. Drivers may raise
         /// floating-point exceptions: a host that unmasks them masks them here (default: calls it).
         /// It runs with no lock of this library held, but may run while the thread holds a
@@ -104,6 +113,12 @@ namespace OFX {
         std::string vendor, renderer, version;  ///< GL_VENDOR, GL_RENDERER, GL_VERSION
         bool software = false;                  ///< no hardware acceleration
         int maxTextureSize = 0;                 ///< GL_MAX_TEXTURE_SIZE
+        /// GL_SHADING_LANGUAGE_VERSION (OpenGL 2.0), "" if none
+        std::string shadingLanguageVersion;
+        /// the renderer's dedicated video memory, 0 if the driver doesn't say:
+        /// GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX (GL_NVX_gpu_memory_info), CGL's
+        /// kCGLRPVideoMemoryMegabytes
+        std::int64_t videoMemoryBytes = 0;
       };
 
       namespace Detail { struct GLFunctions; }
@@ -142,6 +157,9 @@ namespace OFX {
         virtual ProcAddress backendProcAddress(const char *name) const = 0;
         /// backend: called once current, fills _info's GL strings and loads the functions
         bool initialize(Backend backend, int rendererId, bool software, std::string *error);
+        /// backend: info() as it fills it, after initialize(), with what the backend knows and
+        /// OpenGL doesn't say (e.g. CGL's video memory); info() itself is const
+        RendererInfo &backendInfo() { return _info; }
 
       private:
         friend class CurrentContext;
@@ -191,7 +209,9 @@ namespace OFX {
       /// makes it current for a render nested on the thread, and a scope on another context
       /// doesn't wait: it fails if another thread holds that context.
       /// A thread that holds or reserves a context never waits for another one, so contexts
-      /// can't deadlock (the lock order idea of CP.21, for contexts).
+      /// can't deadlock (the lock order idea of CP.21, for contexts). A thread must not end while it
+      /// holds or reserves a context: its scopes end before the thread (on WGL, the context would be
+      /// left current on the hidden window of an ended thread).
       class CurrentContext {
       public:
         explicit CurrentContext(Context &context);
@@ -279,6 +299,13 @@ namespace OFX {
         void wake();
         /// the number of contexts created
         int size() const;
+        /// The maximum number of contexts, which a host may change at run time (e.g. a setting).
+        /// More: the waiting acquire() calls may lend or create contexts. Fewer: at most this many
+        /// are lent at once (acquire() waits, tryAcquire() gives nullptr, until releases bring
+        /// the count below it), and none is created; the contexts made already stay allocated
+        /// (instances may be attached to them) until the pool is destroyed.
+        void setMaxContexts(int maxContexts);
+        int maxContexts() const;
 
         /// acquire() and release() as a scope (release() only if acquire() gave a context)
         class Lease {
@@ -299,6 +326,7 @@ namespace OFX {
         /// a new context for key in a new slot, created without the lock; nullptr if the
         /// factory fails
         Context *create(std::unique_lock<std::mutex> &lock, Key key);
+        int inUse() const; ///< the slots lent (holds > 0); with _mutex held
         struct Slot {
           std::unique_ptr<Context> context; ///< nullptr while the factory creates it
           Key key = nullptr;    ///< the render holding it, or the last one if idle

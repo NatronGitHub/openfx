@@ -1075,7 +1075,7 @@ static OfxStatus withOpenGL(OpenGLHost& gl, MyHost::MyEffectInstance& instance, 
       SessionScope(MyHost::MyEffectInstance& i, GL::RenderSession* s) : instance(i) { instance.setOpenGLSession(s); }
       ~SessionScope() { instance.setOpenGLSession(NULL); }
     } scope(instance, &session);
-    st = action(true, gl.attachment->contextData());
+    st = action(true, session.contextData());
     glFailed = GL::openGLFailed(session, st);
     cpuRetry = GL::cpuRetryAllowed(instance, session, st);
     if (out && st == kOfxStatOK && !glFailed) {

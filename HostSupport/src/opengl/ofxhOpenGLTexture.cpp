@@ -81,16 +81,12 @@ namespace OFX {
       /// the client format of an image's pixels
       static GLenum glFormat(Components components) { return components == Components::RGBA ? kGLRGBA : kGLAlpha; }
 
-      /// at most this many glGetError() calls to clear the errors (a lost context may report errors
-      /// forever)
-      static const int kMaxErrors = 16;
-
       /// throws if OpenGL reported an error (and clears all of them)
       static void checkGL(const GLFunctions &gl, const char *what)
       {
         GLenum first = kGLNoError;
         GLenum e = gl.GetError();
-        for (int i = 0; i < kMaxErrors && e != kGLNoError; ++i, e = gl.GetError()) {
+        for (int i = 0; i < kMaxGLErrors && e != kGLNoError; ++i, e = gl.GetError()) {
           first = first == kGLNoError ? e : first;
         }
         if (first == kGLOutOfMemory) {
@@ -110,8 +106,7 @@ namespace OFX {
         context.driverCall([&] {
           try {
             const GLFunctions &gl = context.gl();
-            for (int i = 0; i < kMaxErrors && gl.GetError() != kGLNoError; ++i) {
-            }
+            clearGLErrors(gl);
             call(gl);
           } catch (...) {
             error = std::current_exception();

@@ -26,12 +26,15 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <future>
 #include <list>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -503,40 +506,34 @@ namespace {
   {
     typedef unsigned int (OFXH_GLAPIENTRY *GetErrorFn)();
     typedef void (OFXH_GLAPIENTRY *ClearColorFn)(float, float, float, float);
-    // renders with the context current on this thread: a clear of its window's framebuffer on
-    // WGL (the window of this thread), else a GL call without error
+    // renders with the context current on this thread: a clear of a texture as the render
+    // target, read back (the same on every backend; no window's default framebuffer)
     auto renders = [](GL::Context &context) {
       const auto getError = reinterpret_cast<GetErrorFn>(context.getProcAddress("glGetError"));
-      if (!getError) {
-        return false;
-      }
-      while (getError() != 0) {
-      }
-#if defined(_WIN32)
+      const auto clearColor = reinterpret_cast<ClearColorFn>(context.getProcAddress("glClearColor"));
       typedef void (OFXH_GLAPIENTRY *ClearFn)(unsigned int);
-      typedef void (OFXH_GLAPIENTRY *BindFramebufferFn)(unsigned int, unsigned int);
-      typedef void (OFXH_GLAPIENTRY *ReadPixelsFn)(int, int, int, int, unsigned int, unsigned int, void *);
-      const auto clearColor = reinterpret_cast<ClearColorFn>(context.getProcAddress("glClearColor"));
       const auto clear = reinterpret_cast<ClearFn>(context.getProcAddress("glClear"));
-      const auto bind = reinterpret_cast<BindFramebufferFn>(context.getProcAddress("glBindFramebuffer"));
-      const auto readPixels = reinterpret_cast<ReadPixelsFn>(context.getProcAddress("glReadPixels"));
-      if (!clearColor || !clear || !bind || !readPixels) {
+      if (!getError || !clearColor || !clear) {
         return false;
       }
-      unsigned char pixel[4] = { 0, 0, 0, 0 };
-      bind(0x8D40 /* GL_FRAMEBUFFER */, 0);
-      clearColor(1.f, 0.f, 0.f, 1.f);
-      clear(0x4000 /* GL_COLOR_BUFFER_BIT */);
-      readPixels(0, 0, 1, 1, 0x1908 /* GL_RGBA */, 0x1401 /* GL_UNSIGNED_BYTE */, pixel);
-      return getError() == 0 && pixel[0] == 255 && pixel[1] == 0 && pixel[3] == 255;
-#else
-      const auto clearColor = reinterpret_cast<ClearColorFn>(context.getProcAddress("glClearColor"));
-      if (!clearColor) {
+      try {
+        const OfxRectI one = { 0, 0, 1, 1 };
+        GL::Texture texture(context, one, GL::PixelDepth::Byte, GL::Components::RGBA);
+        texture.bindAsRenderTarget();
+        clearColor(1.f, 0.f, 0.f, 1.f);
+        clear(0x4000 /* GL_COLOR_BUFFER_BIT */);
+        unsigned char pixel[4] = { 0, 0, 0, 0 };
+        GL::ImageRect rect;
+        rect.data = pixel;
+        rect.bounds = one;
+        rect.rowBytes = 4;
+        rect.depth = GL::PixelDepth::Byte;
+        rect.components = GL::Components::RGBA;
+        texture.readback(rect);
+        return getError() == 0 && pixel[0] == 255 && pixel[1] == 0 && pixel[3] == 255;
+      } catch (const std::exception &) {
         return false;
       }
-      clearColor(0.f, 0.f, 0.f, 0.f);
-      return getError() == 0;
-#endif
     };
     std::unique_ptr<GL::Context> context;
     std::promise<void> created, held;
@@ -757,14 +754,14 @@ namespace {
   ////////////////////////////////////////////////////////////////////////////////
   // with Examples/OpenGL: renders
 
-  GL::Context *gContexts[2] = { nullptr, nullptr };
+  GL::Context *gContexts[3] = { nullptr, nullptr, nullptr };
 
   /// the name of the test context current on this thread, from the driver (not from the
   /// library's own bookkeeping)
   std::string currentContextName()
   {
     void *current = currentNativeContext();
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < 3; ++i) {
       if (current && gContexts[i] && gContexts[i]->nativeContext() == current) {
         return "c" + std::to_string(i + 1);
       }
@@ -803,6 +800,14 @@ namespace {
     bool fetchRendered = false;
     std::thread fetchThread;
     std::atomic<bool> inRender{ false }, sameKeyDuringRender{ false }, sameKeyGot{ false };
+    /// Attached returns kNatronOfxImageEffectPropOpenGLContextData (1, 2... in order), as a
+    /// plug-in that renders on several contexts at once; the actions then record the data
+    /// ("attached:c1:1", "detached:c1:1")
+    bool returnContextData = false;
+    std::mutex actionsMutex; ///< (renders on several threads)
+    int contextDataCount = 0;
+    /// Attached waits while blockAttached, with inAttached set (a slow Attached on another thread)
+    std::atomic<bool> blockAttached{ false }, inAttached{ false };
 
     GLTestInstance(ImageEffect::ImageEffectPlugin *plugin, ImageEffect::Descriptor &desc, const std::string &context)
       : MyHost::MyEffectInstance(plugin, desc, context) {}
@@ -821,9 +826,35 @@ namespace {
         return st;
       }
       if (std::strcmp(action, kOfxActionOpenGLContextAttached) == 0) {
-        actions.push_back("attached:" + currentContextName());
-      } else if (std::strcmp(action, kOfxActionOpenGLContextDetached) == 0) {
-        actions.push_back("detached:" + currentContextName());
+        inAttached = true;
+        while (blockAttached) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        inAttached = false;
+        const OfxStatus st = MyHost::MyEffectInstance::mainEntry(action, handle, inArgs, outArgs);
+        std::lock_guard<std::mutex> lock(actionsMutex);
+        std::string data;
+#ifdef OFX_EXTENSIONS_NATRON
+        if (returnContextData && outArgs) {
+          const int k = ++contextDataCount;
+          outArgs->setPointerProperty(kNatronOfxImageEffectPropOpenGLContextData,
+                                      reinterpret_cast<void *>(static_cast<intptr_t>(k)));
+          data = ":" + std::to_string(k);
+        }
+#endif
+        actions.push_back("attached:" + currentContextName() + data);
+        return st;
+      }
+      if (std::strcmp(action, kOfxActionOpenGLContextDetached) == 0) {
+        std::lock_guard<std::mutex> lock(actionsMutex);
+        std::string data;
+#ifdef OFX_EXTENSIONS_NATRON
+        // (the data Attached returned on this context, if any)
+        if (const intptr_t k = inArgs ? reinterpret_cast<intptr_t>(inArgs->getPointerProperty(kNatronOfxImageEffectPropOpenGLContextData)) : 0) {
+          data = ":" + std::to_string(k);
+        }
+#endif
+        actions.push_back("detached:" + currentContextName() + data);
       }
       return MyHost::MyEffectInstance::mainEntry(action, handle, inArgs, outArgs);
     }
@@ -948,7 +979,7 @@ namespace {
     result.status = instance.renderAction(0., kOfxImageFieldNone, window, scale, false, false,
                                           true, // openGLRender
 #ifdef OFX_EXTENSIONS_NATRON
-                                          attachment.contextData(),
+                                          session.contextData(),
 #endif
                                           false
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
@@ -1065,6 +1096,171 @@ namespace {
     delete y;
   }
 
+  /// A plug-in that returns kNatronOfxImageEffectPropOpenGLContextData from Attached is attached to
+  /// several contexts at once ("This permits running several parallel renders on different OpenGL
+  /// contexts", ofxNatron.h): a render on c2 doesn't wait for one on c1, there is no Detached in
+  /// between, each session gets its context's data, and detach() sends Detached on each context
+  /// with it current and its data. (Natron builds; without the extension, OFX 1.5.1's one context
+  /// at a time is checked by checkCrosswiseAndNested().)
+  void checkConcurrentAttachment(GLTestInstance &instance, GL::Context &c1, GL::Context &c2)
+  {
+#ifdef OFX_EXTENSIONS_NATRON
+    instance.returnContextData = true;
+    instance.actions.clear();
+    {
+      GL::Attachment attachment(instance);
+      std::atomic<int> stage(0);
+      bool ok1 = false, ok2 = false;
+      void *d1 = nullptr, *d2 = nullptr;
+      std::thread t1([&] {
+        GL::CurrentContext current(c1);
+        GL::RenderSession session(attachment, current);
+        ok1 = session.ok();
+        d1 = session.contextData();
+        stage = 1;
+        while (stage < 2) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+      });
+      while (stage < 1) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+      std::atomic<bool> done(false);
+      std::thread t2([&] {
+        GL::CurrentContext current(c2);
+        GL::RenderSession session(attachment, current);
+        ok2 = session.ok();
+        d2 = session.contextData();
+        done = true;
+      });
+      for (int i = 0; i < 100 && !done; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      }
+      check("with context data: a render on c2 runs while one on c1 is in progress (5 s)", done.load());
+      stage = 2;
+      t1.join();
+      t2.join();
+      check("with context data: attached to c1 and c2, no Detached in between, each session gets its data",
+            ok1 && ok2 && attachment.contexts() == 2 && d1 && d2 && d1 != d2 &&
+            instance.actions == std::vector<std::string>({ "attached:c1:1", "attached:c2:2" }));
+      check("with context data: detach() sends Detached on each context, current, with its data",
+            attachment.detach() == kOfxStatOK && attachment.contexts() == 0 && instance.actions.size() == 4 &&
+            instance.actions[2] == "detached:c2:2" && instance.actions[3] == "detached:c1:1");
+    }
+    // a render on c1 joins while another thread's Attached on c2 runs (a concurrent attach),
+    // without waiting for it: a nested render, which can't wait, would fail
+    {
+      GL::Attachment attachment(instance);
+      void *d1 = nullptr;
+      {
+        GL::CurrentContext current(c1);
+        GL::RenderSession session(attachment, current);
+        d1 = session.contextData();
+      }
+      instance.blockAttached = true;
+      std::thread t2([&] {
+        GL::CurrentContext current(c2);
+        GL::RenderSession session(attachment, current);
+      });
+      for (int i = 0; i < 500 && !instance.inAttached; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+      std::atomic<bool> done(false);
+      bool joined = false;
+      std::thread t1([&] {
+        GL::CurrentContext current(c1);
+        GL::RenderSession session(attachment, current);
+        joined = session.ok() && d1 && session.contextData() == d1;
+        done = true;
+      });
+      for (int i = 0; i < 100 && !done; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      }
+      check("with context data: a render on c1 joins while Attached runs on c2 on another thread (5 s)",
+            instance.inAttached.load() && done.load() && joined);
+      instance.blockAttached = false;
+      t1.join();
+      t2.join();
+      check("with context data: then attached to c1 and c2", attachment.contexts() == 2 && attachment.detach() == kOfxStatOK);
+    }
+    // mixed: data on c1, NULL on c2. The plug-in is then "supposed to follow the OpenFX spec, and
+    // will have to be detached/attached when switching the render context" (ofxNatron.h), and "A
+    // host cannot call kOfxActionOpenGLContextAttached on the same instance without an
+    // intervening kOfxActionOpenGLContextDetached" (OFX 1.5.1): the next render detaches it from
+    // every other context; on c1 or c2 it stays attached there (no Detached and Attached again)
+    std::unique_ptr<GL::Context> c3 = GL::createContext(GL::Hooks());
+    check("a third context", c3 != nullptr);
+    if (c3) {
+      gContexts[2] = c3.get();
+      struct Case {
+        GL::Context *context;
+        const char *name;
+        std::vector<std::string> then; ///< the actions after attached:c1:k, attached:c2 ("k": c1's data)
+        std::string detached;          ///< then sent by detach()
+      };
+      const Case cases[] = {
+        { c3.get(), "c3", { "detached:c2", "detached:c1:k", "attached:c3" }, "detached:c3" },
+        { &c1, "c1", { "detached:c2" }, "detached:c1:k" },
+        { &c2, "c2", { "detached:c1:k" }, "detached:c2" },
+      };
+      for (const Case &c : cases) {
+        instance.returnContextData = true;
+        instance.actions.clear();
+        GL::Attachment attachment(instance);
+        bool ok = true;
+        {
+          GL::CurrentContext current(c1);
+          GL::RenderSession session(attachment, current);
+          ok = ok && session.ok();
+        }
+        const std::string k = std::to_string(instance.contextDataCount);
+        instance.returnContextData = false;
+        {
+          GL::CurrentContext current(c2);
+          GL::RenderSession session(attachment, current);
+          ok = ok && session.ok();
+        }
+        check(std::string("mixed: data on c1, then NULL on c2 attaches c2 too (then ") + c.name + ")",
+              ok && attachment.contexts() == 2);
+        void *data = nullptr;
+        {
+          GL::CurrentContext current(*c.context);
+          GL::RenderSession session(attachment, current);
+          ok = ok && session.ok();
+          data = session.contextData();
+        }
+        std::vector<std::string> expected = { "attached:c1:" + k, "attached:c2" };
+        for (std::string a : c.then) {
+          if (a.back() == 'k') {
+            a.replace(a.size() - 1, 1, k);
+          }
+          expected.push_back(a);
+        }
+        std::string last = c.detached;
+        if (last.back() == 'k') {
+          last.replace(last.size() - 1, 1, k);
+        }
+        const bool withData = c.context == &c1;
+        check(std::string("mixed: a render on ") + c.name + " leaves it attached to " + c.name + " only: " +
+                (c.context == c3.get() ? "Detached on c2 and c1, then Attached on c3"
+                                       : withData ? "Detached on c2, nothing on c1 (its data kept)"
+                                                  : "Detached on c1, nothing on c2"),
+              ok && attachment.contexts() == 1 && attachment.context() == c.context && instance.actions == expected &&
+                (withData ? data != nullptr : data == nullptr));
+        check(std::string("mixed: then detach() sends Detached on ") + c.name,
+              attachment.detach() == kOfxStatOK && instance.actions.size() == expected.size() + 1 && instance.actions.back() == last);
+      }
+      gContexts[2] = nullptr;
+    }
+    instance.returnContextData = false;
+    instance.actions.clear();
+#else
+    (void)instance;
+    (void)c1;
+    (void)c2;
+#endif
+  }
+
   /// One render action at a time per context: during the plug-in's fetch, a render on another
   /// thread gets another context (tryAcquire(), up to the maximum) or none (then the CPU), never
   /// the reserved one, and never waits; a render with the same key waits for the end of the
@@ -1115,6 +1311,59 @@ namespace {
       RenderResult r = glRender(instance, attachment, *lease.context(), window, "checker:5");
       check("a fetch rendering on another thread with no context left: tryAcquire() gives none (the CPU), at once",
             instance.fetchContext == nullptr && r.status == kOfxStatOK && r.maxError <= 1e-3f);
+    }
+  }
+
+  /// setMaxContexts() lowered from 4 to 1, also below the number of contexts in use: the four
+  /// contexts stay allocated, those lent stay with their renders, and no other is lent until
+  /// fewer than the maximum are in use (tryAcquire() gives none, acquire() waits); raising it
+  /// wakes a waiting acquire()
+  void checkPoolLowered()
+  {
+    GL::Hooks hooks;
+    GL::ContextPool pool([hooks] { return GL::createContext(hooks); }, 4);
+    int keys[5] = { 0, 0, 0, 0, 0 };
+    std::unique_ptr<GL::ContextPool::Lease> leases[4];
+    for (int i = 0; i < 4; ++i) {
+      leases[i].reset(new GL::ContextPool::Lease(pool, &keys[i]));
+    }
+    check("a pool of 4: 4 contexts lent", pool.size() == 4 && leases[3]->context() != nullptr);
+    leases[3].reset();
+    pool.setMaxContexts(1); // (3 in use)
+    check("setMaxContexts(1) with 3 in use: maxContexts() is 1, the 4 contexts stay",
+          pool.maxContexts() == 1 && pool.size() == 4);
+    GL::Context *const held = leases[0]->context();
+    check("setMaxContexts(1) with 3 in use: a render holding one keeps it, no idle one is lent",
+          pool.tryAcquire(&keys[0]) == held && pool.tryAcquire(&keys[4]) == nullptr);
+    pool.release(&keys[0]); // (the tryAcquire() above)
+    leases[1].reset();
+    check("setMaxContexts(1) with 2 in use: still none lent", pool.tryAcquire(&keys[4]) == nullptr);
+    leases[2].reset();
+    {
+      std::atomic<bool> got(false);
+      std::thread waiter([&] {
+        GL::ContextPool::Lease other(pool, &keys[4]);
+        got = other.context() != nullptr;
+      });
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+      check("setMaxContexts(1) with 1 in use: tryAcquire() gives none, acquire() waits",
+            pool.tryAcquire(&keys[3]) == nullptr && !got.load());
+      leases[0].reset();
+      waiter.join();
+      check("setMaxContexts(1): acquire() gets one after the release", got.load());
+    }
+    {
+      GL::ContextPool::Lease first(pool, &keys[0]);
+      std::atomic<bool> got(false);
+      std::thread waiter([&] {
+        GL::ContextPool::Lease other(pool, &keys[1]);
+        got = other.context() != nullptr && other.context() != first.context();
+      });
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+      const bool waited = !got.load();
+      pool.setMaxContexts(2);
+      waiter.join();
+      check("setMaxContexts(2): a waiting acquire() gets a second context", waited && got.load() && pool.size() == 4);
     }
   }
 
@@ -1225,7 +1474,9 @@ namespace {
     }
     check("~Attachment of a detached instance: nothing sent", instance->actions.size() == 4);
     checkCrosswiseAndNested(plugin, *instance, c1, c2);
+    checkConcurrentAttachment(*instance, c1, c2);
     checkExclusiveContext(*instance);
+    checkPoolLowered();
     instance->destroyInstanceAction();
     delete instance;
   }
@@ -1241,7 +1492,10 @@ int main()
   checkSuspend();
 
   GL::Hooks hooks;
-  hooks.log = [](const std::string &message) { std::printf("  %s\n", message.c_str()); };
+  hooks.log = [](GL::LogLevel level, const std::string &message) {
+    static const char *const kLevels[] = { "error", "warning", "info", "debug" };
+    std::printf("  [%s] %s\n", kLevels[static_cast<int>(level)], message.c_str());
+  };
   std::string error;
   std::unique_ptr<GL::Context> c1 = GL::createContext(hooks, GL::defaultBackends(), -1, &error);
   if (!c1) {
@@ -1250,9 +1504,14 @@ int main()
     const std::vector<GL::RendererInfo> renderers = GL::listRenderers(hooks);
     check("listRenderers: at least one", !renderers.empty());
     for (const GL::RendererInfo &r : renderers) {
-      std::printf("  renderer %s %d: %s, %s, %s%s, max texture %d\n", GL::backendName(r.backend), r.id, r.renderer.c_str(),
-                  r.vendor.c_str(), r.version.c_str(), r.software ? " (software)" : "", r.maxTextureSize);
+      std::printf("  renderer %s %d: %s, %s, %s%s, max texture %d, GLSL %s, video memory %lld MiB\n",
+                  GL::backendName(r.backend), r.id, r.renderer.c_str(), r.vendor.c_str(), r.version.c_str(),
+                  r.software ? " (software)" : "", r.maxTextureSize, r.shadingLanguageVersion.c_str(),
+                  static_cast<long long>(r.videoMemoryBytes >> 20));
     }
+    // OpenGL 2.0 and later have GL_SHADING_LANGUAGE_VERSION (the compatibility and legacy profiles)
+    check("the context's GLSL version (GL_SHADING_LANGUAGE_VERSION)",
+          c1->info().version.compare(0, 2, "1.") == 0 || !c1->info().shadingLanguageVersion.empty());
     {
       GL::CurrentContext current(*c1);
       check("CurrentContext on an OpenGL context: current in the driver", current.ok() && currentNativeContext() == c1->nativeContext());

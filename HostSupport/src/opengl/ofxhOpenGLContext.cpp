@@ -136,6 +136,16 @@ namespace OFX {
           _info.renderer = glString(*_gl, Detail::kGLRenderer);
           _info.version = glString(*_gl, Detail::kGLVersion);
           _gl->GetIntegerv(Detail::kGLMaxTextureSize, &_info.maxTextureSize);
+          _info.shadingLanguageVersion = glString(*_gl, 0x8B8C /* GL_SHADING_LANGUAGE_VERSION */);
+          // the dedicated video memory, in KiB, where the driver has GL_NVX_gpu_memory_info
+          const std::string extensions = glString(*_gl, 0x1F03 /* GL_EXTENSIONS */);
+          if (Detail::hasExtension(extensions.c_str(), "GL_NVX_gpu_memory_info")) {
+            Detail::GLint kib = 0;
+            _gl->GetIntegerv(0x9047 /* GL_GPU_MEMORY_INFO_DEDICATED_VIDMEM_NVX */, &kib);
+            _info.videoMemoryBytes = std::int64_t(1024) * kib;
+          }
+          // (a query the driver doesn't have, e.g. the GLSL version of OpenGL 1.x: not an error)
+          Detail::clearGLErrors(*_gl);
         });
         // Mesa's and Apple's software rasterizers
         static const char *const kSoftware[] = { "llvmpipe", "softpipe", "Software" };
@@ -368,14 +378,14 @@ namespace OFX {
           if (context) {
             if (hooks.log) {
               const RendererInfo &info = context->info();
-              hooks.log(std::string("OpenGL: ") + backendName(backend) + ": " + info.renderer + " (" +
+              hooks.log(LogLevel::Info, std::string("OpenGL: ") + backendName(backend) + ": " + info.renderer + " (" +
                         info.vendor + ", " + info.version + ")");
             }
             return context;
           }
           const std::string message = std::string("OpenGL: ") + backendName(backend) + ": " + why;
           if (hooks.log) {
-            hooks.log(message);
+            hooks.log(LogLevel::Warning, message);
           }
           errors += (errors.empty() ? "" : "; ") + message;
         }
@@ -395,7 +405,7 @@ namespace OFX {
             if (context) {
               renderers.push_back(context->info());
             } else if (hooks.log) {
-              hooks.log(std::string("OpenGL: ") + backendName(backend) + " renderer " + std::to_string(id) + ": " + why);
+              hooks.log(LogLevel::Debug, std::string("OpenGL: ") + backendName(backend) + " renderer " + std::to_string(id) + ": " + why);
             }
           }
         }
@@ -435,7 +445,8 @@ namespace OFX {
               idle = &slot;
             }
           }
-          if (!creating && idle) {
+          // (lent: fewer than the maximum, which setMaxContexts() may have lowered below size())
+          if (!creating && idle && inUse() < _max) {
             idle->key = key;
             idle->holds = 1;
             return idle->context.get();
@@ -499,12 +510,24 @@ namespace OFX {
             idle = &slot;
           }
         }
+        if (inUse() >= _max) {
+          return nullptr;
+        }
         if (idle) {
           idle->key = key;
           idle->holds = 1;
           return idle->context.get();
         }
         return static_cast<int>(_slots.size()) < _max ? create(lock, key) : nullptr;
+      }
+
+      int ContextPool::inUse() const
+      {
+        int n = 0;
+        for (const Slot &slot : _slots) {
+          n += slot.holds > 0 ? 1 : 0;
+        }
+        return n;
       }
 
       void ContextPool::release(Key key)
@@ -518,6 +541,19 @@ namespace OFX {
             return;
           }
         }
+      }
+
+      void ContextPool::setMaxContexts(int maxContexts)
+      {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _max = std::max(1, maxContexts);
+        _changed.notify_all(); // (the waiters may now create a context)
+      }
+
+      int ContextPool::maxContexts() const
+      {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _max;
       }
 
       void ContextPool::wake()

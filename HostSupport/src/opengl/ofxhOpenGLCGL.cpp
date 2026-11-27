@@ -15,6 +15,8 @@
 #include <OpenGL/OpenGL.h>
 #include <dlfcn.h>
 
+#include <cstdint>
+
 namespace OFX {
   namespace Host {
     namespace OpenGL {
@@ -81,6 +83,9 @@ namespace OFX {
             bool ok = false;
             if (current) {
               ok = initialize(Backend::CGL, rendererId, software, &error);
+              if (ok) {
+                driverCall([&] { backendInfo().videoMemoryBytes = videoMemory(); });
+              }
             } else {
               error = "CGLSetCurrentContext failed";
             }
@@ -89,6 +94,31 @@ namespace OFX {
           }
 
           void *nativeContext() const override { return _context; }
+
+          /// the video memory of the context's renderer (kCGLRPVideoMemoryMegabytes), 0 if unknown
+          std::int64_t videoMemory() const
+          {
+            GLint id = 0, n = 0;
+            if (CGLGetParameter(_context, kCGLCPCurrentRendererID, &id) != kCGLNoError) {
+              return 0;
+            }
+            CGLRendererInfoObj info = nullptr;
+            if (CGLQueryRendererInfo(0xFFFFFFFF, &info, &n) != kCGLNoError || !info) {
+              return 0;
+            }
+            std::int64_t bytes = 0;
+            for (GLint i = 0; i < n; ++i) {
+              GLint rid = 0, mb = 0;
+              if (CGLDescribeRenderer(info, i, kCGLRPRendererID, &rid) == kCGLNoError &&
+                  (rid & kCGLRendererIDMatchingMask) == (id & kCGLRendererIDMatchingMask) &&
+                  CGLDescribeRenderer(info, i, kCGLRPVideoMemoryMegabytes, &mb) == kCGLNoError) {
+                bytes = std::int64_t(1024) * 1024 * mb;
+                break;
+              }
+            }
+            CGLDestroyRendererInfo(info);
+            return bytes;
+          }
 
         protected:
           bool makeCurrentImpl() override { return CGLSetCurrentContext(_context) == kCGLNoError; }

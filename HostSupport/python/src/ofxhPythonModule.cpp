@@ -190,7 +190,7 @@ static OfxStatus withOpenGL(PyEffectInstance *p, OHIE::ClipInstance *output, Ofx
       ~SessionScope() { p->_glSession = nullptr; }
     } scope = { p };
     p->_glSession = &session;
-    st = action(true, p->_glAttachment->contextData());
+    st = action(true, session.contextData());
     const bool failed = GL::openGLFailed(session, st);
     if (out && st == kOfxStatOK && !failed) {
       session.readOutput();
