@@ -442,15 +442,20 @@ static OfxStatus render( OfxImageEffectHandle  instance,
 
   glDisable(source_texture_target);
 
-  // Now draw some stuff on top of it to show we really did something
+  // Now draw some stuff on top of it to show we really did something.
+  // The rectangle is cut to the render window: OpenGL clips a quad that goes past the viewport,
+  // but Apple's software renderer (CGL, "Apple Software Renderer", as on GitHub's macOS
+  // runners) sometimes drops such a quad entirely (NatronGitHub/openfx#373)
 #define WIDTH 200
 #define HEIGHT 100
+  const float x2 = WIDTH * scale < w ? float(WIDTH * scale) : w;
+  const float y2 = HEIGHT * scale < h ? float(HEIGHT * scale) : h;
   glBegin(GL_QUADS);
   glColor3f(1.0f, 0, 0); //Set the colour to red
   glVertex2f(10, 10);
-  glVertex2f(10, HEIGHT * scale);
-  glVertex2f(WIDTH * scale, HEIGHT * scale);
-  glVertex2f(WIDTH * scale, 10);
+  glVertex2f(10, y2);
+  glVertex2f(x2, y2);
+  glVertex2f(x2, 10);
   glEnd();
 
   ofxuClearRenderError(instance, myData->renderErrorPosted);

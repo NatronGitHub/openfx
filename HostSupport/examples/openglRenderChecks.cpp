@@ -1012,7 +1012,14 @@ namespace {
     bool inputTexturesDeleted = false;  ///< by clipFreeTexture
     float maxError = INFINITY;          ///< vs the expected image
     float inputRange = 0.f;             ///< max - min of the input's red in the window
+    std::string mismatch;               ///< the first pixel component off by more than 1e-3, and the renderer
   };
+
+  /// the max error of r, and where the render differs first (none if it doesn't)
+  std::string describeError(const RenderResult &r)
+  {
+    return "max error " + std::to_string(r.maxError) + (r.mismatch.empty() ? std::string() : "; " + r.mismatch);
+  }
 
   /// an OpenGL render of window at time 0 on context, of the input (a hostDemo input spec),
   /// compared with what Examples/OpenGL draws (scale and source_scale 1): the input, with a red
@@ -1096,7 +1103,13 @@ namespace {
             const int n = out->getNComponents(); // 4, or 1 (Alpha: the red rectangle's alpha is 1)
             for (int c = 0; c < n; ++c) {
               const float expected = red ? (n == 1 || c == 0 || c == 3 ? 1.f : 0.f) : in->getComponentFloat(x, y, c);
-              addError(result.maxError, out->getComponentFloat(x, y, c), expected);
+              const float got = out->getComponentFloat(x, y, c);
+              addError(result.maxError, got, expected);
+              if (result.mismatch.empty() && !(std::fabs(got - expected) <= 1e-3f)) {
+                result.mismatch = "first at (" + std::to_string(x) + ", " + std::to_string(y) + ") component " +
+                                  std::to_string(c) + ": expected " + std::to_string(expected) + ", got " +
+                                  std::to_string(got) + ", on " + context.info().renderer;
+              }
             }
             lo = std::min(lo, in->getComponentFloat(x, y, 0));
             hi = std::max(hi, in->getComponentFloat(x, y, 0));
@@ -1439,8 +1452,8 @@ namespace {
       instance.fetchContext = nullptr;
       instance.fetchRendered = false;
       RenderResult r = glRender(instance, attachment, *lease.context(), window, "checker:5");
-      check("a fetch rendering on another thread: another context (tryAcquire), current there, and the render is right (max error " +
-            std::to_string(r.maxError) + ")", instance.fetchContext && instance.fetchContext != lease.context() &&
+      check("a fetch rendering on another thread: another context (tryAcquire), current there, and the render is right (" +
+            describeError(r) + ")", instance.fetchContext && instance.fetchContext != lease.context() &&
             instance.fetchRendered && r.status == kOfxStatOK && r.maxError <= 1e-3f);
 
       instance.fetch = GLTestInstance::Fetch::SameKey;
@@ -1451,7 +1464,7 @@ namespace {
       if (instance.fetchThread.joinable()) {
         instance.fetchThread.join();
       }
-      check("a render with the same key on another thread waits for the end of the render action",
+      check("a render with the same key on another thread waits for the end of the render action (" + describeError(r) + ")",
             instance.sameKeyGot && !instance.sameKeyDuringRender && r.status == kOfxStatOK && r.maxError <= 1e-3f);
     }
     {
@@ -1465,7 +1478,8 @@ namespace {
       instance.fetchPool = &pool;
       instance.fetchContext = lease.context();
       RenderResult r = glRender(instance, attachment, *lease.context(), window, "checker:5");
-      check("a fetch rendering on another thread with no context left: tryAcquire() gives none (the CPU), at once",
+      check("a fetch rendering on another thread with no context left: tryAcquire() gives none (the CPU), at once (" +
+            describeError(r) + ")",
             instance.fetchContext == nullptr && r.status == kOfxStatOK && r.maxError <= 1e-3f);
     }
   }
@@ -1570,7 +1584,7 @@ namespace {
       const OfxRectI window = { 0, 0, 64, 48 };
       RenderResult r = glRender(*instance, attachment, c1, window, "checker:5");
       check("render on c1: kOfxStatOK", r.status == kOfxStatOK);
-      check("render on c1 (checker input): the output is the input with the red rectangle (max error " + std::to_string(r.maxError) + ")",
+      check("render on c1 (checker input): the output is the input with the red rectangle (" + describeError(r) + ")",
             r.maxError <= 1e-3f && r.inputRange > 0.5f);
       check("render on c1: Attached, with c1 current",
             instance->actions == std::vector<std::string>({ "attached:c1" }));
@@ -1587,7 +1601,7 @@ namespace {
       r = glRender(*instance, attachment, c2, { 16, 8, 80, 40 }, "ramp");
       check("render on c2: Detached with c1 current, then Attached with c2 current",
             instance->actions == std::vector<std::string>({ "attached:c1", "detached:c1", "attached:c2" }));
-      check("render on c2 (ramp input), window at (16, 8): the output (max error " + std::to_string(r.maxError) + ")",
+      check("render on c2 (ramp input), window at (16, 8): the output (" + describeError(r) + ")",
             r.status == kOfxStatOK && r.maxError <= 1e-3f && r.inputRange > 0.01f);
 
       r = glRender(*instance, attachment, c2, window, "checker:5", /*leakInputTexture=*/true);
@@ -1607,8 +1621,8 @@ namespace {
       }
 
       r = glRender(*instance, attachment, c2, window, "checker:5#alpha");
-      check("render of an Alpha input and output: the output is written to .a and read back (max error " +
-            std::to_string(r.maxError) + ")", r.status == kOfxStatOK && r.maxError <= 1e-3f && r.inputRange > 0.5f);
+      check("render of an Alpha input and output: the output is written to .a and read back (" + describeError(r) + ")",
+            r.status == kOfxStatOK && r.maxError <= 1e-3f && r.inputRange > 0.5f);
 
       // kOfxOpenGLPropPixelDepth: "the target buffers where the plug-in renders to will be set to
       // one of the supported formats": with float only, the output texture is float, whatever
@@ -1619,8 +1633,9 @@ namespace {
         depths->reset();
         depths->setValue(kOfxBitDepthFloat, 0);
         r = glRender(*instance, attachment, c2, window, "checker:5");
-        check("kOfxOpenGLPropPixelDepth float only: a float output texture (" + instance->outputTextureDepth + "), read back to the image (max error " +
-              std::to_string(r.maxError) + ")", instance->outputTextureDepth == kOfxBitDepthFloat && r.status == kOfxStatOK && r.maxError <= 1e-3f);
+        check("kOfxOpenGLPropPixelDepth float only: a float output texture (" + instance->outputTextureDepth +
+              "), read back to the image (" + describeError(r) + ")",
+              instance->outputTextureDepth == kOfxBitDepthFloat && r.status == kOfxStatOK && r.maxError <= 1e-3f);
       }
 
       const OfxStatus detached = attachment.detach();
