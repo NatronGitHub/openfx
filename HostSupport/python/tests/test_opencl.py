@@ -99,6 +99,37 @@ def test_gpugain_matches_cpu(device, mode):
         np.testing.assert_array_equal(gpu, cpu)
 
 
+@pytest.mark.parametrize("dtype", ["uint8", "uint16", "float32"])
+@pytest.mark.parametrize("mode, comps", [("buffers", 4), ("buffers", 3), ("buffers", 1), ("images", 4)],
+                         ids=["buffers-rgba", "buffers-rgb", "buffers-alpha", "images-rgba"])
+def test_gpugain_formats_match_cpu(device, mode, comps, dtype):
+    """GPUGain at each depth, RGBA, RGB and Alpha: OpenCL Buffers give the CPU render's pixels (the same
+    rounding, halves up). OpenCL Images (RGBA clips only: the session's images are CL_RGBA) give them to a step
+    of the depth: read_imagef and write_imagef normalize the integer channels, and write_imagef's conversion
+    may round halves to even, or approximate, with an error of at most 0.6 of a step (OpenCL 1.1 section
+    8.3.1.2)."""
+    if mode == "images" and not device["images"]:
+        _skip("the OpenCL device has no image support")
+    m = {"uint8": 255, "uint16": 65535, "float32": 1}[dtype]
+    src = np.random.default_rng(2).random((16, 24, comps), dtype=np.float32) * 1.25
+    src = src if m == 1 else np.round(np.clip(src, 0, 1) * m).astype(dtype)
+    with _instance(GPUGAIN, {"Source": src}) as inst:
+        assert inst.set_param("scaleA", 0.75) in OK
+        assert inst.render_mode(opencl=True, prefer_images=mode == "images") == f"opencl-{mode}"
+        stat, cpu = _render(inst)
+        assert stat == ofxh.Stat.OK and cpu.dtype == np.dtype(dtype) and cpu.shape == src.shape
+        gains = np.array([0.75] if comps == 1 else [0.5, 0.5, 0.5, 0.75][:comps], np.float32)
+        expected = src * gains if m == 1 else np.floor(np.clip(src * gains, 0, m) + 0.5)
+        np.testing.assert_array_equal(cpu, expected.astype(dtype))
+        stat, gpu = _render(inst, mode)
+        assert stat == ofxh.Stat.OK and inst.opencl_result == "ok" and inst.opencl_error == ""
+        if mode == "buffers":
+            np.testing.assert_array_equal(gpu, cpu)
+        else:
+            np.testing.assert_allclose(gpu.astype(np.float64), cpu.astype(np.float64), rtol=0,
+                                       atol=1 if m > 1 else 1e-6)
+
+
 def test_cpu_plugin_stays_on_cpu(device):
     """Invert has no OpenCL render: render_mode() is "cpu", and opencl= is refused before anything is sent
     (the host MAY set kOfxImageEffectPropOpenCLEnabled only "If a plug-in and host have both set" a support

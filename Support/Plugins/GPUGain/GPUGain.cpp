@@ -4,6 +4,7 @@
 #include "GPUGain.h"
 
 #include <stdio.h>
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -76,6 +77,40 @@ static void throwKernelStatus(int p_Status)
 }
 #endif
 
+// The scale (channelScales) and gain (channelGains, as float) of each channel of an image with
+// p_Components, from the r, g, b and a scales: RGBA (r, g, b, a: the scales as they are, as in
+// upstream's sample, also for unknown components); RGB (r, g, b, and 1 for the alpha of a GPU image
+// that has one); Alpha (a in every channel: the OFX image of an Alpha component has one, the alpha,
+// but an OpenCL Image or an OpenGL texture of it may hold it in any channel, e.g. CL_A or CL_R).
+typedef std::array<double, 4> Scales;
+typedef std::array<float, 4> Gains;
+
+static Scales channelScales(OFX::PixelComponentEnum p_Components, const Scales& p_Scales)
+{
+    switch (p_Components)
+    {
+    case OFX::ePixelComponentAlpha:
+        return Scales{ { p_Scales[3], p_Scales[3], p_Scales[3], p_Scales[3] } };
+    case OFX::ePixelComponentRGB:
+        return Scales{ { p_Scales[0], p_Scales[1], p_Scales[2], 1. } };
+    default:
+        return p_Scales;
+    }
+}
+
+static Gains channelGains(OFX::PixelComponentEnum p_Components, const Scales& p_Scales)
+{
+    const Scales scales = channelScales(p_Components, p_Scales);
+    Gains gains;
+    for (int c = 0; c < 4; ++c)
+    {
+        gains[c] = static_cast<float>(scales[c]);
+    }
+    return gains;
+}
+
+// The processor: the GPU paths (one for all depths and components), and the CPU path of
+// GainProcessor<PIX, nComponents, maxValue>.
 class GainExample : public OFX::ImageProcessor
 {
 public:
@@ -90,33 +125,45 @@ public:
 #ifdef HAVE_METAL
     virtual void processImagesMetal() override;
 #endif
-    virtual void multiThreadProcessImages(const OfxRectI& p_ProcWindow, const OfxPointD& p_RenderScale) override;
 
     void setSrcImg(OFX::Image* p_SrcImg);
-    void setScales(float p_ScaleR, float p_ScaleG, float p_ScaleB, float p_ScaleA);
+    // the scales of r, g, b and a, for images with p_Components (see channelGains)
+    void setScales(const Scales& p_Scales, OFX::PixelComponentEnum p_Components);
+
+protected:
+    OFX::Image* _srcImg;
+    Gains _gains; // the gain of each channel (channelGains)
 
 private:
 #if defined(HAVE_CUDA) || defined(HAVE_OPENCL) || defined(HAVE_METAL)
-    void checkGPUImages(bool p_Buffers, int* p_Width, int* p_Height) const;
+    // the image size, and the layout of the pixels of buffers
+    struct GPUImages
+    {
+        int width;
+        int height;
+        int components;     // per pixel: 1, 3 or 4
+        int componentBytes; // 1 (bytes), 2 (shorts) or 4 (floats)
+    };
+    GPUImages checkGPUImages(bool p_Buffers) const;
 #endif
-
-    OFX::Image* _srcImg;
-    float _scales[4];
 };
 
 GainExample::GainExample(OFX::ImageEffect& p_Instance)
     : OFX::ImageProcessor(p_Instance)
     , _srcImg(NULL)
 {
-    _scales[0] = _scales[1] = _scales[2] = _scales[3] = 1.f;
+    _gains.fill(1.f);
 }
 
 #if defined(HAVE_CUDA) || defined(HAVE_OPENCL) || defined(HAVE_METAL)
-// The GPU kernels process the whole image, one pixel per work item at index (y * width + x) * 4:
-// the source and output must have the same bounds, and buffers (CUDA, Metal, OpenCL buffers) must
-// be packed float RGBA rows. Other images (and missing ones) fail with kOfxStatGPURenderFailed,
-// so that the host may render on the CPU instead.
-void GainExample::checkGPUImages(bool p_Buffers, int* p_Width, int* p_Height) const
+// The GPU kernels process the whole image, one pixel per work item: the source and output must
+// have the same bounds (and the same depth and components, which setupAndProcess checks), and
+// buffers (CUDA, Metal, OpenCL buffers) must be packed rows of pixels of 1, 3 or 4 components, of
+// bytes, shorts or floats: the depths and components the plug-in declares. OFX 1.5.1 has no
+// property limiting the depths or components of GPU images, so the kernels take all of them.
+// Other images (and missing ones) fail with kOfxStatGPURenderFailed, so that the host may render
+// on the CPU instead.
+GainExample::GPUImages GainExample::checkGPUImages(bool p_Buffers) const
 {
     if (!_srcImg || !_dstImg)
     {
@@ -129,56 +176,69 @@ void GainExample::checkGPUImages(bool p_Buffers, int* p_Width, int* p_Height) co
     {
         OFX::throwSuiteStatusException(kGPUGainStatGPUFailed);
     }
-    const int width = dstBounds.x2 - dstBounds.x1;
-    const int height = dstBounds.y2 - dstBounds.y1;
+    GPUImages images;
+    images.width = dstBounds.x2 - dstBounds.x1;
+    images.height = dstBounds.y2 - dstBounds.y1;
+    images.components = _dstImg->getPixelComponentCount();
+    switch (_dstImg->getPixelDepth())
+    {
+    case OFX::eBitDepthUByte:
+        images.componentBytes = 1;
+        break;
+    case OFX::eBitDepthUShort:
+        images.componentBytes = 2;
+        break;
+    case OFX::eBitDepthFloat:
+        images.componentBytes = 4;
+        break;
+    default:
+        images.componentBytes = 0;
+        break;
+    }
     if (p_Buffers)
     {
-        const int packedRowBytes = width * 4 * (int)sizeof(float);
-        if ((_srcImg->getRowBytes() != packedRowBytes) || (_dstImg->getRowBytes() != packedRowBytes))
+        const int packedRowBytes = images.width * images.components * images.componentBytes;
+        if ((images.componentBytes == 0) ||
+            ((images.components != 1) && (images.components != 3) && (images.components != 4)) ||
+            (_srcImg->getRowBytes() != packedRowBytes) || (_dstImg->getRowBytes() != packedRowBytes))
         {
             OFX::throwSuiteStatusException(kGPUGainStatGPUFailed);
         }
     }
-    *p_Width = width;
-    *p_Height = height;
+    return images;
 }
 #endif
 
 #ifdef HAVE_CUDA
 // returns a kGPUGainKernel* status
-extern int RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Gain, const float* p_Input, float* p_Output);
+extern int RunCudaKernel(void* p_Stream, int p_Width, int p_Height, int p_Components, int p_ComponentBytes,
+                         const float* p_Gain, const void* p_Input, void* p_Output);
 
 void GainExample::processImagesCuda()
 {
-    int width, height;
-    checkGPUImages(true, &width, &height);
-
-    const float* input = static_cast<const float*>(_srcImg->getPixelData());
-    float* output = static_cast<float*>(_dstImg->getPixelData());
-
-    throwKernelStatus(RunCudaKernel(_pCudaStream, width, height, _scales, input, output));
+    const GPUImages images = checkGPUImages(true);
+    throwKernelStatus(RunCudaKernel(_pCudaStream, images.width, images.height, images.components, images.componentBytes,
+                                    _gains.data(), _srcImg->getPixelData(), _dstImg->getPixelData()));
 }
 #endif
 
 #ifdef HAVE_METAL
 // returns a kGPUGainKernel* status
-extern int RunMetalKernel(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const float* p_Input, float* p_Output);
+extern int RunMetalKernel(void* p_CmdQ, int p_Width, int p_Height, int p_Components, int p_ComponentBytes,
+                          const float* p_Gain, const void* p_Input, void* p_Output);
 
 void GainExample::processImagesMetal()
 {
-    int width, height;
-    checkGPUImages(true, &width, &height);
-
-    const float* input = static_cast<const float*>(_srcImg->getPixelData());
-    float* output = static_cast<float*>(_dstImg->getPixelData());
-
-    throwKernelStatus(RunMetalKernel(_pMetalCmdQ, width, height, _scales, input, output));
+    const GPUImages images = checkGPUImages(true);
+    throwKernelStatus(RunMetalKernel(_pMetalCmdQ, images.width, images.height, images.components, images.componentBytes,
+                                     _gains.data(), _srcImg->getPixelData(), _dstImg->getPixelData()));
 }
 #endif
 
 #ifdef HAVE_OPENCL
 // return a kGPUGainKernel* status
-extern int RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output);
+extern int RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, int p_Components, int p_ComponentBytes,
+                                  const float* p_Gain, const void* p_Input, void* p_Output);
 extern int RunOpenCLKernelImages(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output);
 
 void GainExample::processImagesOpenCL()
@@ -187,74 +247,88 @@ void GainExample::processImagesOpenCL()
     // the plugin must determine which based on whether kOfxImageEffectPropOpenCLImage or kOfxImagePropData is set
     const void* inputImage = _srcImg ? _srcImg->getOpenCLImage() : NULL;
     void* outputImage = _dstImg ? _dstImg->getOpenCLImage() : NULL;
-    const bool images = inputImage || outputImage;
+    const bool clImages = inputImage || outputImage;
 
-    int width, height;
-    checkGPUImages(!images, &width, &height);
+    const GPUImages images = checkGPUImages(!clImages);
 
     int status;
-    if (images)
+    if (clImages)
     {
         if (!inputImage || !outputImage)
         {
             OFX::throwSuiteStatusException(kGPUGainStatGPUFailed);
         }
-        status = RunOpenCLKernelImages(_pOpenCLCmdQ, width, height, _scales, inputImage, outputImage);
+        status = RunOpenCLKernelImages(_pOpenCLCmdQ, images.width, images.height, _gains.data(), inputImage, outputImage);
     }
     else
     {
-        status = RunOpenCLKernelBuffers(_pOpenCLCmdQ, width, height, _scales, _srcImg->getPixelData(), _dstImg->getPixelData());
+        status = RunOpenCLKernelBuffers(_pOpenCLCmdQ, images.width, images.height, images.components, images.componentBytes,
+                                        _gains.data(), _srcImg->getPixelData(), _dstImg->getPixelData());
     }
     throwKernelStatus(status);
 }
 #endif
-
-void GainExample::multiThreadProcessImages(const OfxRectI& p_ProcWindow, const OfxPointD& /*p_RenderScale*/)
-{
-    for (int y = p_ProcWindow.y1; y < p_ProcWindow.y2; ++y)
-    {
-        if (_effect.abort()) break;
-
-        float* dstPix = static_cast<float*>(_dstImg->getPixelAddress(p_ProcWindow.x1, y));
-
-        for (int x = p_ProcWindow.x1; x < p_ProcWindow.x2; ++x)
-        {
-            float* srcPix = static_cast<float*>(_srcImg ? _srcImg->getPixelAddress(x, y) : 0);
-
-            // do we have a source image to scale up
-            if (srcPix)
-            {
-                for(int c = 0; c < 4; ++c)
-                {
-                    dstPix[c] = srcPix[c] * _scales[c];
-                }
-            }
-            else
-            {
-                // no src pixel here, be black and transparent
-                for (int c = 0; c < 4; ++c)
-                {
-                    dstPix[c] = 0;
-                }
-            }
-
-            // increment the dst pixel
-            dstPix += 4;
-        }
-    }
-}
 
 void GainExample::setSrcImg(OFX::Image* p_SrcImg)
 {
     _srcImg = p_SrcImg;
 }
 
-void GainExample::setScales(float p_ScaleR, float p_ScaleG, float p_ScaleB, float p_ScaleA)
+void GainExample::setScales(const Scales& p_Scales, OFX::PixelComponentEnum p_Components)
 {
-    _scales[0] = p_ScaleR;
-    _scales[1] = p_ScaleG;
-    _scales[2] = p_ScaleB;
-    _scales[3] = p_ScaleA;
+    _gains = channelGains(p_Components, p_Scales);
+}
+
+// A component times its gain. Integer components (maxValue 255 or 65535) are clamped to
+// [0, maxValue] and rounded to the nearest value, as in the GPU kernels; floats are not clamped.
+template <class PIX, int maxValue>
+static PIX scaledComponent(PIX p_Value, float p_Gain)
+{
+    const float v = p_Value * p_Gain;
+    if (maxValue == 1)
+    {
+        return static_cast<PIX>(v);
+    }
+    return static_cast<PIX>((v > 0.f ? (v < maxValue ? v : static_cast<float>(maxValue)) : 0.f) + 0.5f);
+}
+
+// The CPU render of images of nComponents components of type PIX (maxValue: 1 for floats)
+template <class PIX, int nComponents, int maxValue>
+class GainProcessor final : public GainExample
+{
+public:
+    explicit GainProcessor(OFX::ImageEffect& p_Instance)
+        : GainExample(p_Instance)
+    {
+    }
+
+private:
+    virtual void multiThreadProcessImages(const OfxRectI& p_ProcWindow, const OfxPointD& p_RenderScale) override;
+};
+
+template <class PIX, int nComponents, int maxValue>
+void GainProcessor<PIX, nComponents, maxValue>::multiThreadProcessImages(const OfxRectI& p_ProcWindow, const OfxPointD& /*p_RenderScale*/)
+{
+    for (int y = p_ProcWindow.y1; y < p_ProcWindow.y2; ++y)
+    {
+        if (_effect.abort()) break;
+
+        PIX* dstPix = static_cast<PIX*>(_dstImg->getPixelAddress(p_ProcWindow.x1, y));
+
+        for (int x = p_ProcWindow.x1; x < p_ProcWindow.x2; ++x)
+        {
+            const PIX* srcPix = static_cast<const PIX*>(_srcImg ? _srcImg->getPixelAddress(x, y) : 0);
+
+            for (int c = 0; c < nComponents; ++c)
+            {
+                // no src pixel here: be black and transparent
+                dstPix[c] = srcPix ? scaledComponent<PIX, maxValue>(srcPix[c], _gains[c]) : PIX();
+            }
+
+            // increment the dst pixel
+            dstPix += nComponents;
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -292,6 +366,13 @@ public:
     void setupAndProcess(GainExample &p_GainExample, const OFX::RenderArguments& p_Args);
 
 private:
+    /* The CPU or GPU render of images with nComponents components, at the depth p_Depth */
+    template <int nComponents>
+    void renderDepth(OFX::BitDepthEnum p_Depth, const OFX::RenderArguments& p_Args);
+
+    /* The r, g, b and a scales at p_Time */
+    Scales getScales(double p_Time) const;
+
     // Does not own the following pointers
     OFX::Clip* m_DstClip;
     OFX::Clip* m_SrcClip;
@@ -330,42 +411,86 @@ void GPUGain::render(const OFX::RenderArguments& p_Args)
         return;
     }
 #endif
-    if ((m_DstClip->getPixelDepth() == OFX::eBitDepthFloat) && (m_DstClip->getPixelComponents() == OFX::ePixelComponentRGBA))
+    // the processor of the output's depth and components (the source's are the same: setupAndProcess)
+    const OFX::BitDepthEnum depth = m_DstClip->getPixelDepth();
+    switch (m_DstClip->getPixelComponents())
     {
-        GainExample imageScaler(*this);
-        setupAndProcess(imageScaler, p_Args);
-    }
-    else
-    {
+    case OFX::ePixelComponentRGBA:
+        renderDepth<4>(depth, p_Args);
+        break;
+    case OFX::ePixelComponentRGB:
+        renderDepth<3>(depth, p_Args);
+        break;
+    case OFX::ePixelComponentAlpha:
+        renderDepth<1>(depth, p_Args);
+        break;
+    default:
         OFX::throwSuiteStatusException(kOfxStatErrUnsupported);
     }
 }
 
+template <int nComponents>
+void GPUGain::renderDepth(OFX::BitDepthEnum p_Depth, const OFX::RenderArguments& p_Args)
+{
+    switch (p_Depth)
+    {
+    case OFX::eBitDepthUByte:
+    {
+        GainProcessor<unsigned char, nComponents, 255> processor(*this);
+        setupAndProcess(processor, p_Args);
+        break;
+    }
+    case OFX::eBitDepthUShort:
+    {
+        GainProcessor<unsigned short, nComponents, 65535> processor(*this);
+        setupAndProcess(processor, p_Args);
+        break;
+    }
+    case OFX::eBitDepthFloat:
+    {
+        GainProcessor<float, nComponents, 1> processor(*this);
+        setupAndProcess(processor, p_Args);
+        break;
+    }
+    default:
+        OFX::throwSuiteStatusException(kOfxStatErrUnsupported);
+    }
+}
+
+Scales GPUGain::getScales(double p_Time) const
+{
+    Scales scales = { { 1., 1., 1., 1. } };
+    if (m_ComponentScalesEnabled->getValueAtTime(p_Time))
+    {
+        scales[0] = m_ScaleR->getValueAtTime(p_Time);
+        scales[1] = m_ScaleG->getValueAtTime(p_Time);
+        scales[2] = m_ScaleB->getValueAtTime(p_Time);
+        scales[3] = m_ScaleA->getValueAtTime(p_Time);
+    }
+    // the overall scale is on r, g and b only
+    const double scale = m_Scale->getValueAtTime(p_Time);
+    for (int c = 0; c < 3; ++c)
+    {
+        scales[c] *= scale;
+    }
+    return scales;
+}
+
 #ifdef OFX_SUPPORTS_OPENGLRENDER
 // The OpenGL render: the source texture drawn over the render window, modulated by the scales
-// (GL_MODULATE with a colour), with the fixed-function pipeline. A vertex colour is clamped to
+// (GL_MODULATE with a colour: the scales of channelScales, so that an Alpha texture gets the alpha
+// scale whichever channel holds it), with the fixed-function pipeline. A vertex colour is clamped to
 // [0, 1] there, so other scales are a "GPU render failed in a non-memory-related way"
 // (kOfxStatGPURenderFailed, ofxGPURender.h), and "the host should retry the render with OpenGL
 // rendering disabled". Values above 1 (in the source, or after the modulation) stay: the textures
-// are float (kOfxOpenGLPropPixelDepth float), and GL_CLAMP_FRAGMENT_COLOR's default, FIXED_ONLY,
+// are float (kOfxOpenGLPropPixelDepth float, whatever the clip depth: the host converts byte and
+// short images), and GL_CLAMP_FRAGMENT_COLOR's default, FIXED_ONLY,
 // clamps only fixed-point render targets. That needs OpenGL 3.0 or GL_ARB_color_buffer_float (the
 // macOS legacy profile has it), and the clamping left at FIXED_ONLY or FALSE: else the render
 // fails the same way, and the host renders on the CPU.
 void GPUGain::renderOpenGL(const OFX::RenderArguments& p_Args)
 {
-    double scales[4] = { 1., 1., 1., 1. };
-    if (m_ComponentScalesEnabled->getValueAtTime(p_Args.time))
-    {
-        scales[0] = m_ScaleR->getValueAtTime(p_Args.time);
-        scales[1] = m_ScaleG->getValueAtTime(p_Args.time);
-        scales[2] = m_ScaleB->getValueAtTime(p_Args.time);
-        scales[3] = m_ScaleA->getValueAtTime(p_Args.time);
-    }
-    const double scale = m_Scale->getValueAtTime(p_Args.time);
-    for (int c = 0; c < 3; ++c)
-    {
-        scales[c] *= scale;
-    }
+    const Scales scales = channelScales(m_DstClip->getPixelComponents(), getScales(p_Args.time));
     for (int c = 0; c < 4; ++c)
     {
         if (!(scales[c] >= 0. && scales[c] <= 1.))
@@ -453,22 +578,10 @@ bool GPUGain::isIdentity(const OFX::IsIdentityArguments& p_Args, OFX::Clip*& p_I
 #endif
                          )
 {
-    double rScale = 1.0, gScale = 1.0, bScale = 1.0, aScale = 1.0;
-
-    if (m_ComponentScalesEnabled->getValueAtTime(p_Args.time))
-    {
-        rScale = m_ScaleR->getValueAtTime(p_Args.time);
-        gScale = m_ScaleG->getValueAtTime(p_Args.time);
-        bScale = m_ScaleB->getValueAtTime(p_Args.time);
-        aScale = m_ScaleA->getValueAtTime(p_Args.time);
-    }
-
-    const double scale = m_Scale->getValueAtTime(p_Args.time);
-    rScale *= scale;
-    gScale *= scale;
-    bScale *= scale;
-
-    if ((rScale == 1.0) && (gScale == 1.0) && (bScale == 1.0) && (aScale == 1.0))
+    // only the scales of the source's channels matter (e.g. scaleA for an Alpha source; all four for
+    // RGBA, as in upstream's sample)
+    const Scales scales = channelScales(m_SrcClip->getPixelComponents(), getScales(p_Args.time));
+    if ((scales[0] == 1.0) && (scales[1] == 1.0) && (scales[2] == 1.0) && (scales[3] == 1.0))
     {
         p_IdentityClip = m_SrcClip;
         p_IdentityTime = p_Args.time;
@@ -496,13 +609,26 @@ void GPUGain::changedClip(const OFX::InstanceChangedArgs& /*p_Args*/, const std:
 
 void GPUGain::setEnabledness()
 {
-    // the component enabledness depends on the clip being RGBA and the param being true
-    const bool enable = (m_ComponentScalesEnabled->getValue() && (m_SrcClip->getPixelComponents() == OFX::ePixelComponentRGBA));
+    // the scales that change the render (channelScales): scale and scaleR/G/B for the r, g and b of
+    // RGBA and RGB sources, scaleA for the alpha of RGBA and Alpha sources; the per-component ones
+    // only with scaleComponents. As in upstream's sample, the per-component ones are disabled for
+    // other components (e.g. a disconnected source), and scale is enabled.
+    const OFX::PixelComponentEnum components = m_SrcClip->getPixelComponents();
+    const bool rgba = components == OFX::ePixelComponentRGBA;
+    const bool rgb = rgba || (components == OFX::ePixelComponentRGB);
+    const bool alpha = rgba || (components == OFX::ePixelComponentAlpha);
+    const bool perComponent = m_ComponentScalesEnabled->getValue();
 
-    m_ScaleR->setEnabled(enable);
-    m_ScaleG->setEnabled(enable);
-    m_ScaleB->setEnabled(enable);
-    m_ScaleA->setEnabled(enable);
+    // (scale is only set when it changes, so that for RGBA sources the host gets upstream's calls)
+    const bool scaleEnabled = components != OFX::ePixelComponentAlpha;
+    if (m_Scale->getIsEnable() != scaleEnabled)
+    {
+        m_Scale->setEnabled(scaleEnabled);
+    }
+    m_ScaleR->setEnabled(perComponent && rgb);
+    m_ScaleG->setEnabled(perComponent && rgb);
+    m_ScaleB->setEnabled(perComponent && rgb);
+    m_ScaleA->setEnabled(perComponent && alpha);
 }
 
 void GPUGain::setupAndProcess(GainExample& p_GainExample, const OFX::RenderArguments& p_Args)
@@ -535,20 +661,7 @@ void GPUGain::setupAndProcess(GainExample& p_GainExample, const OFX::RenderArgum
         OFX::throwSuiteStatusException(kGPUGainStatGPUFailed);
     }
 
-    double rScale = 1.0, gScale = 1.0, bScale = 1.0, aScale = 1.0;
-
-    if (m_ComponentScalesEnabled->getValueAtTime(p_Args.time))
-    {
-        rScale = m_ScaleR->getValueAtTime(p_Args.time);
-        gScale = m_ScaleG->getValueAtTime(p_Args.time);
-        bScale = m_ScaleB->getValueAtTime(p_Args.time);
-        aScale = m_ScaleA->getValueAtTime(p_Args.time);
-    }
-
-    const double scale = m_Scale->getValueAtTime(p_Args.time);
-    rScale *= scale;
-    gScale *= scale;
-    bScale *= scale;
+    const Scales scales = getScales(p_Args.time);
 
     // Set the images
     p_GainExample.setDstImg(dst.get());
@@ -561,7 +674,7 @@ void GPUGain::setupAndProcess(GainExample& p_GainExample, const OFX::RenderArgum
     p_GainExample.setRenderWindow(p_Args.renderWindow, p_Args.renderScale);
 
     // Set the scales
-    p_GainExample.setScales(rScale, gScale, bScale, aScale);
+    p_GainExample.setScales(scales, dstComponents);
 
     // Call the base class process member, this will call the derived templated process code
     p_GainExample.process();
@@ -587,7 +700,9 @@ void GPUGainFactory::describe(OFX::ImageEffectDescriptor& p_Desc)
     p_Desc.addSupportedContext(eContextFilter);
     p_Desc.addSupportedContext(eContextGeneral);
 
-    // Add supported pixel depths
+    // Add supported pixel depths (the CPU and GPU paths take all three)
+    p_Desc.addSupportedBitDepth(eBitDepthUByte);
+    p_Desc.addSupportedBitDepth(eBitDepthUShort);
     p_Desc.addSupportedBitDepth(eBitDepthFloat);
 
     // Set a few flags
@@ -617,7 +732,11 @@ void GPUGainFactory::describe(OFX::ImageEffectDescriptor& p_Desc)
 #ifdef OFX_SUPPORTS_OPENGLRENDER
     // OpenGL, with a CPU path: "true" - "a host or plug-in can support OpenGL accelerated rendering,
     // in the case of plug-ins this also means that it is capable of CPU based rendering in the
-    // absence of a GPU" (kOfxImageEffectPropOpenGLRenderSupported); float RGBA textures, as the CPU
+    // absence of a GPU" (kOfxImageEffectPropOpenGLRenderSupported). Float textures only, whatever
+    // the clip depth (see renderOpenGL): "When a plug-in sets this property, the host will try to
+    // provide buffers/textures in one of the supported formats. Additionally, the target buffers
+    // where the plug-in renders to will be set to one of the supported formats."
+    // (kOfxOpenGLPropPixelDepth)
     p_Desc.setSupportsOpenGLRender(true);
     p_Desc.addOpenGLBitDepth(OFX::eBitDepthFloat);
 #endif
@@ -651,13 +770,17 @@ void GPUGainFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OFX::
     // Create the mandated source clip
     ClipDescriptor* srcClip = p_Desc.defineClip(kOfxImageEffectSimpleSourceClipName);
     srcClip->addSupportedComponent(ePixelComponentRGBA);
+    srcClip->addSupportedComponent(ePixelComponentRGB);
+    srcClip->addSupportedComponent(ePixelComponentAlpha);
     srcClip->setTemporalClipAccess(false);
     srcClip->setSupportsTiles(kSupportsTiles);
     srcClip->setIsMask(false);
 
     // Create the mandated output clip
     ClipDescriptor* dstClip = p_Desc.defineClip(kOfxImageEffectOutputClipName);
-    dstClip->addSupportedComponent(ePixelComponentRGBA); // render() only does float RGBA
+    dstClip->addSupportedComponent(ePixelComponentRGBA);
+    dstClip->addSupportedComponent(ePixelComponentRGB);
+    dstClip->addSupportedComponent(ePixelComponentAlpha);
     dstClip->setSupportsTiles(kSupportsTiles);
 
     // Make some pages and to things in

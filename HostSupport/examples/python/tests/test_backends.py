@@ -21,7 +21,7 @@ RETIMER = "net.sf.openfx.retimer"
 DOT = "net.sf.openfx.dotexample"
 CHOICES = "org.openeffects.support.choiceParamsPlugin"
 TESTER = "net.sf.openfx.GenericTestPlugin"
-MULTIPLY = "net.sf.openfx.MultiplyGPU"
+GPUGAIN = "com.OpenFXSample.GPUGain"  # its clips support RGBA, RGB and Alpha
 
 
 @pytest.fixture
@@ -137,9 +137,9 @@ def test_components(both, tmp_path):
     """Per-input components (hostDemo's -i Clip=spec#rgb...): a suffix, components=, which overrides it, and
     arrays. (Alpha inputs: Invert renders an Alpha output, HostSupport's default.)"""
     ofxhost.write_pfm(tmp_path / "c.pfm", rgba(8, 9)[..., :3])
-    for plugin, kw in ((INVERT, dict(inputs={"Source": "ramp#rgb"})), (MULTIPLY, dict(inputs={"Source": "ramp#rgb"})),
+    for plugin, kw in ((INVERT, dict(inputs={"Source": "ramp#rgb"})), (GPUGAIN, dict(inputs={"Source": "ramp#rgb"})),
                        (INVERT, dict(inputs={"Source": f"file:{tmp_path}/c.pfm#premult#rgb"})),
-                       (MULTIPLY, dict(inputs={"Source": rgba()[..., :3]}, components={"Source": "rgb"})),
+                       (GPUGAIN, dict(inputs={"Source": rgba()[..., :3]}, components={"Source": "rgb"})),
                        (INVERT, dict(inputs={"Source": "ramp#rgb"}, components={"Source": "alpha"})),
                        (INVERT, dict(components={"Source": k.kOfxImageComponentAlpha}))):
         _compare(both, plugin, frames=[0], window=(0, 0, 40, 30), **kw)

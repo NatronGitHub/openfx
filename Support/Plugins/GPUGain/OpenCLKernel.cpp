@@ -3,6 +3,7 @@
 
 #include <mutex>
 #include <map>
+#include <string>
 #include <stdio.h>
 
 #ifdef __APPLE__
@@ -37,6 +38,64 @@ static const char *KernelSourceBuffers = "\n" \
 "}                                                                      \n" \
 "\n";
 
+// The other formats (bytes, shorts, and floats with 1 or 3 components): packed rows of p_Width
+// pixels of p_Components components, one program per depth (one kernel each, so that the cache
+// below builds each program once). Integer components are clamped to [0, max] and rounded to the
+// nearest value, floats are not clamped (as GPUGain.cpp's scaledComponent). FP_CONTRACT OFF: no
+// contraction of the product and the rounding's + 0.5f into a fused multiply-add, which would round
+// differently from the CPU path. OpenCL 1.1 (as ofxGPURender.h asks) has the byte-addressable
+// stores of the uchar and ushort kernels.
+// (KernelSourceFormat, after the definitions of NAME, PIX and SCALED)
+static const char *KernelSourceFormat = R"CL(
+#pragma OPENCL FP_CONTRACT OFF
+float ClampTo(float v, float m) { return v > 0.f ? (v < m ? v : m) : 0.f; }
+#define SCALED_UCHAR(v) ((uchar)(ClampTo((v), 255.f) + 0.5f))
+#define SCALED_USHORT(v) ((ushort)(ClampTo((v), 65535.f) + 0.5f))
+#define SCALED_FLOAT(v) (v)
+
+__kernel void NAME(
+   int p_Width,
+   int p_Height,
+   int p_Components,
+   float p_GainR,
+   float p_GainG,
+   float p_GainB,
+   float p_GainA,
+   __global const PIX* p_Input,
+   __global PIX* p_Output)
+{
+   const int x = get_global_id(0);
+   const int y = get_global_id(1);
+
+   if ((x < p_Width) && (y < p_Height))
+   {
+       const float gain[4] = { p_GainR, p_GainG, p_GainB, p_GainA };
+       const int index = ((y * p_Width) + x) * p_Components;
+       for (int c = 0; c < p_Components; ++c)
+       {
+           p_Output[index + c] = SCALED(p_Input[index + c] * gain[c]);
+       }
+   }
+}
+)CL";
+
+static const std::string KernelSourceBuffersByte = std::string(
+    "#define NAME GainAdjustKernelBuffersByte\n#define PIX uchar\n#define SCALED SCALED_UCHAR\n") + KernelSourceFormat;
+static const std::string KernelSourceBuffersShort = std::string(
+    "#define NAME GainAdjustKernelBuffersShort\n#define PIX ushort\n#define SCALED SCALED_USHORT\n") + KernelSourceFormat;
+static const std::string KernelSourceBuffersFloat = std::string(
+    "#define NAME GainAdjustKernelBuffersFloat\n#define PIX float\n#define SCALED SCALED_FLOAT\n") + KernelSourceFormat;
+
+// Images: read_imagef and write_imagef convert the image's channel type: "normalized integer"
+// channels are read as [0, 1] and written with saturation, so that integer depths are clamped, as in
+// the buffer kernels. Their rounding is the implementation's: OpenCL 1.1, section 8.3.1.2,
+// "Converting floating-point values to normalized integer channel data types", gives as the
+// preferred method convert_uchar_sat_rte(f * 255.0f) for CL_UNORM_INT8 and
+// convert_ushort_sat_rte(f * 65535.0f) for CL_UNORM_INT16 (round to nearest even), but "OpenCL
+// implementations may choose to approximate the rounding mode", with "the absolute error" of the
+// conversion "<= 0.6". The buffer kernels round halves up, so an Images result can differ from
+// theirs (and the CPU path's) by one step. The gains are channelGains', so that any channel order
+// works (e.g. CL_A or CL_R for Alpha).
 static const char *KernelSourceImages = "\n" \
 "__constant sampler_t imageSampler = CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP | CLK_FILTER_NEAREST;  \n" \
 "                                                                                                           \n" \
@@ -152,9 +211,11 @@ int KernelStatus(cl_int p_Error)
     }
 }
 
-// returns 0, 1 or 2 (see KernelStatus). p_Input and p_Output are cl_mem (buffers or images)
-int RunKernel(const char* p_Source, const char* p_Name,
-              void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output)
+// returns 0, 1 or 2 (see KernelStatus). p_Input and p_Output are cl_mem (buffers or images).
+// p_Components: the components argument of the format kernels (0 for the float RGBA and images
+// kernels, which have none)
+int RunKernel(const char* p_Source, const char* p_Name, void* p_CmdQ, int p_Width, int p_Height, int p_Components,
+              const float* p_Gain, const void* p_Input, void* p_Output)
 {
     if ((p_Width <= 0) || (p_Height <= 0))
     {
@@ -184,14 +245,19 @@ int RunKernel(const char* p_Source, const char* p_Name,
 
     struct Arg { size_t size; const void* value; };
     const Arg args[] = {
-        { sizeof(int), &p_Width }, { sizeof(int), &p_Height },
+        { sizeof(int), &p_Width }, { sizeof(int), &p_Height }, { sizeof(int), &p_Components },
         { sizeof(float), &p_Gain[0] }, { sizeof(float), &p_Gain[1] },
         { sizeof(float), &p_Gain[2] }, { sizeof(float), &p_Gain[3] },
         { sizeof(cl_mem), &input }, { sizeof(cl_mem), &output },
     };
-    for (cl_uint i = 0; i < sizeof(args) / sizeof(args[0]); ++i)
+    cl_uint index = 0;
+    for (const Arg& arg : args)
     {
-        const cl_int error = CheckError(clSetKernelArg(kernel, i, args[i].size, args[i].value),
+        if ((&arg == &args[2]) && !p_Components)
+        {
+            continue; // no components argument
+        }
+        const cl_int error = CheckError(clSetKernelArg(kernel, index++, arg.size, arg.value),
                                         "Unable to set a kernel argument");
         if (error != CL_SUCCESS)
         {
@@ -207,12 +273,36 @@ int RunKernel(const char* p_Source, const char* p_Name,
 
 } // namespace
 
-int RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output)
+// p_Components: 1, 3 or 4; p_ComponentBytes: 1 (bytes), 2 (shorts) or 4 (floats). Float RGBA uses
+// KernelSourceBuffers, the others the format kernels.
+int RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, int p_Components, int p_ComponentBytes,
+                           const float* p_Gain, const void* p_Input, void* p_Output)
 {
-    return RunKernel(KernelSourceBuffers, "GainAdjustKernelBuffers", p_CmdQ, p_Width, p_Height, p_Gain, p_Input, p_Output);
+    if ((p_Components != 1) && (p_Components != 3) && (p_Components != 4))
+    {
+        return 1;
+    }
+    switch (p_ComponentBytes)
+    {
+    case 1:
+        return RunKernel(KernelSourceBuffersByte.c_str(), "GainAdjustKernelBuffersByte", p_CmdQ, p_Width, p_Height, p_Components,
+                         p_Gain, p_Input, p_Output);
+    case 2:
+        return RunKernel(KernelSourceBuffersShort.c_str(), "GainAdjustKernelBuffersShort", p_CmdQ, p_Width, p_Height, p_Components,
+                         p_Gain, p_Input, p_Output);
+    case 4:
+        if (p_Components == 4)
+        {
+            return RunKernel(KernelSourceBuffers, "GainAdjustKernelBuffers", p_CmdQ, p_Width, p_Height, 0, p_Gain, p_Input, p_Output);
+        }
+        return RunKernel(KernelSourceBuffersFloat.c_str(), "GainAdjustKernelBuffersFloat", p_CmdQ, p_Width, p_Height, p_Components,
+                         p_Gain, p_Input, p_Output);
+    default:
+        return 1;
+    }
 }
 
 int RunOpenCLKernelImages(void* p_CmdQ, int p_Width, int p_Height, const float* p_Gain, const void* p_Input, void* p_Output)
 {
-    return RunKernel(KernelSourceImages, "GainAdjustKernelImages", p_CmdQ, p_Width, p_Height, p_Gain, p_Input, p_Output);
+    return RunKernel(KernelSourceImages, "GainAdjustKernelImages", p_CmdQ, p_Width, p_Height, 0, p_Gain, p_Input, p_Output);
 }
