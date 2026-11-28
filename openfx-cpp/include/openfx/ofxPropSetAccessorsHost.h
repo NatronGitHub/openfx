@@ -511,10 +511,12 @@ public:
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     const char* pixelDepth(int index = 0, bool error_if_missing = false) const {
         return props_.get<PropId::OfxOpenGLPropPixelDepth>(index, error_if_missing);
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
     void* imageEffectPluginPropOverlayInteractV2(bool error_if_missing = true) const {
         return props_.get<PropId::OfxImageEffectPluginPropOverlayInteractV2>(0, error_if_missing);
     }
@@ -795,21 +797,25 @@ public:
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_CUDARENDER
     ImageEffectActionBeginSequenceRender_InArgs& setCudaEnabled(bool value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaEnabled>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_CUDARENDER
     ImageEffectActionBeginSequenceRender_InArgs& setCudaRenderSupported(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaRenderSupported>(value, 0, error_if_missing);
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_CUDARENDER
     ImageEffectActionBeginSequenceRender_InArgs& setCudaStream(void* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaStream>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_CUDARENDER
     ImageEffectActionBeginSequenceRender_InArgs& setCudaStreamSupported(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaStreamSupported>(value, 0, error_if_missing);
         return *this;
@@ -835,21 +841,27 @@ public:
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionBeginSequenceRender_InArgs& setOpenCLCommandQueue(void* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLCommandQueue>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionBeginSequenceRender_InArgs& setOpenCLEnabled(bool value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLEnabled>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionBeginSequenceRender_InArgs& setOpenCLImage(void* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLImage>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionBeginSequenceRender_InArgs& setOpenCLRenderSupported(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLRenderSupported>(value, 0, error_if_missing);
         return *this;
@@ -860,21 +872,27 @@ public:
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     ImageEffectActionBeginSequenceRender_InArgs& setOpenGLEnabled(bool value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenGLEnabled>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     ImageEffectActionBeginSequenceRender_InArgs& setOpenGLTextureIndex(int value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenGLTextureIndex>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     ImageEffectActionBeginSequenceRender_InArgs& setOpenGLTextureTarget(int value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenGLTextureTarget>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
     ImageEffectActionBeginSequenceRender_InArgs& setNoSpatialAwareness(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropNoSpatialAwareness>(value, 0, error_if_missing);
         return *this;
@@ -951,21 +969,25 @@ public:
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_CUDARENDER
     ImageEffectActionEndSequenceRender_InArgs& setCudaEnabled(bool value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaEnabled>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_CUDARENDER
     ImageEffectActionEndSequenceRender_InArgs& setCudaRenderSupported(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaRenderSupported>(value, 0, error_if_missing);
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_CUDARENDER
     ImageEffectActionEndSequenceRender_InArgs& setCudaStream(void* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaStream>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_CUDARENDER
     ImageEffectActionEndSequenceRender_InArgs& setCudaStreamSupported(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaStreamSupported>(value, 0, error_if_missing);
         return *this;
@@ -991,21 +1013,27 @@ public:
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionEndSequenceRender_InArgs& setOpenCLCommandQueue(void* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLCommandQueue>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionEndSequenceRender_InArgs& setOpenCLEnabled(bool value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLEnabled>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionEndSequenceRender_InArgs& setOpenCLImage(void* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLImage>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionEndSequenceRender_InArgs& setOpenCLRenderSupported(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLRenderSupported>(value, 0, error_if_missing);
         return *this;
@@ -1016,21 +1044,27 @@ public:
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     ImageEffectActionEndSequenceRender_InArgs& setOpenGLEnabled(bool value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenGLEnabled>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     ImageEffectActionEndSequenceRender_InArgs& setOpenGLTextureIndex(int value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenGLTextureIndex>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     ImageEffectActionEndSequenceRender_InArgs& setOpenGLTextureTarget(int value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenGLTextureTarget>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
 };
 
 // Property set accessor for: ImageEffectActionGetClipPreferences_OutArgs
@@ -1315,21 +1349,25 @@ public:
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_CUDARENDER
     ImageEffectActionRender_InArgs& setCudaEnabled(bool value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaEnabled>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_CUDARENDER
     ImageEffectActionRender_InArgs& setCudaRenderSupported(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaRenderSupported>(value, 0, error_if_missing);
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_CUDARENDER
     ImageEffectActionRender_InArgs& setCudaStream(void* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaStream>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_CUDARENDER
     ImageEffectActionRender_InArgs& setCudaStreamSupported(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropCudaStreamSupported>(value, 0, error_if_missing);
         return *this;
@@ -1355,21 +1393,27 @@ public:
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionRender_InArgs& setOpenCLCommandQueue(void* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLCommandQueue>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionRender_InArgs& setOpenCLEnabled(bool value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLEnabled>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENCLRENDER
+#ifdef OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionRender_InArgs& setOpenCLImage(void* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLImage>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENCLRENDER
     ImageEffectActionRender_InArgs& setOpenCLRenderSupported(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenCLRenderSupported>(value, 0, error_if_missing);
         return *this;
@@ -1380,21 +1424,27 @@ public:
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     ImageEffectActionRender_InArgs& setOpenGLEnabled(bool value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenGLEnabled>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     ImageEffectActionRender_InArgs& setOpenGLTextureIndex(int value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenGLTextureIndex>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     ImageEffectActionRender_InArgs& setOpenGLTextureTarget(int value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenGLTextureTarget>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
     ImageEffectActionRender_InArgs& setNoSpatialAwareness(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropNoSpatialAwareness>(value, 0, error_if_missing);
         return *this;
@@ -2317,16 +2367,20 @@ public:
         return *this;
     }
 
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     OpenGLTexture& setOpenGLTextureIndex(int value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenGLTextureIndex>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
     OpenGLTexture& setOpenGLTextureTarget(int value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropOpenGLTextureTarget>(value, 0, error_if_missing);
         return *this;
     }
 
+#endif // OFX_SUPPORTS_OPENGLRENDER
     OpenGLTexture& setPixelDepth(const char* value, bool error_if_missing = true) {
         props_.set<PropId::OfxImageEffectPropPixelDepth>(value, 0, error_if_missing);
         return *this;
@@ -2416,6 +2470,10 @@ public:
 class ParamsByte : public PropertySetAccessor {
 public:
     using PropertySetAccessor::PropertySetAccessor;
+
+    const char* paramInterpType(bool error_if_missing = true) const {
+        return props_.get<PropId::OfxParamInterpType>(0, error_if_missing);
+    }
 
     const char* type(bool error_if_missing = true) const {
         return props_.get<PropId::OfxPropType>(0, error_if_missing);
@@ -2856,6 +2914,10 @@ public:
 class ParamsDouble1D : public PropertySetAccessor {
 public:
     using PropertySetAccessor::PropertySetAccessor;
+
+    const char* paramInterpType(bool error_if_missing = true) const {
+        return props_.get<PropId::OfxParamInterpType>(0, error_if_missing);
+    }
 
     bool showTimeMarker(bool error_if_missing = true) const {
         return props_.get<PropId::OfxParamPropShowTimeMarker>(0, error_if_missing);
@@ -3739,22 +3801,30 @@ public:
         return props_.get<PropId::OfxParamPropCanUndo>(0, error_if_missing);
     }
 
+#ifdef OFX_SUPPORTS_PARAMETRIC
     int parametricDimension(bool error_if_missing = true) const {
         return props_.get<PropId::OfxParamPropParametricDimension>(0, error_if_missing);
     }
 
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC
     double parametricUIColour(int index = 0, bool error_if_missing = true) const {
         return props_.get<PropId::OfxParamPropParametricUIColour>(index, error_if_missing);
     }
 
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC
     void* parametricInteractBackground(bool error_if_missing = true) const {
         return props_.get<PropId::OfxParamPropParametricInteractBackground>(0, error_if_missing);
     }
 
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC
     std::array<double, 2> parametricRange() const {
         return props_.getAll<PropId::OfxParamPropParametricRange>();
     }
 
+#endif // OFX_SUPPORTS_PARAMETRIC
     const char* type(bool error_if_missing = true) const {
         return props_.get<PropId::OfxPropType>(0, error_if_missing);
     }

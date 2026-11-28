@@ -21,6 +21,7 @@
 #include <ofxTimeLine.h>
 
 #include <cassert>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 

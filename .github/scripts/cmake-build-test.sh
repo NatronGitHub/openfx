@@ -2,15 +2,23 @@
 # Build everything with CMake (what the plug-in repositories use, Natron#1181), install it, run
 # the hostDemo checks on the built plug-ins, and build a plug-in project against the installed
 # package (cmake/tests/plugin-project). Used by the Linux and macOS jobs.
-# The extensions are off, as in the Makefile build: the hostDemo checks (hostdemo-checks.sh) expect
-# one view per frame (with OFX_EXTENSIONS_NUKE or _VEGAS hostDemo renders two). The extensions-on
-# step of the Linux job (with the Python tests) and the Windows job build them on.
+# The extensions are off, as in the Makefile build, in build-ci. OFX_CI_EXTENSIONS=on builds them on
+# instead (Natron, Nuke, Vegas, TuttleOFX and Resolve, as Natron does), in build-ci-natron: the
+# extensions-on step of the Linux job. The hostDemo checks follow the views hostDemo renders (two per
+# frame with OFX_EXTENSIONS_NUKE or _VEGAS). The Windows job builds them on too.
+# OFX_EXT_CMAKE: the CMake options that turn the extensions on (build.yml defines it for all jobs;
+# the default is the same list), turned off with OFX_CI_EXTENSIONS=off.
 # OFX_CMAKE_EXTRA_ARGS: more (space-separated) arguments for the configure step, e.g.
 # -DOFX_PYTHON_BINDINGS=ON (the Linux and macOS jobs).
 set -eo pipefail
 cd "$(dirname "$0")/../.."
 root=$PWD
-build=$root/build-ci
+ext_on=${OFX_EXT_CMAKE:--DOFX_EXTENSIONS_NATRON=ON -DOFX_EXTENSIONS_NUKE=ON -DOFX_EXTENSIONS_VEGAS=ON -DOFX_EXTENSIONS_TUTTLE=ON -DOFX_EXTENSIONS_RESOLVE=ON}
+case "${OFX_CI_EXTENSIONS:-off}" in
+  off) build=$root/build-ci ext=${ext_on//=ON/=OFF} ;;
+  on) build=$root/build-ci-natron ext=$ext_on ;;
+  *) echo "OFX_CI_EXTENSIONS=$OFX_CI_EXTENSIONS: expected on or off"; exit 2 ;;
+esac
 # macOS has the OpenCL framework: build the OpenCL example there (Examples/OpenCL; Metal is built
 # on macOS anyway). Linux would need the OpenCL headers and ICD loader packages.
 # openfx::HostSupportMetal is macOS only; openfx::HostSupportCUDA is built everywhere (it loads the
@@ -21,11 +29,12 @@ if [ "$(uname -s)" = Darwin ]; then opencl=ON; metal=ON; fi
 cmake -S . -B "$build" -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON -DOFX_SUPPORTS_OPENCLRENDER=$opencl \
   -DOFX_HOSTSUPPORT_OPENGL=ON -DOFX_HOSTSUPPORT_OPENCL=ON -DOFX_HOSTSUPPORT_METAL=$metal -DOFX_HOSTSUPPORT_CUDA=ON \
-  -DOFX_EXTENSIONS_NATRON=OFF -DOFX_EXTENSIONS_NUKE=OFF -DOFX_EXTENSIONS_VEGAS=OFF \
-  -DOFX_EXTENSIONS_TUTTLE=OFF -DOFX_EXTENSIONS_RESOLVE=OFF \
+  $ext \
   -DPLUGIN_INSTALLDIR="$build/install/OFX/Plugins" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"} \
   ${OFX_CMAKE_EXTRA_ARGS}
-cmake --build "$build" --parallel
+# --parallel alone is the build tool's default (gmake: no limit); CMAKE_BUILD_PARALLEL_LEVEL, if set, caps it
+# (CMake reads the variable only without --parallel)
+cmake --build "$build" --parallel ${CMAKE_BUILD_PARALLEL_LEVEL}
 # the OpenGL DrawSuite core self-test (Support/tests/DrawSuiteOpenGLTest.cpp, a fake OpenGL table)
 dst=$(find "$build" -name drawsuite-opengl-test -type f -perm -u+x | head -1)
 test -n "$dst" || { echo "drawsuite-opengl-test was not built"; exit 1; }

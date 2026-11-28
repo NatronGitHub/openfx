@@ -92,6 +92,110 @@ NOT_PROPERTIES = {
     "kFnOfxImageEffectActionGetClipComponentsPropString",
 }
 
+# The macro that enables each extension (the `extension:` key of a @propdef): the extension's
+# properties are defined only when it is set, in its own headers or in an #ifdef block of a
+# standard header. gen-props.py guards their entries in the openfx-cpp headers with it.
+EXTENSION_MACROS = {
+    "natron": "OFX_EXTENSIONS_NATRON",
+    "nuke": "OFX_EXTENSIONS_NUKE",
+    "parametric_v2": "OFX_SUPPORTS_PARAMETRIC_V2",
+    "resolve": "OFX_EXTENSIONS_RESOLVE",
+    "tuttle": "OFX_EXTENSIONS_TUTTLE",
+    "vegas": "OFX_EXTENSIONS_VEGAS",
+}
+
+
+def extension_of(name, metadata):
+    """The extension of the property `name` (its @propdef's `extension:`), or None if it is
+    standard. Fails for an extension that EXTENSION_MACROS doesn't know."""
+    ext = metadata.get("extension")
+    if ext is not None and ext not in EXTENSION_MACROS:
+        raise ValueError(f"{name}: unknown extension {ext!r}: add it to EXTENSION_MACROS in {__file__}")
+    return ext
+
+
+def extension_headers(include_dir=INCLUDE):
+    """{extension: [its own headers (relative to include/)]}: the headers that define its properties
+    and no standard property (the others are standard headers, with the extension's #ifdef blocks)."""
+    out, standard = {}, set()
+    for name, data in all_inline_metadata(include_dir).items():
+        ext = extension_of(name, data["metadata"])
+        if ext:
+            out.setdefault(ext, set()).add(data["header"])
+        else:
+            standard.add(data["header"])
+    return {ext: sorted(h - standard) for ext, h in out.items() if h - standard}
+
+
+# The feature macro of the standard properties that only exist while a feature is in use: the
+# in-render properties of a GPU API (set by the host in the render actions' inArgs, or on an image)
+# and the parametric parameters' properties. include/ defines them all unconditionally; the
+# openfx-cpp headers give their PropIds only with the macro (gen-props.py). This is deliberate,
+# even though HostSupport sets the OpenCL and CUDA in-render properties unguarded (HostSupport
+# doesn't use openfx-cpp): a plug-in built without the feature can't name them. Every standard
+# property of FEATURE_HEADERS is either here or in UNGUARDED_FEATURE_PROPERTIES.
+FEATURE_MACROS = {
+    # OpenGL render (ofxGPURender.h): the in-render properties, and the bit depths of OpenGL renders
+    # (HostSupport guards OfxOpenGLPropPixelDepth with the macro, as Support does its OpenGL code)
+    "OFX_SUPPORTS_OPENGLRENDER": ["OfxImageEffectPropOpenGLEnabled", "OfxImageEffectPropOpenGLTextureIndex",
+                                  "OfxImageEffectPropOpenGLTextureTarget", "OfxOpenGLPropPixelDepth"],
+    # OpenCL render (ofxGPURender.h): the in-render properties
+    "OFX_SUPPORTS_OPENCLRENDER": ["OfxImageEffectPropOpenCLEnabled", "OfxImageEffectPropOpenCLCommandQueue",
+                                  "OfxImageEffectPropOpenCLImage"],
+    # CUDA render (ofxGPURender.h): the in-render properties
+    "OFX_SUPPORTS_CUDARENDER": ["OfxImageEffectPropCudaEnabled", "OfxImageEffectPropCudaStream"],
+    # parametric parameters (ofxParametricParam.h; HostSupport's OFX_SUPPORTS_PARAMETRIC): the
+    # parameters' properties; its V2 additions are the parametric_v2 extension
+    # (OFX_SUPPORTS_PARAMETRIC_V2, which include/ guards)
+    "OFX_SUPPORTS_PARAMETRIC": ["OfxParamPropParametricDimension", "OfxParamPropParametricInteractBackground",
+                                "OfxParamPropParametricRange", "OfxParamPropParametricUIColour"],
+}
+FEATURE_HEADERS = ("ofxGPURender.h", "ofxParametricParam.h")
+# The standard properties of FEATURE_HEADERS that stay unguarded: the host and plug-in capability
+# flags, which every host has, and whose "false" (or 0) means the feature is absent (ofxGPURender.h:
+# '"false" - in which case the host or plug-in does not support OpenGL accelerated rendering'); and
+# Metal's, which has no OFX_SUPPORTS_ macro. Checked, with no property to guard:
+# OFX_SUPPORTS_DIALOG and OFX_SUPPORTS_DIALOG_V1 (ofxDialog.h defines none), OFX_SUPPORTS_MULTITHREAD
+# (ofxMultiThread.h defines none).
+UNGUARDED_FEATURE_PROPERTIES = {
+    "OfxImageEffectPropCPURenderSupported",
+    "OfxImageEffectPropOpenGLRenderSupported",
+    "OfxImageEffectPropOpenCLRenderSupported", "OfxImageEffectPropOpenCLSupported",
+    "OfxImageEffectPropCudaRenderSupported", "OfxImageEffectPropCudaStreamSupported",
+    "OfxImageEffectPropMetalRenderSupported", "OfxImageEffectPropMetalTextureSupported",
+    "OfxImageEffectPropMetalEnabled", "OfxImageEffectPropMetalTextureEnabled",
+    "OfxImageEffectPropMetalCommandQueue",
+    "OfxParamHostPropSupportsParametricAnimation",
+}
+
+
+def property_guards(include_dir=INCLUDE):
+    """{property string: the macro that guards it in the openfx-cpp headers}, for the guarded
+    properties: an extension's (EXTENSION_MACROS), else a feature's (FEATURE_MACROS). Fails for a
+    standard property of FEATURE_HEADERS that neither FEATURE_MACROS nor
+    UNGUARDED_FEATURE_PROPERTIES lists."""
+    feature = {p: macro for macro, props in FEATURE_MACROS.items() for p in props}
+    out = {}
+    for name, data in all_inline_metadata(include_dir).items():
+        ext = extension_of(name, data["metadata"])
+        if ext:
+            out[name] = EXTENSION_MACROS[ext]
+        elif name in feature:
+            out[name] = feature[name]
+        elif data["header"] in FEATURE_HEADERS and name not in UNGUARDED_FEATURE_PROPERTIES:
+            raise ValueError(f"{name} ({data['header']}): add it to FEATURE_MACROS or UNGUARDED_FEATURE_PROPERTIES "
+                             f"in {__file__}")
+    missing = (set(feature) | UNGUARDED_FEATURE_PROPERTIES) - set(all_inline_metadata(include_dir))
+    if missing:
+        raise ValueError(f"not properties: {sorted(missing)} (FEATURE_MACROS, UNGUARDED_FEATURE_PROPERTIES)")
+    return out
+
+
+# Every macro that guards properties in the openfx-cpp headers (CI compiles them with none, each
+# alone and all)
+GUARD_MACROS = sorted(set(EXTENSION_MACROS.values()) | set(FEATURE_MACROS))
+
+
 _STRING_DEFINE = re.compile(r'^[ \t]*#[ \t]*define[ \t]+(k\w+)[ \t]+"([^"]*)"', re.M)
 
 

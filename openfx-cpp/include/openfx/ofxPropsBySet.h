@@ -105,11 +105,14 @@ static inline const std::map<const char *, std::vector<Prop>> prop_sets {
    { "OfxImageEffectPropOpenGLRenderSupported", prop_defs[PropId::OfxImageEffectPropOpenGLRenderSupported], false, true, false },
    { "OfxImageEffectPropCPURenderSupported", prop_defs[PropId::OfxImageEffectPropCPURenderSupported], false, true, true },
    { "OfxPluginPropFilePath", prop_defs[PropId::OfxPluginPropFilePath], true, false, false },
+#ifdef OFX_SUPPORTS_OPENGLRENDER
    { "OfxOpenGLPropPixelDepth", prop_defs[PropId::OfxOpenGLPropPixelDepth], false, true, true },
+#endif // OFX_SUPPORTS_OPENGLRENDER
    { "OfxImageEffectPluginPropOverlayInteractV2", prop_defs[PropId::OfxImageEffectPluginPropOverlayInteractV2], false, true, false },
    { "OfxImageEffectPropColourManagementAvailableConfigs", prop_defs[PropId::OfxImageEffectPropColourManagementAvailableConfigs], false, true, true },
    { "OfxImageEffectPropColourManagementStyle", prop_defs[PropId::OfxImageEffectPropColourManagementStyle], false, true, true },
-   { "OfxImageEffectPropNoSpatialAwareness", prop_defs[PropId::OfxImageEffectPropNoSpatialAwareness], false, true, true } } },
+   { "OfxImageEffectPropNoSpatialAwareness", prop_defs[PropId::OfxImageEffectPropNoSpatialAwareness], false, true, true },
+ } },
 // EffectInstance
 { "EffectInstance", {
    { "OfxPropType", prop_defs[PropId::OfxPropType], true, false, false },
@@ -205,8 +208,12 @@ static inline const std::map<const char *, std::vector<Prop>> prop_sets {
 // OpenGLTexture
 { "OpenGLTexture", {
    { "OfxPropType", prop_defs[PropId::OfxPropType], true, false, false },
+#ifdef OFX_SUPPORTS_OPENGLRENDER
    { "OfxImageEffectPropOpenGLTextureIndex", prop_defs[PropId::OfxImageEffectPropOpenGLTextureIndex], true, false, false },
+#endif // OFX_SUPPORTS_OPENGLRENDER
+#ifdef OFX_SUPPORTS_OPENGLRENDER
    { "OfxImageEffectPropOpenGLTextureTarget", prop_defs[PropId::OfxImageEffectPropOpenGLTextureTarget], true, false, false },
+#endif // OFX_SUPPORTS_OPENGLRENDER
    { "OfxImageEffectPropPixelDepth", prop_defs[PropId::OfxImageEffectPropPixelDepth], true, false, false },
    { "OfxImageEffectPropComponents", prop_defs[PropId::OfxImageEffectPropComponents], true, false, false },
    { "OfxImageEffectPropPreMultiplication", prop_defs[PropId::OfxImageEffectPropPreMultiplication], true, false, false },
@@ -216,13 +223,15 @@ static inline const std::map<const char *, std::vector<Prop>> prop_sets {
    { "OfxImagePropRegionOfDefinition", prop_defs[PropId::OfxImagePropRegionOfDefinition], true, false, false },
    { "OfxImagePropRowBytes", prop_defs[PropId::OfxImagePropRowBytes], true, false, false },
    { "OfxImagePropField", prop_defs[PropId::OfxImagePropField], true, false, false },
-   { "OfxImagePropUniqueIdentifier", prop_defs[PropId::OfxImagePropUniqueIdentifier], true, false, false } } },
+   { "OfxImagePropUniqueIdentifier", prop_defs[PropId::OfxImagePropUniqueIdentifier], true, false, false },
+ } },
 // ParameterSet
 { "ParameterSet", {
    { "OfxPropParamSetNeedsSyncing", prop_defs[PropId::OfxPropParamSetNeedsSyncing], false, true, false },
    { "OfxPluginPropParamPageOrder", prop_defs[PropId::OfxPluginPropParamPageOrder], false, true, false } } },
 // ParamsByte
 { "ParamsByte", {
+   { "OfxParamInterpType", prop_defs[PropId::OfxParamInterpType], false, true, false },
    { "OfxPropType", prop_defs[PropId::OfxPropType], false, true, false },
    { "OfxPropName", prop_defs[PropId::OfxPropName], false, true, false },
    { "OfxPropLabel", prop_defs[PropId::OfxPropLabel], false, true, false },
@@ -323,6 +332,7 @@ static inline const std::map<const char *, std::vector<Prop>> prop_sets {
    { "OfxParamPropCanUndo", prop_defs[PropId::OfxParamPropCanUndo], false, true, false } } },
 // ParamsDouble1D
 { "ParamsDouble1D", {
+   { "OfxParamInterpType", prop_defs[PropId::OfxParamInterpType], false, true, false },
    { "OfxParamPropShowTimeMarker", prop_defs[PropId::OfxParamPropShowTimeMarker], false, true, false },
    { "OfxParamPropDoubleType", prop_defs[PropId::OfxParamPropDoubleType], false, true, false },
    { "OfxPropType", prop_defs[PropId::OfxPropType], false, true, false },
@@ -514,10 +524,18 @@ static inline const std::map<const char *, std::vector<Prop>> prop_sets {
    { "OfxParamPropPluginMayWrite", prop_defs[PropId::OfxParamPropPluginMayWrite], false, true, false },
    { "OfxParamPropCacheInvalidation", prop_defs[PropId::OfxParamPropCacheInvalidation], false, true, false },
    { "OfxParamPropCanUndo", prop_defs[PropId::OfxParamPropCanUndo], false, true, false },
+#ifdef OFX_SUPPORTS_PARAMETRIC
    { "OfxParamPropParametricDimension", prop_defs[PropId::OfxParamPropParametricDimension], false, true, false },
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC
    { "OfxParamPropParametricUIColour", prop_defs[PropId::OfxParamPropParametricUIColour], false, true, false },
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC
    { "OfxParamPropParametricInteractBackground", prop_defs[PropId::OfxParamPropParametricInteractBackground], false, true, false },
+#endif // OFX_SUPPORTS_PARAMETRIC
+#ifdef OFX_SUPPORTS_PARAMETRIC
    { "OfxParamPropParametricRange", prop_defs[PropId::OfxParamPropParametricRange], false, true, false },
+#endif // OFX_SUPPORTS_PARAMETRIC
    { "OfxPropType", prop_defs[PropId::OfxPropType], false, true, false },
    { "OfxPropName", prop_defs[PropId::OfxPropName], false, true, false },
    { "OfxPropLabel", prop_defs[PropId::OfxPropLabel], false, true, false },
@@ -546,7 +564,8 @@ static inline const std::map<const char *, std::vector<Prop>> prop_sets {
    { "OfxParamPropEvaluateOnChange", prop_defs[PropId::OfxParamPropEvaluateOnChange], false, true, false },
    { "OfxParamPropPluginMayWrite", prop_defs[PropId::OfxParamPropPluginMayWrite], false, true, false },
    { "OfxParamPropCacheInvalidation", prop_defs[PropId::OfxParamPropCacheInvalidation], false, true, false },
-   { "OfxParamPropCanUndo", prop_defs[PropId::OfxParamPropCanUndo], false, true, false } } },
+   { "OfxParamPropCanUndo", prop_defs[PropId::OfxParamPropCanUndo], false, true, false },
+ } },
 // ParamsRGB
 { "ParamsRGB", {
    { "OfxParamPropColourManagement", prop_defs[PropId::OfxParamPropColourManagement], false, true, false },

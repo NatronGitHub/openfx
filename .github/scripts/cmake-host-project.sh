@@ -10,6 +10,6 @@ rm -rf "$work"
 for v in OFF ON; do
   cmake -S "$src/cmake/tests/host-project" -B "$work/parametric-$v" -DOFX_SOURCE_DIR="$src" \
     -DOFX_TEST_PARAMETRIC=$v ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"}
-  cmake --build "$work/parametric-$v" --parallel
+  cmake --build "$work/parametric-$v" --parallel ${CMAKE_BUILD_PARALLEL_LEVEL}
 done
 echo "host-project: OK"
