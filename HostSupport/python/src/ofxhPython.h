@@ -52,6 +52,10 @@
 #include "ofxhOpenCLDevice.h"
 #include "ofxhOpenCLRender.h"
 #endif
+#ifdef OFXH_METAL
+#include "ofxhMetalDevice.h"
+#include "ofxhMetalRender.h"
+#endif
 
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
@@ -328,6 +332,12 @@ public:
   std::unique_ptr<OFX::Host::OpenCL::Device> _clDevice;
   std::string _clError;
 #endif
+#ifdef OFXH_METAL
+  /// ofxh.init(metal=True): the Metal device (and the queues lent to renders), or the reason there is
+  /// none
+  std::unique_ptr<OFX::Host::Metal::Device> _mtDevice;
+  std::string _mtError;
+#endif
 
   PyHost(nb::object py, RefPtr ref);
   ~PyHost() override;
@@ -398,9 +408,10 @@ public:
   OHIE::Image *fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds,
                           const std::string &plane = std::string());
   OHIE::Image *fetchFromPython(OfxTime time, int view, const OfxRectD *optionalBounds, const std::string &plane);
-  /// in an OpenCL render action of the instance, its OpenCL copy (RenderSession::getImage(), which
-  /// gives the output for the output clip); else image. Takes image's reference.
-  OHIE::Image *forOpenCL(OHIE::Image *image);
+  /// in an OpenCL or Metal render action of the instance, its OpenCL or Metal copy
+  /// (RenderSession::getImage(), which gives the output for the output clip); else image. Takes
+  /// image's reference.
+  OHIE::Image *forGPU(OHIE::Image *image);
   /// the clip's RoD in canonical coordinates, from the Python region_of_definition()
   OfxRectD rod(OfxTime time, int view) const;
   /// the RoD that the plug-in gets (getRegionOfDefinition()): rod(), or for a connected input the
@@ -523,6 +534,12 @@ public:
   std::string _clResult;
   /// the exception that stopped the last OpenCL action, "" if none
   std::string _clError;
+#endif
+#ifdef OFXH_METAL
+  /// the same for Metal (withMetal())
+  std::atomic<OFX::Host::Metal::RenderSession *> _mtSession{ nullptr };
+  std::string _mtResult;
+  std::string _mtError;
 #endif
 
   const std::map<std::string, OHIE::ClipInstance *> &clips() const { return _clips; }

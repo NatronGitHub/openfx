@@ -69,6 +69,11 @@ if(TARGET OfxHostOpenCL)
   target_link_libraries(ofxh PRIVATE OfxHostOpenCL)
   target_compile_definitions(ofxh PRIVATE OFXH_OPENCL)
 endif()
+if(TARGET OfxHostMetal)
+  # Metal renders (ofxh.init(metal=True)): openfx::HostSupportMetal (OFX_HOSTSUPPORT_METAL, macOS)
+  target_link_libraries(ofxh PRIVATE OfxHostMetal)
+  target_compile_definitions(ofxh PRIVATE OFXH_METAL)
+endif()
 target_compile_features(ofxh PRIVATE cxx_std_17)
 set_target_properties(ofxh PROPERTIES
   CXX_VISIBILITY_PRESET hidden

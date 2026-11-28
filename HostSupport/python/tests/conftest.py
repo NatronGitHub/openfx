@@ -36,6 +36,10 @@ def pytest_configure(config):
         "markers", "opencl: the test needs an OpenCL device and the sample plug-ins built with OpenCL "
         "(OFX_SUPPORTS_OPENCLRENDER); CI selects them (-m opencl) where it has both, and deselects them "
         "(-m 'not opencl') elsewhere")
+    config.addinivalue_line(
+        "markers", "metal: the test needs a Metal device (macOS) and the sample plug-ins built with Metal "
+        "(GPUGain's OFX_EXAMPLE_GPUGAIN_METAL); CI selects them (-m metal) in the macOS job, and deselects them "
+        "(-m 'not metal') elsewhere")
 
 
 def _skip(message):

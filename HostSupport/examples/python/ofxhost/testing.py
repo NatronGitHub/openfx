@@ -182,7 +182,7 @@ def backend_available(name: str) -> str | None:
 
 
 def pytest_configure(config):
-    """Registers the backends and opencl markers (import it in conftest.py)."""
+    """Registers the backends, opencl and metal markers (import it in conftest.py)."""
     config.addinivalue_line(
         "markers", "backends(*names, reason): the test depends on these backends' behaviour (the reason "
         "says why); it is skipped on the others, with the reason")
@@ -190,6 +190,10 @@ def pytest_configure(config):
         "markers", "opencl: the test needs an OpenCL device and the sample plug-ins built with OpenCL "
         "(OFX_SUPPORTS_OPENCLRENDER); CI selects them (-m opencl) where it has both, and deselects them "
         "(-m 'not opencl') elsewhere")
+    config.addinivalue_line(
+        "markers", "metal: the test needs a Metal device (macOS) and the sample plug-ins built with Metal "
+        "(GPUGain's OFX_EXAMPLE_GPUGAIN_METAL); CI selects them (-m metal) in the macOS job, and deselects them "
+        "(-m 'not metal') elsewhere")
 
 
 def check_backend(name: str, marker=None) -> None:

@@ -73,7 +73,10 @@ hostDemo's command line, in-process on the HostSupport Python bindings (ofxhost.
                      and the plug-in can; the --report renders get "openGL" and "cpuRetry".
                      opencl: the same with OpenCL (the first GPU device, else the first device;
                      OpenCL Buffers, or Images for a plug-in with Images only and RGBA clips);
-                     the --report renders get "openCL" and "cpuRetry"
+                     the --report renders get "openCL" and "cpuRetry".
+                     metal (macOS): the same with Metal (the system default device; Metal buffers,
+                     or textures for a plug-in with textures only and RGBA or Alpha clips);
+                     the --report renders get "metal" and "cpuRetry"
   --gpu-renderer=BACKEND:ID  with --gpu=opengl: the renderer of the context, one of --gpu-renderers
                      (e.g. egl-device:0, glx:-1, cgl:<renderer ID>); no context on it is an error
   --gpu-renderers    list the OpenGL renderers as BACKEND:ID and their names, and exit
@@ -190,15 +193,15 @@ def host_components(args: Sequence[str]) -> tuple[str, ...]:
 def host_gpu(args: Sequence[str]) -> tuple[str, str]:
     """The host's GPU render that a command line gives: (gpu, gpu_renderer), as _parse() takes them.
 
-    gpu: its last --gpu=opengl, --gpu=opencl or --gpu=cpu that isn't the value of another option: "opengl", "opencl",
-    or "" (--gpu=cpu, or none); gpu_renderer: the value of its last --gpu-renderer=, or "".
+    gpu: its last --gpu=opengl, --gpu=opencl, --gpu=metal or --gpu=cpu that isn't the value of another option:
+    "opengl", "opencl", "metal", or "" (--gpu=cpu, or none); gpu_renderer: the value of its last --gpu-renderer=, or "".
     """
     gpu = renderer = ""
     i = 0
     while i < len(args):
         if args[i] in _VALUE_OPTIONS:
             i += 1  # (a value, which may be "--gpu=opengl")
-        elif args[i] in ("--gpu=opengl", "--gpu=opencl", "--gpu=cpu"):
+        elif args[i] in ("--gpu=opengl", "--gpu=opencl", "--gpu=metal", "--gpu=cpu"):
             gpu = "" if args[i] == "--gpu=cpu" else args[i][len("--gpu="):]
         elif args[i].startswith("--gpu-renderer="):
             renderer = args[i][len("--gpu-renderer="):]
@@ -347,7 +350,7 @@ def _parse(argv: list[str], prog: str) -> dict:
             # hostDemo's OFX 1.1 profile changes the plug-in descriptors and instances too (no
             # kOfxImageEffectInstancePropSequentialRender): ofxh.init() has no such profile
             _fail("Error: --ofx11: the in-process backend has no OFX 1.1 host profile: use hostDemo")
-        if arg in ("--gpu=opengl", "--gpu=opencl", "--gpu=cpu"):
+        if arg in ("--gpu=opengl", "--gpu=opencl", "--gpu=metal", "--gpu=cpu"):
             o["gpu"] = "" if arg == "--gpu=cpu" else arg[len("--gpu="):]
         elif arg.startswith("--gpu-renderer="):
             o["gpu_renderer"] = arg[len("--gpu-renderer="):]
@@ -389,6 +392,8 @@ def _parse(argv: list[str], prog: str) -> dict:
         _fail("Error: --multiplane and --ofx14 can't be used together (OFX 1.4 has no plane suite)")
     if o["gpu"] == "opencl" and o["ofx14"]:
         _fail("Error: --gpu=opencl can't be used with --ofx14 or --ofx11 (OpenCL render is OFX 1.5)")
+    if o["gpu"] == "metal" and o["ofx14"]:
+        _fail("Error: --gpu=metal can't be used with --ofx14 or --ofx11 (Metal render is OFX 1.5)")
     return o
 
 

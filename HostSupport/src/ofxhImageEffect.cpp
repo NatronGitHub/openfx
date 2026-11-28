@@ -674,17 +674,25 @@ namespace OFX {
         return nullptr;
       }
 
-      /// kOfxImageEffectPropOpenCLEnabled, kOfxImageEffectPropOpenCLCommandQueue and
-      /// kOfxImageEffectPropCudaEnabled of the inArgs of BeginSequenceRender, Render and
-      /// EndSequenceRender (which have them), and kOfxImageEffectPropCudaStream, which "will only be
-      /// set if the host and plug-in both support CUDA streams" (added then): see GPURenderScope
+      /// kOfxImageEffectPropOpenCLEnabled, kOfxImageEffectPropOpenCLCommandQueue,
+      /// kOfxImageEffectPropMetalEnabled, kOfxImageEffectPropMetalTextureEnabled,
+      /// kOfxImageEffectPropMetalCommandQueue and kOfxImageEffectPropCudaEnabled of the inArgs of
+      /// BeginSequenceRender, Render and EndSequenceRender (which have them), and
+      /// kOfxImageEffectPropCudaStream, which "will only be set if the host and plug-in both support
+      /// CUDA streams" (added then): see GPURenderScope
       static void setGPURenderArgs(Property::Set &inArgs, const Instance &effect)
       {
         const GPURenderScope *scope = GPURenderScope::find(effect);
         const bool openCL = scope && scope->api() == GPURenderScope::API::OpenCL;
+        const bool metal = scope && scope->api() == GPURenderScope::API::Metal;
+        const bool metalTextures = scope && scope->api() == GPURenderScope::API::MetalTextures;
         const bool cuda = scope && scope->api() == GPURenderScope::API::CUDA;
         inArgs.setIntProperty(kOfxImageEffectPropOpenCLEnabled, openCL ? 1 : 0);
         inArgs.setPointerProperty(kOfxImageEffectPropOpenCLCommandQueue, openCL ? scope->queue() : nullptr);
+        // "For a given action the host MUST set at most one of the two enabled properties"
+        inArgs.setIntProperty(kOfxImageEffectPropMetalEnabled, metal ? 1 : 0);
+        inArgs.setIntProperty(kOfxImageEffectPropMetalTextureEnabled, metalTextures ? 1 : 0);
+        inArgs.setPointerProperty(kOfxImageEffectPropMetalCommandQueue, metal || metalTextures ? scope->queue() : nullptr);
         inArgs.setIntProperty(kOfxImageEffectPropCudaEnabled, cuda ? 1 : 0);
         // ofxGPURender.h, kOfxImageEffectPropCudaStream: "This property will only be set if the host
         // and plug-in both support CUDA streams." Otherwise it is absent: a plug-in that finds it

@@ -13,11 +13,13 @@ root=$PWD
 build=$root/build-ci
 # macOS has the OpenCL framework: build the OpenCL example there (Examples/OpenCL; Metal is built
 # on macOS anyway). Linux would need the OpenCL headers and ICD loader packages.
+# openfx::HostSupportMetal is macOS only.
 opencl=OFF
-if [ "$(uname -s)" = Darwin ]; then opencl=ON; fi
+metal=OFF
+if [ "$(uname -s)" = Darwin ]; then opencl=ON; metal=ON; fi
 cmake -S . -B "$build" -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON -DOFX_SUPPORTS_OPENCLRENDER=$opencl \
-  -DOFX_HOSTSUPPORT_OPENGL=ON -DOFX_HOSTSUPPORT_OPENCL=ON \
+  -DOFX_HOSTSUPPORT_OPENGL=ON -DOFX_HOSTSUPPORT_OPENCL=ON -DOFX_HOSTSUPPORT_METAL=$metal \
   -DOFX_EXTENSIONS_NATRON=OFF -DOFX_EXTENSIONS_NUKE=OFF -DOFX_EXTENSIONS_VEGAS=OFF \
   -DOFX_EXTENSIONS_TUTTLE=OFF -DOFX_EXTENSIONS_RESOLVE=OFF \
   -DPLUGIN_INSTALLDIR="$build/install/OFX/Plugins" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"} \

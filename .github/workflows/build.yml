@@ -165,17 +165,17 @@ jobs:
           SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
             build-ci-natron/HostSupport/examples/suiteHandleChecks > suitehandlechecks-natron.log 2>&1 \
             || { cat suitehandlechecks-natron.log; exit 1; }
-          PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" python -m pytest -m "not opencl" HostSupport/python/tests
+          PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" python -m pytest -m "not opencl and not metal" HostSupport/python/tests
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" \
-            python -m pytest -m "not opencl" HostSupport/examples/python/tests Support/Plugins/tests
+            python -m pytest -m "not opencl and not metal" HostSupport/examples/python/tests Support/Plugins/tests
           # the GPU tests of ofxh and of the command lines with GLX too (Xvfb, Mesa llvmpipe): ofxh's
           # renderers of OFXH_OPENGL_BACKENDS, and --gpu-renderers (which lists GLX after EGL there)
           OFXH_OPENGL_BACKENDS=glx PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
-            xvfb-run -a python -m pytest -m "not opencl" HostSupport/python/tests/test_opengl.py
+            xvfb-run -a python -m pytest -m "not opencl and not metal" HostSupport/python/tests/test_opengl.py
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" \
-            xvfb-run -a python -m pytest -m "not opencl" HostSupport/examples/python/tests/test_hostdemo_cli.py -k gpu
+            xvfb-run -a python -m pytest -m "not opencl and not metal" HostSupport/examples/python/tests/test_hostdemo_cli.py -k gpu
       - name: openfx::HostSupportOpenCL on PoCL (openclRenderChecks and the opencl Python tests, OFXH_REQUIRE=1)
         run: |
           # GPUGain with its OpenCL kernels (OFX_SUPPORTS_OPENCLRENDER, linked to libOpenCL: a
@@ -203,13 +203,13 @@ jobs:
           # each render test runs with hostDemo and in-process on the ofxh module
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
-            python -m pytest -m "not opencl" HostSupport/examples/python/tests Support/Plugins/tests
+            python -m pytest -m "not opencl and not metal" HostSupport/examples/python/tests Support/Plugins/tests
       - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
         if: success() || failure()
         run: |
           export PYTHONPATH="$PWD/build-ci/HostSupport/python"
           python -c "import ofxh; print(ofxh.__file__)"
-          python -m pytest -m "not opencl" HostSupport/python/tests
+          python -m pytest -m "not opencl and not metal" HostSupport/python/tests
 
   macos:
     name: macOS 15 arm64 (CMake, Xcode clang, MacPorts)
@@ -248,18 +248,44 @@ jobs:
         env:
           OFX_CMAKE_EXTRA_ARGS: -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE=/opt/local/bin/python3.11
         run: .github/scripts/cmake-build-test.sh
+      - name: openfx::HostSupportMetal (metalRenderChecks and the metal Python tests, OFXH_REQUIRE=1)
+        if: success() || failure()
+        run: |
+          # the runner's Metal device (cmake-build-test.sh builds the component, and GPUGain with its
+          # Metal kernel, on macOS): devices and queues, the copies to Metal buffers, GPUGain's Metal
+          # renders, the ofxh module's Metal renders, and hostDemo --gpu=metal against the in-process
+          # backend (the tests marked metal, which the other runs deselect)
+          set -eo pipefail
+          # (OBJC_DEBUG_MISSING_POOLS: an object autoreleased on a thread without a pool, as a host's
+          # render thread may be, is a leak; the component must leave none)
+          OBJC_DEBUG_MISSING_POOLS=YES OFX_PLUGIN_PATH="$PWD/build-ci/Plugins" \
+            build-ci/HostSupport/examples/metalRenderChecks 2> metalrenderchecks.err || { cat metalrenderchecks.err; exit 1; }
+          cat metalrenderchecks.err
+          if grep -q "autoreleased with no pool" metalrenderchecks.err; then
+            echo "::error::metalRenderChecks: objects autoreleased with no pool in place"
+            # where: their backtraces (lldb on objc_autoreleaseNoPool)
+            OBJC_DEBUG_MISSING_POOLS=YES OFX_PLUGIN_PATH="$PWD/build-ci/Plugins" lldb --batch \
+              -o "breakpoint set -n objc_autoreleaseNoPool" -o "breakpoint command add -o 'bt 16' -o continue 1" \
+              -o run -- build-ci/HostSupport/examples/metalRenderChecks > metalrenderchecks-nopool.log 2>&1 || true
+            grep -A17 "stop reason = breakpoint" metalrenderchecks-nopool.log || tail -50 metalrenderchecks-nopool.log
+            exit 1
+          fi
+          PYTHONPATH="$PWD/build-ci/HostSupport/python" python3.11 -m pytest -m metal HostSupport/python/tests
+          OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" \
+            OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
+            python3.11 -m pytest -m metal HostSupport/examples/python/tests/test_hostdemo_cli.py
       - name: Python wrapper and sample plug-in tests (ofxhost, on both backends)
         if: success() || failure()
         run: |
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
-            python3.11 -m pytest -m "not opencl" HostSupport/examples/python/tests Support/Plugins/tests
+            python3.11 -m pytest -m "not opencl and not metal" HostSupport/examples/python/tests Support/Plugins/tests
       - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
         if: success() || failure()
         run: |
           export PYTHONPATH="$PWD/build-ci/HostSupport/python"
           python3.11 -c "import ofxh; print(ofxh.__file__)"
-          python3.11 -m pytest -m "not opencl" HostSupport/python/tests
+          python3.11 -m pytest -m "not opencl and not metal" HostSupport/python/tests
 
   windows:
     name: Windows (MSYS2 UCRT64, CMake)

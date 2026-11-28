@@ -526,6 +526,52 @@ that a plug-in whose :c:macro:`kOfxImageEffectPropOpenGLRenderSupported` is
 ``"needed"`` has no CPU render. ``HostSupport/examples/openclRenderChecks.cpp`` runs a render
 with the GPUGain sample.
 
+Metal Rendering
+---------------
+
+With Metal ("Apple Metal Rendering", ``ofxGPURender.h``), the host passes
+the images of a render as Metal buffers
+(:c:macro:`kOfxImageEffectPropMetalRenderSupported`, the ``id<MTLBuffer>`` in
+:c:macro:`kOfxImagePropData`) or, after OFX 1.5.1, Metal textures
+(:c:macro:`kOfxImageEffectPropMetalTextureSupported`, the ``id<MTLTexture>``
+in :c:macro:`kOfxImagePropData`), and sets
+:c:macro:`kOfxImageEffectPropMetalEnabled` (buffers) or
+:c:macro:`kOfxImageEffectPropMetalTextureEnabled` (textures), never both, and
+:c:macro:`kOfxImageEffectPropMetalCommandQueue` in the arguments of the
+BeginSequenceRender, Render and EndSequenceRender actions, while an
+``ImageEffect::GPURenderScope`` of API ``Metal`` or ``MetalTextures`` is
+alive, as for OpenCL.
+
+The optional library ``openfx::HostSupportMetal`` (CMake option
+``OFX_HOSTSUPPORT_METAL``, off by default, macOS only) is the Metal
+counterpart of ``openfx::HostSupportOpenCL``. It is written in
+Objective-C++ with ARC, but its headers are plain C++: the Metal objects
+are given as ``void *``.
+
+-  ``ofxhMetalDevice.h``: the Metal devices, one of them (``createDevice()``,
+   by default the system default device, or ``createDeviceWithRegistryID()``),
+   ``Queue``, which lends a render one of the device's command queues, and
+   ``AutoreleasePool``, for the host's render threads;
+-  ``ofxhMetalRender.h``: ``chooseRenderMode()`` (Metal buffers, Metal
+   textures, the CPU, or none; buffers when the plug-in has both, unless the
+   host prefers textures; textures only for RGBA and Alpha clips, as the spec
+   forbids RGB textures) and ``RenderSession``, which opens the
+   ``GPURenderScope`` only if both the plug-in and the host descriptor
+   support its mode, and copies the images of a render to packed Metal
+   buffers in shared storage, or to private textures of the spec's pixel
+   formats, through blits, and the render window of the output back. A
+   texture's texel (i, j) is the pixel (x1 + i, y1 + j): the spec's bottom
+   left origin. The session keeps every buffer and texture until it ends, and
+   waits for the plug-in's work on them with a blit that reads and writes
+   each one: Metal's hazard tracking runs it after the plug-in's commands that
+   use them. A failed command buffer of the plug-in goes undetected (Metal has
+   no queue-wide error).
+
+The CPU retry is the OpenCL one (``cpuRetryAllowed()``).
+``HostSupport/examples/metalRenderChecks.cpp`` runs a render with the
+GPUGain sample (buffers), and checks the textures with its own kernels
+(GPUGain has no texture path).
+
 Building a Host with HostSupport
 ================================
 

@@ -264,6 +264,24 @@ instead" (``ofxGPURender.h``). The report's renders then have ``openCL`` and
 GPUGain, built with ``OFX_SUPPORTS_OPENCLRENDER``, has OpenCL Buffers and
 Images kernels.
 
+Metal Rendering: ``--gpu=metal``
+--------------------------------
+
+With ``--gpu=metal`` (macOS builds with ``OFX_HOSTSUPPORT_METAL``), both
+hosts render on the system default Metal device of
+``openfx::HostSupportMetal``, as with ``--gpu=opencl``: the host descriptor
+sets :c:macro:`kOfxImageEffectPropMetalRenderSupported` and
+:c:macro:`kOfxImageEffectPropMetalTextureSupported` to ``"true"``, a plug-in
+that supports Metal buffers (``"true"``, or ``"needed"``) gets them, with
+:c:macro:`kOfxImageEffectPropMetalEnabled` 1 and
+:c:macro:`kOfxImageEffectPropMetalCommandQueue`, one that supports Metal
+textures only gets textures if its clips are RGBA or Alpha
+(:c:macro:`kOfxImageEffectPropMetalTextureEnabled` 1), and the others render
+on the CPU. The CPU retry and its rule are those of ``--gpu=opencl``. The
+report's renders then have ``metal`` and ``cpuRetry``. Not with ``--ofx14``
+or ``--ofx11``: Metal render is OFX 1.5. GPUGain has a Metal kernel on macOS
+(``OFX_EXAMPLE_GPUGAIN_METAL``, on by default).
+
 The Code, as an Example Host
 ----------------------------
 

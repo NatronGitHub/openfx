@@ -70,6 +70,23 @@ if(OFX_HOSTSUPPORT_OPENCL)
 	add_library(openfx::HostSupportOpenCL ALIAS OfxHostOpenCL)
 endif()
 
+# openfx::HostSupportMetal: Metal devices, command queues and renders (ofxhMetalDevice.h,
+# ofxhMetalRender.h), macOS only. Objective-C++ with ARC (the .mm files, compiled by the C++
+# compiler); its headers are plain C++. Links the Metal and Foundation frameworks of the SDK.
+if(OFX_HOSTSUPPORT_METAL)
+	if(NOT APPLE)
+		message(FATAL_ERROR "OFX_HOSTSUPPORT_METAL is for macOS only")
+	endif()
+	file(GLOB OFX_HOSTSUPPORT_METAL_FILES "${OFX_HOSTSUPPORT_LIBRARY_DIR}/metal/*.mm")
+	add_library(OfxHostMetal STATIC ${OFX_HOSTSUPPORT_METAL_FILES})
+	set_target_properties(OfxHostMetal PROPERTIES
+		POSITION_INDEPENDENT_CODE ON
+		EXPORT_NAME HostSupportMetal)
+	target_compile_options(OfxHostMetal PRIVATE -fobjc-arc)
+	target_link_libraries(OfxHostMetal PUBLIC OfxHost "-framework Metal" "-framework Foundation")
+	add_library(openfx::HostSupportMetal ALIAS OfxHostMetal)
+endif()
+
 if(BUILD_EXAMPLE_HOSTS)
 	if(OFX_SUPPORTS_MULTITHREAD)
 		# hostDemo and cacheDemo don't implement the multi-thread suite functions that
