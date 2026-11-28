@@ -213,8 +213,10 @@ namespace OFX {
       /// descriptor
       ClipDescriptor::ClipDescriptor(const std::string &name)
         : ClipBase()
+        , _labelHook(_properties)
       {
         _properties.setStringProperty(kOfxPropName,name);
+        Property::addLabelProperties(_properties, name, _labelHook);
       }
       
       /// extra properties for the instance, these are fetched from the host

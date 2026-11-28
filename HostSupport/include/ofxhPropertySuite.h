@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <sstream> // stringstream
 #include <limits> // numeric_limits
+#include <atomic>
 
 #include "ofxCore.h" // OfxStatus, OfxPropertySetHandle
 
@@ -420,6 +421,9 @@ namespace OFX {
         /// on a local search
         Set *_chainedSet;
 
+        /// see hideNeedsSyncingUntilPluginSets()
+        std::atomic<bool> _needsSyncingHidden;
+
         /// hide assignment
         void operator=(const Set &);
 
@@ -471,6 +475,23 @@ namespace OFX {
 
         /// set the chained property set
         void setChainedSet(Set *s) {_chainedSet = s;}
+
+        /// kOfxPropParamSetNeedsSyncing (ofxParam.h) on the param set of an effect instance: "If this
+        /// property is not set, the host will always call SyncPrivateData before copying or saving
+        /// the effect (as if the property were set to 1 -- but the host will not create or modify the
+        /// property)". The effect instance declares it (int X 1, default 0) and hides it from the
+        /// plug-in: the property suite's get, getDimension and reset of it fail with
+        /// kOfxStatErrUnknown until the plug-in's first propSetInt (index 0) or propSetIntN
+        /// (count 1), which shows it. Only an atomic flag changes, never the property map, which
+        /// render threads may read meanwhile (CP.2). Only for this property. A copy of the set
+        /// copies the flag.
+        void hideNeedsSyncingUntilPluginSets() { _needsSyncingHidden.store(true, std::memory_order_release); }
+
+        /// true while kOfxPropParamSetNeedsSyncing is hidden: the plug-in hasn't set it
+        bool isNeedsSyncingHidden() const { return _needsSyncingHidden.load(std::memory_order_acquire); }
+
+        /// (the property suite) the plug-in set kOfxPropParamSetNeedsSyncing
+        void showNeedsSyncing() { _needsSyncingHidden.store(false, std::memory_order_release); }
 
         /// grab the internal properties map
         const PropertyMap &getProperties() const
@@ -581,7 +602,41 @@ namespace OFX {
         bool verifyMagic() const { return _magic == kMagic; }
       };
 
-      
+
+      /// A notify hook that makes properties of a set follow others: when the plug-in sets or
+      /// resets a source property through the property suite (propSet*, propReset), each of its
+      /// targets (of the same type and dimension, in the same set) takes its new values, the set
+      /// indices only. For the OFX rules "Note that resetting this will also reset
+      /// ::kOfxPropShortLabel and ::kOfxPropLongLabel" (ofxCore.h, kOfxPropLabel) and "Setting this
+      /// will also reset ::kOfxParamPropDisplayMin" (ofxParam.h, kOfxParamPropMin; Max too). The
+      /// host's own C++ sets (Set::set*Property(), setValue()) don't: a host that mirrors its UI
+      /// into the properties (e.g. a knob's new range) keeps the targets it has. The targets' own
+      /// notify hooks are called. Owned by the object that owns the set, and constructed with it:
+      /// a copy of the set has no hooks.
+      class LinkedPropertiesHook : public NotifyHook {
+      public:
+        explicit LinkedPropertiesHook(Set &set) : _set(set) {}
+        LinkedPropertiesHook(const LinkedPropertiesHook &) = delete;
+        LinkedPropertiesHook &operator=(const LinkedPropertiesHook &) = delete;
+
+        /// target follows source, if the set has both. The hook is added to source's notify hooks
+        /// (once): after the hooks added before, before those added after.
+        void link(const std::string &source, const std::string &target);
+
+        void notify(const std::string &name, bool single, int indexOrN) OFX_EXCEPTION_SPEC override;
+
+      private:
+        Set &_set;
+        std::multimap<std::string, std::string> _targets; ///< source -> targets
+      };
+
+      /// kOfxPropLabel, kOfxPropShortLabel and kOfxPropLongLabel (ofxCore.h), with the default
+      /// name ("Default - the ::kOfxPropName the object was created with", and for the short and
+      /// long labels "initially ::kOfxPropName, but will be reset if ::kOfxPropLabel is changed"):
+      /// (re)creates them in set (plug-in writable), and links the short and long labels to the
+      /// label in hook. Call it before adding other notify hooks to these properties.
+      void addLabelProperties(Set &set, const std::string &name, LinkedPropertiesHook &hook);
+
       /// return the OFX function suite that manages properties
       const void *GetSuite(int version);
     }

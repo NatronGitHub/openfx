@@ -13,6 +13,8 @@
 #include <list>
 #include <string>
 #include <vector>
+#include <atomic>
+#include <thread>
 
 #include "ofxCore.h"
 #include "ofxParam.h"
@@ -336,7 +338,13 @@ namespace {
   /// - the inArgs of each action, recorded host-side (setCustomInArgs(), just before the action is
   ///   passed to the plug-in): kOfxImageEffectPropThumbnailRender ("" if absent) and
   ///   kOfxImageEffectPropBehaviourWhenUnlicensed ("absent" if absent);
-  /// - what getBehaviourWhenUnlicensed() and abort() return: unlicensedBehaviour and abortValue
+  /// - what getBehaviourWhenUnlicensed() and abort() return: unlicensedBehaviour and abortValue;
+  /// - kOfxImageEffectPropCudaEnabled and kOfxImageEffectPropCudaStream (-1 and "absent" if absent)
+  ///   in the inArgs: cudaEnabledArg, cudaStreamArg;
+  /// - a write to the output clip's depth in the GetClipPreferences outArgs, through the property
+  ///   suite as a plug-in would, just before the plug-in's action: outputDepthWrite (none if empty),
+  ///   with its status in outputDepthWriteStatus;
+  /// - the kOfxActionSyncPrivateData actions sent to the plug-in: syncs
   class TestEffectInstance : public MyHost::MyEffectInstance {
     bool ongoing() const { return !_progress.empty() && _progress.back().ends == 0; }
   public:
@@ -344,8 +352,30 @@ namespace {
     std::map<std::string, std::string> unlicensedArg;
     std::string unlicensedBehaviour;
     int abortValue; ///< what abort() returns; -1: it throws
+    std::map<std::string, int> cudaEnabledArg;
+    std::map<std::string, std::string> cudaStreamArg;
+    std::string outputDepthWrite;
+    OfxStatus outputDepthWriteStatus;
+    int syncs;
     TestEffectInstance(ImageEffect::ImageEffectPlugin *plugin, ImageEffect::Descriptor &desc, const std::string &context)
-      : MyHost::MyEffectInstance(plugin, desc, context), abortValue(0) {}
+      : MyHost::MyEffectInstance(plugin, desc, context), abortValue(0), outputDepthWriteStatus(kOfxStatOK), syncs(0) {}
+    /// a copy, as a host's render clone (Natron's OfxEffectInstance::createRenderClone())
+    TestEffectInstance(const TestEffectInstance &) = default;
+    virtual OfxStatus mainEntry(const char *action, const void *handle, Property::Set *inArgs, Property::Set *outArgs)
+    {
+      if (action && std::string(action) == kOfxActionSyncPrivateData) {
+        ++syncs;
+      }
+      return MyHost::MyEffectInstance::mainEntry(action, handle, inArgs, outArgs);
+    }
+    virtual void setCustomOutArgs(const std::string &action, Property::Set &outArgs)
+    {
+      MyHost::MyEffectInstance::setCustomOutArgs(action, outArgs);
+      if (action == kOfxImageEffectActionGetClipPreferences && !outputDepthWrite.empty()) {
+        const OfxPropertySuiteV1 *ps = (const OfxPropertySuiteV1 *)Property::GetSuite(1);
+        outputDepthWriteStatus = ps->propSetString(outArgs.getHandle(), "OfxImageClipPropDepth_Output", 0, outputDepthWrite.c_str());
+      }
+    }
     virtual void progressEnd()
     {
       if (!ongoing()) {
@@ -385,6 +415,11 @@ namespace {
         inArgs.getStringProperty(kOfxImageEffectPropThumbnailRender) : std::string();
       unlicensedArg[action] = inArgs.fetchProperty(kOfxImageEffectPropBehaviourWhenUnlicensed) ?
         inArgs.getStringProperty(kOfxImageEffectPropBehaviourWhenUnlicensed) : std::string("absent");
+      cudaEnabledArg[action] = inArgs.fetchProperty(kOfxImageEffectPropCudaEnabled) ?
+        inArgs.getIntProperty(kOfxImageEffectPropCudaEnabled) : -1;
+      std::ostringstream stream;
+      stream << inArgs.getPointerProperty(kOfxImageEffectPropCudaStream);
+      cudaStreamArg[action] = inArgs.fetchProperty(kOfxImageEffectPropCudaStream) ? stream.str() : std::string("absent");
     }
   };
 
@@ -1143,6 +1178,385 @@ namespace {
     instance.abortValue = 0;
   }
 
+  /// a copy of an instance (a host's render clone) reports the host's values of the hooked
+  /// instance properties, not their stored defaults (0), finds the descriptor's properties through
+  /// the chain, and starts with a NULL kOfxPropInstanceData (ofxCore.h: "This data pointer is
+  /// unique to each plug-in instance")
+  void checkInstanceCopy(TestEffectInstance &instance)
+  {
+    const OfxPropertySuiteV1 *ps = (const OfxPropertySuiteV1 *)Property::GetSuite(1);
+    Property::Set &descProps = instance.getDescriptor().getProps();
+    descProps.createProperty({ "TestDescriptorOnly", Property::eString, 1, false, "descriptor" });
+    void *data = nullptr; // (set by the plug-in in CreateInstance: Support's ImageEffect)
+    check("instance: kOfxPropInstanceData is set",
+          ps->propGetPointer(instance.getProps().getHandle(), kOfxPropInstanceData, 0, &data) == kOfxStatOK && data != nullptr);
+    {
+      TestEffectInstance copy(instance);
+      OfxPropertySetHandle h = copy.getProps().getHandle();
+      double size[2] = { 0., 0. }, offset[2] = { -1., -1. }, extent[2] = { 0., 0. };
+      double par = 0., duration = 0., rate = 0.;
+      double xs = 0., ys = 0., xo = 0., yo = 0., xe = 0., ye = 0.;
+      instance.getProjectSize(xs, ys);
+      instance.getProjectOffset(xo, yo);
+      instance.getProjectExtent(xe, ye);
+      check("instance copy: kOfxImageEffectPropProjectSize, Offset and Extent are the host's",
+            ps->propGetDoubleN(h, kOfxImageEffectPropProjectSize, 2, size) == kOfxStatOK &&
+            ps->propGetDoubleN(h, kOfxImageEffectPropProjectOffset, 2, offset) == kOfxStatOK &&
+            ps->propGetDoubleN(h, kOfxImageEffectPropProjectExtent, 2, extent) == kOfxStatOK &&
+            xs > 0. && size[0] == xs && size[1] == ys && offset[0] == xo && offset[1] == yo &&
+            extent[0] == xe && extent[1] == ye);
+      check("instance copy: kOfxImageEffectPropProjectPixelAspectRatio, kOfxImageEffectInstancePropEffectDuration "
+            "and kOfxImageEffectPropFrameRate are the host's",
+            ps->propGetDouble(h, kOfxImageEffectPropProjectPixelAspectRatio, 0, &par) == kOfxStatOK &&
+            ps->propGetDouble(h, kOfxImageEffectInstancePropEffectDuration, 0, &duration) == kOfxStatOK &&
+            ps->propGetDouble(h, kOfxImageEffectPropFrameRate, 0, &rate) == kOfxStatOK &&
+            par > 0. && par == instance.getProjectPixelAspectRatio() &&
+            duration == instance.getEffectDuration() && rate > 0. && rate == instance.getFrameRate());
+      const char *value = nullptr;
+      check("instance copy: a descriptor property through the chained set",
+            ps->propGetString(h, "TestDescriptorOnly", 0, &value) == kOfxStatOK && value && std::string(value) == "descriptor");
+      void *copyData = data;
+      check("instance copy: kOfxPropInstanceData is NULL",
+            ps->propGetPointer(h, kOfxPropInstanceData, 0, &copyData) == kOfxStatOK && copyData == nullptr);
+      void *mainData = nullptr;
+      check("instance: kOfxPropInstanceData unchanged by the copy",
+            ps->propGetPointer(instance.getProps().getHandle(), kOfxPropInstanceData, 0, &mainData) == kOfxStatOK && mainData == data);
+    }
+    descProps.removeProperty("TestDescriptorOnly");
+  }
+
+  /// the output depth: the plug-in may set it only if the host and the plug-in both support
+  /// multiple clip depths (ofxClipPreferences.rst); otherwise the host's depth stays, even when the
+  /// ePluginReadOnlyWarn policy accepts the plug-in's write (Invert doesn't support multiple clip
+  /// depths, and supports 8 bits, 16 bits and float)
+  void checkClipPreferencesDepths(MyHost::Host &host, TestEffectInstance &instance)
+  {
+    ImageEffect::ClipInstance *output = instance.getClip(kOfxImageEffectOutputClipName);
+    check("output clip", output != nullptr);
+    if (!output) {
+      return;
+    }
+    instance.getClipPreferences();
+    const std::string hostDepth = output->getPixelDepth();
+    const std::string other = hostDepth == kOfxBitDepthFloat ? kOfxBitDepthByte : kOfxBitDepthFloat;
+    const Property::PluginReadOnlyPolicyEnum policy = Property::getPluginReadOnlyPolicy();
+    Property::setPluginReadOnlyPolicy(Property::ePluginReadOnlyWarn);
+    instance.outputDepthWrite = other;
+    const bool prefs = instance.getClipPreferences();
+    check(("GetClipPreferences, no multiple clip depths, ePluginReadOnlyWarn: the write of the output depth " + other +
+           " is accepted, and the output depth stays " + hostDepth).c_str(),
+          prefs && instance.outputDepthWriteStatus == kOfxStatOK && output->getPixelDepth() == hostDepth);
+    Property::Set &hostProps = host.getProperties();
+    const int hostMultiple = hostProps.getIntProperty(kOfxImageEffectPropSupportsMultipleClipDepths);
+    const int pluginMultiple = instance.getProps().getIntProperty(kOfxImageEffectPropSupportsMultipleClipDepths);
+    hostProps.setIntProperty(kOfxImageEffectPropSupportsMultipleClipDepths, 1);
+    check("GetClipPreferences, the host supports multiple clip depths, not the plug-in: the output depth stays",
+          instance.getClipPreferences() && output->getPixelDepth() == hostDepth);
+    instance.getProps().setIntProperty(kOfxImageEffectPropSupportsMultipleClipDepths, 1);
+    check(("GetClipPreferences, both support multiple clip depths: the plug-in's output depth " + other).c_str(),
+          instance.getClipPreferences() && instance.outputDepthWriteStatus == kOfxStatOK && output->getPixelDepth() == other);
+    instance.outputDepthWrite.clear();
+    instance.getProps().setIntProperty(kOfxImageEffectPropSupportsMultipleClipDepths, pluginMultiple);
+    hostProps.setIntProperty(kOfxImageEffectPropSupportsMultipleClipDepths, hostMultiple);
+    Property::setPluginReadOnlyPolicy(policy);
+    instance.getClipPreferences();
+  }
+
+  /// kOfxImageEffectPropCudaStream: "This property will only be set if the host and plug-in both
+  /// support CUDA streams" (ofxGPURender.h); kOfxImageEffectPropCudaEnabled 1 only in a CUDA
+  /// GPURenderScope
+  void checkCudaStreamArg(MyHost::Host &host, TestEffectInstance &instance)
+  {
+    static const char *const actions[] = { kOfxImageEffectActionBeginSequenceRender, kOfxImageEffectActionRender,
+                                           kOfxImageEffectActionEndSequenceRender };
+    auto args = [&](int enabled, const std::string &stream) {
+      beginEndSequenceRender(&instance);
+      render(&instance);
+      bool ok = true;
+      for (const char *a : actions) {
+        ok = ok && instance.cudaEnabledArg[a] == enabled && instance.cudaStreamArg[a] == stream;
+      }
+      return ok;
+    };
+    Property::Set &hostProps = host.getProperties();
+    Property::Set &pluginProps = instance.getProps();
+    const std::string hostStreams = hostProps.getStringProperty(kOfxImageEffectPropCudaStreamSupported);
+    const std::string pluginStreams = pluginProps.getStringProperty(kOfxImageEffectPropCudaStreamSupported);
+    check("Begin/EndSequenceRender and Render inArgs without a CUDA scope: kOfxImageEffectPropCudaEnabled 0, no kOfxImageEffectPropCudaStream",
+          args(0, "absent"));
+    int streamTag = 0;
+    std::ostringstream tag;
+    tag << (void *)&streamTag;
+    {
+      ImageEffect::GPURenderScope scope(instance, ImageEffect::GPURenderScope::API::CUDA, &streamTag);
+      hostProps.setStringProperty(kOfxImageEffectPropCudaStreamSupported, "false");
+      pluginProps.setStringProperty(kOfxImageEffectPropCudaStreamSupported, "true");
+      check("CUDA scope, the host without CUDA streams: kOfxImageEffectPropCudaEnabled 1, no kOfxImageEffectPropCudaStream",
+            args(1, "absent"));
+      hostProps.setStringProperty(kOfxImageEffectPropCudaStreamSupported, "true");
+      pluginProps.setStringProperty(kOfxImageEffectPropCudaStreamSupported, "false");
+      check("CUDA scope, the plug-in without CUDA streams: no kOfxImageEffectPropCudaStream", args(1, "absent"));
+      pluginProps.setStringProperty(kOfxImageEffectPropCudaStreamSupported, "needed");
+      check("CUDA scope, the host supports CUDA streams, the plug-in says \"needed\" (upstream main's @propdef): "
+            "kOfxImageEffectPropCudaStream is the scope's stream", args(1, tag.str()));
+      pluginProps.setStringProperty(kOfxImageEffectPropCudaStreamSupported, "true");
+      check("CUDA scope, both support CUDA streams: kOfxImageEffectPropCudaStream is the scope's stream", args(1, tag.str()));
+      {
+        ImageEffect::GPURenderScope noStream(instance, ImageEffect::GPURenderScope::API::CUDA, nullptr);
+        check("a nested CUDA scope without a stream: kOfxImageEffectPropCudaEnabled 1, no kOfxImageEffectPropCudaStream",
+              args(1, "absent"));
+      }
+      {
+        ImageEffect::GPURenderScope cpu(instance, ImageEffect::GPURenderScope::API::CPU, nullptr);
+        check("a nested CPU scope: kOfxImageEffectPropCudaEnabled 0, no kOfxImageEffectPropCudaStream", args(0, "absent"));
+      }
+      {
+        ImageEffect::GPURenderScope openCL(instance, ImageEffect::GPURenderScope::API::OpenCL, &streamTag);
+        check("a nested OpenCL scope: kOfxImageEffectPropCudaEnabled 0, no kOfxImageEffectPropCudaStream", args(0, "absent"));
+      }
+    }
+    hostProps.setStringProperty(kOfxImageEffectPropCudaStreamSupported, hostStreams);
+    pluginProps.setStringProperty(kOfxImageEffectPropCudaStreamSupported, pluginStreams);
+    check("both support CUDA streams, no CUDA scope: no kOfxImageEffectPropCudaStream", args(0, "absent"));
+  }
+
+  /// kOfxPropParamSetNeedsSyncing (ofxParam.h): "If this property is not set, the host will always
+  /// call SyncPrivateData before copying or saving the effect (as if the property were set to 1 --
+  /// but the host will not create or modify the property)": absent until the plug-in sets it; then
+  /// 1 syncs and is set to 0, and 0 doesn't sync
+  void checkNeedsSyncing(TestEffectInstance &instance)
+  {
+    const OfxPropertySuiteV1 *ps = (const OfxPropertySuiteV1 *)Property::GetSuite(1);
+    OfxPropertySetHandle h = instance.getParamSetProps().getHandle();
+    const size_t nProps = instance.getParamSetProps().getProperties().size();
+    TestEffectInstance concurrent(instance); // (a copy taken while the property is hidden)
+    int v = -1, dim = -1;
+    check("kOfxPropParamSetNeedsSyncing: hidden at first (propGetInt, propGetDimension, propReset = kOfxStatErrUnknown)",
+          ps->propGetInt(h, kOfxPropParamSetNeedsSyncing, 0, &v) == kOfxStatErrUnknown &&
+          ps->propGetDimension(h, kOfxPropParamSetNeedsSyncing, &dim) == kOfxStatErrUnknown &&
+          ps->propReset(h, kOfxPropParamSetNeedsSyncing) == kOfxStatErrUnknown);
+    check("kOfxPropParamSetNeedsSyncing: declared with the instance (the property map doesn't change later)",
+          instance.getParamSetProps().fetchIntProperty(kOfxPropParamSetNeedsSyncing) != nullptr);
+    int syncs = instance.syncs;
+    instance.syncPrivateDataAction();
+    instance.syncPrivateDataAction();
+    check("kOfxPropParamSetNeedsSyncing not set: SyncPrivateData every time, and the property stays hidden",
+          instance.syncs == syncs + 2 && ps->propGetInt(h, kOfxPropParamSetNeedsSyncing, 0, &v) == kOfxStatErrUnknown);
+    check("kOfxPropParamSetNeedsSyncing: propSetDouble, propSetInt(index 1), propSetIntN(count 2) = kOfxStatErrUnknown, still hidden",
+          ps->propSetDouble(h, kOfxPropParamSetNeedsSyncing, 0, 1.) == kOfxStatErrUnknown &&
+          ps->propSetInt(h, kOfxPropParamSetNeedsSyncing, 1, 1) == kOfxStatErrUnknown &&
+          ps->propSetIntN(h, kOfxPropParamSetNeedsSyncing, 2, std::vector<int>(2, 1).data()) == kOfxStatErrUnknown &&
+          ps->propGetInt(h, kOfxPropParamSetNeedsSyncing, 0, &v) == kOfxStatErrUnknown);
+    check("kOfxPropParamSetNeedsSyncing: propSetInt(0) = kOfxStatOK, shows it, int X 1",
+          ps->propSetInt(h, kOfxPropParamSetNeedsSyncing, 0, 0) == kOfxStatOK &&
+          ps->propGetDimension(h, kOfxPropParamSetNeedsSyncing, &dim) == kOfxStatOK && dim == 1 &&
+          ps->propGetInt(h, kOfxPropParamSetNeedsSyncing, 0, &v) == kOfxStatOK && v == 0);
+    check("kOfxPropParamSetNeedsSyncing: the property map is unchanged",
+          instance.getParamSetProps().getProperties().size() == nProps);
+    syncs = instance.syncs;
+    instance.syncPrivateDataAction();
+    check("kOfxPropParamSetNeedsSyncing 0: no SyncPrivateData", instance.syncs == syncs);
+    const int one = 1;
+    check("kOfxPropParamSetNeedsSyncing: propSetIntN(1) = kOfxStatOK", ps->propSetIntN(h, kOfxPropParamSetNeedsSyncing, 1, &one) == kOfxStatOK);
+    instance.syncPrivateDataAction();
+    check("kOfxPropParamSetNeedsSyncing 1: one SyncPrivateData, then 0",
+          instance.syncs == syncs + 1 && ps->propGetInt(h, kOfxPropParamSetNeedsSyncing, 0, &v) == kOfxStatOK && v == 0);
+    instance.syncPrivateDataAction();
+    check("kOfxPropParamSetNeedsSyncing 0 (set by the host after the sync): no SyncPrivateData", instance.syncs == syncs + 1);
+    TestEffectInstance copy(instance);
+    check("instance copy: kOfxPropParamSetNeedsSyncing copied, shown",
+          ps->propGetInt(copy.getParamSetProps().getHandle(), kOfxPropParamSetNeedsSyncing, 0, &v) == kOfxStatOK && v == 0);
+    // only on an effect instance's param set
+    Property::Set other;
+    check("kOfxPropParamSetNeedsSyncing on another property set: propSetInt = kOfxStatErrUnknown",
+          ps->propSetInt(other.getHandle(), kOfxPropParamSetNeedsSyncing, 0, 1) == kOfxStatErrUnknown);
+    check("kOfxPropParamSetNeedsSyncing on the effect descriptor: propSetInt = kOfxStatErrUnknown",
+          ps->propSetInt(instance.getDescriptor().getParamSetProps().getHandle(), kOfxPropParamSetNeedsSyncing, 0, 1) == kOfxStatErrUnknown);
+
+    // the plug-in sets it (e.g. in InstanceChanged) while render threads read the instance's
+    // properties: the readers see it hidden, then 1, and the other properties throughout (a data
+    // race on the property map would show under ThreadSanitizer)
+    OfxPropertySetHandle ch = concurrent.getParamSetProps().getHandle();
+    std::atomic<bool> stop(false);
+    std::atomic<int> bad(0), hiddenReads(0), shownReads(0);
+    std::vector<std::thread> readers;
+    for (int t = 0; t < 4; ++t) {
+      readers.emplace_back([&] {
+        while (!stop.load()) {
+          int value = -1;
+          const char *context = nullptr;
+          const OfxStatus st = ps->propGetInt(ch, kOfxPropParamSetNeedsSyncing, 0, &value);
+          if (st == kOfxStatErrUnknown) {
+            ++hiddenReads;
+          } else if (st == kOfxStatOK && value == 1) {
+            ++shownReads;
+          } else {
+            ++bad;
+          }
+          // (the host's own lookups too, of this property and of others, in the same map)
+          if (ps->propGetString(ch, kOfxImageEffectPropContext, 0, &context) != kOfxStatOK || !context ||
+              !concurrent.getParamSetProps().fetchProperty(kOfxPropIsInteractive) ||
+              !concurrent.getParamSetProps().fetchProperty(kOfxPropParamSetNeedsSyncing)) {
+            ++bad;
+          }
+        }
+      });
+    }
+    while (hiddenReads.load() < 1000) {
+      std::this_thread::yield();
+    }
+    // (one writer: two plug-in threads writing the same value while others read it would race on
+    // the value, as for any property)
+    std::atomic<int> writeFailures(0);
+    std::thread writer([&] {
+      if (ps->propSetInt(ch, kOfxPropParamSetNeedsSyncing, 0, 1) != kOfxStatOK) {
+        ++writeFailures;
+      }
+    });
+    writer.join();
+    while (shownReads.load() < 1000) {
+      std::this_thread::yield();
+    }
+    stop = true;
+    for (auto &r : readers) {
+      r.join();
+    }
+    check("kOfxPropParamSetNeedsSyncing set by a plug-in thread while four others read the set: the set is OK, "
+          "the readers see it hidden then 1, and the other properties throughout",
+          writeFailures == 0 && bad == 0 && hiddenReads >= 1000 && shownReads >= 1000);
+  }
+
+  /// the labels of an object, through the property suite (ofxCore.h, kOfxPropLabel: "Default -
+  /// the ::kOfxPropName the object was created with", name, here the plug-in identifier for an
+  /// effect descriptor; "Note that resetting this will also reset ::kOfxPropShortLabel and
+  /// ::kOfxPropLongLabel")
+  void checkLabels(const OfxPropertySuiteV1 *ps, OfxPropertySetHandle h, const std::string &what, const std::string &name)
+  {
+    auto labels = [&](const std::string &label, const std::string &shortLabel, const std::string &longLabel) {
+      const char *l = nullptr, *s = nullptr, *g = nullptr;
+      return ps->propGetString(h, kOfxPropLabel, 0, &l) == kOfxStatOK && ps->propGetString(h, kOfxPropShortLabel, 0, &s) == kOfxStatOK &&
+             ps->propGetString(h, kOfxPropLongLabel, 0, &g) == kOfxStatOK && l && s && g &&
+             label == l && shortLabel == s && longLabel == g;
+    };
+    check((what + ": the labels default to " + name).c_str(), labels(name, name, name));
+    check((what + ": propSetString(kOfxPropLabel): the short and long labels follow").c_str(),
+          ps->propSetString(h, kOfxPropLabel, 0, "label") == kOfxStatOK && labels("label", "label", "label"));
+    check((what + ": then the short and long labels: kept").c_str(),
+          ps->propSetString(h, kOfxPropShortLabel, 0, "short") == kOfxStatOK &&
+          ps->propSetString(h, kOfxPropLongLabel, 0, "long") == kOfxStatOK && labels("label", "short", "long"));
+    check((what + ": propSetString(kOfxPropLabel) again: resets the short and long labels").c_str(),
+          ps->propSetString(h, kOfxPropLabel, 0, "label2") == kOfxStatOK && labels("label2", "label2", "label2"));
+    const char *const oneLabel[] = { "label3" };
+    check((what + ": propSetStringN(kOfxPropLabel): the same").c_str(),
+          ps->propSetString(h, kOfxPropShortLabel, 0, "short") == kOfxStatOK &&
+          ps->propSetStringN(h, kOfxPropLabel, 1, oneLabel) == kOfxStatOK && labels("label3", "label3", "label3"));
+    check((what + ": propReset(kOfxPropLabel): all back to " + name).c_str(),
+          ps->propSetString(h, kOfxPropShortLabel, 0, "short") == kOfxStatOK &&
+          ps->propReset(h, kOfxPropLabel) == kOfxStatOK && labels(name, name, name));
+    // only the plug-in's writes: the host's own C++ set of the label leaves the short and long labels
+    Property::Set *set = reinterpret_cast<Property::Set *>(h);
+    set->setStringProperty(kOfxPropLabel, "host label");
+    check((what + ": the host's setStringProperty(kOfxPropLabel): the short and long labels unchanged").c_str(),
+          labels("host label", name, name));
+    check((what + ": propReset(kOfxPropLabel) again").c_str(), ps->propReset(h, kOfxPropLabel) == kOfxStatOK && labels(name, name, name));
+  }
+
+  /// a Double2D instance that logs the host's setRange() and setDisplayRange() calls
+  class TestDouble2D : public Param::Double2DInstance {
+  public:
+    std::string calls;
+    TestDouble2D(Param::Descriptor &d, Param::SetInstance *s) : Param::Double2DInstance(d, s) {}
+    virtual OfxStatus get(double &x, double &y) { x = y = 0.; return kOfxStatOK; }
+    virtual OfxStatus get(OfxTime, double &x, double &y) { return get(x, y); }
+    virtual OfxStatus set(double, double) { return kOfxStatOK; }
+    virtual OfxStatus set(OfxTime, double, double) { return kOfxStatOK; }
+    virtual void setRange() { calls += "range "; }
+    virtual void setDisplayRange() { calls += "display "; }
+  };
+
+  /// the labels of clip and param descriptors and of param instances (see checkLabels()), and the
+  /// display range of numeric params (ofxParam.h, kOfxParamPropMin: "Setting this will also reset
+  /// ::kOfxParamPropDisplayMin"; Max: DisplayMax): it takes the new Min (Max), per dimension
+  void checkLinkedProperties(const OfxPropertySuiteV1 *ps, TestSetDescriptor &setDesc, TestSetInstance &setInst)
+  {
+    {
+      ImageEffect::ClipDescriptor clip("Source");
+      checkLabels(ps, clip.getPropHandle(), "clip descriptor", "Source");
+    }
+    Param::Descriptor *d2 = setDesc.paramDefine(kOfxParamTypeDouble2D, "d2");
+    check("paramDefine(Double2D)", d2 != nullptr);
+    if (!d2) {
+      return;
+    }
+    checkLabels(ps, d2->getPropHandle(), "param descriptor", "d2");
+    OfxPropertySetHandle h = d2->getPropHandle();
+    auto display = [&](double min0, double min1, double max0, double max1) {
+      double mins[2] = { 0., 0. }, maxs[2] = { 0., 0. };
+      return ps->propGetDoubleN(h, kOfxParamPropDisplayMin, 2, mins) == kOfxStatOK &&
+             ps->propGetDoubleN(h, kOfxParamPropDisplayMax, 2, maxs) == kOfxStatOK &&
+             mins[0] == min0 && mins[1] == min1 && maxs[0] == max0 && maxs[1] == max1;
+    };
+    const double dmin[2] = { 0., 0. }, dmax[2] = { 10., 10. };
+    check("Double2D descriptor: propSetDoubleN(display range) = kOfxStatOK",
+          ps->propSetDoubleN(h, kOfxParamPropDisplayMin, 2, dmin) == kOfxStatOK &&
+          ps->propSetDoubleN(h, kOfxParamPropDisplayMax, 2, dmax) == kOfxStatOK && display(0., 0., 10., 10.));
+    const double rmin[2] = { -5., -6. }, rmax[2] = { 5., 6. };
+    check("Double2D descriptor: propSetDoubleN(kOfxParamPropMin, Max): the display range is the range",
+          ps->propSetDoubleN(h, kOfxParamPropMin, 2, rmin) == kOfxStatOK &&
+          ps->propSetDoubleN(h, kOfxParamPropMax, 2, rmax) == kOfxStatOK && display(-5., -6., 5., 6.));
+    check("Double2D descriptor: propSetDouble(kOfxParamPropMin, index 1): that index only",
+          ps->propSetDouble(h, kOfxParamPropMin, 1, -1.) == kOfxStatOK && display(-5., -1., 5., 6.));
+    check("Double2D descriptor: a display range set after the range is kept",
+          ps->propSetDoubleN(h, kOfxParamPropDisplayMin, 2, dmin) == kOfxStatOK && display(0., 0., 5., 6.));
+    const double maxDouble = std::numeric_limits<double>::max();
+    check("Double2D descriptor: propReset(kOfxParamPropMax): the display max is the default max",
+          ps->propReset(h, kOfxParamPropMax) == kOfxStatOK && display(0., 0., maxDouble, maxDouble));
+    d2->getProperties().setDoubleProperty(kOfxParamPropMin, -7., 0);
+    check("Double2D descriptor: the host's setDoubleProperty(kOfxParamPropMin): the display min unchanged",
+          d2->getProperties().getDoubleProperty(kOfxParamPropMin, 0) == -7. && display(0., 0., maxDouble, maxDouble));
+    check("Double2D descriptor: propSetDouble(kOfxParamPropMin) again: the display min follows",
+          ps->propSetDouble(h, kOfxParamPropMin, 0, -5.) == kOfxStatOK && display(-5., 0., maxDouble, maxDouble));
+    check("Double2D descriptor: propSetDouble(kOfxParamPropDisplayMin) doesn't change the min",
+          ps->propSetDouble(h, kOfxParamPropDisplayMin, 0, 1.) == kOfxStatOK &&
+          d2->getProperties().getDoubleProperty(kOfxParamPropMin, 0) == -5.);
+
+    // an instance: the same, and the host is told of the range, then of the display range
+    TestDouble2D inst(*d2, &setInst);
+    OfxPropertySetHandle ih = inst.getPropHandle();
+    checkLabels(ps, ih, "param instance", "d2");
+    inst.calls.clear();
+    check("Double2D instance: propSetDoubleN(kOfxParamPropMin): the display min follows; setRange(), then setDisplayRange()",
+          ps->propSetDoubleN(ih, kOfxParamPropMin, 2, rmin) == kOfxStatOK && inst.calls == "range display " &&
+          inst.getProperties().getDoubleProperty(kOfxParamPropDisplayMin, 0) == -5. &&
+          inst.getProperties().getDoubleProperty(kOfxParamPropDisplayMin, 1) == -6.);
+    inst.calls.clear();
+    check("Double2D instance: propSetDouble(kOfxParamPropMax, index 0): that index only; setRange(), then setDisplayRange()",
+          ps->propSetDouble(ih, kOfxParamPropMax, 0, 3.) == kOfxStatOK && inst.calls == "range display " &&
+          inst.getProperties().getDoubleProperty(kOfxParamPropDisplayMax, 0) == 3. &&
+          inst.getProperties().getDoubleProperty(kOfxParamPropDisplayMax, 1) == maxDouble);
+    inst.calls.clear();
+    check("Double2D instance: propSetDouble(kOfxParamPropDisplayMin): setDisplayRange() only",
+          ps->propSetDouble(ih, kOfxParamPropDisplayMin, 0, 1.) == kOfxStatOK && inst.calls == "display ");
+    // a host-side write (e.g. Natron's OfxParamToKnob::onMinMaxChanged(), which mirrors a knob's
+    // new range): the display range stays, and the host is told of the range only
+    inst.calls.clear();
+    inst.getProperties().setDoubleProperty(kOfxParamPropMin, -9., 0);
+    check("Double2D instance: the host's setDoubleProperty(kOfxParamPropMin): the display min unchanged, setRange() only",
+          inst.calls == "range " && inst.getProperties().getDoubleProperty(kOfxParamPropMin, 0) == -9. &&
+          inst.getProperties().getDoubleProperty(kOfxParamPropDisplayMin, 0) == 1.);
+    inst.calls.clear();
+    check("Double2D instance: then the plug-in's propSetDouble(kOfxParamPropMin): the display min follows",
+          ps->propSetDouble(ih, kOfxParamPropMin, 0, -8.) == kOfxStatOK && inst.calls == "range display " &&
+          inst.getProperties().getDoubleProperty(kOfxParamPropDisplayMin, 0) == -8.);
+
+    // an integer param, whose range is int
+    OfxPropertySetHandle ip = setInst.getParams().find("i")->second->getPropHandle();
+    int idisplay = 0;
+    check("Integer instance: propSetInt(kOfxParamPropMin): the display min follows",
+          ps->propSetInt(ip, kOfxParamPropMin, 0, -3) == kOfxStatOK &&
+          ps->propGetInt(ip, kOfxParamPropDisplayMin, 0, &idisplay) == kOfxStatOK && idisplay == -3);
+  }
+
   /// the progress and timeline suites on a valid effect instance handle: a real instance of a
   /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
   void checkEffectInstance(MyHost::Host &host)
@@ -1181,6 +1595,15 @@ namespace {
       if (test) {
         checkRenderInArgs(*test);
         checkInstanceAbort(host, *test);
+        checkInstanceCopy(*test);
+        checkClipPreferencesDepths(host, *test);
+        checkCudaStreamArg(host, *test);
+        checkNeedsSyncing(*test);
+      }
+      {
+        ImageEffect::Descriptor fresh(plugin);
+        checkLabels((const OfxPropertySuiteV1 *)Property::GetSuite(1), fresh.getProps().getHandle(), "effect descriptor",
+                    plugin->getIdentifier());
       }
 
       void *h = (void *)instance->getHandle();
@@ -1574,6 +1997,7 @@ int main()
   if (propSuite) {
     checkParamInstanceReadOnly(ps, propSuite, setDesc, setInst, instParam, descParam);
     checkParamColourManagement(host, ps, propSuite, setDesc, setInst, intDesc->getPropHandle());
+    checkLinkedProperties(propSuite, setDesc, setInst);
 
     // propGetDimension checks the magic number of the set, as the other property functions do:
     // a handle that is not a property set (here zeroed memory) gives kOfxStatErrBadHandle

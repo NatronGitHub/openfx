@@ -110,8 +110,13 @@ namespace OFX {
       
         /// a clip descriptor
       class ClipDescriptor : public ClipBase {
+        /// the short and long labels follow the label (Property::addLabelProperties()). Not on
+        /// clip instances, whose labels are read-only ("clip instance (read only)"); the Natron
+        /// extension that lets plug-ins change them (Support's Clip::setLabels) sets the short and
+        /// long labels before the label.
+        Property::LinkedPropertiesHook _labelHook;
       public:
-        /// constructor
+        /// constructor; the labels default to the name
         ClipDescriptor(const std::string &name);
         
         /// is the clip an output clip

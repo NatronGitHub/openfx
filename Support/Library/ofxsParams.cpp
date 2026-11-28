@@ -2032,10 +2032,12 @@ namespace OFX {
   /** @brief, set the label properties in a param */
   void Param::setLabels(const std::string &label, const std::string &shortLabel, const std::string &longLabel)
   {
-    // short and long labels first: hosts may be notified when the label changes
+    // the label first: setting it resets the short and long labels (ofxCore.h, kOfxPropLabel: "Note
+    // that resetting this will also reset ::kOfxPropShortLabel and ::kOfxPropLongLabel"), so a later
+    // setLabel() resets those set here too
+    setLabel(label);
     _paramProps.propSetString(kOfxPropShortLabel, shortLabel, false);
     _paramProps.propSetString(kOfxPropLongLabel, longLabel, false);
-    setLabel(label);
   }
 
   /** @brief set the secretness of the param, defaults to false */

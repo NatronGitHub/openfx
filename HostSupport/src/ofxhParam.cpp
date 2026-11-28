@@ -339,6 +339,13 @@ namespace OFX {
         };
         
         _properties.addProperties(universalProps);
+        // the labels default to the name (ofxCore.h, kOfxPropLabel: "Default - the ::kOfxPropName
+        // the object was created with"), and setting or resetting the label resets the short and
+        // long labels ("Note that resetting this will also reset ::kOfxPropShortLabel and
+        // ::kOfxPropLongLabel")
+        _linkedHook.reset(new Property::LinkedPropertiesHook(_properties));
+        _linkedHook->link(kOfxPropLabel, kOfxPropShortLabel);
+        _linkedHook->link(kOfxPropLabel, kOfxPropLongLabel);
       }
 
       /// make a parameter, with the given type and name
@@ -640,6 +647,10 @@ namespace OFX {
         };
 
         _properties.addProperties(allNumeric);
+        // ofxParam.h, kOfxParamPropMin: "Setting this will also reset ::kOfxParamPropDisplayMin"
+        // (kOfxParamPropMax: kOfxParamPropDisplayMax), read as: to the new Min (Max), per dimension
+        _linkedHook->link(kOfxParamPropMin, kOfxParamPropDisplayMin);
+        _linkedHook->link(kOfxParamPropMax, kOfxParamPropDisplayMax);
 
         /// default interpolation of 1D integer and double params (kOfxParamInterpType: not in OFX
         /// 1.5 or 1.5.1; upstream main c91cce7b, for the next release)
@@ -861,6 +872,11 @@ namespace OFX {
             prop->setPluginReadOnly(true);
           }
         }
+        // as on the descriptor (Descriptor::_linkedHook), which the copied properties don't keep. The
+        // labels' link goes first, so that the host's setLabel() sees the new short and long labels
+        _linkedHook.reset(new Property::LinkedPropertiesHook(_properties));
+        _linkedHook->link(kOfxPropLabel, kOfxPropShortLabel);
+        _linkedHook->link(kOfxPropLabel, kOfxPropLongLabel);
         _properties.addNotifyHook(kOfxParamPropEnabled, this);
         _properties.addNotifyHook(kOfxParamPropSecret, this);
         _properties.addNotifyHook(kOfxPropLabel, this);
@@ -871,6 +887,11 @@ namespace OFX {
         _properties.addNotifyHook(kOfxParamPropDisplayMin, this);
         _properties.addNotifyHook(kOfxParamPropDisplayMax, this);
         _properties.addNotifyHook(kOfxParamPropEvaluateOnChange, this);
+        // after this instance's hooks: setRange(), then setDisplayRange() for the display range
+        // that follows the range (a no-op for the params without a range). If the host's setRange()
+        // throws, the plug-in's Min (Max) stays set and the display range is left unchanged.
+        _linkedHook->link(kOfxParamPropMin, kOfxParamPropDisplayMin);
+        _linkedHook->link(kOfxParamPropMax, kOfxParamPropDisplayMax);
 
 #ifdef OFX_EXTENSIONS_NATRON
         if (paramSet && paramSet->isInViewportParam(descriptor.getName())) {
