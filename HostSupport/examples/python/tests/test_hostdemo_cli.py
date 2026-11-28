@@ -25,7 +25,6 @@ TESTER = "net.sf.openfx.GenericTestPlugin"
 CHOICES = "org.openeffects.support.choiceParamsPlugin"
 RETIMER = "net.sf.openfx.retimer"
 PROPTESTER = "net.sf.openfx.propertyTester"
-MULTIPLY = "net.sf.openfx.MultiplyGPU"
 OPENGL = "com.genarts:OpenGLSamplePlugin"
 NOISE = "net.sf.openfx.noisePlugin"
 GPUGAIN = "com.OpenFXSample.GPUGain"
@@ -144,8 +143,8 @@ Q = ["--no-std-paths", "--no-cache", "--quiet"]
      "-i", "Source=ramp", "-s", "analyseButton"],
     [*Q, "-p", CHOICES, "--format", "pfm", "-o", "out", "--report", "r.json", "--frames", "0", "-d", "float"],
     # an output with infinite values: null statistics in both reports
-    [*Q, "-p", MULTIPLY, "--format", "pfm", "-o", "out", "--report", "r.json", "--frames", "0", "-d", "float",
-     "-i", "Source=solid:3e38,0.5,0.25,1", "--window", "0,0,4,4", "value=10,1,1,1"],
+    [*Q, "-p", GPUGAIN, "--format", "pfm", "-o", "out", "--report", "r.json", "--frames", "0", "-d", "float",
+     "-i", "Source=solid:3e38,0.5,0.25,1", "--window", "0,0,4,4", "scaleR=10"],
     # openfx-gmic render_plugins.py (the host arguments first)
     ["--ofx14", *Q, "--allow-unwritten", "--format", "pfm", "-d", "float", "-p", INVERT, "-c", "filter", "--frames",
      "0", "-o", "out", "--report", "r.json", "-i", "Source=file:in.pfm"],
@@ -367,12 +366,12 @@ def test_keep_loaded(tmp_path, hosts, sample_plugins, keep):
     assert trace(i) == expected
 
 
-@pytest.mark.parametrize("plugin, spec", [(INVERT, "ramp#rgb"), (MULTIPLY, "ramp#rgb"),
+@pytest.mark.parametrize("plugin, spec", [(INVERT, "ramp#rgb"), (GPUGAIN, "ramp#rgb"),
                                           (INVERT, "file:in.pfm#premult#rgb"), (INVERT, "ramp#rgba"),
                                           (INVERT, "checker:8#alpha"), (INVERT, "file:in.pfm#alpha")])
 def test_components_suffix(tmp_path, hosts, sample_plugins, plugin, spec):
     """-i Clip=spec#rgb|#alpha|#rgba: the input's unmapped components; the clip preferences map them to the
-    clip's (Invert: RGBA or Alpha; MultiplyGPU also RGB). With an Alpha input, HostSupport's default output is
+    clip's (Invert: RGBA or Alpha; GPUGain also RGB). With an Alpha input, HostSupport's default output is
     Alpha (#332), so Invert renders it."""
     rgb = np.random.default_rng(0).random((24, 32, 3), dtype=np.float32)
     args = [*Q, "-p", plugin, "-i", f"Source={spec}", "--frames", "0", "-d", "float", "--format", "pfm", "-o", "out",
@@ -473,6 +472,29 @@ def test_gpu_gpugain(tmp_path, hosts, sample_plugins, source, scale, gl):
     _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
     assert "openGL" not in _renders(cd)[0]
     assert _files(sd) == _files(cd)  # the OpenGL render's pixels are the CPU render's
+
+
+@pytest.mark.parametrize("depth", ["byte", "short", "float"])
+@pytest.mark.parametrize("spec", ["ramp", "ramp#alpha"], ids=["rgba", "alpha"])
+def test_gpu_gpugain_formats(tmp_path, hosts, sample_plugins, depth, spec):
+    """--gpu=opengl with GPUGain at each depth, RGBA and Alpha (the OpenGL textures of HostSupport): the
+    OpenGL render gives the CPU render's pixels, to a step of the depth. GPUGain's kOfxOpenGLPropPixelDepth
+    is float, so the host loads the source as a float texture and converts the float output texture to the
+    image depth, rounding as the OpenGL implementation does; the CPU render rounds halves up. An Alpha
+    image is scaled by scaleA."""
+    _need_opengl(tmp_path, hosts, sample_plugins)
+    from ofxhost.pfm import read_pfm
+    args = ["-p", GPUGAIN, "-d", depth, "-i", f"Source={spec}", "scale=0.5", "scaleA=0.75", "--frames", "0",
+            "--window", "0,0,64,48", "--format", "pfm", "-o", "out", "--report", "r.json"]
+    _, _, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=opengl", *args])
+    assert _gl_flags(sd) == {(True, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert {r["output"]["depth"] for r in _strict((sd / "r.json").read_text())["renders"]} == {depth}
+    step = {"byte": 1 / 255, "short": 1 / 65535, "float": 0.}[depth]
+    gpu, cpu = _files(sd), _files(cd)
+    assert gpu.keys() == cpu.keys()
+    for name in gpu:
+        np.testing.assert_allclose(read_pfm(sd / name), read_pfm(cd / name), rtol=0, atol=step * 1.01, err_msg=name)
 
 
 def test_gpu_opengl_example(tmp_path, hosts, sample_plugins):
@@ -581,6 +603,22 @@ def test_gpu_opencl_gpugain(tmp_path, hosts, sample_plugins):
     _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
     assert "openCL" not in _renders(cd)[0]
     assert _files(sd) == _files(cd)  # the OpenCL render's pixels are the CPU render's
+
+
+@pytest.mark.opencl
+@pytest.mark.parametrize("depth", ["byte", "short", "float"])
+@pytest.mark.parametrize("spec", ["ramp", "ramp#rgb", "ramp#alpha"], ids=["rgba", "rgb", "alpha"])
+def test_gpu_opencl_gpugain_formats(tmp_path, hosts, sample_plugins, depth, spec):
+    """--gpu=opencl with GPUGain at each depth, RGBA, RGB and Alpha (hostDemo uses OpenCL Buffers): its kernels
+    give the CPU render's pixels, with the same rounding."""
+    _need_opencl(tmp_path, hosts, sample_plugins)
+    args = ["--components", "rgba,rgb,alpha", "-p", GPUGAIN, "-d", depth, "-i", f"Source={spec}", "scale=0.5",
+            "scaleA=0.75", "--frames", "0", "--window", "0,0,64,48", "--format", "pfm", "-o", "out", "--report",
+            "r.json"]
+    _, _, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=opencl", *args])
+    assert _cl_flags(sd) == {(True, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert _files(sd) == _files(cd)
 
 
 @pytest.mark.opencl

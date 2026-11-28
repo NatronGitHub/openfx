@@ -1,4 +1,4 @@
-SUBDIRS = Basic ChoiceParams Field Generator GPUGain Invert MultiBundle MultiplyGPU Retimer Tester Transition
+SUBDIRS = Basic ChoiceParams Field Generator GPUGain Invert MultiBundle Retimer Tester Transition
 
 all: subdirs
 

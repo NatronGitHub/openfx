@@ -21,7 +21,7 @@ pytestmark = pytest.mark.usefixtures("tmp_cwd")
 
 INVERT = "net.sf.openfx.invertPlugin"
 BASIC = "net.sf.openfx.basicPlugin"
-MULTIPLY = "net.sf.openfx.MultiplyGPU"  # its clips support RGBA, RGB and Alpha
+GPUGAIN = "com.OpenFXSample.GPUGain"  # its clips support RGBA, RGB and Alpha
 
 
 def render(plugins, *args, **kw):
@@ -33,6 +33,22 @@ def ramp(h=6, w=8):
     return np.broadcast_to(((np.arange(w) + 0.5) / 720.)[None, :], (h, w))
 
 
+def _gains(value):
+    """GPUGain's parameters for the gains (r, g, b, a)."""
+    return dict(zip(("scaleR", "scaleG", "scaleB", "scaleA"), (float(v) for v in value)))
+
+
+def _corner(out, h=6, w=8):
+    """GPUGain doesn't support multiple resolutions: its output is the project frame, the input padded with
+    zeros. The h x w corner at the origin, where the input is (the arrays are top row first), after checking
+    that the padding is 0."""
+    assert out.shape[:2] == (576, 720)
+    padding = np.ones(out.shape[:2], bool)
+    padding[-h:, :w] = False
+    assert np.all(out[padding] == 0.)
+    return out[-h:, :w]
+
+
 # --- per-input components ---------------------------------------------------------------------
 
 def test_rgb_input(sample_plugins):
@@ -41,19 +57,19 @@ def test_rgb_input(sample_plugins):
     k = np.arange(6 * 8 * 3).reshape(6, 8, 3) * 11 % 256
     src = (k / 255).astype(np.float32)
     value = np.array([0.5, 2.0, 0.25, 0.5])
-    r = render(sample_plugins, MULTIPLY, inputs={"Source": src}, params={"value": value}, components={"Source": "rgb"})
+    r = render(sample_plugins, GPUGAIN, inputs={"Source": src}, params=_gains(value), components={"Source": "rgb"})
     assert r.report["inputs"]["Source"]["unmappedComponents"] == "OfxImageComponentRGB"
     assert r.report["inputs"]["Source"]["spec"] == "array:8x6x3#rgb"
     clips = r.report["clipPreferences"]["clips"]
     assert clips["Source"]["components"] == "OfxImageComponentRGB"
     assert clips["Output"]["components"] == "OfxImageComponentRGB"
-    assert r.output.shape == (6, 8, 3)
+    assert r.output.shape == (576, 720, 3)
     assert r.report["renders"][0]["output"]["comps"] == "RGB"
-    assert_close(r.output, src * value[:3], atol=1e-6)
+    assert_close(_corner(r.output), src * value[:3], atol=1e-6)
     # the default: RGBA, opaque (as hostDemo's PFM inputs)
-    d = render(sample_plugins, MULTIPLY, inputs={"Source": src}, params={"value": value})
+    d = render(sample_plugins, GPUGAIN, inputs={"Source": src}, params=_gains(value))
     assert d.report["clipPreferences"]["clips"]["Source"]["components"] == "OfxImageComponentRGBA"
-    assert d.output.shape == (6, 8, 4)
+    assert d.output.shape == (576, 720, 4)
 
 
 @pytest.mark.parametrize("spec", ["ramp#rgb", "ramp"])
@@ -71,26 +87,26 @@ def test_rgb_input_to_an_rgba_clip(sample_plugins, spec):
 
 
 def test_alpha_input(sample_plugins):
-    """An Alpha input of MultiplyGPU (Alpha supported): the plug-in gets an Alpha image of the ramp's
+    """An Alpha input of GPUGain (Alpha supported): the plug-in gets an Alpha image of the ramp's
     alpha, and the output is Alpha (HostSupport's default, as the spec says: no input is RGBA)."""
-    r = render(sample_plugins, MULTIPLY, inputs={"Source": "ramp"}, components={"Source": "OfxImageComponentAlpha"},
-               params={"value": [1, 1, 1, 0.5]}, frames=[0], window=(0, 0, 8, 6))
+    r = render(sample_plugins, GPUGAIN, inputs={"Source": "ramp"}, components={"Source": "OfxImageComponentAlpha"},
+               params=_gains([1, 1, 1, 0.5]), frames=[0], window=(0, 0, 8, 6))
     clips = r.report["clipPreferences"]["clips"]
     assert clips["Source"]["components"] == "OfxImageComponentAlpha"
     assert clips["Output"]["components"] == "OfxImageComponentAlpha"
     assert r.report["inputs"]["Source"]["spec"] == "ramp#alpha"
-    assert r.output.shape == (6, 8, 1)
-    assert_close(r.output[..., 0], 0.5 * ramp(), atol=1e-6)
+    assert r.output.shape == (576, 720, 1)
+    assert_close(r.output[..., 0], 0.5 * ramp(576, 720), atol=1e-6)  # (the ramp covers the frame)
     # components= overrides a spec's suffix, and the report says so
-    r = render(sample_plugins, MULTIPLY, inputs={"Source": "ramp#rgb"}, components={"Source": "alpha"},
+    r = render(sample_plugins, GPUGAIN, inputs={"Source": "ramp#rgb"}, components={"Source": "alpha"},
                frames=[0], window=(0, 0, 8, 6))
     assert r.report["inputs"]["Source"]["spec"] == "ramp#alpha"
-    r = render(sample_plugins, MULTIPLY, inputs={"Source": "ramp#rgb"}, components={"Source": "rgba"},
+    r = render(sample_plugins, GPUGAIN, inputs={"Source": "ramp#rgb"}, components={"Source": "rgba"},
                frames=[0], window=(0, 0, 8, 6))
     assert r.report["inputs"]["Source"]["spec"] == "ramp"
     assert r.report["inputs"]["Source"]["unmappedComponents"] == "OfxImageComponentRGBA"
     assert r.report["clipPreferences"]["clips"]["Output"]["components"] == "OfxImageComponentRGBA"
-    assert r.output.shape == (6, 8, 4)
+    assert r.output.shape == (576, 720, 4)
 
 
 def test_alpha_input_of_invert(sample_plugins):
@@ -129,8 +145,8 @@ def test_graph_components(sample_plugins, tmp_path):
     src = np.random.default_rng(1).random((6, 8, 3), dtype=np.float32)
     ofxhost.write_pfm(tmp_path / "in.pfm", src)
     value = [0.5, 2.0, 0.25, 0.5]
-    m = Node(MULTIPLY, params={"value": value}, inputs={"Source": Files("in.pfm#rgb")}, name="m")
-    a = Node(MULTIPLY, inputs={"Source": "ramp#alpha"}, name="a")
+    m = Node(GPUGAIN, params=_gains(value), inputs={"Source": Files("in.pfm#rgb")}, name="m")
+    a = Node(GPUGAIN, inputs={"Source": "ramp#alpha"}, name="a")
     g = Graph(nodes={"m": m, "a": a}, outputs={"m": None, "a": None}, frames=[0], window=(0, 0, 8, 6))
     g.save(tmp_path / "g.json")
     doc = json.loads((tmp_path / "g.json").read_text())
@@ -141,10 +157,10 @@ def test_graph_components(sample_plugins, tmp_path):
     assert r.report["nodes"]["m"]["clipPreferences"]["clips"]["Source"]["components"] == "rgb"
     assert r.report["nodes"]["a"]["clipPreferences"]["clips"]["Source"]["components"] == "alpha"
     out = r.images["m"][0.].pixels
-    assert out.shape == (6, 8, 3)
-    assert_close(out, src * np.array(value[:3], np.float32), atol=1e-6)
+    assert out.shape == (576, 720, 3)
+    assert_close(_corner(out), src * np.array(value[:3], np.float32), atol=1e-6)
     assert r.report["nodes"]["a"]["clipPreferences"]["clips"]["Output"]["components"] == "alpha"
-    assert r.images["a"][0.].pixels.shape == (6, 8, 1)
+    assert r.images["a"][0.].pixels.shape == (576, 720, 1)
 
 
 # --- the output files and the report of extra_args --------------------------------------------
@@ -356,7 +372,7 @@ def test_non_finite_statistics_are_null(sample_plugins, tmp_path):
     """An output with infinite values (3e38 * 10 overflows float): its min, max and mean are null in
     the report, as hostDemo writes NaN and infinities (hostDemoJson.h), and the report written with
     --report is strict JSON."""
-    r = render(sample_plugins, MULTIPLY, inputs={"Source": "solid:3e38,0.5,0.25,1"}, params={"value": [10, 1, 1, 1]},
+    r = render(sample_plugins, GPUGAIN, inputs={"Source": "solid:3e38,0.5,0.25,1"}, params={"scaleR": 10},
                frames=[0], window=(0, 0, 4, 4), extra_args=["--report", "r.json"])
     out = r.report["renders"][0]["output"]
     assert out["min"][0] is None and out["max"][0] is None and out["mean"][0] is None
