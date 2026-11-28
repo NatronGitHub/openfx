@@ -104,10 +104,14 @@ option(OFX_HOSTSUPPORT_OPENCL "HostSupport: OpenCL rendering (openfx::HostSuppor
 # openfx::HostSupportMetal (HostSupport/include/ofxhMetal*.h): Metal devices, command queues and
 # renders (Metal buffers) for hosts, macOS only.
 option(OFX_HOSTSUPPORT_METAL "HostSupport: Metal rendering, macOS only (openfx::HostSupportMetal)" OFF)
+# openfx::HostSupportCUDA (HostSupport/include/ofxhCUDA*.h): CUDA devices, streams and renders (CUDA
+# device memory) for hosts. Needs no CUDA toolkit: the CUDA driver is loaded at run time (Linux and
+# Windows; macOS has none, but the library builds there and its checks use a fake driver).
+option(OFX_HOSTSUPPORT_CUDA "HostSupport: CUDA rendering (openfx::HostSupportCUDA)" OFF)
 # the example hosts and the Python bindings need HostSupport, also when openfx is used with
 # add_subdirectory()
-if((BUILD_EXAMPLE_HOSTS OR OFX_PYTHON_BINDINGS OR OFX_HOSTSUPPORT_OPENGL OR OFX_HOSTSUPPORT_OPENCL OR OFX_HOSTSUPPORT_METAL)
-   AND NOT OFX_BUILD_HOSTSUPPORT)
+if((BUILD_EXAMPLE_HOSTS OR OFX_PYTHON_BINDINGS OR OFX_HOSTSUPPORT_OPENGL OR OFX_HOSTSUPPORT_OPENCL OR OFX_HOSTSUPPORT_METAL
+    OR OFX_HOSTSUPPORT_CUDA) AND NOT OFX_BUILD_HOSTSUPPORT)
   set(OFX_BUILD_HOSTSUPPORT ON CACHE BOOL "Build the HostSupport library (needs expat)" FORCE)
 endif()
 set(PLUGIN_INSTALLDIR "" CACHE STRING "Where the OFX bundles are installed (relative: to CMAKE_INSTALL_PREFIX; default depends on OS)")
@@ -234,7 +238,8 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 install(DIRECTORY include/ DESTINATION include
         FILES_MATCHING PATTERN "*.h" PATTERN "DocSrc" EXCLUDE)
-# without openfx::HostSupportOpenGL, openfx::HostSupportOpenCL or openfx::HostSupportMetal, not their headers
+# without openfx::HostSupportOpenGL, openfx::HostSupportOpenCL, openfx::HostSupportMetal or
+# openfx::HostSupportCUDA, not their headers
 set(_ofx_hs_exclude "")
 if(NOT OFX_HOSTSUPPORT_OPENGL)
   list(APPEND _ofx_hs_exclude PATTERN "ofxhOpenGLContext.h" EXCLUDE PATTERN "ofxhOpenGLTexture.h" EXCLUDE
@@ -245,6 +250,9 @@ if(NOT OFX_HOSTSUPPORT_OPENCL)
 endif()
 if(NOT OFX_HOSTSUPPORT_METAL)
   list(APPEND _ofx_hs_exclude PATTERN "ofxhMetalDevice.h" EXCLUDE PATTERN "ofxhMetalRender.h" EXCLUDE)
+endif()
+if(NOT OFX_HOSTSUPPORT_CUDA)
+  list(APPEND _ofx_hs_exclude PATTERN "ofxhCUDADevice.h" EXCLUDE PATTERN "ofxhCUDARender.h" EXCLUDE)
 endif()
 install(DIRECTORY HostSupport/include/ DESTINATION include/HostSupport FILES_MATCHING PATTERN "*.h" ${_ofx_hs_exclude})
 install(DIRECTORY Support/include/ DESTINATION include/Support FILES_MATCHING PATTERN "*.h")
@@ -263,6 +271,9 @@ if(OFX_BUILD_HOSTSUPPORT)
   endif()
   if(OFX_HOSTSUPPORT_METAL)
     list(APPEND _ofx_export_targets OfxHostMetal)
+  endif()
+  if(OFX_HOSTSUPPORT_CUDA)
+    list(APPEND _ofx_export_targets OfxHostCUDA)
   endif()
 endif()
 install(TARGETS ${_ofx_export_targets} EXPORT openfxTargets

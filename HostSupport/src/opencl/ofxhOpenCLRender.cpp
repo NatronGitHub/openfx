@@ -23,7 +23,6 @@ namespace OFX {
       using namespace Detail;
       using GPU::PixelLayout;
       using GPU::componentCount;
-      using GPU::intersect;
 
       /// the plug-in supports OpenCL Buffers: kOfxImageEffectPropOpenCLRenderSupported "true" - "the
       /// host or plug-in can support OpenCL Buffers render" (ofxGPURender.h), or "needed", a value
@@ -137,11 +136,7 @@ namespace OFX {
           , _images(*session._images)
           , _mem(mem.get())
         {
-          // the CPU image's, which the copy keeps
-          setStringProperty(kOfxImageEffectPropPixelDepth, image.getStringProperty(kOfxImageEffectPropPixelDepth));
-          setStringProperty(kOfxImageEffectPropComponents, image.getStringProperty(kOfxImageEffectPropComponents));
-          setStringProperty(kOfxImageEffectPropPreMultiplication, image.getStringProperty(kOfxImageEffectPropPreMultiplication));
-          setDoubleProperty(kOfxImagePropPixelAspectRatio, image.getDoubleProperty(kOfxImagePropPixelAspectRatio));
+          GPU::copyImageProperties(*this, image);
           if (session._mode == RenderMode::Images) {
             // "when OpenCL Images are being used (kOfxImageEffectPropOpenCLSupported) the clip image
             // property kOfxImageEffectPropOpenCLImage will be set and non-null"; kOfxImagePropData,
@@ -201,17 +196,14 @@ namespace OFX {
       {
         cl_mem mem = static_cast<cl_mem>(memory);
         const PixelLayout l(image);
-        const OfxRectI r = intersect(rect, l.bounds);
-        const int w = r.x2 - r.x1, h = r.y2 - r.y1;
-        if (w <= 0 || h <= 0) {
+        GPU::StagedRect staged(l, rect, write);
+        if (staged.empty()) {
           return kCLSuccess;
         }
-        // the rows of r, packed bottom up (rowBytes may be negative or padded)
-        const size_t rowSize = static_cast<size_t>(w) * static_cast<size_t>(l.pixelBytes);
-        std::vector<char> staging(rowSize * static_cast<size_t>(h));
-        if (write) {
-          GPU::copyRect(l, r, staging.data(), rowSize, r.x1, r.y1, /*toRows=*/true);
-        }
+        const OfxRectI &r = staged.r;
+        const int w = staged.width(), h = staged.height();
+        const size_t rowSize = staged.rowSize;
+        std::vector<char> &staging = staged.rows;
         const Device &device = _queue.device();
         const CLFunctions &cl = device.cl();
         cl_command_queue q = static_cast<cl_command_queue>(_queue.native());
@@ -236,7 +228,7 @@ namespace OFX {
           }
         });
         if (err == kCLSuccess && !write) {
-          GPU::copyRect(l, r, staging.data(), rowSize, r.x1, r.y1, /*toRows=*/false);
+          staged.unstage(l);
         }
         return err;
       }

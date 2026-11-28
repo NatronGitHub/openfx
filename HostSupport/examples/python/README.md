@@ -249,6 +249,13 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   `init(metal=True, metal_device=index)`, `metal_device()`, `render_mode(metal=True, prefer_textures=...)`
   ("metal-buffers", "metal-textures", "cpu" or "none"), `metal="buffers"` or `"textures"` on the render actions
   (refused unless `render_mode()` is that mode), `metal_result` and `metal_error`.
+- `--gpu=cuda` (builds with `OFX_HOSTSUPPORT_CUDA`; the CUDA driver is loaded at run time, Linux and Windows)
+  does the same with CUDA device memory, on the first CUDA device of openfx::HostSupportCUDA: the host sets
+  kOfxImageEffectPropCudaRenderSupported and kOfxImageEffectPropCudaStreamSupported to "true", a plug-in that
+  supports CUDA ("true" or "needed") gets CUDA memory, and a CUDA stream if it supports streams. Not with
+  `--ofx14`. In Python: the ofxh module's `cuda_devices()`, `init(cuda=True, cuda_device=index)`,
+  `cuda_device()`, `render_mode(cuda=True)` ("cuda", "cpu" or "none"), `cuda=True` on the render actions,
+  `cuda_result` and `cuda_error`.
 - `--ofx11` (not with `--ofx14`, `--multiplane`, `--opengl-describe` or `--gpu=opengl`) makes hostDemo an OFX 1.1
   host modelled on VEGAS Pro (openfx-misc's README-hosts.txt), to check that a plug-in still
   works there: the host descriptor has only the OFX 1.1 host properties, and kOfxPropAPIVersion
@@ -343,10 +350,10 @@ supportsTiles {effect, clips {Clip: bool}} (the instance's values, which a plug-
 instanceChanged: without tiles, the render window is the whole RoD and the input images are
 whole-RoD, if hostDemo can make images that large), renderWindow, isIdentity {ok, status, identity, clip, time}, framesNeeded {ok, status, clips
 {Clip: [[min,max]...]}}, regionsOfInterest {ok, status, regionOfInterest, clips {Clip:
-rect}}, render {ok, status, imageFetchErrors[, openGL | openCL | metal, cpuRetry]}, output}. `openGL` and `cpuRetry` (with
+rect}}, render {ok, status, imageFetchErrors[, openGL | openCL | metal | cuda, cpuRetry]}, output}. `openGL` and `cpuRetry` (with
 `--gpu=opengl` only): OpenGL rendered the frame; the CPU rendered it again after OpenGL failed. `openCL` and
 `cpuRetry` (with `--gpu=opencl` only): the same for OpenCL; `metal` and `cpuRetry` (with `--gpu=metal` only),
-for Metal. `output` is null if nothing was
+for Metal; `cuda` and `cpuRetry` (with `--gpu=cuda` only), for CUDA. `output` is null if nothing was
 written, else {w, h, bounds, depth (byte|short|float), comps (RGBA|RGB|Alpha), min, max,
 mean (per component, in the native range of the depth, NaN left out), nan (the number of
 pixels with a NaN component), crc32 (zlib's CRC-32 of the pixel bytes within the bounds, row

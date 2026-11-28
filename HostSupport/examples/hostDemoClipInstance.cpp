@@ -1200,26 +1200,35 @@ namespace MyHost {
   }
 #endif
 
+#if defined(HOSTDEMO_OPENCL) || defined(HOSTDEMO_METAL) || defined(HOSTDEMO_CUDA)
+  /// session's copy of image for clip (the session's output, for the output); takes image's reference
+  template <class Session>
+  static OFX::Host::ImageEffect::Image* sessionImage(Session& session, OFX::Host::ImageEffect::ClipInstance& clip,
+                                                     OFX::Host::ImageEffect::Image* image)
+  {
+    OFX::Host::ImageEffect::Image* copy = session.getImage(clip, image);
+    if (image) {
+      image->releaseReference();
+    }
+    return copy;
+  }
+#endif
+
   OFX::Host::ImageEffect::Image* MyClipInstance::forGPU(OFX::Host::ImageEffect::Image* image)
   {
 #ifdef HOSTDEMO_OPENCL
     if (OFX::Host::OpenCL::RenderSession *session = _effect->getOpenCLSession()) {
-      // --gpu=opencl: the image as an OpenCL buffer or image (the session's output, for the output)
-      OFX::Host::ImageEffect::Image* copy = session->getImage(*this, image);
-      if (image) {
-        image->releaseReference();
-      }
-      return copy;
+      return sessionImage(*session, *this, image); // --gpu=opencl: an OpenCL buffer or image
     }
 #endif
 #ifdef HOSTDEMO_METAL
     if (OFX::Host::Metal::RenderSession *session = _effect->getMetalSession()) {
-      // --gpu=metal: the image as a Metal buffer (the session's output, for the output)
-      OFX::Host::ImageEffect::Image* copy = session->getImage(*this, image);
-      if (image) {
-        image->releaseReference();
-      }
-      return copy;
+      return sessionImage(*session, *this, image); // --gpu=metal: a Metal buffer
+    }
+#endif
+#ifdef HOSTDEMO_CUDA
+    if (OFX::Host::CUDA::RenderSession *session = _effect->getCUDASession()) {
+      return sessionImage(*session, *this, image); // --gpu=cuda: CUDA device memory
     }
 #endif
     return image;

@@ -1286,24 +1286,34 @@ OHIE::Texture *PyClipInstance::loadTexture(OfxTime time, const char *format, con
 }
 #endif
 
+#if defined(OFXH_OPENCL) || defined(OFXH_METAL) || defined(OFXH_CUDA)
+/// session's copy of image for clip (the session's output, for the output); takes image's reference
+template <class Session>
+static OHIE::Image *sessionImage(Session &session, OHIE::ClipInstance &clip, OHIE::Image *image)
+{
+  OHIE::Image *copy = session.getImage(clip, image);
+  if (image) {
+    image->releaseReference();
+  }
+  return copy;
+}
+#endif
+
 OHIE::Image *PyClipInstance::forGPU(OHIE::Image *image)
 {
 #ifdef OFXH_OPENCL
   if (OFX::Host::OpenCL::RenderSession *session = _effect->_clSession.load()) {
-    OHIE::Image *copy = session->getImage(*this, image);
-    if (image) {
-      image->releaseReference();
-    }
-    return copy;
+    return sessionImage(*session, *this, image);
   }
 #endif
 #ifdef OFXH_METAL
   if (OFX::Host::Metal::RenderSession *session = _effect->_mtSession.load()) {
-    OHIE::Image *copy = session->getImage(*this, image);
-    if (image) {
-      image->releaseReference();
-    }
-    return copy;
+    return sessionImage(*session, *this, image);
+  }
+#endif
+#ifdef OFXH_CUDA
+  if (OFX::Host::CUDA::RenderSession *session = _effect->_cuSession.load()) {
+    return sessionImage(*session, *this, image);
   }
 #endif
   return image;

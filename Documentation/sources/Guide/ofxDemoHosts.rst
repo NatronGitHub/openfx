@@ -282,6 +282,24 @@ report's renders then have ``metal`` and ``cpuRetry``. Not with ``--ofx14``
 or ``--ofx11``: Metal render is OFX 1.5. GPUGain has a Metal kernel on macOS
 (``OFX_EXAMPLE_GPUGAIN_METAL``, on by default).
 
+CUDA Rendering: ``--gpu=cuda``
+------------------------------
+
+With ``--gpu=cuda`` (builds with ``OFX_HOSTSUPPORT_CUDA``), both hosts render
+on the first CUDA device of ``openfx::HostSupportCUDA``, as with
+``--gpu=opencl``: the host descriptor sets
+:c:macro:`kOfxImageEffectPropCudaRenderSupported` and
+:c:macro:`kOfxImageEffectPropCudaStreamSupported` to ``"true"``, a plug-in
+that supports CUDA (``"true"``, or ``"needed"``) gets its images in CUDA
+device memory, with :c:macro:`kOfxImageEffectPropCudaEnabled` 1, and also
+:c:macro:`kOfxImageEffectPropCudaStream` if it supports CUDA streams; the
+others render on the CPU. Without a CUDA device (or driver), both warn and
+render on the CPU. The CPU retry and its rule are those of
+``--gpu=opencl``. The report's renders then have ``cuda`` and ``cpuRetry``.
+Not with ``--ofx14`` or ``--ofx11``: CUDA render is OFX 1.5. GPUGain has a
+CUDA kernel when it is built with ``OFX_SUPPORTS_CUDARENDER`` (it needs the
+CUDA toolkit; not on macOS).
+
 The Code, as an Example Host
 ----------------------------
 

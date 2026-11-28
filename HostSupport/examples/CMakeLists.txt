@@ -21,6 +21,11 @@ if(OFX_HOSTSUPPORT_METAL)
 	target_link_libraries(hostDemo PRIVATE OfxHostMetal)
 	target_compile_definitions(hostDemo PRIVATE HOSTDEMO_METAL)
 endif()
+if(OFX_HOSTSUPPORT_CUDA)
+	# --gpu=cuda (openfx::HostSupportCUDA)
+	target_link_libraries(hostDemo PRIVATE OfxHostCUDA)
+	target_compile_definitions(hostDemo PRIVATE HOSTDEMO_CUDA)
+endif()
 
 add_executable(cacheDemo cacheDemo.cpp)
 target_link_libraries(cacheDemo PRIVATE OfxHost)
@@ -79,6 +84,19 @@ if(OFX_HOSTSUPPORT_METAL)
 		hostDemoParamInstance.cpp)
 	target_link_libraries(metalRenderChecks PRIVATE OfxHostMetal)
 	set_source_files_properties(metalRenderChecksKernel.mm PROPERTIES COMPILE_OPTIONS -fobjc-arc)
+endif()
+
+# checks of openfx::HostSupportCUDA: on a fake CUDA driver (always), with Support/Plugins/GPUGain
+# from OFX_PLUGIN_PATH; and on a real CUDA device, if any (skipped without one, unless
+# OFXH_REQUIRE_CUDA=1)
+if(OFX_HOSTSUPPORT_CUDA)
+	add_executable(cudaRenderChecks
+		cudaRenderChecks.cpp
+		hostDemoClipInstance.cpp
+		hostDemoEffectInstance.cpp
+		hostDemoHostDescriptor.cpp
+		hostDemoParamInstance.cpp)
+	target_link_libraries(cudaRenderChecks PRIVATE OfxHostCUDA)
 endif()
 
 if(OFX_INSTALL) # (OFF under add_subdirectory(openfx))

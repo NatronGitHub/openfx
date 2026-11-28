@@ -68,6 +68,12 @@
 #include "ofxhMetalDevice.h"
 #include "ofxhMetalRender.h"
 #endif
+#ifdef HOSTDEMO_CUDA
+#include <functional>
+#include <memory>
+#include "ofxhCUDADevice.h"
+#include "ofxhCUDARender.h"
+#endif
    
 ////////////////////////////////////////////////////////////////////////////////
 // By default, this example code renders the example 'invert' plugin built
@@ -788,7 +794,10 @@ static void usage(const char* prog)
     "                     the --report renders get \"openCL\" and \"cpuRetry\".\n"
     "                     metal (macOS): the same with Metal (the system default device; Metal buffers,\n"
     "                     or textures for a plug-in with textures only and RGBA or Alpha clips);\n"
-    "                     the --report renders get \"metal\" and \"cpuRetry\"\n"
+    "                     the --report renders get \"metal\" and \"cpuRetry\".\n"
+    "                     cuda (Linux, Windows): the same with CUDA device memory (the first CUDA\n"
+    "                     device), and a CUDA stream for the plug-ins that support streams;\n"
+    "                     the --report renders get \"cuda\" and \"cpuRetry\"\n"
     "  --gpu-renderer=BACKEND:ID  with --gpu=opengl: the renderer of the context, one of --gpu-renderers\n"
     "                     (e.g. egl-device:0, glx:-1, cgl:<renderer ID>); no context on it is an error\n"
     "  --gpu-renderers    list the OpenGL renderers as BACKEND:ID and their names, and exit\n"
@@ -1110,9 +1119,11 @@ static OfxStatus withOpenGL(OpenGLHost& gl, MyHost::MyEffectInstance& instance, 
   return st;
 }
 #endif
-/// --gpu=opencl and --gpu=metal (HOSTDEMO_OPENCL, HOSTDEMO_METAL builds): see below
+/// --gpu=opencl, --gpu=metal and --gpu=cuda (HOSTDEMO_OPENCL, HOSTDEMO_METAL, HOSTDEMO_CUDA builds):
+/// see below
 struct OpenCLHost;
 struct MetalHost;
+struct CUDAHost;
 
 #ifdef HOSTDEMO_OPENCL
 namespace CL = OFX::Host::OpenCL;
@@ -1150,12 +1161,30 @@ struct MetalHost {
 static bool gpuFailed(const MT::RenderSession& session, OfxStatus st) { return MT::metalFailed(session, st); }
 #endif
 
-#if defined(HOSTDEMO_OPENCL) || defined(HOSTDEMO_METAL)
-/// An action of the instance on a Queue of device, in a Session (CL:: or MT::RenderSession, made with
-/// sessionArgs: the OpenCL mode) (action()), with the render window of output's image (the render
-/// action) copied to the GPU and read back after. sent: the session accepted it (else the action
-/// wasn't sent); failed: the API's openCLFailed() or metalFailed(), or not sent; cpuRetry: then the
-/// host may render on the CPU (the API's cpuRetryAllowed()). api: "OpenCL" or "Metal", for the error.
+#ifdef HOSTDEMO_CUDA
+namespace CU = OFX::Host::CUDA;
+
+/// --gpu=cuda: the CUDA device of hostDemo, and the streams lent to its renders
+struct CUDAHost {
+  std::unique_ptr<CU::Device> device;
+  /// how the instance renders now: CUDA, the CPU, or neither (the CPU after a sticky CUDA error)
+  CU::RenderMode mode(const MyHost::MyEffectInstance& instance) const
+  {
+    return CU::chooseRenderMode(instance, device && device->usable());
+  }
+};
+
+/// (withGPU())
+static bool gpuFailed(const CU::RenderSession& session, OfxStatus st) { return CU::cudaFailed(session, st); }
+#endif
+
+#if defined(HOSTDEMO_OPENCL) || defined(HOSTDEMO_METAL) || defined(HOSTDEMO_CUDA)
+/// An action of the instance on a Queue of device (a CL:: or MT::Queue, a CU::Stream), in a Session
+/// (CL::, MT:: or CU::RenderSession, made with sessionArgs: the OpenCL mode) (action()), with the
+/// render window of output's image (the render action) copied to the GPU and read back after.
+/// sent: the session accepted it (else the action wasn't sent); failed: the API's openCLFailed(),
+/// metalFailed() or cudaFailed(), or not sent; cpuRetry: then the host may render on the CPU (the
+/// API's cpuRetryAllowed()). api: "OpenCL", "Metal" or "CUDA", for the error.
 template <class Queue, class Session, class Device, class... SessionArgs>
 static OfxStatus withGPU(const char* api, Device& device, MyHost::MyEffectInstance& instance,
                          MyHost::MyClipInstance* output, OfxTime t, const OfxRectI& window,
@@ -1214,7 +1243,8 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
                         OfxTime t, int view, int nViews, const OfxPointD& renderScale,
                         const OfxRectI* window, bool query, bool sequential,
                         bool allowUnwritten, const std::string& base, OutputFormat format,
-                        bool multiPlane, Json* rep, OpenGLHost* openGL, OpenCLHost* openCL, MetalHost* metal)
+                        bool multiPlane, Json* rep, OpenGLHost* openGL, OpenCLHost* openCL, MetalHost* metal,
+                        CUDAHost* cuda)
 {
   const std::string fname = base + (format == eFormatPFM ? ".pfm" : ".ppm");
   (void)nViews;
@@ -1454,13 +1484,13 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
 #endif
                                 );
   };
-  // --gpu=opencl or metal: gpuApi, the API, and gpuRun, the render with it (withGPU()); gpuNone: the
+  // --gpu=opencl, metal or cuda: gpuApi, the API, and gpuRun, the render with it (withGPU()); gpuNone: the
   // plug-in can't render on the CPU and can't use the host's device. gpuDone: rendered with it (or
   // failed to), below
   const char* gpuApi = NULL;
   std::function<OfxStatus(bool&, bool&, bool&)> gpuRun;
   bool gpuNone = false;
-#if defined(HOSTDEMO_OPENCL) || defined(HOSTDEMO_METAL)
+#if defined(HOSTDEMO_OPENCL) || defined(HOSTDEMO_METAL) || defined(HOSTDEMO_CUDA)
   const auto gpuAction = [&] { return render(false, NULL); };
 #endif
 #ifdef HOSTDEMO_OPENCL
@@ -1494,6 +1524,21 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
 #else
   (void)metal;
 #endif
+#ifdef HOSTDEMO_CUDA
+  const CU::RenderMode cuMode = cuda ? cuda->mode(*instance) : CU::RenderMode::CPU;
+  if (cuMode == CU::RenderMode::CUDA) {
+    gpuApi = "CUDA";
+    gpuRun = [&](bool& sent, bool& failed, bool& retry) {
+      return withGPU<CU::Stream, CU::RenderSession>("CUDA", *cuda->device, *instance, outputClip, t, renderWindow,
+                                                    gpuAction, sent, failed, retry);
+    };
+  } else if (cuda && cuMode == CU::RenderMode::None) {
+    gpuApi = "CUDA";
+    gpuNone = true;
+  }
+#else
+  (void)cuda;
+#endif
   bool usedOpenGL = false, cpuRetry = false, usedGPU = false;
   const bool gpuDone = gpuApi != NULL;
   if (gpuNone) {
@@ -1521,7 +1566,7 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
   OpenGLHost* gl = openGL;
   const GL::RenderMode mode = gl ? gl->mode(*instance) : GL::RenderMode::CPU;
   if (gpuDone) {
-    // (rendered with OpenCL or Metal above)
+    // (rendered with OpenCL, Metal or CUDA above)
   } else if (mode == GL::RenderMode::OpenGL) {
     bool glFailed = false, retry = false;
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
@@ -1546,7 +1591,7 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
   } else
 #else
   if (gpuDone) {
-    // (rendered with OpenCL or Metal above)
+    // (rendered with OpenCL, Metal or CUDA above)
   } else
 #endif
   {
@@ -1570,6 +1615,11 @@ static bool renderFrame(MyHost::MyEffectInstance* instance, MyHost::MyClipInstan
   if (metal) {
     // --gpu=metal: whether Metal rendered this frame, and whether the CPU rendered it again
     renderJ["metal"] = usedGPU;
+    renderJ["cpuRetry"] = cpuRetry;
+  }
+  if (cuda) {
+    // --gpu=cuda: whether CUDA rendered this frame, and whether the CPU rendered it again
+    renderJ["cuda"] = usedGPU;
     renderJ["cpuRetry"] = cpuRetry;
   }
   r["output"] = Json();
@@ -1637,6 +1687,7 @@ static int run(int argc, char **argv)
   bool gpuRenderers = false;   ///< --gpu-renderers
   bool gpuOpenCL = false;      ///< --gpu=opencl
   bool gpuMetal = false;       ///< --gpu=metal
+  bool gpuCUDA = false;        ///< --gpu=cuda
   bool multiPlane = false;     ///< --multiplane
   /// --components: kOfxImageEffectPropSupportedComponents of the host descriptor, and their short names
   std::vector<std::string> hostComponents, hostComponentNames;
@@ -1675,10 +1726,12 @@ static int run(int argc, char **argv)
       profile = p;
     } else if (arg == "--opengl-describe") {
       openglDescribe = true;
-    } else if (arg == "--gpu=opengl" || arg == "--gpu=opencl" || arg == "--gpu=metal" || arg == "--gpu=cpu") {
+    } else if (arg == "--gpu=opengl" || arg == "--gpu=opencl" || arg == "--gpu=metal" || arg == "--gpu=cuda" ||
+               arg == "--gpu=cpu") {
       gpuOpenGL = arg == "--gpu=opengl";
       gpuOpenCL = arg == "--gpu=opencl";
       gpuMetal = arg == "--gpu=metal";
+      gpuCUDA = arg == "--gpu=cuda";
     } else if (arg.compare(0, 15, "--gpu-renderer=") == 0) {
       gpuRenderer = arg.substr(15);
     } else if (arg == "--gpu-renderers") {
@@ -1965,6 +2018,17 @@ static int run(int argc, char **argv)
     return 1;
   }
 #endif
+  // (likewise for CUDA, OFX 1.5 too)
+  if (profile != MyHost::Profile::eDefault && gpuCUDA) {
+    std::cerr << "Error: --gpu=cuda can't be used with --ofx14 or --ofx11 (CUDA render is OFX 1.5)" << std::endl;
+    return 1;
+  }
+#ifndef HOSTDEMO_CUDA
+  if (gpuCUDA) {
+    std::cerr << "Error: --gpu=cuda: hostDemo was built without OFX_HOSTSUPPORT_CUDA" << std::endl;
+    return 1;
+  }
+#endif
   if (profile == MyHost::Profile::eOFX11 && inputDepth == kOfxBitDepthShort) {
     std::cerr << "Error: -d short: the --ofx11 host only supports byte and float depths" << std::endl;
     return 1;
@@ -2028,6 +2092,21 @@ static int run(int argc, char **argv)
 #else
   const bool hostMetal = false;
 #endif
+#ifdef HOSTDEMO_CUDA
+  // --gpu=cuda: the device (the first one), created first: without one, the host doesn't say it
+  // supports CUDA
+  CUDAHost cu;
+  if (gpuCUDA) {
+    std::string why;
+    cu.device = CU::createDevice(CU::Hooks(), -1, &why);
+    if (!cu.device) {
+      std::cerr << "Warning: --gpu=cuda: no CUDA device (" << why << "): rendering on the CPU" << std::endl;
+    }
+  }
+  const bool hostCUDA = cu.device != nullptr;
+#else
+  const bool hostCUDA = false;
+#endif
   // set the version label in the global cache
   // (the plug-ins may describe themselves differently to an OFX 1.4 host, to a host with
   // OpenGL render, to a multi-plane host, or to a host with other components: another cache)
@@ -2042,7 +2121,7 @@ static int run(int argc, char **argv)
   const std::string cacheSuffix =
     (profile == MyHost::Profile::eDefault ? std::string() : std::string("-") + MyHost::profileName(profile)) +
     (openglDescribe || hostOpenGL ? "-opengl" : "") + (hostOpenCL ? (hostOpenCLImages ? "-opencl-images" : "-opencl") : "") +
-    (hostMetal ? "-metal" : "") +
+    (hostMetal ? "-metal" : "") + (hostCUDA ? "-cuda" : "") +
     (multiPlane ? "-multiplane" : "") + componentsSuffix;
   OFX::Host::PluginCache::getPluginCache()->setCacheVersion("hostDemoV1" + cacheSuffix);
   const std::string cachePath = "hostDemoPluginCache" + cacheSuffix + ".xml";
@@ -2073,6 +2152,14 @@ static int run(int argc, char **argv)
     // descriptor" (ofxGPURender.h): Metal buffers and textures
     myHost.getProperties().setStringProperty(kOfxImageEffectPropMetalRenderSupported, "true");
     myHost.getProperties().setStringProperty(kOfxImageEffectPropMetalTextureSupported, "true");
+  }
+  if (hostCUDA) {
+    // kOfxImageEffectPropCudaRenderSupported, "Indicates whether a host or plug-in can support CUDA
+    // render", and kOfxImageEffectPropCudaStreamSupported, "Indicates whether a host or plug-in can
+    // support CUDA streams" (ofxGPURender.h, host descriptor): CUDA memory, and a stream for the
+    // plug-ins that support streams too
+    myHost.getProperties().setStringProperty(kOfxImageEffectPropCudaRenderSupported, "true");
+    myHost.getProperties().setStringProperty(kOfxImageEffectPropCudaStreamSupported, "true");
   }
   if (!hostComponents.empty()) {
     // "This list of strings indicate what component types are supported by a host" (an OFX 1.4
@@ -2482,14 +2569,19 @@ static int run(int argc, char **argv)
       OpenGLHost* openGLArg = NULL; // renderFrame()'s (--gpu=opengl)
       OpenCLHost* openCLArg = NULL; // renderFrame()'s (--gpu=opencl)
       MetalHost* metalArg = NULL;   // renderFrame()'s (--gpu=metal)
+      CUDAHost* cudaArg = NULL;     // renderFrame()'s (--gpu=cuda)
       // whether BeginSequenceRender ran with OpenGL: EndSequenceRender does the same (the pair
-      // shares kOfxImageEffectPropOpenGLEnabled); likewise with OpenCL, in the same mode, and Metal
+      // shares kOfxImageEffectPropOpenGLEnabled); likewise with OpenCL, in the same mode, Metal and
+      // CUDA
       bool sequenceOpenGL = false;
 #ifdef HOSTDEMO_OPENCL
       CL::RenderMode sequenceOpenCL = CL::RenderMode::CPU;
 #endif
 #ifdef HOSTDEMO_METAL
       MT::RenderMode sequenceMetal = MT::RenderMode::CPU;
+#endif
+#ifdef HOSTDEMO_CUDA
+      bool sequenceCUDA = false;
 #endif
       auto sequenceAction = [&](bool begin) {
 #ifdef HOSTDEMO_OPENCL
@@ -2527,6 +2619,23 @@ static int run(int argc, char **argv)
           sequenceMetal = MT::RenderMode::CPU;
         }
 #endif
+#ifdef HOSTDEMO_CUDA
+        if (begin) {
+          sequenceCUDA = cu.device && cu.mode(*myInstance) == CU::RenderMode::CUDA;
+        }
+        if (sequenceCUDA) {
+          bool sent = false, cuFailed = false, retry = false;
+          const OfxRectI noWindow = { 0, 0, 0, 0 };
+          const OfxStatus st = withGPU<CU::Stream, CU::RenderSession>("CUDA", *cu.device, *myInstance, NULL, firstFrame,
+                                                                      noWindow, [&] { return sequence(begin, false, NULL); },
+                                                                      sent, cuFailed, retry);
+          if (sent) {
+            return st;
+          }
+          // (refused by the session: without CUDA, and End too)
+          sequenceCUDA = false;
+        }
+#endif
 #ifdef HOSTDEMO_OPENGL
         if (begin) {
           sequenceOpenGL = gl.context && gl.mode(*myInstance) == GL::RenderMode::OpenGL;
@@ -2555,6 +2664,9 @@ static int run(int argc, char **argv)
 #ifdef HOSTDEMO_METAL
       metalArg = gpuMetal ? &mt : NULL;
 #endif
+#ifdef HOSTDEMO_CUDA
+      cudaArg = gpuCUDA ? &cu : NULL;
+#endif
       if (!query) {
         stat = sequenceAction(true);
         actions.push(namedActionJson("beginSequenceRender", actionJson(stat)));
@@ -2578,7 +2690,7 @@ static int run(int argc, char **argv)
           std::ostringstream ss;
           ss << outputPrefix << "." << tname.str() << (nViews == 1 ? "" : view == 0 ? "l" : "r");
           Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-          if (!renderFrame(myInstance, outputClip, t, view, nViews, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r, openGLArg, openCLArg, metalArg)) {
+          if (!renderFrame(myInstance, outputClip, t, view, nViews, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r, openGLArg, openCLArg, metalArg, cudaArg)) {
             ret = 1;
           }
         }
@@ -2586,7 +2698,7 @@ static int run(int argc, char **argv)
         std::ostringstream ss;
         ss << outputPrefix << "." << tname.str();
         Json* r = reportPath.empty() ? NULL : &renders.push(Json::object());
-        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r, openGLArg, openCLArg, metalArg)) {
+        if (!renderFrame(myInstance, outputClip, t, 0, 1, renderScale, win, query, sequential, allowUnwritten, ss.str(), format, multiPlane, r, openGLArg, openCLArg, metalArg, cudaArg)) {
           ret = 1;
         }
 #endif

@@ -18,6 +18,9 @@
 #ifdef HOSTDEMO_METAL
 #include "ofxhMetalRender.h"
 #endif
+#ifdef HOSTDEMO_CUDA
+#include "ofxhCUDARender.h"
+#endif
 
 namespace MyHost {
 
@@ -62,6 +65,9 @@ namespace MyHost {
 #endif
 #ifdef HOSTDEMO_METAL
     OFX::Host::Metal::RenderSession *_mtSession = nullptr; ///< setGPUSession()
+#endif
+#ifdef HOSTDEMO_CUDA
+    OFX::Host::CUDA::RenderSession *_cuSession = nullptr; ///< setGPUSession()
 #endif
 
     /// format, print (on stdout) and record a message
@@ -256,6 +262,12 @@ namespace MyHost {
     /// getImage() gives (nullptr outside; read on the plug-in's threads too, set before the action)
     void setGPUSession(OFX::Host::Metal::RenderSession *session) { _mtSession = session; }
     OFX::Host::Metal::RenderSession *getMetalSession() const { return _mtSession; }
+#endif
+#ifdef HOSTDEMO_CUDA
+    /// --gpu=cuda: the session of the CUDA action in progress, whose images MyClipInstance's
+    /// getImage() gives (nullptr outside; read on the plug-in's threads too, set before the action)
+    void setGPUSession(OFX::Host::CUDA::RenderSession *session) { _cuSession = session; }
+    OFX::Host::CUDA::RenderSession *getCUDASession() const { return _cuSession; }
 #endif
 
 #if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)

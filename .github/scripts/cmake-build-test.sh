@@ -13,13 +13,14 @@ root=$PWD
 build=$root/build-ci
 # macOS has the OpenCL framework: build the OpenCL example there (Examples/OpenCL; Metal is built
 # on macOS anyway). Linux would need the OpenCL headers and ICD loader packages.
-# openfx::HostSupportMetal is macOS only.
+# openfx::HostSupportMetal is macOS only; openfx::HostSupportCUDA is built everywhere (it loads the
+# CUDA driver at run time, and its checks run on a fake driver).
 opencl=OFF
 metal=OFF
 if [ "$(uname -s)" = Darwin ]; then opencl=ON; metal=ON; fi
 cmake -S . -B "$build" -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON -DOFX_SUPPORTS_OPENCLRENDER=$opencl \
-  -DOFX_HOSTSUPPORT_OPENGL=ON -DOFX_HOSTSUPPORT_OPENCL=ON -DOFX_HOSTSUPPORT_METAL=$metal \
+  -DOFX_HOSTSUPPORT_OPENGL=ON -DOFX_HOSTSUPPORT_OPENCL=ON -DOFX_HOSTSUPPORT_METAL=$metal -DOFX_HOSTSUPPORT_CUDA=ON \
   -DOFX_EXTENSIONS_NATRON=OFF -DOFX_EXTENSIONS_NUKE=OFF -DOFX_EXTENSIONS_VEGAS=OFF \
   -DOFX_EXTENSIONS_TUTTLE=OFF -DOFX_EXTENSIONS_RESOLVE=OFF \
   -DPLUGIN_INSTALLDIR="$build/install/OFX/Plugins" ${CMAKE_GENERATOR:+-G "$CMAKE_GENERATOR"} \
@@ -59,6 +60,12 @@ test -n "$dct" || { echo "drawcontext-opengl-test was not built"; exit 1; }
 grc=$(find "$build" -name openglRenderChecks -type f -perm -u+x | head -1)
 test -n "$grc" || { echo "openglRenderChecks was not built"; exit 1; }
 (cd "$build" && OFX_PLUGIN_PATH="$build/Plugins" "$grc")
+# openfx::HostSupportCUDA (HostSupport/examples/cudaRenderChecks.cpp): on a fake CUDA driver, with
+# GPUGain (OFXH_REQUIRE=1: the plug-in is required); the checks on a real device are skipped (CI has
+# no CUDA device; OFXH_REQUIRE_CUDA=1 would require one)
+crc=$(find "$build" -name cudaRenderChecks -type f -perm -u+x | head -1)
+test -n "$crc" || { echo "cudaRenderChecks was not built"; exit 1; }
+(cd "$build" && OFX_PLUGIN_PATH="$build/Plugins" "$crc")
 cmake --install "$build" --prefix "$build/install"
 # Linux: linuxCheckBundle.sh on the installed examples. They need only system libraries, so the
 # full check (no system library bundled, no other library needed) applies; the symbol-version

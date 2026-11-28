@@ -4,7 +4,8 @@
 # (libOfxHost) and openfx::Support (libOfxSupport), plus add_ofx_plugin(); with
 # OFX_HOSTSUPPORT_OPENGL, openfx::HostSupportOpenGL (libOfxHostOpenGL); with OFX_HOSTSUPPORT_OPENCL,
 # openfx::HostSupportOpenCL (libOfxHostOpenCL); with OFX_HOSTSUPPORT_METAL (macOS),
-# openfx::HostSupportMetal (libOfxHostMetal).
+# openfx::HostSupportMetal (libOfxHostMetal); with OFX_HOSTSUPPORT_CUDA, openfx::HostSupportCUDA
+# (libOfxHostCUDA).
 # The compile definitions used to build the libraries (OFX_EXTENSIONS_*,
 # OFX_SUPPORTS_*) are usage requirements of the library targets.
 include(CMakeFindDependencyMacro)

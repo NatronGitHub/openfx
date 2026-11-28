@@ -87,6 +87,21 @@ if(OFX_HOSTSUPPORT_METAL)
 	add_library(openfx::HostSupportMetal ALIAS OfxHostMetal)
 endif()
 
+# openfx::HostSupportCUDA: CUDA devices, streams and renders (ofxhCUDADevice.h, ofxhCUDARender.h).
+# The CUDA driver API (libcuda.so.1, nvcuda.dll) is loaded at run time: no build dependency.
+if(OFX_HOSTSUPPORT_CUDA)
+	file(GLOB OFX_HOSTSUPPORT_CUDA_FILES "${OFX_HOSTSUPPORT_LIBRARY_DIR}/cuda/*.cpp" "${OFX_HOSTSUPPORT_LIBRARY_DIR}/cuda/*.h")
+	add_library(OfxHostCUDA STATIC ${OFX_HOSTSUPPORT_CUDA_FILES})
+	set_target_properties(OfxHostCUDA PROPERTIES
+		POSITION_INDEPENDENT_CODE ON
+		EXPORT_NAME HostSupportCUDA)
+	target_link_libraries(OfxHostCUDA PUBLIC OfxHost)
+	if(UNIX)
+		target_link_libraries(OfxHostCUDA PRIVATE ${CMAKE_DL_LIBS})
+	endif()
+	add_library(openfx::HostSupportCUDA ALIAS OfxHostCUDA)
+endif()
+
 if(BUILD_EXAMPLE_HOSTS)
 	if(OFX_SUPPORTS_MULTITHREAD)
 		# hostDemo and cacheDemo don't implement the multi-thread suite functions that

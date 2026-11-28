@@ -277,11 +277,7 @@ namespace OFX {
           , _images(*session._images)
           , _resource(resource)
         {
-          // the CPU image's, which the copy keeps
-          setStringProperty(kOfxImageEffectPropPixelDepth, image.getStringProperty(kOfxImageEffectPropPixelDepth));
-          setStringProperty(kOfxImageEffectPropComponents, image.getStringProperty(kOfxImageEffectPropComponents));
-          setStringProperty(kOfxImageEffectPropPreMultiplication, image.getStringProperty(kOfxImageEffectPropPreMultiplication));
-          setDoubleProperty(kOfxImagePropPixelAspectRatio, image.getDoubleProperty(kOfxImagePropPixelAspectRatio));
+          GPU::copyImageProperties(*this, image);
           _images.add(this);
         }
 

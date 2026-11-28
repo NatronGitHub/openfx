@@ -51,7 +51,9 @@ namespace OFX {
         std::function<void(const std::function<void()> &call)> driverCall;
         /// the OpenCL API function name (e.g. "clGetPlatformIDs") from the host's own OpenCL
         /// library, nullptr if not found (default: from the ICD loader, libOpenCL.so.1 or
-        /// libOpenCL.so; OpenCL.dll; /System/Library/Frameworks/OpenCL.framework)
+        /// libOpenCL.so; OpenCL.dll, from System32 only, against DLL planting;
+        /// /System/Library/Frameworks/OpenCL.framework). A host that bundles its own OpenCL.dll, or
+        /// relies on one in PATH, gives it here.
         std::function<void *(const char *name)> getProcAddress;
       };
 
