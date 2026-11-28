@@ -459,8 +459,8 @@ if grep -q "^Plug-in:io.aswf.openfx.example.ColourspacePluginCore$" cachedemo.lo
   echo "--ofx14: no OFX 1.5 host properties: OK"
 fi
 
-# --opengl-describe is for --describe only (rendering with OpenGL is --gpu=opengl; test_hostdemo_cli.py
-# checks what the OpenGL example sees with either)
+# --opengl-describe is for --describe only (rendering with OpenGL is --gpu=opengl;
+# HostSupport/examples/python/tests/functional/test_hostdemo_cli.py checks what the OpenGL example sees with either)
 fails hostdemo-opengl-render.log "needs --describe" --opengl-describe -p net.sf.openfx.invertPlugin
 # The plug-in cache stays valid while a binary's mtime and size don't change, but the binary's list
 # of plug-ins may change (e.g. openfx-gmic's depends on a user file): a cached plug-in must be the

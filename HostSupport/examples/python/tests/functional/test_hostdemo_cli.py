@@ -1,0 +1,713 @@
+"""ofxhost.hostdemo, hostDemo's command line on the in-process backend, against the hostDemo binary: the
+same command lines (those of the plug-in repositories' test scripts) give the same exit status, the
+same output files (byte for byte), the same --report (but the host name) and --describe JSON, and
+the same error messages. Each run is a process, as the repositories' scripts run hostDemo. This is the
+consumers' command-line contract (#207, #212). CI selects its GPU tests by name (-k gpu: every GPU test has "gpu"
+in its name) and by marker (-m opencl, -m metal; the cuda ones never run in CI)."""
+
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+import ofxhost
+from ofxhost import constants as k
+from ofxhost.testing import _skip_or_fail, check_backend, without_support_debug
+from ofxhost_helpers import PYDIR, Q, same_json, strict_json
+
+INVERT = "net.sf.openfx.invertPlugin"
+BASIC = "net.sf.openfx.basicPlugin"
+TESTER = "net.sf.openfx.GenericTestPlugin"
+CHOICES = "org.openeffects.support.choiceParamsPlugin"
+RETIMER = "net.sf.openfx.retimer"
+PROPTESTER = "net.sf.openfx.propertyTester"
+OPENGL = "com.genarts:OpenGLSamplePlugin"
+NOISE = "net.sf.openfx.noisePlugin"
+GPUGAIN = "com.OpenFXSample.GPUGain"
+
+
+@pytest.fixture(scope="module")
+def hosts(sample_plugins):
+    """(hostDemo, the ofxh module's directory): both are needed (OFXH_REQUIRE=1: fail if not)."""
+    for b in ofxhost.BACKENDS:
+        check_backend(b)
+    import ofxh
+    return ofxhost.find_hostdemo(), Path(ofxh.__file__).resolve().parent
+
+
+def _env(plugins, ofxh_dir, **more):
+    env = dict(os.environ)
+    env["OFX_PLUGIN_PATH"] = os.pathsep.join(str(p) for p in plugins)
+    env["PYTHONPATH"] = os.pathsep.join([str(PYDIR), str(ofxh_dir)])
+    env.pop("OFX_HOSTDEMO_KEEP_LOADED", None)
+    env.update(more)
+    return env
+
+
+def _run(cmd, cwd, env):
+    """The CompletedProcess of cmd, without what Support's debug builds print on stdout (without_support_debug())."""
+    p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, errors="replace", timeout=300,
+                       stdin=subprocess.DEVNULL)
+    assert p.returncode >= 0, f"{cmd}: killed by signal {-p.returncode}\n{p.stderr}"
+    p.stdout = without_support_debug(p.stdout)
+    return p
+
+
+def both(tmp_path, hosts, plugins, args, files=(), **env):
+    """Run args with hostDemo and with python -m ofxhost.hostdemo, each in its own directory (with
+    copies of files); returns the two (CompletedProcess, directory)."""
+    hostdemo, ofxh_dir = hosts
+    out = []
+    for name, cmd in (("hostDemo", [str(hostdemo)]), ("inprocess", [sys.executable, "-m", "ofxhost.hostdemo"])):
+        d = tmp_path / name
+        d.mkdir(parents=True)
+        for f, data in files:
+            (d / f).write_bytes(data)
+        out.append((_run(cmd + list(args), d, _env(plugins, ofxh_dir, **env)), d))
+    return out
+
+
+def _normalized(report):
+    """What differs by design in a --report file: the host name, the plug-in's file path (symbolic links), the
+    means (rounded: summation order)."""
+    r = dict(report)
+    r["host"] = dict(r["host"], name=None)
+    if r.get("plugin", {}).get("filePath"):
+        r["plugin"] = dict(r["plugin"], filePath=os.path.realpath(r["plugin"]["filePath"]))
+    renders = []
+    for x in r.get("renders") or []:
+        x = dict(x)
+        if x.get("output"):
+            x["output"] = dict(x["output"], mean=[None if v is None else round(v, 9) for v in x["output"]["mean"]])
+        renders.append(x)
+    r["renders"] = renders
+    return r
+
+
+def _files(d: Path) -> dict:
+    """The output images of a run directory: {file name: bytes}."""
+    return {p.name: p.read_bytes() for p in sorted(d.iterdir()) if p.suffix in (".ppm", ".pfm")}
+
+
+def _compare(tmp_path, hosts, plugins, args, files=(), report=True, **env):
+    """Run args with both (both()): the same exit status, output files byte for byte, --report r.json (but the
+    host name; when report), and stdout. Returns (hostDemo's process, the in-process one, their directories)."""
+    (s, sd), (i, idir) = both(tmp_path, hosts, plugins, args, files, **env)
+    assert s.returncode == i.returncode, (s.stderr, i.stderr)
+    assert _files(sd) == _files(idir)
+    if report:
+        same_json(_normalized(strict_json((sd / "r.json").read_text())),
+                  _normalized(strict_json((idir / "r.json").read_text())))
+    # the plug-ins' messages on stdout ("<type> <id> <text>"), with --quiet
+    assert s.stdout == i.stdout
+    return s, i, sd, idir
+
+
+@pytest.mark.parametrize("args", [
+    # openfx-misc rendertest.sh / smoketest.sh
+    [*Q, "-p", INVERT, "-c", "filter", "-d", "float", "--format", "pfm", "-o", "out", "--report", "r.json",
+     "-i", "Source=ramp"],
+    [*Q, "-p", BASIC, "-m", "1", "-c", "general", "-d", "short", "--format", "pfm", "-o", "out", "--report", "r.json",
+     "-i", "Source=checker:16", "-i", "Mask=solid:0.25,0.5,0.75,1", "--frames", "0,0.5", "--scale", "0.5",
+     "scale=2", "-s", "scaleComponents=1"],
+    [*Q, "-p", INVERT, "-d", "byte", "--format", "pfm", "-o", "out", "--report", "r.json", "--frames", "0",
+     "--window", "100,50,300,250", "-i", "Source=file:in.pfm@10,20"],
+    [*Q, "-p", INVERT, "--format", "pfm", "-o", "out", "--report", "r.json", "--window", "-90,-90,-10,-10"],
+    [*Q, "-p", RETIMER, "-c", "general", "-d", "float", "--format", "pfm", "-o", "out", "--report", "r.json",
+     "--frames", "0,1,2", "-i", "Source=ramp", "-s", "Speed@0=0.5", "-s", "Speed@2=1.5"],
+    [*Q, "-p", TESTER, "-d", "float", "--format", "pfm", "-o", "out", "--report", "r.json", "--frames", "0",
+     "-i", "Source=ramp", "-s", "analyseButton"],
+    [*Q, "-p", CHOICES, "--format", "pfm", "-o", "out", "--report", "r.json", "--frames", "0", "-d", "float"],
+    # an output with infinite values: null statistics in both reports
+    [*Q, "-p", GPUGAIN, "--format", "pfm", "-o", "out", "--report", "r.json", "--frames", "0", "-d", "float",
+     "-i", "Source=solid:3e38,0.5,0.25,1", "--window", "0,0,4,4", "scaleR=10"],
+    # openfx-gmic render_plugins.py (the host arguments first)
+    ["--ofx14", *Q, "--allow-unwritten", "--format", "pfm", "-d", "float", "-p", INVERT, "-c", "filter", "--frames",
+     "0", "-o", "out", "--report", "r.json", "-i", "Source=file:in.pfm"],
+    # openfx-io tests/hostdemo/run.sh, openfx-arena run.cmake: the default PPM output, the default input
+    [*Q, "-p", INVERT, "-c", "filter", "-o", "out", "--report", "r.json"],
+    [*Q, "-p", INVERT, "-c", "filter", "--frames", "0", "-o", "out", "-d", "float", "--report", "r.json"],
+    # --components: an RGB output (Noise's rgbOutput, in a host that supports RGB), as PFM and PPM
+    [*Q, "--components", "rgba,rgb,alpha", "-p", NOISE, "-c", "general", "-d", "float", "--format", "pfm", "-o",
+     "out", "--report", "r.json", "--frames", "0", "-i", "Source=none", "rgbOutput=1"],
+    [*Q, "--components", "rgb,rgba", "-p", NOISE, "-c", "general", "-o", "out", "--report", "r.json", "--frames",
+     "0", "-i", "Source=none", "rgbOutput=1"],
+], ids=["misc-invert", "misc-basic", "misc-file-window", "misc-window-outside", "misc-keys", "misc-button",
+        "misc-choices", "inf", "gmic-ofx14", "io-ppm", "arena-ppm", "rgb-output-pfm", "rgb-output-ppm"])
+def test_same_as_hostdemo(tmp_path, hosts, sample_plugins, args):
+    """The plug-in repositories' command lines (openfx-misc, openfx-gmic, openfx-io, openfx-arena; the ids name
+    them) give the same exit status 0, files byte for byte, report and stdout with hostDemo and with python -m
+    ofxhost.hostdemo: the consumers' contract (#212; inf: 2381af31; rgb-output: #366)."""
+    rgb = np.random.default_rng(0).random((24, 32, 3), dtype=np.float32)
+    s, i, sd, idir = _compare(tmp_path, hosts, sample_plugins, args, files=[("in.pfm", ofxhost.encode_pfm(rgb))])
+    assert s.returncode == 0, s.stderr
+    assert _files(sd)
+
+
+def test_describe(tmp_path, hosts, sample_plugins):
+    """--describe gives the same JSON with both hosts (Basic, -m 1) (#207)."""
+    (s, sd), (i, idir) = both(tmp_path, hosts, sample_plugins, [*Q, "-p", BASIC, "-m", "1", "--describe", "d.json"])
+    assert s.returncode == i.returncode == 0, (s.stderr, i.stderr)
+    same_json(strict_json((sd / "d.json").read_text()), strict_json((idir / "d.json").read_text()))
+
+
+@pytest.mark.parametrize("profile", [[], ["--ofx14"]], ids=["default", "ofx14"])
+def test_opengl_describe(tmp_path, hosts, sample_plugins, profile):
+    """--opengl-describe: the host's kOfxImageEffectPropOpenGLRenderSupported is "true", which the OpenGL
+    example (Examples/OpenGL) prints in its describe action; the same describe JSON with both hosts (#312)."""
+    if not any(p.glob("example-OpenGL.ofx.bundle") for p in sample_plugins):
+        _skip_or_fail("the OpenGL example (Examples/OpenGL, CMake builds) is not in the plug-in directories")
+    (s, sd), (i, idir) = both(tmp_path, hosts, sample_plugins,
+                              [*Q, *profile, "--opengl-describe", "-p", OPENGL, "--describe", "d.json"])
+    assert s.returncode == i.returncode == 0, (s.stderr, i.stderr)
+    same_json(strict_json((sd / "d.json").read_text()), strict_json((idir / "d.json").read_text()))
+    for p in (s, i):
+        assert "Host has OpenGL render support: true" in p.stderr
+        assert "Host has OpenGL render support: false" not in p.stderr
+
+
+@pytest.mark.parametrize("args", [
+    [*Q, "-p", "no.such.plugin", "--report", "r.json"],                  # a run error: the report is written
+    [*Q, "-p", INVERT, "-c", "general", "--report", "r.json"],           # no general context
+    [*Q, "-p", INVERT, "-i", "Nope=ramp", "--report", "r.json"],         # no such clip
+    [*Q, "-p", INVERT, "-s", "nope=1", "--report", "r.json"],            # no such parameter
+], ids=["plugin", "context", "clip", "param"])
+def test_run_errors(tmp_path, hosts, sample_plugins, args):
+    """Run errors (no such plug-in, context, clip or parameter): exit status 1, the same Error lines, and the
+    report written by both (#212)."""
+    s, i, _, _ = _compare(tmp_path, hosts, sample_plugins, args)
+    assert s.returncode == 1
+    assert [x for x in s.stderr.splitlines() if x.startswith("Error")] == \
+        [x for x in i.stderr.splitlines() if x.startswith("Error")]
+
+
+USAGE_ERRORS = [
+    ["--frames", "0,0"], ["--frames", "0,x"], ["--frames", "1e-400"], ["--scale", "0"], ["--scale", "1,2"],
+    ["--window", "1,1,1,1"],
+    ["--format", "png"], ["-d", "half"], ["-c", "paint"], ["-m", "-1"], ["-i", "Source=bogus"], ["-i", "=ramp"],
+    ["-i", "Source=ramp#rg"], ["-i", "Source=#rgb"], ["-i", "Source=ramp#rgb#alpha"],
+    ["-i", "Source=ramp", "-i", "Source=none"], ["--report", "a.json", "--describe", "b.json"], ["--bogus"],
+    # -i Clip@Plane=spec (checked as hostDemo checks it; refused without --multiplane)
+    ["-i", "Source@Nope=ramp"], ["-i", "@BackMotionVector=ramp"], ["-i", "Source@BackMotionVector=none"],
+    ["-i", "Source@BackMotionVector=bogus"], ["-i", "Source@BackMotionVector=ramp"],
+    ["-i", "Source@BackMotionVector=ramp#rgb"], ["-i", "Source@StereoDisparityLeft=file:in.pfm#premult#alpha"],
+    ["-i", "Source@StereoDisparityLeft=ramp", "-i", "Source@StereoDisparityLeft=checker:4"],
+    ["-p"], ["--opengl-describe"], ["--opengl-describe", "--report", "r.json"],
+    ["--components", "rgba,bogus"], ["--components", "rgb,rgb"], ["--components", ""], ["--components"],
+    ["--components", "OfxImageComponentRGB"],
+]
+# (args, a text that both hosts' messages must have, or None)
+USAGE_ERROR_CASES = [(a, None) for a in USAGE_ERRORS] + [
+    # a plane's components are the plane's: no suffix (#330)
+    (["-i", "Source@BackMotionVector=ramp#alpha"], "(a plane has no #rgb/#alpha/#rgba suffix)"),
+]
+
+
+@pytest.mark.parametrize("args, message", USAGE_ERROR_CASES, ids=[" ".join(a) for a, _ in USAGE_ERROR_CASES])
+def test_usage_errors(tmp_path, hosts, sample_plugins, args, message):
+    """Command-line errors: exit status 1, hostDemo's message (its first line), no report; where a message text
+    is given, both hosts' messages have it (#207; cases from #330, #331, #312, #366)."""
+    (s, _), (i, _) = both(tmp_path, hosts, sample_plugins, [*Q, *args])
+    assert s.returncode == i.returncode == 1
+    first = [x for x in s.stderr.splitlines() if x.startswith("Error")][:1]
+    assert first and first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]
+    if message is not None:
+        for p in (s, i):
+            assert message in p.stderr
+
+
+def test_components_cache_file(tmp_path, hosts, sample_plugins):
+    """hostDemo --components: a list other than the default gets its own plug-in cache file (#366)."""
+    hostdemo, ofxh_dir = hosts
+    for comps, cache in (("rgba,alpha", "hostDemoPluginCache.xml"),
+                         ("rgba,rgb,alpha", "hostDemoPluginCache-components-rgba-rgb-alpha.xml")):
+        d = tmp_path / comps.replace(",", "-")
+        d.mkdir()
+        p = _run([str(hostdemo), "--no-std-paths", "--quiet", "--components", comps, "-p", INVERT, "--describe",
+                  "d.json"], d, _env(sample_plugins, ofxh_dir))
+        assert p.returncode == 0, p.stderr
+        assert sorted(x.name for x in d.glob("hostDemoPluginCache*.xml")) == [cache]
+
+
+def _nuke():
+    import ofxh
+    return bool(ofxh.build_config["OFX_EXTENSIONS_NUKE"])  # (hostDemo is built with the same options as ofxh)
+
+
+def test_multiplane(tmp_path, hosts, sample_plugins):
+    """--multiplane: a multi-plane host with the Nuke extension (README.md), on both backends; without it,
+    both refuse it, at the option, before the errors of the next options (#331)."""
+    colour = [*Q, "-p", INVERT, "-i", "Source=ramp", "--frames", "0", "--format", "pfm", "-o", "out", "--report",
+              "r.json"]
+    args = colour + ["--multiplane", "-i", "Source@BackMotionVector=solid:0.5,0.25,0,1"]
+    if not _nuke():
+        (s, sd), (i, idir) = both(tmp_path, hosts, sample_plugins, args)
+        assert s.returncode == i.returncode == 1
+        assert "Error: --multiplane needs a hostDemo built with OFX_EXTENSIONS_NUKE" in s.stderr
+        assert "Error: --multiplane needs a hostDemo built with OFX_EXTENSIONS_NUKE" in i.stderr
+        assert not (sd / "r.json").exists() and not (idir / "r.json").exists()
+        # (refused at the option, before the errors of the next options)
+        (s, _), (i, _) = both(tmp_path / "order", hosts, sample_plugins, [*Q, "--multiplane", "--frames", "0,0"])
+        assert s.returncode == i.returncode == 1
+        first = [x for x in s.stderr.splitlines() if x.startswith("Error")][:1]
+        assert first == ["Error: --multiplane needs a hostDemo built with OFX_EXTENSIONS_NUKE"]
+        assert first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]
+        return
+    s, _, sd, _ = _compare(tmp_path, hosts, sample_plugins, args)
+    assert s.returncode == 0, s.stderr
+    r = json.loads((sd / "r.json").read_text())
+    assert r["inputs"]["Source"]["planes"] == {"BackMotionVector": "solid:0.5,0.25,0,1"}
+    assert r["clipPreferences"]["clips"]["Source"]["planesPresent"] == [k.kFnOfxImagePlaneColour,
+                                                                        k.kFnOfxImagePlaneBackwardMotionVector]
+    assert r["clipPreferences"]["clips"]["Output"]["planesPresent"] == [k.kFnOfxImagePlaneColour]
+    for x in r["renders"]:
+        # (Invert isn't multi-plane: the Support library's default, kOfxStatReplyDefault)
+        assert x["clipComponents"] == {"ok": True, "status": "kOfxStatReplyDefault", "clips": {},
+                                       "passThroughClip": None, "passThroughTime": None, "passThroughView": None}
+        assert x["isIdentity"]["identityPlane"] is None and x["render"]["ok"]
+    # the same files as without --multiplane (the colour plane)
+    (p, pd), _ = both(tmp_path / "colour", hosts, sample_plugins, colour)
+    assert p.returncode == 0, p.stderr
+    assert _files(sd) == _files(pd)
+
+
+@pytest.mark.parametrize("args", [
+    # planes of each kind, a file plane, at a render scale, two frames (and views): the planes are in the
+    # report only (no sample plug-in fetches them, so they change no output file)
+    [*Q, "--multiplane", "-p", INVERT, "-d", "float", "--format", "pfm", "-o", "out", "--report", "r.json",
+     "--scale", "0.5", "-i", "Source=checker:8", "-i", "Source@StereoDisparityRight=ramp",
+     "-i", "Source@ForwardMotionVector=file:in.pfm@4,2", "-i", "Source@StereoDisparityLeft=default",
+     "-i", "Source@BackMotionVector=solid:0.5,-0.25,0,1"],
+    # an identity (Basic's scale 1), a disconnected optional input (no plane present), the queries only
+    [*Q, "--multiplane", "-p", BASIC, "-m", "1", "-c", "general", "--report", "r.json", "--query", "--frames", "0",
+     "-i", "Mask=none", "-i", "Source@BackMotionVector=ramp", "scale=1"],
+    # a run error: no such clip (the report is written)
+    [*Q, "--multiplane", "-p", INVERT, "--report", "r.json", "-i", "Nope@BackMotionVector=ramp"],
+], ids=["planes", "identity-query", "no-clip"])
+def test_multiplane_same_as_hostdemo(tmp_path, hosts, sample_plugins, args):
+    """--multiplane runs give the same files, report (inputs.planes, planesPresent, identityPlane,
+    clipComponents), stdout and exit status on both backends (#350)."""
+    if not _nuke():
+        pytest.skip("--multiplane needs OFX_EXTENSIONS_NUKE")
+    rgb = np.random.default_rng(1).random((12, 16, 3), dtype=np.float32)
+    s, i, _, _ = _compare(tmp_path, hosts, sample_plugins, args, files=[("in.pfm", ofxhost.encode_pfm(rgb))])
+    assert [x for x in s.stderr.splitlines() if x.startswith("Error")] == \
+        [x for x in i.stderr.splitlines() if x.startswith("Error")]
+    assert s.returncode == (1 if "Nope@BackMotionVector=ramp" in args else 0), s.stderr
+
+
+def test_multiplane_describe_and_usage(tmp_path, hosts, sample_plugins):
+    """--multiplane --describe (the plug-in may describe itself differently to a multi-plane host), and
+    --multiplane --ofx14, refused by both with hostDemo's message (#350)."""
+    if not _nuke():
+        pytest.skip("--multiplane needs OFX_EXTENSIONS_NUKE")
+    (s, sd), (i, idir) = both(tmp_path, hosts, sample_plugins,
+                              [*Q, "--multiplane", "-p", BASIC, "-m", "1", "--describe", "d.json"])
+    assert s.returncode == i.returncode == 0, (s.stderr, i.stderr)
+    same_json(strict_json((sd / "d.json").read_text()), strict_json((idir / "d.json").read_text()))
+    (s, _), (i, _) = both(tmp_path / "ofx14", hosts, sample_plugins, [*Q, "--multiplane", "--ofx14"])
+    assert s.returncode == i.returncode == 1
+    first = [x for x in s.stderr.splitlines() if x.startswith("Error")][:1]
+    assert first == ["Error: --multiplane and --ofx14 can't be used together (OFX 1.4 has no plane suite)"]
+    assert first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]
+
+
+def test_ofx11_usage(tmp_path, hosts, sample_plugins):
+    """--ofx11 (hostDemo only, README.md): hostDemo refuses -d short (the profile has byte and float depths
+    only) and another profile with it; the in-process backend refuses --ofx11 itself (#351)."""
+    for args, msg in ((["-d", "short"], "Error: -d short: the --ofx11 host only supports byte and float depths"),
+                      (["--ofx14"], "Error: --ofx11 can't be used with --ofx14, --multiplane, --opengl-describe "
+                                    "or --gpu=opengl")):
+        (s, _), (i, _) = both(tmp_path / args[0].lstrip("-"), hosts, sample_plugins, [*Q, "--ofx11", *args])
+        assert s.returncode == i.returncode == 1
+        assert [x for x in s.stderr.splitlines() if x.startswith("Error")][:1] == [msg]
+        assert [x for x in i.stderr.splitlines() if x.startswith("Error")][:1] == \
+            ["Error: --ofx11: the in-process backend has no OFX 1.1 host profile: use hostDemo"]
+
+
+def test_help(tmp_path, hosts, sample_plugins):
+    """-h lists the options in both hosts' usage (#212)."""
+    (s, _), (i, _) = both(tmp_path, hosts, sample_plugins, ["-h"])
+    assert s.returncode == i.returncode == 0
+    for opt in ("-p id", "--format ppm|pfm", "--report file.json", "--describe file.json", "--ofx14", "--ofx11",
+                "--opengl-describe", "--quiet", "#rgb, #alpha or #rgba", "--no-normalised-defaults",
+                "--multiplane", "-i Clip@Plane=spec", "--components c,..."):
+        assert opt in s.stdout and opt in i.stdout
+
+
+@pytest.mark.parametrize("keep", ["0", "1"])
+def test_keep_loaded(tmp_path, hosts, sample_plugins, keep):
+    """OFX_HOSTDEMO_KEEP_LOADED=1 (ofxh.init(keep_loaded=True)): the scanned plug-in stays loaded, so its
+    first use sends no second Load and Describe, as hostDemo (hostdemo-checks.sh's lifecycle checks) (#212)."""
+    (s, _), (i, _) = both(tmp_path, hosts, sample_plugins, [*Q, "-p", PROPTESTER, "--describe", "d.json"],
+                          OFX_PROPTESTER_TRACE="1", OFX_HOSTDEMO_KEEP_LOADED=keep)
+    assert s.returncode == i.returncode == 0, (s.stderr, i.stderr)
+
+    def trace(p):
+        return re.findall(r"propTester: OfxAction([A-Za-z]*)", p.stdout + p.stderr)
+    expected = ["Load", "Describe", "Unload"] if keep == "1" else ["Load", "Describe", "Unload"] * 2
+    assert trace(s) == expected
+    assert trace(i) == expected
+
+
+@pytest.mark.parametrize("plugin, spec", [(INVERT, "ramp#rgb"), (GPUGAIN, "ramp#rgb"),
+                                          (INVERT, "file:in.pfm#premult#rgb"), (INVERT, "ramp#rgba"),
+                                          (INVERT, "checker:8#alpha"), (INVERT, "file:in.pfm#alpha")])
+def test_components_suffix(tmp_path, hosts, sample_plugins, plugin, spec):
+    """-i Clip=spec#rgb|#alpha|#rgba: the input's unmapped components; the clip preferences map them to the
+    clip's (Invert: RGBA or Alpha; GPUGain also RGB). With an Alpha input, HostSupport's default output is
+    Alpha (#332), so Invert renders it. The command-line path of the components (#212; cases from #332, #371)."""
+    rgb = np.random.default_rng(0).random((24, 32, 3), dtype=np.float32)
+    args = [*Q, "-p", plugin, "-i", f"Source={spec}", "--frames", "0", "-d", "float", "--format", "pfm", "-o", "out",
+            "--report", "r.json"]
+    s, _, sd, _ = _compare(tmp_path, hosts, sample_plugins, args, files=[("in.pfm", ofxhost.encode_pfm(rgb))])
+    alpha = spec.endswith("#alpha")
+    assert s.returncode == 0, s.stderr
+    r = json.loads((sd / "r.json").read_text())
+    if alpha:
+        assert r["clipPreferences"]["clips"]["Output"]["components"] == k.kOfxImageComponentAlpha
+    comps = {"rgb": k.kOfxImageComponentRGB, "alpha": k.kOfxImageComponentAlpha}.get(spec.rpartition("#")[2],
+                                                                                      k.kOfxImageComponentRGBA)
+    assert r["inputs"]["Source"] == dict(r["inputs"]["Source"], spec=spec, unmappedComponents=comps)
+    if (plugin, spec) == (INVERT, "ramp#rgb"):  # (an RGBA clip, opaque input: the inverted alpha is 0)
+        alphas = sorted(sd.glob("out.0*.alpha.pfm"))  # (out.0l and out.0r: two views)
+        assert alphas and all(np.all(ofxhost.read_pfm(a) == 0.) for a in alphas)
+
+
+@pytest.mark.parametrize("extra", [[], ["--ofx14"]])
+def test_no_normalised_defaults(tmp_path, hosts, sample_plugins, extra):
+    """--no-normalised-defaults: the Tester's widgetPos (normalised default 0.5, 0.5) keeps its default as is,
+    in canonical coordinates; without it, the default is the middle of the project; with --ofx14 too (#330)."""
+    args = [*Q, *extra, "-p", TESTER, "--query", "--frames", "0", "--report", "r.json"]
+    values = []
+    for opts in ([], ["--no-normalised-defaults"]):
+        s, _, sd, _ = _compare(tmp_path / str(len(opts)), hosts, sample_plugins, args + opts)
+        assert s.returncode == 0, s.stderr
+        values.append(json.loads((sd / "r.json").read_text())["params"]["widgetPos"]["value"])
+    assert values == [[384., 288.], [0.5, 0.5]]
+
+
+def test_entry_points(tmp_path, hosts, sample_plugins):
+    """python -m ofxhost.hostdemo ... and the hostdemo-inprocess script are the same: the consumers' entry points
+    (#212)."""
+    hostdemo, ofxh_dir = hosts
+    env = _env(sample_plugins, ofxh_dir, OFXHOST_PYTHON=sys.executable)
+    for cmd in ([sys.executable, "-m", "ofxhost.hostdemo"], [str(PYDIR / "hostdemo-inprocess")]):
+        p = _run(cmd + [*Q, "-p", INVERT, "--frames", "0", "-o", "e", "--report", "r.json"], tmp_path, env)
+        assert p.returncode == 0, p.stderr
+        files = sorted(tmp_path.glob("e.0*.ppm"))  # (e.0.ppm, or e.0l.ppm and e.0r.ppm with two views)
+        assert files and all(f.stat().st_size > 0 for f in files)
+        assert json.loads((tmp_path / "r.json").read_text())["ok"] is True
+        for f in files:
+            f.unlink()
+
+
+# --- --gpu: the helpers -----------------------------------------------------------------------
+
+def _renders(d):
+    return [r["render"] for r in strict_json((d / "r.json").read_text())["renders"]]
+
+
+def _flags(d, key):
+    """The (key, cpuRetry, ok) of the renders (one per view: two in Nuke or Vegas builds); key: the GPU API's
+    flag in the report's render records ("openGL", "openCL", "metal", "cuda")."""
+    return {(r[key], r["cpuRetry"], r["ok"]) for r in _renders(d)}
+
+
+def _first_pfm(d):
+    """The first output's colour file (out.0.pfm, or out.0l.pfm with two views)."""
+    return sorted(p for p in d.glob("out.0*.pfm") if ".alpha." not in p.name)[0]
+
+
+# --- --gpu=opengl ------------------------------------------------------------------------------
+
+def _need_opengl(tmp_path, hosts, sample_plugins):
+    """--gpu=opengl renders with OpenGL here: ofxh and hostDemo have OFX_HOSTSUPPORT_OPENGL (else skip;
+    OFXH_REQUIRE_OPENGL=1, which build.yml sets: fail), the GPUGain and OpenGL examples are built, and hostDemo
+    gets an OpenGL context (else skip; OFXH_REQUIRE=1: fail)."""
+    import ofxh
+    why = None
+    var = "OFXH_REQUIRE"
+    if not ofxh.build_config.get("OFX_HOSTSUPPORT_OPENGL"):
+        why, var = "ofxh was built without OFX_HOSTSUPPORT_OPENGL", "OFXH_REQUIRE_OPENGL"
+    elif not any(p.glob("example-OpenGL.ofx.bundle") for p in sample_plugins):
+        why = "the OpenGL example (Examples/OpenGL, CMake builds) is not in the plug-in directories"
+    else:
+        probe = tmp_path / "probe"
+        probe.mkdir()
+        p = _run([str(hosts[0]), *Q, "--gpu=opengl", "-p", INVERT, "--frames", "0", "-o", "probe"], probe,
+                 _env(sample_plugins, hosts[1]))
+        if p.returncode != 0 or "no OpenGL context" in p.stderr:
+            why = (p.stderr.strip().splitlines() or ["hostDemo --gpu=opengl failed"])[0]
+            if "hostDemo was built without OFX_HOSTSUPPORT_OPENGL" in p.stderr:
+                var = "OFXH_REQUIRE_OPENGL"
+    if why:
+        _skip_or_fail(why, var)
+
+
+@pytest.mark.parametrize("source,scale,gl", [("checker:5", "0.5", True), ("solid:4,3,0.25,1", "0.5", True),
+                                             ("checker:5", "2", False)], ids=["opengl", "above-1", "cpu-retry"])
+def test_gpu_gpugain(tmp_path, hosts, sample_plugins, source, scale, gl):
+    """--gpu=opengl with GPUGain ("true": OpenGL with a CPU path): with a scale in [0, 1], its
+    fixed-function OpenGL render gives the CPU render's pixels; with scale 2 it returns
+    kOfxStatGPURenderFailed, and the host renders again on the CPU ("the host should retry the render
+    with OpenGL rendering disabled", ofxGPURender.h). Values above 1 aren't clamped, in the source or
+    after the modulation (float targets: (4, 3) times 0.5 is (2, 1.5)). Both backends give the same
+    report and files (#367)."""
+    _need_opengl(tmp_path, hosts, sample_plugins)
+    args = ["-p", GPUGAIN, "-d", "float", "-i", f"Source={source}", f"scale={scale}", "--frames", "0",
+            "--window", "0,0,64,48", "--format", "pfm", "-o", "out", "--report", "r.json"]
+    _, _, sd, idir = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=opengl", *args])
+    assert _flags(sd, "openGL") == {(gl, not gl, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert "openGL" not in _renders(cd)[0]
+    assert _files(sd) == _files(cd)  # the OpenGL render's pixels are the CPU render's
+
+
+@pytest.mark.parametrize("depth", ["byte", "short", "float"])
+@pytest.mark.parametrize("spec", ["ramp", "ramp#alpha"], ids=["rgba", "alpha"])
+def test_gpu_gpugain_formats(tmp_path, hosts, sample_plugins, depth, spec):
+    """--gpu=opengl with GPUGain at each depth, RGBA and Alpha (the OpenGL textures of HostSupport): the
+    OpenGL render gives the CPU render's pixels, to a step of the depth. GPUGain's kOfxOpenGLPropPixelDepth
+    is float, so the host loads the source as a float texture and converts the float output texture to the
+    image depth, rounding as the OpenGL implementation does; the CPU render rounds halves up. An Alpha
+    image is scaled by scaleA (#371)."""
+    _need_opengl(tmp_path, hosts, sample_plugins)
+    from ofxhost.pfm import read_pfm
+    args = ["-p", GPUGAIN, "-d", depth, "-i", f"Source={spec}", "scale=0.5", "scaleA=0.75", "--frames", "0",
+            "--window", "0,0,64,48", "--format", "pfm", "-o", "out", "--report", "r.json"]
+    _, _, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=opengl", *args])
+    assert _flags(sd, "openGL") == {(True, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert {r["output"]["depth"] for r in strict_json((sd / "r.json").read_text())["renders"]} == {depth}
+    step = {"byte": 1 / 255, "short": 1 / 65535, "float": 0.}[depth]
+    gpu, cpu = _files(sd), _files(cd)
+    assert gpu.keys() == cpu.keys()
+    for name in gpu:
+        np.testing.assert_allclose(read_pfm(sd / name), read_pfm(cd / name), rtol=0, atol=step * 1.01, err_msg=name)
+
+
+def test_gpu_opengl_example(tmp_path, hosts, sample_plugins):
+    """--gpu=opengl with the OpenGL example ("needed"): the source, with a red rectangle from (10, 10)
+    in the render window (pixels of the window). Without --gpu=opengl, the host doesn't support OpenGL
+    render, and the plug-in's describe fails with kOfxStatErrMissingHostFeature: no render (#367)."""
+    _need_opengl(tmp_path, hosts, sample_plugins)
+    from ofxhost.pfm import read_pfm
+    args = ["-p", OPENGL, "-d", "float", "-i", "Source=checker:5", "--frames", "0", "--window", "16,8,80,40",
+            "--format", "pfm", "-o", "out", "--report", "r.json"]
+    _, _, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=opengl", *args])
+    assert _flags(sd, "openGL") == {(True, False, True)}
+    out = read_pfm(_first_pfm(sd))
+    # the source, in the render window (16, 8, 80, 40): checker:5, squares of 5 pixels alternating 0
+    # and 1 from 0 at the origin (hostDemo's InputSpec), top row first
+    ys = np.arange(40 - 1, 8 - 1, -1)[:, None]
+    xs = np.arange(16, 80)[None, :]
+    source = np.repeat((((xs // 5) + (ys // 5)) % 2).astype(np.float32)[..., None], 3, axis=2)
+    h, w = out.shape[:2]
+    rows = np.arange(h)[::-1][:, None]  # (PFM: bottom row first; the arrays are top row first)
+    cols = np.arange(w)[None, :]
+    red = (rows >= 10) & (cols >= 10)
+    expected = np.where(red[..., None], np.array([1., 0., 0.], np.float32), source)
+    np.testing.assert_allclose(out[..., :3], expected, atol=1e-6)
+    (s, _), (i, _) = both(tmp_path / "nogl", hosts, sample_plugins, [*Q, "-p", OPENGL, "--frames", "0", "-o", "x"])
+    assert s.returncode == i.returncode == 1, (s.stderr, i.stderr)
+
+
+def test_gpu_renderers(tmp_path, hosts, sample_plugins):
+    """--gpu-renderers lists the same renderers (BACKEND:ID and names) in both; --gpu-renderer=BACKEND:ID
+    renders GPUGain with OpenGL on each, as on the CPU; an unknown id, a backend with no renderer here
+    (also with its default id, -1), a malformed one (no colon, an unknown backend, an id outside int),
+    or one without --gpu=opengl (no --gpu, or --gpu=opencl) is the same error in both
+    (status 1, the same message, no report) (#369)."""
+    _need_opengl(tmp_path, hosts, sample_plugins)
+    s, i, _, _ = _compare(tmp_path / "list", hosts, sample_plugins, ["--gpu-renderers"], report=False)
+    assert s.returncode == 0, s.stderr
+    names = [line.split("\t")[0] for line in s.stdout.splitlines()]
+    assert names, "no renderer listed"
+    args = ["-p", GPUGAIN, "-d", "float", "-i", "Source=checker:5", "scale=0.5", "--frames", "0",
+            "--window", "0,0,64,48", "--format", "pfm", "-o", "out", "--report", "r.json"]
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    for n, name in enumerate(names):
+        _, _, sd, _ = _compare(tmp_path / f"gpu{n}", hosts, sample_plugins,
+                               [*Q, "--gpu=opengl", f"--gpu-renderer={name}", *args])
+        assert _flags(sd, "openGL") == {(True, False, True)}, name
+        assert _files(sd) == _files(cd), name
+    backend = names[0].rpartition(":")[0]
+    # (and a backend with no renderer here, with its default id: wgl outside Windows, e.g.)
+    unlisted = [b for b in ("wgl", "cgl", "glx", "egl-surfaceless", "egl-device")
+                if b not in {n.rpartition(":")[0] for n in names}][0]
+    bads = [f"--gpu-renderer={backend}:{1 << 30}", f"--gpu-renderer={unlisted}:-1", "--gpu-renderer=nocolon",
+            "--gpu-renderer=vulkan:0",
+            f"--gpu-renderer={backend}:{1 << 32}", f"--gpu-renderer={backend}:0x1"]
+    for n, (bad, gpu) in enumerate([(b, g) for b in bads for g in (["--gpu=opengl"], [], ["--gpu=opencl"])]):
+        (s, sd), (i, idir) = both(tmp_path / f"bad{n}", hosts, sample_plugins, [*Q, *gpu, bad, *args])
+        assert s.returncode == i.returncode == 1, (bad, gpu, s.stderr, i.stderr)
+        assert s.stderr.splitlines()[:1] == i.stderr.splitlines()[:1], (bad, gpu)
+        assert not (sd / "r.json").exists() and not (idir / "r.json").exists(), (bad, gpu)
+
+
+def test_gpu_devices(tmp_path, hosts, sample_plugins):
+    """--gpu-devices prints the same lists in both, under a heading per API of the build and the platform
+    (no Metal off macOS, no CUDA on macOS), "(none)" under an empty one (and the same reason on stderr),
+    the OpenGL renderers as --gpu-renderers prints them, and exits 0 (#389)."""
+    import ofxh
+    s, i, _, _ = _compare(tmp_path / "devices", hosts, sample_plugins, ["--gpu-devices"], report=False)
+    assert s.returncode == 0, s.stderr
+    # (why a list is empty, on stderr: the same in both)
+    warnings = [[x for x in p.stderr.splitlines() if x.startswith("Warning: --gpu-devices: ")] for p in (s, i)]
+    assert warnings[0] == warnings[1]
+    sections: dict = {}  # heading: its lines (KeyError None if a line comes before the first heading)
+    heading = None
+    for line in s.stdout.splitlines():
+        if line.startswith(" ") or "\t" in line:
+            sections[heading].append(line)
+        else:
+            heading = line
+            sections[heading] = []
+    apis = [("OpenGL", "renderers"), ("OpenCL", "devices"),
+            ("Metal" if sys.platform == "darwin" else "CUDA", "devices")]
+    assert list(sections) == [f"{api} {kind}:" for api, kind in apis
+                              if ofxh.build_config[f"OFX_HOSTSUPPORT_{api.upper()}"]]
+    for heading, lines in sections.items():
+        assert lines == ["  (none)"] or (lines and all("\t" in x for x in lines)), (heading, lines)
+    # (a warning for each empty list but OpenGL's: the others always give a reason)
+    assert len(warnings[0]) == sum(lines == ["  (none)"] for heading, lines in sections.items()
+                                   if heading != "OpenGL renderers:"), (warnings[0], sections)
+    if ofxh.build_config["OFX_HOSTSUPPORT_OPENGL"]:
+        r, _, _, _ = _compare(tmp_path / "renderers", hosts, sample_plugins, ["--gpu-renderers"], report=False)
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.splitlines() == [x for x in sections["OpenGL renderers:"] if x != "  (none)"]
+
+
+# --- --gpu=opencl, --gpu=metal, --gpu=cuda -----------------------------------------------------
+
+# what differs between the APIs: the report's render flag, the describe JSON's flag of GPUGain's support, the
+# build option of ofxh and of GPUGain's kernels, the API's name in hostDemo's messages, and the variable that
+# makes a missing device fail instead of skip (CUDA: OFXH_REQUIRE_CUDA, as CI has no CUDA device)
+GPU_APIS = {
+    "opencl": dict(flag="openCL", describe="openCLRenderSupported", host="OFX_HOSTSUPPORT_OPENCL",
+                   plugin="OFX_SUPPORTS_OPENCLRENDER", name="OpenCL", require="OFXH_REQUIRE"),
+    "metal": dict(flag="metal", describe="metalRenderSupported", host="OFX_HOSTSUPPORT_METAL",
+                  plugin="OFX_EXAMPLE_GPUGAIN_METAL", name="Metal", require="OFXH_REQUIRE"),
+    "cuda": dict(flag="cuda", describe="cudaRenderSupported", host="OFX_HOSTSUPPORT_CUDA",
+                 plugin="OFX_SUPPORTS_CUDARENDER", name="CUDA", require="OFXH_REQUIRE_CUDA"),
+}
+# the APIs as parameters, each with its marker: CI selects the opencl ones in the PoCL step (-m opencl) and the
+# metal ones in the macOS job (-m metal), deselects both elsewhere, and deselects the cuda ones everywhere
+GPU_DEVICE_APIS = [pytest.param(api, marks=getattr(pytest.mark, api), id=api) for api in GPU_APIS]
+
+
+def _need_gpu(api, tmp_path, hosts, sample_plugins):
+    """--gpu=<api> renders with that API here: ofxh was built with it, GPUGain with its kernels, and hostDemo
+    gets a device; else fail (OFXH_REQUIRE=1, OFXH_REQUIRE_CUDA=1 for CUDA) or skip (the tests are marked with
+    the API: CI runs them only where it has all three, and deselects them elsewhere)."""
+    import ofxh
+    a = GPU_APIS[api]
+    why = None
+    if not ofxh.build_config.get(a["host"]):
+        why = f"ofxh was built without {a['host']}"
+    else:
+        probe = tmp_path / "probe"
+        probe.mkdir()
+        p = _run([str(hosts[0]), *Q, "-p", GPUGAIN, "--describe", "d.json", f"--gpu={api}"], probe,
+                 _env(sample_plugins, hosts[1]))
+        flags = strict_json((probe / "d.json").read_text())["contexts"]["OfxImageEffectContextFilter"]["flags"] \
+            if p.returncode == 0 else {}
+        if p.returncode != 0 or f"no {a['name']} device" in p.stderr:
+            why = (p.stderr.strip().splitlines() or [f"hostDemo --gpu={api} failed"])[0]
+        elif flags.get(a["describe"]) != "true":
+            why = f"GPUGain was built without {a['name']} ({a['plugin']})"
+    if why:
+        _skip_or_fail(why, a["require"])
+
+
+@pytest.mark.parametrize("api", GPU_DEVICE_APIS)
+def test_gpu_gpugain_matches_cpu(tmp_path, hosts, sample_plugins, api):
+    """--gpu=opencl, metal or cuda with GPUGain (OpenCL Buffers and Images, Metal buffers, CUDA with a stream;
+    and a CPU path): the GPU render gives the CPU render's pixels, and both backends give the same report and
+    files. With Metal, both describe GPUGain with Metal buffers and no Metal textures. (The CPU retry after a GPU
+    failure is tested on the ofxh module and in the C++ render checks, without a source: hostDemo refuses to
+    disconnect GPUGain's mandatory Source.) OpenCL: #370; Metal: #379; CUDA: #388."""
+    _need_gpu(api, tmp_path, hosts, sample_plugins)
+    flag = GPU_APIS[api]["flag"]
+    if api == "metal":
+        # the describe JSON of both: GPUGain has Metal buffers, and no Metal textures
+        (s, sd), (i, idir) = both(tmp_path / "describe", hosts, sample_plugins,
+                                  [*Q, "-p", GPUGAIN, "--describe", "d.json", "--gpu=metal"])
+        assert s.returncode == i.returncode == 0, (s.stderr, i.stderr)
+        flags = [strict_json((d / "d.json").read_text())["contexts"]["OfxImageEffectContextFilter"]["flags"]
+                 for d in (sd, idir)]
+        assert [(f["metalRenderSupported"], f["metalTextureSupported"]) for f in flags] == [("true", "false")] * 2
+    args = ["-p", GPUGAIN, "-d", "float", "-i", "Source=checker:5", "scale=0.5", "--frames", "0",
+            "--format", "pfm", "-o", "out", "--report", "r.json"]
+    _, _, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, f"--gpu={api}", *args])
+    assert _flags(sd, flag) == {(True, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert flag not in _renders(cd)[0]
+    assert _files(sd) == _files(cd)  # the GPU render's pixels are the CPU render's
+
+
+@pytest.mark.opencl
+@pytest.mark.parametrize("depth", ["byte", "short", "float"])
+@pytest.mark.parametrize("spec", ["ramp", "ramp#rgb", "ramp#alpha"], ids=["rgba", "rgb", "alpha"])
+def test_gpu_opencl_gpugain_formats(tmp_path, hosts, sample_plugins, depth, spec):
+    """--gpu=opencl with GPUGain at each depth, RGBA, RGB and Alpha (hostDemo uses OpenCL Buffers): its kernels
+    give the CPU render's pixels, with the same rounding (#371)."""
+    _need_gpu("opencl", tmp_path, hosts, sample_plugins)
+    args = ["--components", "rgba,rgb,alpha", "-p", GPUGAIN, "-d", depth, "-i", f"Source={spec}", "scale=0.5",
+            "scaleA=0.75", "--frames", "0", "--window", "0,0,64,48", "--format", "pfm", "-o", "out", "--report",
+            "r.json"]
+    _, _, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=opencl", *args])
+    assert _flags(sd, "openCL") == {(True, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert _files(sd) == _files(cd)
+
+
+@pytest.mark.parametrize("api", GPU_DEVICE_APIS)
+def test_gpu_cpu_plugin(tmp_path, hosts, sample_plugins, api):
+    """--gpu=opencl, metal or cuda with Invert, which has no GPU render: it renders on the CPU, as without --gpu
+    (kOfxImageEffectPropOpenCLEnabled and kOfxImageEffectPropMetalEnabled are only for plug-ins that "have both
+    set" the API's render support to "true", ofxGPURender.h). OpenCL: #370; Metal: #379; CUDA: #388."""
+    _need_gpu(api, tmp_path, hosts, sample_plugins)
+    args = ["-p", INVERT, "-i", "Source=ramp", "--frames", "0", "-o", "out", "--report", "r.json"]
+    _, _, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, f"--gpu={api}", *args])
+    assert _flags(sd, GPU_APIS[api]["flag"]) == {(False, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert _files(sd) == _files(cd)
+
+
+@pytest.mark.parametrize("api", list(GPU_APIS))
+def test_gpu_ofx14_refused(tmp_path, hosts, sample_plugins, api):
+    """--gpu=opencl, metal or cuda with --ofx14 is refused by both, with hostDemo's message (GPU render is OFX
+    1.5). No device needed: these run everywhere. OpenCL: #370; Metal: #379; CUDA: #388."""
+    (s, _), (i, _) = both(tmp_path, hosts, sample_plugins, [*Q, f"--gpu={api}", "--ofx14", "-p", INVERT])
+    assert s.returncode == i.returncode == 1
+    first = [x for x in s.stderr.splitlines() if x.startswith("Error")][:1]
+    name = GPU_APIS[api]["name"]
+    assert first == [f"Error: --gpu={api} can't be used with --ofx14 or --ofx11 ({name} render is OFX 1.5)"]
+    assert first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]
+
+
+def test_gpu_cuda_no_device(tmp_path, hosts, sample_plugins):
+    """--gpu=cuda on a machine without a CUDA device (CI has none): both backends warn with the same reason and
+    render on the CPU, the CPU render's files, with "cuda": false in the report; the host doesn't say it
+    supports CUDA, so GPUGain describes itself as on a host without it (#388)."""
+    import ofxh
+    if not ofxh.build_config.get("OFX_HOSTSUPPORT_CUDA"):
+        pytest.skip("ofxh was built without OFX_HOSTSUPPORT_CUDA")
+    if ofxh.cuda_devices():
+        pytest.skip("this machine has a CUDA device: the tests marked cuda cover it")
+    args = ["-p", GPUGAIN, "-d", "float", "-i", "Source=checker:5", "scale=0.5", "--frames", "0",
+            "--format", "pfm", "-o", "out", "--report", "r.json"]
+    s, i, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=cuda", *args])
+    warning = [x for x in s.stderr.splitlines() if x.startswith("Warning: --gpu=cuda")]
+    assert len(warning) == 1 and warning[0].startswith("Warning: --gpu=cuda: no CUDA device (")
+    assert warning == [x for x in i.stderr.splitlines() if x.startswith("Warning: --gpu=cuda")]
+    assert _flags(sd, "cuda") == {(False, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert _files(sd) == _files(cd)

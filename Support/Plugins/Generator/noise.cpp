@@ -166,7 +166,7 @@ NoisePlugin::getClipPreferences(OFX::ClipPreferencesSetter &clipPreferences)
 {
   clipPreferences.setOutputFrameVarying(true);
   // without an input, a host with multiple clip PARs lets a generator set its output PAR
-  // (test_profile.py::test_generator_output_par)
+  // (HostSupport/python/tests/regression/test_output_par.py)
   const double par = par_->getValue();
   if (par > 0.) {
     clipPreferences.setPixelAspectRatio(*dstClip_, par);
@@ -327,7 +327,7 @@ void NoiseExamplePluginFactory::describeInContext(OFX::ImageEffectDescriptor &de
   DoubleParamDescriptor *par = desc.defineDoubleParam("pixelAspectRatio");
   par->setLabel("output PAR");
   par->setHint("Pixel aspect ratio of the output, if the host lets the plug-in set it; 0 leaves it to the host. "
-               "Secret: it only drives a HostSupport test (test_profile.py::test_generator_output_par).");
+               "Secret: it only drives a HostSupport test (HostSupport/python/tests/regression/test_output_par.py).");
   par->setDefault(0.);
   par->setRange(0, 10);
   par->setDisplayRange(0, 3);

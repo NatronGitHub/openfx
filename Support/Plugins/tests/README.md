@@ -6,27 +6,30 @@ hostDemo's inputs, report and describe JSON). Each test runs on both ofxhost bac
 `render` and `describe` fixtures of `conftest.py`): hostDemo in a subprocess, and in-process on
 the HostSupport Python bindings (`PYTHONPATH=<build>/HostSupport/python`; skipped if `ofxh` isn't
 built, and `OFXHOST_TEST_BACKENDS=subprocess` runs only hostDemo). Each file shows one testing pattern, named in
-its docstring:
+its docstring, and each test says what it checks, why, and the pull request or issue (`#N`: NatronGitHub/openfx)
+that added it. `functional/` has the tests of what the samples and the Support library must do; `regression/` the
+tests of past bugs, each naming its issue or pull request (a regression test stays as long as the bug could come
+back):
 
 | File | Pattern |
 |---|---|
-| test_invert.py | exact pixels at byte, short and float depth (`assert_close`); the report |
-| test_basic.py | parameters; a mask clip (an image, or disconnected); instanceChanged enabling params |
-| test_multibundle.py | two plug-ins in a bundle: a formula (gamma), an output RoD that is not the input's (dot) |
-| test_generator.py | no input; an infinite RoD; deterministic output |
-| test_retimer.py | a temporal effect: frames needed, output depending on time and speed, time domain |
-| test_transition.py | two inputs and a transition value |
-| test_field.py | unfielded rendering; the plug-in's stdout |
-| test_gpugain.py | the CPU path of a plug-in with Metal, CUDA, OpenCL and OpenGL render: rounding and clamping at byte and short depth; RGB and Alpha inputs (`components=`); an identity |
-| test_choiceparams.py | Choice values are indices whatever the option order; a StrChoice value is its enum |
-| test_describe.py | contexts, clips, parameters and flags, from `describe()` |
-| test_tester.py | the host's report: the progress calls that reached the host |
-| test_ofx14.py | an OFX 1.4 host (hostDemo `--ofx14`): the plug-in's fallbacks for the OFX 1.5 features |
-| test_ofx11.py | an OFX 1.1 host such as VEGAS Pro (hostDemo `--ofx11`, subprocess only: `@pytest.mark.backends("subprocess", reason=...)`): the Support library without the OFX 1.2+ properties, with a single clip PAR |
-| test_entry_point.py | the C entry point called directly (ctypes, in a subprocess, so that a crash fails the test): a null action, an unknown action |
+| functional/test_invert.py | exact pixels at byte, short and float depth (`assert_close`); the report |
+| functional/test_basic.py | parameters; a mask clip (an image, or disconnected); instanceChanged enabling params |
+| functional/test_multibundle.py | two plug-ins in a bundle: a formula (gamma), an output RoD that is not the input's (dot) |
+| functional/test_generator.py | no input; an infinite RoD; deterministic output |
+| functional/test_retimer.py | a temporal effect: frames needed, output depending on time and speed, time domain |
+| functional/test_transition.py | two inputs and a transition value |
+| functional/test_field.py | unfielded rendering; the plug-in's stdout |
+| functional/test_gpugain.py | the CPU path of a plug-in with Metal, CUDA, OpenCL and OpenGL render: rounding and clamping at byte and short depth; RGB and Alpha inputs (`components=`); an identity |
+| functional/test_choiceparams.py | Choice values are indices whatever the option order; a StrChoice value is its enum |
+| functional/test_describe.py | contexts, clips, parameters and flags, from `describe()` |
+| regression/test_tester.py | the host's report: the progress calls that reached the host |
+| functional/test_ofx14.py | an OFX 1.4 host (hostDemo `--ofx14`): the plug-in's fallbacks for the OFX 1.5 features |
+| functional/test_ofx11.py | an OFX 1.1 host such as VEGAS Pro (hostDemo `--ofx11`, subprocess only: `@pytest.mark.backends("subprocess", reason=...)`): the Support library without the OFX 1.2+ properties, with a single clip PAR |
+| regression/test_entry_point.py | the C entry point called directly (ctypes, in a subprocess, so that a crash fails the test): a null action, an unknown action |
 
 The Tester sample only has describe checks (its render is an invert, and its push buttons
-need an interactive host), and a check of the progress calls of its render (test_tester.py).
+need an interactive host), and a check of the progress calls of its render (regression/test_tester.py).
 Support/PropTester isn't tested: it writes no pixels (hostDemo would fail on the unwritten
 output), and it only dumps properties to its log.
 
@@ -38,14 +41,19 @@ python3 -m venv /tmp/venv && /tmp/venv/bin/pip install numpy pytest
 /tmp/venv/bin/python -m pytest -q -p no:cacheprovider Support/Plugins/tests
 ```
 
-`__init__.py` makes these modules a package, so that they don't clash with
-HostSupport/examples/python/tests/test_basic.py when both directories are run together.
+The `__init__.py` files make these modules a package (`tests.functional.test_describe`...). pytest imports a test
+module of a directory without `__init__.py` by its basename, so two such modules with the same basename can't be
+collected in one run: here `functional/test_describe.py` would clash with
+HostSupport/python/tests/functional/test_describe.py when the three openfx suites run together. In a plug-in repo,
+keep them if your tests may run with other suites that have test modules of the same names.
 
 ## Using these as templates for your plug-in repo
 
 1. Copy `conftest.py` and the test file closest to your plug-in into a `tests/` directory of
    your repo (openfx-misc, openfx-io, openfx-arena...), and replace the plug-in identifier,
-   clip and parameter names, and the expected images.
+   clip and parameter names, and the expected images. Keep the layout: `conftest.py` in `tests/`,
+   the tests in `tests/functional/` and `tests/regression/` (with an `__init__.py` in each, if
+   their names could clash with other tests run in the same pytest).
 2. Edit the three settings at the top of `conftest.py`. With `tests/` at the root of a repo
    that has openfx as a submodule, and the Makefile builds:
    ```python

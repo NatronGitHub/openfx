@@ -7,6 +7,10 @@ which makes them fail. The sample plug-ins and hostDemo
 <build>/HostSupport/examples/hostDemo, unless $OFX_TEST_PLUGIN_PATH or $OFXHOST_HOSTDEMO are set.
 The tests don't read OFX_PLUGIN_PATH (ofxh.init(..., use_env_path=False)), and hostDemo gets the
 same plug-in directory, so that both load the same binaries.
+
+functional/ has the tests of the module's API and of its contracts (the OFX specification, hostDemo's behaviour);
+regression/ the tests of past bugs, each naming its issue or pull request. Both use these fixtures, and the helpers of
+ofxh_helpers.py. No __init__.py: the test modules' basenames are unique in this directory.
 """
 
 import os
@@ -15,45 +19,14 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-# minimal_host.py and the ofxhost package
-sys.path.insert(0, str(REPO_ROOT / "HostSupport" / "examples" / "python"))
-
-# OFXH_REQUIRE=1 (CI): fail instead of skipping when the module, the plug-ins or hostDemo are missing
-REQUIRE = os.environ.get("OFXH_REQUIRE") == "1"
-
-try:
-    import ofxh  # PYTHONPATH: the build directory of the module
-except ImportError:
-    if REQUIRE:
-        raise
-    ofxh = None
-
-
-def pytest_configure(config):
-    # (as ofxhost.testing's)
-    config.addinivalue_line(
-        "markers", "opencl: the test needs an OpenCL device and the sample plug-ins built with OpenCL "
-        "(OFX_SUPPORTS_OPENCLRENDER); CI selects them (-m opencl) where it has both, and deselects them "
-        "(-m 'not opencl') elsewhere")
-    config.addinivalue_line(
-        "markers", "metal: the test needs a Metal device (macOS) and the sample plug-ins built with Metal "
-        "(GPUGain's OFX_EXAMPLE_GPUGAIN_METAL); CI selects them (-m metal) in the macOS job, and deselects them "
-        "(-m 'not metal') elsewhere")
-    config.addinivalue_line(
-        "markers", "cuda: the test needs a CUDA device and the sample plug-ins built with CUDA "
-        "(OFX_SUPPORTS_CUDARENDER); CI has neither, so it deselects them (-m 'not cuda')")
-
-
-def _skip(message):
-    if REQUIRE:
-        pytest.fail(message + " (OFXH_REQUIRE=1)")
-    pytest.skip(message)
+# (pytest puts this directory on sys.path: the shared helpers; they put ofxhost and minimal_host.py on it)
+from ofxh_helpers import ofxh
+from ofxhost.testing import _skip_or_fail, pytest_configure  # noqa: F401  (the markers: opencl, metal, cuda, backends)
 
 
 def _build_dir():
     if ofxh is None:
-        _skip("the ofxh module is not built or not on PYTHONPATH (-DOFX_PYTHON_BINDINGS=ON)")
+        _skip_or_fail("the ofxh module is not built or not on PYTHONPATH (-DOFX_PYTHON_BINDINGS=ON)")
     # <build>/HostSupport/python/ofxh.*.so, possibly in a configuration directory
     here = Path(ofxh.__file__).resolve().parent
     for d in (here, *here.parents):
@@ -70,7 +43,7 @@ def plugin_dir():
     for d in cands:
         if (d / "example-Invert-support.ofx.bundle").is_dir():
             return str(d)
-    _skip("the sample plug-ins are not built (cmake -DBUILD_EXAMPLE_PLUGINS=ON), or set OFX_TEST_PLUGIN_PATH")
+    _skip_or_fail("the sample plug-ins are not built (cmake -DBUILD_EXAMPLE_PLUGINS=ON), or set OFX_TEST_PLUGIN_PATH")
 
 
 @pytest.fixture(scope="session")
@@ -84,7 +57,7 @@ def hostdemo():
     for p in [examples / exe, *sorted(examples.glob(f"*/{exe}"))]:
         if p.is_file() and os.access(p, os.X_OK):
             return p
-    _skip("hostDemo is not built in the module's build directory (cmake -DBUILD_EXAMPLE_HOSTS=ON)")
+    _skip_or_fail("hostDemo is not built in the module's build directory (cmake -DBUILD_EXAMPLE_HOSTS=ON)")
 
 
 @pytest.fixture(autouse=True)

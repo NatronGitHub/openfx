@@ -138,6 +138,28 @@ def without_support_debug(stdout: str) -> str:
     return _SUPPORT_DEBUG.sub(r"\1", stdout)
 
 
+# --- internal to openfx's own test suites (HostSupport/python/tests, HostSupport/examples/python/tests): not API ---
+
+def _skip_or_fail(why: str, var: str = "OFXH_REQUIRE") -> None:
+    """Skip the test, or fail it if $var is 1: OFXH_REQUIRE in CI (a missing build fails the tests), or
+    OFXH_REQUIRE_CUDA for a CUDA device (CI has none)."""
+    if os.environ.get(var) == "1":
+        pytest.fail(f"{why} ({var}=1)")
+    pytest.skip(why)
+
+
+def _hostdemo_host_strings(prop: str) -> tuple[str, ...]:
+    """The values that hostDemo's Host constructor (HostSupport/examples/hostDemoHostDescriptor.cpp) sets on the
+    string property prop (a constant name, e.g. "kOfxImageEffectPropSupportedPixelDepths"), in index order. It
+    reads the C++ source next to this package, so it works only in an openfx source checkout."""
+    from . import constants as k
+
+    src = (Path(__file__).resolve().parents[2] / "hostDemoHostDescriptor.cpp").read_text()
+    src = re.sub(r"//[^\n]*", "", src)
+    calls = re.findall(r"setStringProperty\(\s*" + prop + r",\s*(k\w+),\s*(\d+)\s*\)", src)
+    return tuple(getattr(k, v) for v, _ in sorted(calls, key=lambda c: int(c[1])))
+
+
 def find_hostdemo_or_skip(host_binary=None) -> Path:
     """find_hostdemo(), but skip the test (or module) if hostDemo isn't built."""
     try:
