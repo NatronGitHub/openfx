@@ -2496,7 +2496,8 @@ static void bindFunctions(nb::module_ &m)
      "The OpenGL renderers of these backends (by name; default: the platform's), each a dict: {\"backend\",\n"
      "\"id\" (for init(opengl_renderer=...)), \"renderer\", \"vendor\", \"version\", \"glsl\", \"video_memory\"\n"
      "(bytes, 0 if unknown), \"software\", \"max_texture_size\"}. A context is made on each to read them. []\n"
-     "without OFX_HOSTSUPPORT_OPENGL. Needs no init().");
+     "without OFX_HOSTSUPPORT_OPENGL. Needs no init(). (Unlike opencl_devices() and the others, it has no\n"
+     "with_error: GL::listRenderers() gives no reason for an empty list.)");
   m.def("opengl_context", []() -> nb::object {
     nb::dict d;
 #ifdef OFXH_OPENGL
@@ -2515,23 +2516,28 @@ static void bindFunctions(nb::module_ &m)
   }, "The OpenGL context of ofxh.init(opengl=True), as a renderer of opengl_renderers() (\"backend\", \"id\",\n"
      "\"renderer\"...), or {\"error\": why} if none could be made; None without opengl=True (or\n"
      "OFX_HOSTSUPPORT_OPENGL).");
-  m.def("opencl_devices", []() {
+  m.def("opencl_devices", [](bool withError) -> nb::object {
     nb::list l;
 #ifdef OFXH_OPENCL
     std::vector<CL::DeviceInfo> devices;
+    std::string why;
     withoutGil([&] {
-      devices = CL::listDevices(CL::Hooks());
+      devices = CL::listDevices(CL::Hooks(), &why);
       return 0;
     });
     for (const CL::DeviceInfo &info : devices) {
       l.append(deviceDict(info));
     }
+#else
+    const std::string why = "ofxh was built without OFX_HOSTSUPPORT_OPENCL";
 #endif
-    return l;
-  }, "The OpenCL devices of all the platforms (openfx::HostSupportOpenCL's listDevices()), as dicts\n"
+    return withError ? nb::object(nb::make_tuple(l, why)) : nb::object(l);
+  }, nb::kw_only(), "with_error"_a = false, "The OpenCL devices of all the platforms (openfx::HostSupportOpenCL's listDevices()), as dicts\n"
      "{\"platform\", \"device\" (the indices for init(opencl_device=...)), \"platform_name\",\n"
      "\"platform_version\", \"name\", \"vendor\", \"version\", \"driver_version\", \"gpu\", \"images\",\n"
-     "\"global_mem_size\"}; [] without OpenCL (or OFX_HOSTSUPPORT_OPENCL). Needs no init().");
+     "\"global_mem_size\"}; [] without OpenCL (or OFX_HOSTSUPPORT_OPENCL). Needs no init(). with_error=True\n"
+     "returns (the list, why it is empty): \"\" if it isn't, else listDevices()'s reason (e.g. from\n"
+     "clGetPlatformIDs), or that ofxh was built without OFX_HOSTSUPPORT_OPENCL.");
   m.def("opencl_device", []() -> nb::object {
 #ifdef OFXH_OPENCL
     const PyHost *h = state().host.get();
@@ -2549,23 +2555,27 @@ static void bindFunctions(nb::module_ &m)
 #endif
   }, "The OpenCL device of ofxh.init(opencl=True), as opencl_devices() gives it, or {\"error\": why} if\n"
      "none could be made; None without opencl=True (or OFX_HOSTSUPPORT_OPENCL).");
-  m.def("metal_devices", []() {
+  m.def("metal_devices", [](bool withError) -> nb::object {
     nb::list l;
 #ifdef OFXH_METAL
     std::vector<MT::DeviceInfo> devices;
+    std::string why;
     withoutGil([&] {
-      devices = MT::listDevices(MT::Hooks());
+      devices = MT::listDevices(MT::Hooks(), &why);
       return 0;
     });
     for (const MT::DeviceInfo &info : devices) {
       l.append(deviceDict(info));
     }
+#else
+    const std::string why = "ofxh was built without OFX_HOSTSUPPORT_METAL";
 #endif
-    return l;
-  }, "The Metal devices (openfx::HostSupportMetal's listDevices()), as dicts {\"index\" (for\n"
+    return withError ? nb::object(nb::make_tuple(l, why)) : nb::object(l);
+  }, nb::kw_only(), "with_error"_a = false, "The Metal devices (openfx::HostSupportMetal's listDevices()), as dicts {\"index\" (for\n"
      "init(metal_device=...)), \"name\", \"registry_id\", \"system_default\",\n"
      "\"unified_memory\", \"recommended_max_working_set_size\", \"max_buffer_length\"}; [] without\n"
-     "Metal (or OFX_HOSTSUPPORT_METAL). Needs no init().");
+     "Metal (or OFX_HOSTSUPPORT_METAL). Needs no init(). with_error=True returns (the list, why it is empty):\n"
+     "\"\" if it isn't, else listDevices()'s reason, or that ofxh was built without OFX_HOSTSUPPORT_METAL.");
   m.def("metal_device", []() -> nb::object {
 #ifdef OFXH_METAL
     const PyHost *h = state().host.get();
@@ -2583,23 +2593,28 @@ static void bindFunctions(nb::module_ &m)
 #endif
   }, "The Metal device of ofxh.init(metal=True), as metal_devices() gives it, or {\"error\": why} if none\n"
      "could be made; None without metal=True (or OFX_HOSTSUPPORT_METAL).");
-  m.def("cuda_devices", []() {
+  m.def("cuda_devices", [](bool withError) -> nb::object {
     nb::list l;
 #ifdef OFXH_CUDA
     std::vector<CU::DeviceInfo> devices;
+    std::string why;
     withoutGil([&] {
-      devices = CU::listDevices(CU::Hooks());
+      devices = CU::listDevices(CU::Hooks(), &why);
       return 0;
     });
     for (const CU::DeviceInfo &info : devices) {
       l.append(deviceDict(info));
     }
+#else
+    const std::string why = "ofxh was built without OFX_HOSTSUPPORT_CUDA";
 #endif
-    return l;
-  }, "The CUDA devices (openfx::HostSupportCUDA's listDevices()), as dicts {\"index\" (for\n"
+    return withError ? nb::object(nb::make_tuple(l, why)) : nb::object(l);
+  }, nb::kw_only(), "with_error"_a = false, "The CUDA devices (openfx::HostSupportCUDA's listDevices()), as dicts {\"index\" (for\n"
      "init(cuda_device=...)), \"name\", \"uuid\" (for init(cuda_uuid=...)), \"compute_capability\" (major, minor),\n"
      "\"pci_bus_id\", \"total_mem\",\n"
-     "\"driver_version\"}; [] without a CUDA driver (or OFX_HOSTSUPPORT_CUDA). Needs no init().");
+     "\"driver_version\"}; [] without a CUDA driver (or OFX_HOSTSUPPORT_CUDA). Needs no init(). with_error=True\n"
+     "returns (the list, why it is empty): \"\" if it isn't, else listDevices()'s reason (e.g. cuInit's\n"
+     "error, or a driver that can't be loaded), or that ofxh was built without OFX_HOSTSUPPORT_CUDA.");
   m.def("cuda_device", []() -> nb::object {
 #ifdef OFXH_CUDA
     const PyHost *h = state().host.get();

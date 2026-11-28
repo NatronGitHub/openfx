@@ -300,6 +300,13 @@ Not with ``--ofx14`` or ``--ofx11``: CUDA render is OFX 1.5. GPUGain has a
 CUDA kernel when it is built with ``OFX_SUPPORTS_CUDARENDER`` (it needs the
 CUDA toolkit; not on macOS).
 
+``--gpu-devices`` lists the OpenGL renderers (as ``--gpu-renderers``) and
+the OpenCL, Metal (macOS) and CUDA (not macOS, which has no CUDA driver)
+devices of the APIs the host was built with, "(none)" for an empty list
+(with the reason on stderr, but for OpenGL, whose listing gives none), and
+exits. ``HostSupport/examples/python/list_gpus.py`` lists them on ``ofxh``,
+with the ``ofxh.init()`` arguments that choose each (``--json``: as JSON).
+
 The Code, as an Example Host
 ----------------------------
 

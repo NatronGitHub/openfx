@@ -20,6 +20,7 @@ import ctypes
 import os
 import sys
 from collections.abc import Sequence
+from types import ModuleType
 
 from . import specs, split_components, write_json
 from .constants import kOfxBitDepthByte, kOfxBitDepthFloat, kOfxBitDepthShort, kOfxImageEffectContextFilter
@@ -83,6 +84,11 @@ hostDemo's command line, in-process on the HostSupport Python bindings (ofxhost.
   --gpu-renderer=BACKEND:ID  with --gpu=opengl: the renderer of the context, one of --gpu-renderers
                      (e.g. egl-device:0, glx:-1, cgl:<renderer ID>); no context on it is an error
   --gpu-renderers    list the OpenGL renderers as BACKEND:ID and their names, and exit
+  --gpu-devices      list the GPU renderers and devices of the APIs of this build, under a heading
+                     per API, and exit: the OpenGL renderers (as --gpu-renderers), the OpenCL
+                     devices as PLATFORM:DEVICE, the Metal (macOS) and CUDA (not macOS) devices as
+                     their index (the ids of the ofxh module's init(): --gpu=opencl, metal and cuda
+                     take the default device); "(none)" under an empty heading, and why on stderr
   --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,
                      the GetClipComponents action; Nuke-extension builds only)
   --no-normalised-defaults  be a host without normalised parameter defaults: double params
@@ -147,6 +153,54 @@ def _preload() -> None:
                 ctypes.CDLL(lib, mode=getattr(ctypes, "RTLD_GLOBAL", 0))
             except OSError as e:
                 _err(f"Warning: OFXHOST_PRELOAD: cannot load {lib} ({e})")
+
+
+def _list_gpus(ip: ModuleType, all_apis: bool) -> None:
+    """Prints what --gpu-renderers or --gpu-devices prints, as hostDemo (on stdout).
+
+    Args:
+        ip: the ofxhost.inprocess module.
+        all_apis: False for --gpu-renderers (the OpenGL renderers, no heading), True for --gpu-devices.
+    """
+    built = ip.ofxh.build_config
+
+    def heading(title, entries, api="", why=""):
+        """Prints title, and "(none)" if entries is empty (and why, on stderr); returns entries."""
+        if all_apis:
+            print(title)
+            if not entries:
+                print("  (none)")
+                if why:
+                    _err(f"Warning: --gpu-devices: no {api} device ({why})")
+        return entries
+
+    if built.get("OFX_HOSTSUPPORT_OPENGL"):
+        for r in heading("OpenGL renderers:", ip.gpu_renderers()):
+            software = ", software" if r["software"] else ""
+            memory = f"{r['video_memory'] >> 20} MiB" if r["video_memory"] > 0 else "Unknown"
+            print(f"{r['name']}\t{r['renderer']} ({r['vendor']}, {r['version']}, GLSL {r['glsl'] or '-'}, "
+                  f"{memory}{software})")
+    if all_apis and built.get("OFX_HOSTSUPPORT_OPENCL"):
+        found, why = ip.ofxh.opencl_devices(with_error=True)
+        for d in heading("OpenCL devices:", found, "OpenCL", why):
+            flags = (", GPU" if d["gpu"] else "") + (", images" if d["images"] else "")
+            print(f"{d['platform']}:{d['device']}\t{d['name']} ({d['vendor']}, {d['platform_name']}, {d['version']}, "
+                  f"driver {d['driver_version']}, {d['global_mem_size'] >> 20} MiB{flags})")
+    if all_apis and built.get("OFX_HOSTSUPPORT_METAL"):  # (macOS builds only)
+        found, why = ip.ofxh.metal_devices(with_error=True)
+        for d in heading("Metal devices:", found, "Metal", why):
+            flags = ((", unified memory" if d["unified_memory"] else "")
+                     + (", system default" if d["system_default"] else ""))
+            print(f"{d['index']}\t{d['name']} ({d['recommended_max_working_set_size'] >> 20} MiB working set{flags})")
+    # (macOS has no CUDA driver: HostSupportCUDA builds there only for its checks on a fake driver)
+    if all_apis and built.get("OFX_HOSTSUPPORT_CUDA") and sys.platform != "darwin":
+        found, why = ip.ofxh.cuda_devices(with_error=True)
+        for d in heading("CUDA devices:", found, "CUDA", why):
+            major, minor = d["compute_capability"]
+            v = d["driver_version"]
+            print(f"{d['index']}\t{d['name']} ({d['uuid']}, compute {major}.{minor}, PCI {d['pci_bus_id']}, "
+                  f"{d['total_mem'] >> 20} MiB, driver {v // 1000}.{v % 1000 // 10})")
+    sys.stdout.flush()
 
 
 def host_dirs() -> tuple:
@@ -340,7 +394,7 @@ def _parse(argv: list[str], prog: str) -> dict:
          "planes": [], "multiplane": False, "quiet": False, "ofx14": False, "opengl_describe": False, "gpu": "",
          "normalised_defaults": True, "allow_unwritten": False, "format": "ppm", "frames": None, "scale": (1., 1.),
          "window": None, "query": False, "components": specs.HOST_COMPONENTS, "gpu_renderer": "",
-         "list_renderers": False}
+         "list_renderers": False, "list_devices": False}
     seen: set = set()
     a = 0
     while a < len(argv):
@@ -360,6 +414,8 @@ def _parse(argv: list[str], prog: str) -> dict:
             o["gpu_renderer"] = arg[len("--gpu-renderer="):]
         elif arg == "--gpu-renderers":
             o["list_renderers"] = True
+        elif arg == "--gpu-devices":
+            o["list_devices"] = True
         elif arg in _FLAGS:
             key, value = _FLAGS[arg]
             if key is not None:
@@ -462,13 +518,8 @@ def run(argv: list[str], prog: str = "hostdemo", shutdown: bool = True) -> int:
     if o["gpu"] and not ip.ofxh.build_config.get(f"OFX_HOSTSUPPORT_{o['gpu'].upper()}"):
         _err(f"Error: --gpu={o['gpu']}: ofxh was built without OFX_HOSTSUPPORT_{o['gpu'].upper()}")
         return 1
-    if o["list_renderers"]:
-        for r in ip.gpu_renderers():
-            software = ", software" if r["software"] else ""
-            memory = f"{r['video_memory'] >> 20} MiB" if r["video_memory"] > 0 else "Unknown"
-            print(f"{r['name']}\t{r['renderer']} ({r['vendor']}, {r['version']}, GLSL {r['glsl'] or '-'}, "
-                  f"{memory}{software})")
-        sys.stdout.flush()
+    if o["list_renderers"] or o["list_devices"]:
+        _list_gpus(ip, o["list_devices"])
         return 0
     keep = os.environ.get("OFX_HOSTDEMO_KEEP_LOADED") == "1"
     dirs = host_dirs()
