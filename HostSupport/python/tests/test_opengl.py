@@ -2,7 +2,11 @@
 opengl=True is refused unless the instance renders with OpenGL. kOfxImageEffectPropOpenGLEnabled
 means something only "When a plug-in and host have established they can both use OpenGL renders"
 (ofxGPURender.h): a plug-in that says "false" would render on the CPU into an output that the
-host then overwrites with its cleared texture."""
+host then overwrites with its cleared texture.
+
+A build without OFX_HOSTSUPPORT_OPENGL (the default, as extended.yml's pip-installed ofxh) skips the
+OpenGL tests, and test_not_built checks its API. OFXH_REQUIRE_OPENGL=1 (build.yml, whose builds all have
+OpenGL) makes a build without it fail; OFXH_REQUIRE=1 makes a missing context or renderer fail."""
 
 import os
 
@@ -15,15 +19,30 @@ import minimal_host  # noqa: E402
 INVERT = "net.sf.openfx.invertPlugin"  # kOfxImageEffectPropOpenGLRenderSupported "false"
 
 
-def _skip(why):
-    if os.environ.get("OFXH_REQUIRE") == "1":
-        pytest.fail(f"{why} (OFXH_REQUIRE=1)")
+BUILT = bool(ofxh.build_config.get("OFX_HOSTSUPPORT_OPENGL"))
+
+
+def _skip(why, var="OFXH_REQUIRE"):
+    if os.environ.get(var) == "1":
+        pytest.fail(f"{why} ({var}=1)")
     pytest.skip(why)
 
 
+def _need_built():
+    if not BUILT:
+        _skip("ofxh was built without OFX_HOSTSUPPORT_OPENGL (test_not_built covers it)", "OFXH_REQUIRE_OPENGL")
+
+
+@pytest.mark.skipif(BUILT, reason="ofxh was built with OFX_HOSTSUPPORT_OPENGL")
+def test_not_built(plugin_dir):
+    """A build without OFX_HOSTSUPPORT_OPENGL: no renderer, no context and no opengl option."""
+    assert ofxh.opengl_renderers() == [] and ofxh.opengl_context() is None
+    with pytest.raises(ValueError, match="without OFX_HOSTSUPPORT_OPENGL"):
+        ofxh.init(minimal_host.Host(), [plugin_dir], use_env_path=False, opengl=True)
+
+
 def test_opengl_refused_for_a_cpu_plugin(plugin_dir):
-    if not ofxh.build_config.get("OFX_HOSTSUPPORT_OPENGL"):
-        _skip("ofxh was built without OFX_HOSTSUPPORT_OPENGL")
+    _need_built()
     ofxh.init(minimal_host.Host(), [plugin_dir], use_env_path=False, opengl=True)
     gl = ofxh.opengl_context()
     if not gl or "error" in gl:
@@ -54,9 +73,9 @@ BACKENDS = [b for b in os.environ.get("OFXH_OPENGL_BACKENDS", "").split(",") if 
 
 
 def _renderers():
-    """The renderers of BACKENDS; skips (OFXH_REQUIRE=1: fails) if there is none."""
-    if not ofxh.build_config.get("OFX_HOSTSUPPORT_OPENGL"):
-        _skip("ofxh was built without OFX_HOSTSUPPORT_OPENGL")
+    """The renderers of BACKENDS; skips if ofxh has no OpenGL (OFXH_REQUIRE_OPENGL=1: fails) or there is no
+    renderer (OFXH_REQUIRE=1: fails)."""
+    _need_built()
     renderers = ofxh.opengl_renderers(BACKENDS)
     if not renderers:
         _skip(f"no OpenGL renderer (backends: {BACKENDS or 'the default ones'})")

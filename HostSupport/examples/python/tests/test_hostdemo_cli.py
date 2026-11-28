@@ -420,12 +420,14 @@ def test_entry_points(tmp_path, hosts, sample_plugins):
 # --- --gpu=opengl ------------------------------------------------------------------------------
 
 def _need_opengl(tmp_path, hosts, sample_plugins):
-    """--gpu=opengl renders with OpenGL here: ofxh has OFX_HOSTSUPPORT_OPENGL, the GPUGain and OpenGL
-    examples are built, and hostDemo gets an OpenGL context; else skip (OFXH_REQUIRE=1: fail)."""
+    """--gpu=opengl renders with OpenGL here: ofxh and hostDemo have OFX_HOSTSUPPORT_OPENGL (else skip;
+    OFXH_REQUIRE_OPENGL=1, which build.yml sets: fail), the GPUGain and OpenGL examples are built, and hostDemo
+    gets an OpenGL context (else skip; OFXH_REQUIRE=1: fail)."""
     import ofxh
     why = None
+    var = "OFXH_REQUIRE"
     if not ofxh.build_config.get("OFX_HOSTSUPPORT_OPENGL"):
-        why = "ofxh was built without OFX_HOSTSUPPORT_OPENGL"
+        why, var = "ofxh was built without OFX_HOSTSUPPORT_OPENGL", "OFXH_REQUIRE_OPENGL"
     elif not any(p.glob("example-OpenGL.ofx.bundle") for p in sample_plugins):
         why = "the OpenGL example (Examples/OpenGL, CMake builds) is not in the plug-in directories"
     else:
@@ -435,9 +437,11 @@ def _need_opengl(tmp_path, hosts, sample_plugins):
                  _env(sample_plugins, hosts[1]))
         if p.returncode != 0 or "no OpenGL context" in p.stderr:
             why = (p.stderr.strip().splitlines() or ["hostDemo --gpu=opengl failed"])[0]
+            if "hostDemo was built without OFX_HOSTSUPPORT_OPENGL" in p.stderr:
+                var = "OFXH_REQUIRE_OPENGL"
     if why:
-        if os.environ.get("OFXH_REQUIRE") == "1":
-            pytest.fail(f"{why} (OFXH_REQUIRE=1)")
+        if os.environ.get(var) == "1":
+            pytest.fail(f"{why} ({var}=1)")
         pytest.skip(why)
 
 
