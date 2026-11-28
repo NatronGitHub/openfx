@@ -45,6 +45,9 @@ env:
   PYTEST_ADDOPTS: -q -rs -p no:cacheprovider -o faulthandler_timeout=300
   PYTHONFAULTHANDLER: '1'
   OFXH_REQUIRE: '1'
+  # every build here that runs the OpenGL tests (not marked opencl, metal or cuda) has
+  # OFX_HOSTSUPPORT_OPENGL: a build without it fails them instead of skipping (extended.yml's skips)
+  OFXH_REQUIRE_OPENGL: '1'
   # the extension macros of the header checks, and the CMake options of the extensions-on builds
   OFX_EXT_D: >-
     -DOFX_EXTENSIONS_RESOLVE -DOFX_EXTENSIONS_NATRON -DOFX_EXTENSIONS_NUKE -DOFX_EXTENSIONS_VEGAS
