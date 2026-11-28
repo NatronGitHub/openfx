@@ -21,11 +21,15 @@ namespace OFX {
 
       using namespace Detail;
 
-      // Alpha textures are RGBA too, filled and read with the client format GL_ALPHA: they sample
-      // as (0, 0, 0, alpha) on every context (GL_ALPHA "Each element is a single alpha component
-      // [...] converted to floating point and assembled into an RGBA element by attaching 0 for
-      // red, green, and blue", OpenGL 2.1), and a plug-in writes an Alpha output to .a. OFX
-      // 1.5.1's OpenGL suite names no internal format.
+      // Alpha and RGB textures are RGBA too, filled and read with the client format GL_ALPHA or
+      // GL_RGB: they sample as (0, 0, 0, alpha) and (r, g, b, 1) on every context (GL_ALPHA "Each
+      // element is a single alpha component [...] converted to floating point and assembled into
+      // an RGBA element by attaching 0 for red, green, and blue", OpenGL 2.1; GL_RGB "Each element
+      // is an RGB triple. The GL converts it to floating point and assembles it into an RGBA
+      // element by attaching 1 for alpha", the glTexImage2D reference page), a
+      // plug-in writes an Alpha output to .a and an RGB output to .rgb, and the four internal
+      // formats are color-renderable everywhere (GL_RGB16F and GL_RGB32F aren't required to be).
+      // OFX 1.5.1's OpenGL suite names no internal format, and doesn't limit the components.
       static const struct { PixelDepth depth; const char *ofx; int bytes; GLenum type, internalFormat; } kDepths[] = {
         { PixelDepth::Byte, kOfxBitDepthByte, 1, kGLUnsignedByte, kGLRGBA8 },
         { PixelDepth::Short, kOfxBitDepthShort, 2, kGLUnsignedShort, kGLRGBA16 },
@@ -60,6 +64,8 @@ namespace OFX {
       {
         if (s == kOfxImageComponentRGBA) {
           components = Components::RGBA;
+        } else if (s == kOfxImageComponentRGB) {
+          components = Components::RGB;
         } else if (s == kOfxImageComponentAlpha) {
           components = Components::Alpha;
         } else {
@@ -70,16 +76,39 @@ namespace OFX {
 
       const char *componentsToOfx(Components components)
       {
-        return components == Components::RGBA ? kOfxImageComponentRGBA : kOfxImageComponentAlpha;
+        switch (components) {
+        case Components::RGBA: return kOfxImageComponentRGBA;
+        case Components::RGB: return kOfxImageComponentRGB;
+        case Components::Alpha: break;
+        }
+        return kOfxImageComponentAlpha;
+      }
+
+      int componentCount(Components components)
+      {
+        switch (components) {
+        case Components::RGBA: return 4;
+        case Components::RGB: return 3;
+        case Components::Alpha: break;
+        }
+        return 1;
       }
 
       int bytesPerPixel(PixelDepth depth, Components components)
       {
-        return depthInfo(depth).bytes * (components == Components::RGBA ? 4 : 1);
+        return depthInfo(depth).bytes * componentCount(components);
       }
 
       /// the client format of an image's pixels
-      static GLenum glFormat(Components components) { return components == Components::RGBA ? kGLRGBA : kGLAlpha; }
+      static GLenum glFormat(Components components)
+      {
+        switch (components) {
+        case Components::RGBA: return kGLRGBA;
+        case Components::RGB: return kGLRGB;
+        case Components::Alpha: break;
+        }
+        return kGLAlpha;
+      }
 
       /// throws if OpenGL reported an error (and clears all of them)
       static void checkGL(const GLFunctions &gl, const char *what)

@@ -8,8 +8,9 @@
 ///   factory) and CurrentContext (nesting, release(), one context per thread), on fake contexts;
 /// - with an OpenGL context: the renderer list, the context restored by createContext(), a context
 ///   made current after the thread that created it ended (WGL: a new window), texture
-///   upload and readback (all depths and components, padded and negative rowBytes, partial
-///   rectangles), Alpha textures sampled as (0, 0, 0, a), clear and render target;
+///   upload and readback (all depths, RGBA, RGB and Alpha, padded and negative rowBytes, partial
+///   rectangles), Alpha and RGB textures sampled as (0, 0, 0, a) and (r, g, b, 1), clear and render
+///   target (RGB too);
 /// - with Examples/OpenGL (com.genarts:OpenGLSamplePlugin, from OFX_PLUGIN_PATH): OpenGL renders
 ///   in RenderSession compared with the input (RGBA and Alpha; the output in a depth of the
 ///   plug-in's kOfxOpenGLPropPixelDepth), kOfxActionOpenGLContextAttached and Detached (their
@@ -17,7 +18,10 @@
 ///   and in a nested scope), one render action at a time per context (a fetch rendering on
 ///   another thread gets another context or none, and a render with the same key waits), the
 ///   texture lifetime of clipFreeTexture, the cleanup of textures the plug-in didn't free, and
-///   chooseRenderMode().
+///   chooseRenderMode(); kOfxStatGLOutOfMemory and clipLoadTexture's kOfxStatErrMemory (the CPU
+///   retry), clipLoadTexture with each explicit format and a region (and the formats it refuses),
+///   kOfxImageEffectPropOpenGLRenderSupported switched in kOfxActionInstanceChanged, and
+///   flushResources (ContextPool::releaseIdle(), the suite's C boundary);
 /// - the renderer selection: a context on each renderer of listRenderers(), by its id.
 /// Without an OpenGL context or the plug-in, those checks are skipped, unless OFXH_REQUIRE=1 (CI).
 /// OFXH_OPENGL_BACKENDS: the backends to try, by name, comma-separated (default: defaultBackends()),
@@ -33,6 +37,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <future>
 #include <list>
 #include <map>
@@ -670,7 +675,7 @@ namespace {
       return static_cast<unsigned char *>(rect.data) + static_cast<ptrdiff_t>(y - rect.bounds.y1) * rect.rowBytes +
         static_cast<ptrdiff_t>(x - rect.bounds.x1) * GL::bytesPerPixel(rect.depth, rect.components);
     }
-    int nComps() const { return rect.components == GL::Components::RGBA ? 4 : 1; }
+    int nComps() const { return GL::componentCount(rect.components); }
     /// component c of (x, y) as a float (byte /255, short /65535)
     float get(int x, int y, int c) const
     {
@@ -717,7 +722,7 @@ namespace {
     const GL::PixelDepth cpuDepths[] = { GL::PixelDepth::Byte, GL::PixelDepth::Short, GL::PixelDepth::Float, GL::PixelDepth::Float };
     const GL::PixelDepth texDepths[] = { GL::PixelDepth::Byte, GL::PixelDepth::Short, GL::PixelDepth::Float, GL::PixelDepth::Half };
     for (int i = 0; i < 4; ++i) {
-      for (GL::Components comps : { GL::Components::RGBA, GL::Components::Alpha }) {
+      for (GL::Components comps : { GL::Components::RGBA, GL::Components::RGB, GL::Components::Alpha }) {
         for (bool flipped : { false, true }) {
           const std::string what = std::string(depthName(texDepths[i])) + " texture from " + depthName(cpuDepths[i]) + " " +
             GL::componentsToOfx(comps) + (flipped ? ", negative rowBytes" : ", padded rowBytes");
@@ -747,43 +752,65 @@ namespace {
       }
     }
 
-    // an Alpha texture samples as (0, 0, 0, a): drawn with GL_REPLACE into an RGBA target
+    // an Alpha texture samples as (0, 0, 0, a), an RGB one as (r, g, b, 1): drawn with GL_REPLACE
+    // into an RGBA target
+    for (GL::Components comps : { GL::Components::Alpha, GL::Components::RGB }) {
+      const bool alphaOnly = comps == GL::Components::Alpha;
+      try {
+        const OfxRectI small = { 0, 0, 4, 4 };
+        TestImage image(small, GL::PixelDepth::Float, comps, 0, false);
+        image.fill();
+        GL::Texture texture(context, small, GL::PixelDepth::Float, comps);
+        texture.upload(image.rect);
+        GL::Texture target(context, small, GL::PixelDepth::Float, GL::Components::RGBA);
+        target.clear();
+        target.bindAsRenderTarget();
+        auto f = [&](const char *name) { return context.getProcAddress(name); };
+        reinterpret_cast<ViewportFn>(f("glViewport"))(0, 0, 4, 4);
+        reinterpret_cast<EnumFn>(f("glEnable"))(0x0DE1); // GL_TEXTURE_2D
+        reinterpret_cast<BindTextureFn>(f("glBindTexture"))(0x0DE1, texture.index());
+        reinterpret_cast<TexEnviFn>(f("glTexEnvi"))(0x2300, 0x2200, 0x1E01); // GL_TEXTURE_ENV_MODE GL_REPLACE
+        const Float2Fn texCoord = reinterpret_cast<Float2Fn>(f("glTexCoord2f"));
+        const Float2Fn vertex = reinterpret_cast<Float2Fn>(f("glVertex2f"));
+        reinterpret_cast<EnumFn>(f("glBegin"))(0x0007); // GL_QUADS, with the default (identity) matrices
+        texCoord(0.f, 0.f); vertex(-1.f, -1.f);
+        texCoord(1.f, 0.f); vertex(1.f, -1.f);
+        texCoord(1.f, 1.f); vertex(1.f, 1.f);
+        texCoord(0.f, 1.f); vertex(-1.f, 1.f);
+        reinterpret_cast<VoidFn>(f("glEnd"))();
+        reinterpret_cast<BindTextureFn>(f("glBindTexture"))(0x0DE1, 0);
+        reinterpret_cast<EnumFn>(f("glDisable"))(0x0DE1);
+        TestImage drawn(small, GL::PixelDepth::Float, GL::Components::RGBA, 0, false);
+        target.readback(drawn.rect);
+        bool ok = true;
+        for (int y = 0; y < 4; ++y) {
+          for (int x = 0; x < 4; ++x) {
+            for (int c = 0; c < 4; ++c) {
+              const float expected = alphaOnly ? (c < 3 ? 0.f : TestImage::pattern(x, y, 0))
+                                               : (c < 3 ? TestImage::pattern(x, y, c) : 1.f);
+              ok = ok && std::fabs(drawn.get(x, y, c) - expected) <= 1e-6f;
+            }
+          }
+        }
+        check(alphaOnly ? "an Alpha texture samples as (0, 0, 0, alpha)" : "an RGB texture samples as (r, g, b, 1)", ok);
+      } catch (const std::exception &e) {
+        check(std::string(alphaOnly ? "Alpha" : "RGB") + " sampling: " + e.what(), false);
+      }
+    }
+
+    // an RGB texture as the render target: r, g and b are read back
     try {
       const OfxRectI small = { 0, 0, 4, 4 };
-      TestImage alphaImage(small, GL::PixelDepth::Float, GL::Components::Alpha, 0, false);
-      alphaImage.fill();
-      GL::Texture alpha(context, small, GL::PixelDepth::Float, GL::Components::Alpha);
-      alpha.upload(alphaImage.rect);
-      GL::Texture target(context, small, GL::PixelDepth::Float, GL::Components::RGBA);
-      target.clear();
-      target.bindAsRenderTarget();
-      auto f = [&](const char *name) { return context.getProcAddress(name); };
-      reinterpret_cast<ViewportFn>(f("glViewport"))(0, 0, 4, 4);
-      reinterpret_cast<EnumFn>(f("glEnable"))(0x0DE1); // GL_TEXTURE_2D
-      reinterpret_cast<BindTextureFn>(f("glBindTexture"))(0x0DE1, alpha.index());
-      reinterpret_cast<TexEnviFn>(f("glTexEnvi"))(0x2300, 0x2200, 0x1E01); // GL_TEXTURE_ENV_MODE GL_REPLACE
-      const Float2Fn texCoord = reinterpret_cast<Float2Fn>(f("glTexCoord2f"));
-      const Float2Fn vertex = reinterpret_cast<Float2Fn>(f("glVertex2f"));
-      reinterpret_cast<EnumFn>(f("glBegin"))(0x0007); // GL_QUADS, with the default (identity) matrices
-      texCoord(0.f, 0.f); vertex(-1.f, -1.f);
-      texCoord(1.f, 0.f); vertex(1.f, -1.f);
-      texCoord(1.f, 1.f); vertex(1.f, 1.f);
-      texCoord(0.f, 1.f); vertex(-1.f, 1.f);
-      reinterpret_cast<VoidFn>(f("glEnd"))();
-      reinterpret_cast<BindTextureFn>(f("glBindTexture"))(0x0DE1, 0);
-      reinterpret_cast<EnumFn>(f("glDisable"))(0x0DE1);
-      TestImage drawn(small, GL::PixelDepth::Float, GL::Components::RGBA, 0, false);
-      target.readback(drawn.rect);
-      bool ok = true;
-      for (int y = 0; y < 4; ++y) {
-        for (int x = 0; x < 4; ++x) {
-          ok = ok && drawn.get(x, y, 0) == 0.f && drawn.get(x, y, 1) == 0.f && drawn.get(x, y, 2) == 0.f &&
-            std::fabs(drawn.get(x, y, 3) - TestImage::pattern(x, y, 0)) <= 1e-6f;
-        }
-      }
-      check("an Alpha texture samples as (0, 0, 0, alpha)", ok);
+      GL::Texture rgb(context, small, GL::PixelDepth::Byte, GL::Components::RGB);
+      rgb.bindAsRenderTarget();
+      reinterpret_cast<ClearColorFn>(context.getProcAddress("glClearColor"))(0.2f, 0.4f, 0.6f, 0.f);
+      reinterpret_cast<ClearFn>(context.getProcAddress("glClear"))(0x4000);
+      TestImage back(small, GL::PixelDepth::Byte, GL::Components::RGB, 0, false);
+      rgb.readback(back.rect);
+      check("an RGB render target: r, g and b read back",
+            back.pixel(1, 2)[0] == 51 && back.pixel(1, 2)[1] == 102 && back.pixel(1, 2)[2] == 153);
     } catch (const std::exception &e) {
-      check(std::string("Alpha sampling: ") + e.what(), false);
+      check(std::string("RGB render target: ") + e.what(), false);
     }
 
     // partial rectangles, clear, render target, deletion
@@ -885,6 +912,18 @@ namespace {
     int contextDataCount = 0;
     /// Attached waits while blockAttached, with inAttached set (a slow Attached on another thread)
     std::atomic<bool> blockAttached{ false }, inAttached{ false };
+    /// not kOfxStatOK: what the render action returns after the plug-in's (a plug-in that ran out
+    /// of GPU memory, kOfxStatGLOutOfMemory)
+    OfxStatus forceRenderStatus = kOfxStatOK;
+    /// the input textures fail with std::bad_alloc (OpenGL out of memory in clipLoadTexture)
+    bool inputOutOfMemory = false;
+    /// not empty: kOfxActionInstanceChanged sets kOfxImageEffectPropOpenGLRenderSupported to it on
+    /// the instance through the property suite, as a plug-in switching OpenGL on or off ("V1.4:
+    /// It is now expected from host reporting v1.4 that the plug-in can during instance change
+    /// switch from true to false and false to true.", ofxGPURender.h)
+    std::string switchOpenGLTo;
+    OfxStatus switchStatus = kOfxStatFailed; ///< of that propSetString
+    std::atomic<int> inputFetches{ 0 }; ///< the getImage() calls of the input clips
 
     GLTestInstance(ImageEffect::ImageEffectPlugin *plugin, ImageEffect::Descriptor &desc, const std::string &context)
       : MyHost::MyEffectInstance(plugin, desc, context) {}
@@ -900,7 +939,17 @@ namespace {
         inRender = true;
         const OfxStatus st = MyHost::MyEffectInstance::mainEntry(action, handle, inArgs, outArgs);
         inRender = false;
-        return st;
+        return forceRenderStatus != kOfxStatOK && st == kOfxStatOK ? forceRenderStatus : st;
+      }
+      if (std::strcmp(action, kOfxActionInstanceChanged) == 0 && !switchOpenGLTo.empty()) {
+        const OfxPropertySuiteV1 *ps =
+          static_cast<const OfxPropertySuiteV1 *>(ImageEffect::gImageEffectHost->fetchSuite(kOfxPropertySuite, 1));
+        OfxPropertySetHandle h = nullptr;
+        const OfxImageEffectSuiteV1 *es =
+          static_cast<const OfxImageEffectSuiteV1 *>(ImageEffect::gImageEffectHost->fetchSuite(kOfxImageEffectSuite, 1));
+        if (ps && es && es->getPropertySet(getHandle(), &h) == kOfxStatOK) {
+          switchStatus = ps->propSetString(h, kOfxImageEffectPropOpenGLRenderSupported, 0, switchOpenGLTo.c_str());
+        }
       }
       if (std::strcmp(action, kOfxActionOpenGLContextAttached) == 0) {
         inAttached = true;
@@ -945,6 +994,9 @@ namespace {
     if (!_glEffect->session) {
       return nullptr;
     }
+    if (_glEffect->inputOutOfMemory && !isOutput()) {
+      throw std::bad_alloc(); // (RenderSession::loadTexture()'s, when OpenGL is out of memory)
+    }
     ImageEffect::Texture *t = _glEffect->session->loadTexture(*this, time, format, optionalBounds);
     if (t && !isOutput()) {
       _glEffect->inputTextures.push_back(static_cast<unsigned int>(t->getIntProperty(kOfxImageEffectPropOpenGLTextureIndex)));
@@ -957,6 +1009,9 @@ namespace {
   ImageEffect::Image *GLTestClip::getImage(OfxTime time, const OfxRectD *optionalBounds)
   {
     GLTestInstance &e = *_glEffect;
+    if (!isOutput()) {
+      ++e.inputFetches;
+    }
     const GLTestInstance::Fetch fetch = isOutput() ? GLTestInstance::Fetch::None : e.fetch;
     if (fetch == GLTestInstance::Fetch::TryOwnKey) {
       e.fetch = GLTestInstance::Fetch::None; // once
@@ -998,10 +1053,22 @@ namespace {
 
   class GLTestHost : public MyHost::Host {
   public:
+    /// flushResources: GL::flushResources(*pool) if set (else hostDemo's kOfxStatReplyDefault)
+    GL::ContextPool *pool = nullptr;
+    /// flushOpenGLResources() throws (the suite must not let it reach the plug-in)
+    bool throwOnFlush = false;
+
     ImageEffect::Instance *newInstance(void *, ImageEffect::ImageEffectPlugin *plugin, ImageEffect::Descriptor &desc,
                                        const std::string &context) override
     {
       return new GLTestInstance(plugin, desc, context);
+    }
+    OfxStatus flushOpenGLResources() const override
+    {
+      if (throwOnFlush) {
+        throw std::runtime_error("flushOpenGLResources");
+      }
+      return pool ? GL::flushResources(*pool) : MyHost::Host::flushOpenGLResources();
     }
   };
 
@@ -1013,6 +1080,8 @@ namespace {
     float maxError = INFINITY;          ///< vs the expected image
     float inputRange = 0.f;             ///< max - min of the input's red in the window
     std::string mismatch;               ///< the first pixel component off by more than 1e-3, and the renderer
+    bool glFailed = false;              ///< GL::openGLFailed()
+    bool cpuRetry = false;              ///< GL::cpuRetryAllowed()
   };
 
   /// the max error of r, and where the render differs first (none if it doesn't)
@@ -1023,9 +1092,10 @@ namespace {
 
   /// an OpenGL render of window at time 0 on context, of the input (a hostDemo input spec),
   /// compared with what Examples/OpenGL draws (scale and source_scale 1): the input, with a red
-  /// rectangle from (10, 10)
+  /// rectangle from (10, 10). duringSession runs after the render action, in its session.
   RenderResult glRender(GLTestInstance &instance, GL::Attachment &attachment, GL::Context &context,
-                        const OfxRectI &window, const std::string &input, bool leakInputTexture = false)
+                        const OfxRectI &window, const std::string &input, bool leakInputTexture = false,
+                        const std::function<void(GL::RenderSession &, MyHost::MyClipInstance &)> &duringSession = {})
   {
     RenderResult result;
     const IsTextureFn isTexture = reinterpret_cast<IsTextureFn>(context.getProcAddress("glIsTexture"));
@@ -1076,6 +1146,8 @@ namespace {
                                           , planes
 #endif
                                           );
+    result.glFailed = GL::openGLFailed(session, result.status);
+    result.cpuRetry = GL::cpuRetryAllowed(instance, session, result.status);
     result.liveTextures = session.liveTextures();
     result.outputTextureKept = session.output() && isTexture(session.output()->index());
     result.inputTexturesDeleted = !instance.inputTextures.empty();
@@ -1087,6 +1159,10 @@ namespace {
       ImageEffect::Texture *leaked = session.loadTexture(*source, 0., nullptr, nullptr);
       instance.inputTextures.assign(1, leaked ? static_cast<unsigned int>(leaked->getIntProperty(kOfxImageEffectPropOpenGLTextureIndex)) : 0u);
       result.liveTextures = session.liveTextures();
+    }
+    if (duringSession) {
+      // (still in the session, the render action done: as a plug-in's calls during it)
+      duringSession(session, *source);
     }
     instance.session = nullptr;
     if (result.status == kOfxStatOK) {
@@ -1537,7 +1613,167 @@ namespace {
     }
   }
 
-  void checkRenders(MyHost::Host &host, GL::Context &c1, GL::Context &c2)
+  /// flushResources: ContextPool::releaseIdle() destroys the idle contexts that no instance is
+  /// attached to; the suite's flushResources returns kOfxStatOK if the host released something,
+  /// else kOfxStatReplyDefault (also without a host, and when the host throws)
+  void checkFlushResources(GLTestHost &host, GLTestInstance &instance)
+  {
+    const OfxImageEffectOpenGLRenderSuiteV1 *suite =
+      static_cast<const OfxImageEffectOpenGLRenderSuiteV1 *>(host.fetchSuite(kOfxOpenGLRenderSuite, 1));
+    check("the OpenGL render suite", suite && suite->flushResources);
+    if (!suite || !suite->flushResources) {
+      return;
+    }
+    check("flushResources, hostDemo's host (one context in use): kOfxStatReplyDefault",
+          suite->flushResources() == kOfxStatReplyDefault);
+    GL::Hooks hooks;
+    GL::ContextPool pool([hooks] { return GL::createContext(hooks, gBackends); }, 2);
+    host.pool = &pool;
+    int keys[2] = { 0, 0 };
+    {
+      GL::ContextPool::Lease a(pool, &keys[0]);
+      {
+        GL::ContextPool::Lease b(pool, &keys[1]);
+        check("a pool of 2: 2 contexts", a.context() && b.context() && pool.size() == 2);
+      }
+      // one idle, one lent: "When a plug-in fails to allocate GPU resources, it can call this
+      // function to request the host to flush its GPU resources if it holds any"
+      check("flushResources with an idle context: kOfxStatOK, \"the host has actually released some resources\"",
+            suite->flushResources() == kOfxStatOK && pool.size() == 1 && a.context() != nullptr);
+      check("flushResources again (the other context is lent): kOfxStatReplyDefault, \"nothing the host could do..\"",
+            suite->flushResources() == kOfxStatReplyDefault && pool.size() == 1);
+      {
+        GL::ContextPool::Lease b(pool, &keys[1]);
+        check("acquire() after a flush: a new context", b.context() && pool.size() == 2);
+      }
+    }
+    // a context an instance is attached to stays (Detached must be sent on it first)
+    {
+      GL::Attachment attachment(instance);
+      GL::Context *attached = nullptr;
+      {
+        GL::ContextPool::Lease lease(pool, &keys[0]);
+        GL::CurrentContext current(*lease.context());
+        GL::RenderSession session(attachment, current);
+        attached = session.ok() ? lease.context() : nullptr;
+      }
+      check("an instance attached to a pool context", attached && attached->attachments() == 1);
+      const int kept = pool.releaseIdle();
+      check("releaseIdle(): the context the instance is attached to stays, the other one goes",
+            kept == 1 && pool.size() == 1);
+      attachment.detach();
+      check("after Detached: no attachment, released", attached && attached->attachments() == 0 &&
+            suite->flushResources() == kOfxStatOK && pool.size() == 0);
+    }
+    host.pool = nullptr;
+    // the C boundary: no host, a host that throws
+    ImageEffect::Host *const saved = ImageEffect::gImageEffectHost;
+    ImageEffect::gImageEffectHost = nullptr;
+    check("flushResources without a host: kOfxStatReplyDefault", suite->flushResources() == kOfxStatReplyDefault);
+    ImageEffect::gImageEffectHost = saved;
+    host.throwOnFlush = true;
+    check("flushResources when the host throws: kOfxStatReplyDefault, no exception to the plug-in",
+          suite->flushResources() == kOfxStatReplyDefault);
+    host.throwOnFlush = false;
+  }
+
+  /// the OpenGL statuses a plug-in may return: kOfxStatGLOutOfMemory from the render, and
+  /// clipLoadTexture's kOfxStatErrMemory; an explicit clipLoadTexture format and a region; and the
+  /// plug-in's switch of kOfxImageEffectPropOpenGLRenderSupported in kOfxActionInstanceChanged
+  void checkStatusesAndFormats(MyHost::Host &host, GLTestInstance &instance, GL::Attachment &attachment, GL::Context &context)
+  {
+    const OfxRectI window = { 0, 0, 64, 48 };
+    Property::Set &props = instance.getProps();
+    // "If a plug-in returns kOfxStatGLOutOfMemory, the host may choose to free resources on the
+    // GPU and retry the OpenGL render, rather than immediately falling back to CPU rendering"
+    instance.forceRenderStatus = kOfxStatGLOutOfMemory;
+    RenderResult r = glRender(instance, attachment, context, window, "checker:5");
+    check("a render that returns kOfxStatGLOutOfMemory: OpenGL failed, the CPU retry allowed (\"true\")",
+          r.status == kOfxStatGLOutOfMemory && r.glFailed && r.cpuRetry);
+    props.setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "needed");
+    r = glRender(instance, attachment, context, window, "checker:5");
+    check("the same with \"needed\": no CPU retry", r.status == kOfxStatGLOutOfMemory && r.glFailed && !r.cpuRetry);
+    props.setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "true");
+    instance.forceRenderStatus = kOfxStatOK;
+    // clipLoadTexture: "kOfxStatErrMemory - not enough OpenGL memory was available for the effect
+    // to load the texture. The plug-in should abort the GL render and return kOfxStatErrMemory,
+    // after which the host can decide to retry the operation with CPU based processing."
+    instance.inputOutOfMemory = true;
+    r = glRender(instance, attachment, context, window, "checker:5");
+    instance.inputOutOfMemory = false;
+    check("an input texture out of memory: clipLoadTexture's kOfxStatErrMemory returned by the plug-in, OpenGL "
+          "failed, the CPU retry allowed", r.status == kOfxStatErrMemory && r.glFailed && r.cpuRetry && r.liveTextures == 0);
+
+    // "When a specific format is requested, the host ensures it gives the requested format";
+    // "If the region parameter is set to non-NULL, then it will be clipped to the clip's Region of
+    // Definition for the given time. The returned image will be at least as big as this region."
+    const OfxImageEffectOpenGLRenderSuiteV1 *suite =
+      static_cast<const OfxImageEffectOpenGLRenderSuiteV1 *>(host.fetchSuite(kOfxOpenGLRenderSuite, 1));
+    const OfxPropertySuiteV1 *ps = static_cast<const OfxPropertySuiteV1 *>(host.fetchSuite(kOfxPropertySuite, 1));
+    std::vector<std::pair<std::string, bool>> results;
+    const OfxRectD region = { 8., 4., 24., 20. };
+    r = glRender(instance, attachment, context, window, "checker:5", false,
+                 [&](GL::RenderSession &session, MyHost::MyClipInstance &source) {
+      for (const char *depth : { kOfxBitDepthByte, kOfxBitDepthShort, kOfxBitDepthHalf, kOfxBitDepthFloat }) {
+        OfxPropertySetHandle tex = nullptr;
+        const OfxStatus st = suite->clipLoadTexture(source.getHandle(), 0., depth, &region, &tex);
+        bool ok = st == kOfxStatOK && tex;
+        std::string got = "status " + std::to_string(st);
+        if (ok) {
+          const char *d = nullptr;
+          int b[4] = { 0, 0, 0, 0 };
+          ps->propGetString(tex, kOfxImageEffectPropPixelDepth, 0, &d);
+          ps->propGetIntN(tex, kOfxImagePropBounds, 4, b);
+          got = std::string(d ? d : "no depth") + ", bounds (" + std::to_string(b[0]) + ", " + std::to_string(b[1]) + ", " +
+            std::to_string(b[2]) + ", " + std::to_string(b[3]) + ")";
+          // the region in pixels (render scale 1, the project's PAR)
+          const OfxPointD one = { 1., 1. };
+          const OfxRectI p = MyHost::canonicalToPixelEnclosing(region, one, instance.getProjectPixelAspectRatio());
+          ok = d && std::string(d) == depth && b[0] <= p.x1 && b[1] <= p.y1 && b[2] >= p.x2 && b[3] >= p.y2;
+          suite->clipFreeTexture(tex);
+        }
+        results.emplace_back(std::string("clipLoadTexture(format ") + depth + ", a region): a texture of that depth, at "
+                             "least the region in pixels (" + got + ")", ok);
+      }
+      results.emplace_back("those textures: no input failure", !session.inputFailed());
+      for (const char *bad : { kOfxBitDepthNone, "OfxBitDepthWord", "" }) {
+        OfxPropertySetHandle tex = reinterpret_cast<OfxPropertySetHandle>(&source); // (not NULL: must be set)
+        const int fetches = instance.inputFetches;
+        const OfxStatus st = suite->clipLoadTexture(source.getHandle(), 0., bad, nullptr, &tex);
+        results.emplace_back(std::string("clipLoadTexture(format \"") + bad + "\", not a texture depth): kOfxStatFailed, "
+                             "no texture, the input not fetched, the render's input failed (no silent fallback)",
+                             st == kOfxStatFailed && tex == nullptr && session.inputFailed() &&
+                             instance.inputFetches == fetches);
+      }
+    });
+    check("the render of the format checks", r.status == kOfxStatOK);
+    for (const auto &c : results) {
+      check(c.first, c.second);
+    }
+
+    // kOfxImageEffectPropOpenGLRenderSupported, "plug-in instance change (read/write)": the
+    // plug-in switches it in kOfxActionInstanceChanged, the next render follows
+    const std::string descriptorValue = instance.getDescriptor().getProps().getStringProperty(kOfxImageEffectPropOpenGLRenderSupported);
+    const OfxPointD scale = { 1., 1. };
+    for (const char *value : { "false", "true" }) {
+      instance.switchOpenGLTo = value;
+      instance.switchStatus = kOfxStatFailed;
+      instance.beginInstanceChangedAction(kOfxChangeUserEdited);
+      instance.paramInstanceChangedAction("scale", kOfxChangeUserEdited, 0., scale);
+      instance.endInstanceChangedAction(kOfxChangeUserEdited);
+      const bool on = std::string(value) == "true";
+      check(std::string("kOfxActionInstanceChanged sets kOfxImageEffectPropOpenGLRenderSupported \"") + value +
+            "\" on the instance: the next render is " + (on ? "OpenGL" : "on the CPU") + ", the descriptor's unchanged",
+            instance.switchStatus == kOfxStatOK &&
+            GL::chooseRenderMode(instance, true) == (on ? GL::RenderMode::OpenGL : GL::RenderMode::CPU) &&
+            instance.getDescriptor().getProps().getStringProperty(kOfxImageEffectPropOpenGLRenderSupported) == descriptorValue);
+    }
+    instance.switchOpenGLTo.clear();
+    r = glRender(instance, attachment, context, window, "checker:5");
+    check("an OpenGL render after the switch back (" + describeError(r) + ")", r.status == kOfxStatOK && r.maxError <= 1e-3f);
+  }
+
+  void checkRenders(GLTestHost &host, GL::Context &c1, GL::Context &c2)
   {
     const char *path = std::getenv("OFX_PLUGIN_PATH");
     if (!path || !*path) {
@@ -1623,6 +1859,7 @@ namespace {
       r = glRender(*instance, attachment, c2, window, "checker:5#alpha");
       check("render of an Alpha input and output: the output is written to .a and read back (" + describeError(r) + ")",
             r.status == kOfxStatOK && r.maxError <= 1e-3f && r.inputRange > 0.5f);
+      checkStatusesAndFormats(host, *instance, attachment, c2);
 
       // kOfxOpenGLPropPixelDepth: "the target buffers where the plug-in renders to will be set to
       // one of the supported formats": with float only, the output texture is float, whatever
@@ -1650,6 +1887,7 @@ namespace {
     checkConcurrentAttachment(*instance, c1, c2);
     checkExclusiveContext(*instance);
     checkPoolLowered();
+    checkFlushResources(host, *instance);
     instance->destroyInstanceAction();
     delete instance;
   }

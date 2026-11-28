@@ -573,6 +573,15 @@ namespace OFX {
       ///
       /// An automatic object: the scopes of a thread are a stack, so each one is destroyed on the
       /// thread that created it, innermost first (asserted in debug builds).
+      ///
+      /// The calls a plug-in makes during the render on the render's thread see it (current()):
+      /// OfxOpenCLProgramSuiteV1::compileProgram has no context argument, so a host finds the
+      /// OpenCL context to build for from current()->queue() ("The OpenCL context can be found from
+      /// the command queue using clGetCommandQueueInfo with CL_QUEUE_CONTEXT", ofxGPURender.h; see
+      /// OpenCL::currentQueue(), ofxhOpenCLRender.h). A host whose multi-thread suite runs the
+      /// plug-in's thread functions on other threads (OFX_SUPPORTS_MULTITHREAD) passes the scope on:
+      /// in its multiThread(), it reads current() on the calling thread, and opens
+      /// GPURenderScope(s->effect(), s->api(), s->queue()) on each thread around the function.
       class GPURenderScope {
       public:
         enum class API { CPU, OpenCL, Metal, MetalTextures, CUDA };
@@ -583,6 +592,9 @@ namespace OFX {
         GPURenderScope &operator=(const GPURenderScope &) = delete;
         /// the innermost scope of the calling thread for effect, nullptr if none
         static const GPURenderScope *find(const Instance &effect);
+        /// the innermost scope of the calling thread, whatever its instance, nullptr if none
+        static const GPURenderScope *current();
+        const Instance &effect() const { return _effect; }
         API api() const { return _api; }
         void *queue() const { return _queue; }
       private:

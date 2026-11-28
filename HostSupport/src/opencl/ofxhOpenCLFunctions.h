@@ -35,6 +35,7 @@ namespace OFX {
         typedef struct _cl_command_queue *cl_command_queue;
         typedef struct _cl_mem *cl_mem;
         typedef struct _cl_event *cl_event;
+        typedef struct _cl_program *cl_program;
         typedef intptr_t cl_context_properties;
         struct cl_image_format {
           cl_uint image_channel_order;
@@ -65,6 +66,10 @@ namespace OFX {
         static const cl_uint kCLUnormInt16 = 0x10D3;
         static const cl_uint kCLHalfFloat = 0x10DD;
         static const cl_uint kCLFloat = 0x10DE;
+        static const cl_uint kCLQueueContext = 0x1090;
+        static const cl_uint kCLProgramBinarySizes = 0x1165;
+        static const cl_uint kCLProgramBinaries = 0x1166;
+        static const cl_uint kCLProgramBuildLog = 0x1183;
 
         /// the OpenCL library and the functions used here; it stays loaded while a CLFunctions
         /// refers to it
@@ -100,11 +105,26 @@ namespace OFX {
           cl_int (OFXH_CLAPI *EnqueueReadImage)(cl_command_queue, cl_mem, cl_bool, const size_t *, const size_t *,
                                                 size_t, size_t, void *, cl_uint, const cl_event *, cl_event *) = nullptr;
           cl_int (OFXH_CLAPI *Finish)(cl_command_queue) = nullptr;
+          cl_int (OFXH_CLAPI *GetCommandQueueInfo)(cl_command_queue, cl_uint, size_t, void *, size_t *) = nullptr;
+          cl_program (OFXH_CLAPI *CreateProgramWithSource)(cl_context, cl_uint, const char **, const size_t *,
+                                                           cl_int *) = nullptr;
+          cl_program (OFXH_CLAPI *CreateProgramWithBinary)(cl_context, cl_uint, const cl_device_id *, const size_t *,
+                                                           const unsigned char **, cl_int *, cl_int *) = nullptr;
+          cl_int (OFXH_CLAPI *BuildProgram)(cl_program, cl_uint, const cl_device_id *, const char *,
+                                            void (OFXH_CLAPI *)(cl_program, void *), void *) = nullptr;
+          cl_int (OFXH_CLAPI *GetProgramInfo)(cl_program, cl_uint, size_t, void *, size_t *) = nullptr;
+          cl_int (OFXH_CLAPI *GetProgramBuildInfo)(cl_program, cl_device_id, cl_uint, size_t, void *, size_t *) = nullptr;
+          cl_int (OFXH_CLAPI *ReleaseProgram)(cl_program) = nullptr;
         };
 
         /// the functions, from hooks.getProcAddress or the ICD loader; nullptr and error if one is
         /// missing
         std::shared_ptr<const CLFunctions> loadCLFunctions(const Hooks &hooks, std::string &error);
+
+        /// Hooks::programCacheDirectory if it is a directory private to the user (on POSIX: owned
+        /// by the effective user, not group- or world-writable), else "" (memory cache only) and a
+        /// Warning to hooks.log
+        std::string privateCacheDirectory(const Hooks &hooks);
 
         /// "CL_OUT_OF_RESOURCES (-5)"... for the messages
         std::string errorName(cl_int err);

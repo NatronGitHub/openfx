@@ -378,9 +378,32 @@ public:
                                  va_list args) override;
   OfxStatus clearPersistentMessage() override;
 #ifdef OFX_SUPPORTS_OPENGLRENDER
-  /// "kOfxStatReplyDefault - nothing the host could do.." (flushResources): no GPU resources are kept
+  /// "kOfxStatReplyDefault - nothing the host could do.." (flushResources): one OpenGL context,
+  /// which the calling render uses, and no other GPU resource kept (as hostDemo)
   OfxStatus flushOpenGLResources() const override { return kOfxStatReplyDefault; }
 #endif
+  /// the OpenCL program suite (OfxOpenCLProgramSuiteV1), with the device of ofxh.init(opencl=True):
+  /// built for the context of the render's queue (OpenCL::Device::compileProgram()), as hostDemo
+  bool supportsOpenCLProgramSuite() const override
+  {
+#ifdef OFXH_OPENCL
+    return _clDevice != nullptr;
+#else
+    return false;
+#endif
+  }
+  OfxStatus compileOpenCLProgram(const char *pszProgramSource, int fOptional, void *pResult) override
+  {
+#ifdef OFXH_OPENCL
+    if (_clDevice) {
+      return _clDevice->compileProgram(OFX::Host::OpenCL::currentQueue(), pszProgramSource, fOptional, pResult);
+    }
+#endif
+    (void)pszProgramSource;
+    (void)fOptional;
+    (void)pResult;
+    return kOfxStatErrUnsupported;
+  }
 };
 
 /// a C++ image whose pixels are a NumPy array, kept alive until HostSupport deletes the image

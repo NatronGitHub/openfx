@@ -122,7 +122,8 @@ public :
 
 #ifdef OFX_SUPPORTS_OPENGLRENDER
   /// @see OfxImageEffectOpenGLRenderSuiteV1.flushResources()
-  virtual OfxStatus flushOpenGLResources() const { return kOfxStatFailed; };
+  /// "kOfxStatReplyDefault - nothing the host could do.." (flushResources, ofxGPURender.h)
+  virtual OfxStatus flushOpenGLResources() const { return kOfxStatReplyDefault; };
 #endif
 };
 

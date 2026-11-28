@@ -184,6 +184,9 @@ f = g["flags"]
 assert set(f["supportedPixelDepths"]) == {"OfxBitDepthByte", "OfxBitDepthShort", "OfxBitDepthFloat"}
 assert len(f["supportedPixelDepths"]) == 3, f["supportedPixelDepths"]  # described once: no duplicates
 assert f["supportsTiles"] is True and f["renderThreadSafety"] == "OfxImageEffectRenderInstanceSafe"
+# the GPU flags: OpenCL Images, and the OpenGL texture depths (none set; null without OFX_SUPPORTS_OPENGLRENDER)
+assert f["openCLSupported"] == "false" and f["openCLRenderSupported"] == "false", f
+assert f["openGLPixelDepths"] in ([], None), f["openGLPixelDepths"]
 p = dict((q["name"], q) for q in g["params"])
 assert [q["name"] for q in g["params"]] == ["Controls", "componentScales", "scale", "scaleComponents", "scaleR", "scaleG", "scaleB", "scaleA"]
 s = p["scale"]

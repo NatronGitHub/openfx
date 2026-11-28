@@ -369,8 +369,8 @@ instance: {schema ("hostDemo.describe"), schemaVersion (1), ok, plugin, contexts
 supportsMultiResolution, temporalClipAccess, supportsMultipleClipDepths,
 supportsMultipleClipPARs, fieldRenderTwiceAlways, singleInstance, hostFrameThreading,
 renderThreadSafety, sequentialRender, clipPreferencesSlaveParams, openGLRenderSupported,
-openCLRenderSupported, cudaRenderSupported, cudaStreamSupported, metalRenderSupported,
-metalTextureSupported, cpuRenderSupported. clips: {name, label, hint, optional, isMask, supportedComponents,
+openCLRenderSupported, openCLSupported, openGLPixelDepths, cudaRenderSupported,
+cudaStreamSupported, metalRenderSupported, metalTextureSupported, cpuRenderSupported. clips: {name, label, hint, optional, isMask, supportedComponents,
 temporalClipAccess, supportsTiles, fieldExtraction, secret}. params, in definition order:
 {name, type, label, hint, scriptName, secret, enabled, parent, page, dimension, default, min,
 max, displayMin, displayMax, doubleType, choiceOptions, animates, evaluateOnChange,

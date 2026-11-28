@@ -24,10 +24,13 @@ namespace OFX {
           case kCLOutOfResources: name = "CL_OUT_OF_RESOURCES"; break;
           case kCLOutOfHostMemory: name = "CL_OUT_OF_HOST_MEMORY"; break;
           case -10: name = "CL_IMAGE_FORMAT_NOT_SUPPORTED"; break;
+          case -11: name = "CL_BUILD_PROGRAM_FAILURE"; break;
           case -30: name = "CL_INVALID_VALUE"; break;
           case -36: name = "CL_INVALID_COMMAND_QUEUE"; break;
           case -38: name = "CL_INVALID_MEM_OBJECT"; break;
           case -40: name = "CL_INVALID_IMAGE_SIZE"; break;
+          case -42: name = "CL_INVALID_BINARY"; break;
+          case -43: name = "CL_INVALID_BUILD_OPTIONS"; break;
           case -61: name = "CL_INVALID_BUFFER_SIZE"; break;
           case -1001: name = "CL_PLATFORM_NOT_FOUND_KHR"; break;
           default: break;
@@ -82,6 +85,13 @@ namespace OFX {
           OFXH_CL(EnqueueWriteImage)
           OFXH_CL(EnqueueReadImage)
           OFXH_CL(Finish)
+          OFXH_CL(GetCommandQueueInfo)
+          OFXH_CL(CreateProgramWithSource)
+          OFXH_CL(CreateProgramWithBinary)
+          OFXH_CL(BuildProgram)
+          OFXH_CL(GetProgramInfo)
+          OFXH_CL(GetProgramBuildInfo)
+          OFXH_CL(ReleaseProgram)
 #undef OFXH_CL
           return cl;
         }
@@ -256,6 +266,7 @@ namespace OFX {
       Device::Device(const Hooks &hooks, std::shared_ptr<const CLFunctions> cl, const DeviceInfo &info,
                      void *device, void *context)
         : _hooks(hooks), _cl(std::move(cl)), _info(info), _device(device), _context(context)
+        , _cacheDirectory(privateCacheDirectory(hooks))
       {
       }
 

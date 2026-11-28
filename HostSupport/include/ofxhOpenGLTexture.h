@@ -15,11 +15,12 @@
   Pixels are copied as they are: no colour, premultiplication or orientation change (OFX images
   and OpenGL textures both start at the bottom row). A depth change between the image and the
   texture is OpenGL's normalized conversion (byte 255 and short 65535 are 1.0).
-  Textures are GL_RGBA8, GL_RGBA16, GL_RGBA16F or GL_RGBA32F, also for Alpha images, which are
-  uploaded and read back with the client format GL_ALPHA: an Alpha texture samples as
-  (0, 0, 0, alpha) on every context, and a plug-in rendering to one writes alpha to .a (as
-  in Natron and the openfx-misc OpenGL plug-ins). The transfers save and restore the pixel-store
-  state and the pixel buffer bindings they change.
+  Textures are GL_RGBA8, GL_RGBA16, GL_RGBA16F or GL_RGBA32F, also for Alpha and RGB images,
+  which are uploaded and read back with the client format GL_ALPHA or GL_RGB: an Alpha texture
+  samples as (0, 0, 0, alpha) and an RGB one as (r, g, b, 1) on every context, and a plug-in
+  rendering to one writes alpha to .a (as in Natron and the openfx-misc OpenGL plug-ins), or
+  r, g and b to .rgb. The transfers save and restore the pixel-store state and the pixel buffer
+  bindings they change.
 
   Create, use and destroy a Texture with its context current (CurrentContext). Errors throw:
   std::bad_alloc when OpenGL is out of memory, std::runtime_error otherwise.
@@ -36,15 +37,16 @@ namespace OFX {
 
       /// the OFX pixel depths a texture can have (kOfxBitDepthByte, Short, Half, Float)
       enum class PixelDepth { Byte, Short, Half, Float };
-      /// the OFX components a texture can have (kOfxImageComponentRGBA, Alpha)
-      enum class Components { RGBA, Alpha };
+      /// the OFX components a texture can have (kOfxImageComponentRGBA, RGB, Alpha)
+      enum class Components { RGBA, RGB, Alpha };
 
       /// from and to the OFX strings; false if s isn't one
       bool pixelDepthFromOfx(const std::string &s, PixelDepth &depth);
       const char *pixelDepthToOfx(PixelDepth depth);
       bool componentsFromOfx(const std::string &s, Components &components);
       const char *componentsToOfx(Components components);
-      /// the size of a pixel
+      /// the number of components (4, 3, 1), and the size of a pixel
+      int componentCount(Components components);
       int bytesPerPixel(PixelDepth depth, Components components);
 
       /// An OFX image rectangle in memory, as in an image handle (kOfxImagePropData,

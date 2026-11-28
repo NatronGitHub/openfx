@@ -79,6 +79,13 @@ namespace OFX {
         } catch (...) {
           // a destructor doesn't throw
         }
+        // Detached couldn't be sent on some contexts: the instance is gone, so they no longer
+        // count it (ContextPool::releaseIdle() may destroy them)
+        std::lock_guard<std::mutex> lock(_mutex);
+        for (const Attached &a : _attached) {
+          a.context->attachmentChanged(-1);
+        }
+        _attached.clear();
       }
 
       Context *Attachment::context() const
@@ -151,6 +158,7 @@ namespace OFX {
           return sent ? st : kOfxStatFailed;
         }
         _attached.erase(_attached.begin() + (find(context) - _attached.data()));
+        context->attachmentChanged(-1);
         _failed = _failed || refusesOpenGL(st);
         return st;
       }
@@ -339,6 +347,7 @@ namespace OFX {
         lock.lock();
         if (st == kOfxStatOK || st == kOfxStatReplyDefault) {
           _attached.push_back(Attached{ target, attachedData, 1 });
+          target->attachmentChanged(+1);
           data = attachedData;
         }
         _failed = refusesOpenGL(st);
@@ -441,16 +450,23 @@ namespace OFX {
           componentsFromOfx(image.getStringProperty(kOfxImageEffectPropComponents), rect.components);
       }
 
+      /// the message of a clipLoadTexture format that isn't a texture depth
+      static std::string formatError(const char *format)
+      {
+        return std::string("OpenGL: clipLoadTexture: format \"") + format + "\" isn't a texture depth (" kOfxBitDepthByte
+          ", " kOfxBitDepthShort ", " kOfxBitDepthHalf " or " kOfxBitDepthFloat ")";
+      }
+
       /// the depth of the texture of an image of depth imageDepth: "When a specific format is
       /// requested, the host ensures it gives the requested format." "When set to NULL, the host
       /// decides the format based on the plug-in's kOfxOpenGLPropPixelDepth setting."
       /// (clipLoadTexture): the image's depth if listed (or the list is empty), else the deepest
-      /// one listed
-      static PixelDepth textureDepth(const ImageEffect::Instance &effect, const char *format, PixelDepth imageDepth)
+      /// one listed. requested: the depth of a requested format, which loadTexture() parsed
+      /// before fetching the image (it refuses a format that isn't a texture depth), nullptr if none
+      static PixelDepth textureDepth(const ImageEffect::Instance &effect, const PixelDepth *requested, PixelDepth imageDepth)
       {
-        PixelDepth depth;
-        if (format && pixelDepthFromOfx(format, depth)) {
-          return depth;
+        if (requested) {
+          return *requested;
         }
         if (effect.isOpenGLPixelDepthSupported(pixelDepthToOfx(imageDepth))) {
           return imageDepth;
@@ -515,6 +531,12 @@ namespace OFX {
             _output->bindAsRenderTarget();
             return new Handle(*this, clip, *_outputImage, *_output, nullptr);
           }
+          // a format that can't be given fails before the input is fetched (or rendered)
+          PixelDepth requested = PixelDepth::Float;
+          if (format && !pixelDepthFromOfx(format, requested)) {
+            throw std::runtime_error(formatError(format));
+          }
+          const PixelDepth *const requestedDepth = format ? &requested : nullptr;
           // the region semantics are clipGetImage's ("If the region parameter is set to non-NULL,
           // then it will be clipped to the clip's Region of Definition [...]")
           // A host that renders inputs on demand may run renders in getImage(). "Effects can use
@@ -567,7 +589,7 @@ namespace OFX {
             return nullptr;
           }
           std::unique_ptr<Texture> texture(new Texture(context(), rect.bounds,
-                                                       textureDepth(_attachment._effect, format, rect.depth),
+                                                       textureDepth(_attachment._effect, requestedDepth, rect.depth),
                                                        rect.components));
           texture->upload(rect);
           Texture &t = *texture;

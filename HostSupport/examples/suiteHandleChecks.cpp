@@ -1559,6 +1559,65 @@ namespace {
 
   /// the progress and timeline suites on a valid effect instance handle: a real instance of a
   /// plug-in (HostSupport needs its binary to make one), found in OFX_PLUGIN_PATH
+  /// The GPU render properties, "plug-in descriptor (read/write) [...] plug-in instance change
+  /// (read/write)" (ofxGPURender.h): "An instance inherits the value set on the plug-in
+  /// descriptor until the plug-in sets this property on the instance; a host must not substitute
+  /// its own default at the instance level" (upstream main). An instance of a descriptor that set
+  /// a non-default value reads it, whatever the host's own value; the plug-in's set on the instance
+  /// changes the instance only.
+  void checkGPUPropertyInheritance(MyHost::Host &host, ImageEffect::ImageEffectPlugin *plugin)
+  {
+    const OfxPropertySuiteV1 *ps = (const OfxPropertySuiteV1 *)host.fetchSuite(kOfxPropertySuite, 1);
+    const OfxImageEffectSuiteV1 *es = (const OfxImageEffectSuiteV1 *)host.fetchSuite(kOfxImageEffectSuite, 1);
+    ImageEffect::Descriptor *desc = plugin->getContext(kOfxImageEffectContextFilter);
+    check("GPU properties: the property and image effect suites, the filter descriptor", ps && es && desc);
+    if (!ps || !es || !desc) {
+      return;
+    }
+    // (name, a value other than the descriptor default, another value the plug-in may set)
+    const struct { const char *name, *described, *set; } props[] = {
+      { kOfxImageEffectPropOpenGLRenderSupported, "needed", "false" },
+      { kOfxImageEffectPropOpenCLRenderSupported, "true", "false" },
+      { kOfxImageEffectPropOpenCLSupported, "true", "false" },
+      { kOfxImageEffectPropCudaRenderSupported, "true", "false" },
+      { kOfxImageEffectPropCudaStreamSupported, "true", "false" },
+      { kOfxImageEffectPropMetalRenderSupported, "true", "false" },
+      { kOfxImageEffectPropCPURenderSupported, "false", "true" },
+    };
+    Property::Set &dp = desc->getProps();
+    Property::Set &hp = host.getProperties();
+    std::vector<std::string> savedDescriptor, savedHost;
+    for (const auto &p : props) {
+      savedDescriptor.push_back(dp.getStringProperty(p.name));
+      savedHost.push_back(hp.getStringProperty(p.name));
+      dp.setStringProperty(p.name, p.described);
+      // the host's own value differs from the descriptor's: the instance must not take it
+      hp.setStringProperty(p.name, std::string(p.described) == "false" ? "true" : "false");
+    }
+    ImageEffect::Instance *instance = plugin->createInstance(kOfxImageEffectContextFilter, NULL);
+    check("GPU properties: an instance", instance != NULL);
+    if (instance) {
+      OfxPropertySetHandle ih = NULL;
+      check("GPU properties: getPropertySet(instance)", es->getPropertySet(instance->getHandle(), &ih) == kOfxStatOK && ih);
+      for (const auto &p : props) {
+        const char *v = NULL;
+        const bool inherited = ih && ps->propGetString(ih, p.name, 0, &v) == kOfxStatOK && v && std::string(v) == p.described;
+        check((std::string("an instance reads the descriptor's ") + p.name + " (\"" + p.described + "\"), not the host's").c_str(),
+              inherited);
+        const bool set = ih && ps->propSetString(ih, p.name, 0, p.set) == kOfxStatOK &&
+          ps->propGetString(ih, p.name, 0, &v) == kOfxStatOK && v && std::string(v) == p.set &&
+          dp.getStringProperty(p.name) == p.described;
+        check((std::string("the plug-in sets ") + p.name + " on the instance: the instance's only").c_str(), set);
+      }
+      instance->destroyInstanceAction();
+    }
+    delete instance;
+    for (size_t i = 0; i < sizeof(props) / sizeof(props[0]); ++i) {
+      dp.setStringProperty(props[i].name, savedDescriptor[i]);
+      hp.setStringProperty(props[i].name, savedHost[i]);
+    }
+  }
+
   void checkEffectInstance(MyHost::Host &host)
   {
     // SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 (hostdemo-checks.sh): the checks must run
@@ -1589,6 +1648,7 @@ namespace {
 
       snapshot = checkPluginCacheRescanAndRead(host, imageEffectPluginCache, *instance, pluginId);
       checkClips(instance);
+      checkGPUPropertyInheritance(host, plugin);
 
       TestEffectInstance *test = dynamic_cast<TestEffectInstance *>(instance);
       check("TestEffectInstance", test != NULL);

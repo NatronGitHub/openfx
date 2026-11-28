@@ -116,6 +116,24 @@ namespace OFX {
         return _depth > 0 && _owner != std::this_thread::get_id();
       }
 
+      int Context::attachments() const
+      {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _attachments;
+      }
+
+      bool Context::unused() const
+      {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _depth == 0 && _suspended == 0 && _attachments == 0;
+      }
+
+      void Context::attachmentChanged(int delta)
+      {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _attachments += delta;
+      }
+
       static std::string glString(const Detail::GLFunctions &gl, Detail::GLenum name)
       {
         const Detail::GLubyte *s = gl.GetString(name);
@@ -562,6 +580,32 @@ namespace OFX {
       {
         std::lock_guard<std::mutex> lock(_mutex);
         _changed.notify_all();
+      }
+
+      int ContextPool::releaseIdle()
+      {
+        std::vector<std::unique_ptr<Context>> released;
+        {
+          std::lock_guard<std::mutex> lock(_mutex);
+          for (auto slot = _slots.begin(); slot != _slots.end();) {
+            if (slot->holds == 0 && slot->context && slot->context->unused()) {
+              released.push_back(std::move(slot->context));
+              slot = _slots.erase(slot);
+            } else {
+              ++slot;
+            }
+          }
+          _changed.notify_all(); // (the waiters may now create a context)
+        }
+        // destroyed without the lock (a backend call); no thread holds them
+        const int n = static_cast<int>(released.size());
+        released.clear();
+        return n;
+      }
+
+      OfxStatus flushResources(ContextPool &pool)
+      {
+        return pool.releaseIdle() > 0 ? kOfxStatOK : kOfxStatReplyDefault;
       }
 
       int ContextPool::size() const

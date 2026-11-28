@@ -80,6 +80,8 @@ namespace OFX {
       /// kOfxStatErrMemory from clipLoadTexture, "after which the host can decide to retry the
       /// operation with CPU based processing" (ofxGPURender.h). The statuses are
       /// ImageEffect::gpuRenderFailed() (ofxhImageEffect.h), shared with the other GPU components.
+      /// After kOfxStatGLOutOfMemory, a host with a ContextPool may first release its idle contexts
+      /// (flushResources(), ofxhOpenGLContext.h) and render with OpenGL again.
       bool openGLFailed(const RenderSession &session, OfxStatus st);
 
       /// After an OpenGL action of effect in session that returned st: the host may render it again
@@ -186,7 +188,9 @@ namespace OFX {
 
         /// ClipInstance::loadTexture() for a clip of this render: the output clip's texture,
         /// bound as the render target, or the image of an input clip (clip.getImage()) in a new
-        /// texture, in the format the plug-in asked for (format, else kOfxOpenGLPropPixelDepth).
+        /// texture, in the format the plug-in asked for (format, else kOfxOpenGLPropPixelDepth): a
+        /// format that isn't kOfxBitDepthByte, Short, Half or Float, or a texture of that format
+        /// that OpenGL can't create, is an input failure (inputFailed()), never another format.
         /// One render action at a time per context: during clip.getImage() the context is
         /// suspended but stays reserved to this render (CurrentContext::suspend(): the session's
         /// scope must be the innermost one of the thread), so the plug-in's GL state persists
