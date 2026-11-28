@@ -18,22 +18,26 @@ if(BUILD_EXAMPLE_PLUGINS)
   # OfxSupport is built without OFX_USE_MULTITHREAD_MUTEX: the test compiles its own
   # Library/ofxsMultiThread.cpp with it, which the linker takes instead of OfxSupport's (a static
   # library), to test OFX::MultiThread::Mutex without the host's mutex functions.
-  add_executable(support-library-test tests/SupportLibraryTest.cpp Library/ofxsMultiThread.cpp)
+  # The functional tests are tests/SupportLibraryTest.cpp, the regression tests (each for a fixed
+  # bug) tests/regression/SupportLibraryRegressions.cpp, in one program.
+  add_executable(support-library-test tests/SupportLibraryTest.cpp tests/regression/SupportLibraryRegressions.cpp
+                 Library/ofxsMultiThread.cpp)
   target_compile_definitions(support-library-test PRIVATE OFX_USE_MULTITHREAD_MUTEX)
   target_include_directories(support-library-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Library")
   find_package(Threads REQUIRED) # (the Mutex test runs a second thread)
   target_link_libraries(support-library-test PRIVATE OfxSupport Threads::Threads)
   # plugin-unload-test BINARY...: each plug-in binary is really unloaded by dlclose(), and on
-  # macOS has no thread-local variables (Support/tests/PluginUnloadTest.cpp, #385).
+  # macOS has no thread-local variables (Support/tests/regression/PluginUnloadTest.cpp: a regression
+  # test of #385, as a whole).
   # .github/scripts/cmake-build-test.sh runs it on the example plug-ins.
   if(NOT WIN32)
-    add_executable(plugin-unload-test tests/PluginUnloadTest.cpp)
+    add_executable(plugin-unload-test tests/regression/PluginUnloadTest.cpp)
     target_include_directories(plugin-unload-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../include")
     target_link_libraries(plugin-unload-test PRIVATE ${CMAKE_DL_LIBS})
-    # thread-scope-test.ofx (tests/ThreadScopeBundle.cpp): a binary that uses ThreadScope, built
+    # thread-scope-test.ofx (tests/regression/ThreadScopeBundle.cpp): a binary that uses ThreadScope, built
     # and exported as add_ofx_plugin does (hidden visibility, the OFX entry points only), but
     # not a bundle and not installed: cmake-build-test.sh gives it to plugin-unload-test twice
-    add_library(thread-scope-test MODULE tests/ThreadScopeBundle.cpp)
+    add_library(thread-scope-test MODULE tests/regression/ThreadScopeBundle.cpp)
     set_target_properties(thread-scope-test PROPERTIES PREFIX "" SUFFIX ".ofx"
                           CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
     target_include_directories(thread-scope-test PRIVATE "${OFX_SUPPORT_HEADER_DIR}")
@@ -46,7 +50,7 @@ if(BUILD_EXAMPLE_PLUGINS)
     endif()
     # the same with default visibility and no export list: ThreadScope's statics must still stay
     # in the binary (not STB_GNU_UNIQUE with GCC on Linux, which would pin it in memory)
-    add_library(thread-scope-test-default MODULE tests/ThreadScopeBundle.cpp)
+    add_library(thread-scope-test-default MODULE tests/regression/ThreadScopeBundle.cpp)
     set_target_properties(thread-scope-test-default PROPERTIES PREFIX "" SUFFIX ".ofx")
     target_include_directories(thread-scope-test-default PRIVATE "${OFX_SUPPORT_HEADER_DIR}")
     target_link_libraries(thread-scope-test-default PRIVATE openfx::Api)

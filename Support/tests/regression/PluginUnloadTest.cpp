@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 /*
+  A regression test of #385 (#386), as a whole: plug-ins built with the Support library could
+  not be unloaded on macOS (thread-local variables), and kept their static state.
+
   plugin-unload-test BINARY...: checks that each plug-in binary (the .ofx file in a bundle) is
   really unloaded by dlclose(), so that a host that unloads a plug-in and loads it again gets a new
   copy of its static state.
@@ -9,7 +12,7 @@
   Each binary is loaded, its OfxGetNumberOfPlugins() and OfxGetPlugin() are called (no host:
   setHost() and the actions are not), it is closed, and it must then be gone: dlopen() with
   RTLD_NOLOAD doesn't find it. OfxGetNumberOfPlugins() must not be negative (thread-scope-test.ofx,
-  Support/tests/ThreadScopeBundle.cpp, returns -1 if its ThreadScope checks fail). A binary may
+  Support/tests/regression/ThreadScopeBundle.cpp, returns -1 if its ThreadScope checks fail). A binary may
   be given twice, to check that it works again when it is loaded again.
 
   On macOS, the binary must also have no thread-local variables (MH_HAS_TLV_DESCRIPTORS): dyld
@@ -17,7 +20,8 @@
   one to every plug-in (#385). dyld doesn't unload images that have Objective-C metadata either:
   for those (the Metal examples), the unload check is skipped, with a message.
 
-  Prints one line per binary, and exits with 0 if all passed.
+  Prints one line per binary ("FAILED regression: ..." for a failure), and exits with 0 if all
+  passed.
 */
 
 #include <cstdio>
@@ -51,13 +55,13 @@ bool checkUnload(const char* path)
 {
   void* handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
   if (!handle) {
-    std::printf("FAILED: %s: dlopen: %s\n", path, dlerror());
+    std::printf("FAILED regression: %s: dlopen: %s\n", path, dlerror());
     return false;
   }
   GetNumberOfPlugins getNumberOfPlugins = reinterpret_cast<GetNumberOfPlugins>(dlsym(handle, "OfxGetNumberOfPlugins"));
   GetPlugin getPlugin = reinterpret_cast<GetPlugin>(dlsym(handle, "OfxGetPlugin"));
   if (!getNumberOfPlugins || !getPlugin) {
-    std::printf("FAILED: %s: no OfxGetNumberOfPlugins or OfxGetPlugin\n", path);
+    std::printf("FAILED regression: %s: no OfxGetNumberOfPlugins or OfxGetPlugin\n", path);
     dlclose(handle);
     return false;
   }
@@ -69,19 +73,19 @@ bool checkUnload(const char* path)
   // (a negative number: thread-scope-test.ofx's checks of ThreadScope failed)
   bool ok = n >= 0;
   if (!ok) {
-    std::printf("FAILED: %s: OfxGetNumberOfPlugins() returned %d\n", path, n);
+    std::printf("FAILED regression: %s: OfxGetNumberOfPlugins() returned %d\n", path, n);
   }
   bool checkUnloaded = true;
 #ifdef __APPLE__
   Dl_info info;
   if (!dladdr(reinterpret_cast<void*>(getNumberOfPlugins), &info) || !info.dli_fbase) {
-    std::printf("FAILED: %s: dladdr\n", path);
+    std::printf("FAILED regression: %s: dladdr\n", path);
     dlclose(handle);
     return false;
   }
   const struct mach_header_64* h = static_cast<const struct mach_header_64*>(info.dli_fbase);
   if (h->flags & MH_HAS_TLV_DESCRIPTORS) {
-    std::printf("FAILED: %s has thread-local variables (MH_HAS_TLV_DESCRIPTORS): macOS never unloads it\n", path);
+    std::printf("FAILED regression: %s has thread-local variables (MH_HAS_TLV_DESCRIPTORS): macOS never unloads it\n", path);
     ok = false;
   }
   if (hasObjC(h)) {
@@ -91,12 +95,12 @@ bool checkUnload(const char* path)
 #endif
 
   if (dlclose(handle) != 0) {
-    std::printf("FAILED: %s: dlclose: %s\n", path, dlerror());
+    std::printf("FAILED regression: %s: dlclose: %s\n", path, dlerror());
     return false;
   }
   if (checkUnloaded) {
     if (void* again = dlopen(path, RTLD_LAZY | RTLD_LOCAL | RTLD_NOLOAD)) {
-      std::printf("FAILED: %s is still loaded after dlclose()\n", path);
+      std::printf("FAILED regression: %s is still loaded after dlclose()\n", path);
       dlclose(again);
       ok = false;
     } else if (ok) {

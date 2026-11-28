@@ -19,11 +19,16 @@
 ///   the host both support streams, the primary context current), the host's waits for the
 ///   stream (before reading back and before freeing the memory of images the plug-in released),
 ///   the precondition (the plug-in's or the host descriptor's "false"), "needed", and the CPU
-///   retry after kOfxStatGPURenderFailed, a failed stream or an allocation failure.
+///   retry after kOfxStatGPURenderFailed, a failed stream or an allocation failure; and the
+///   comparison of the renders catches unwritten (NaN) output pixels, on the CPU and with CUDA
+///   (for every GPU component: they share it, gpuRenderChecks.h).
 ///   Without the plug-in, the render checks are skipped, unless OFXH_REQUIRE=1 (CI).
 /// - A real CUDA device, if there is one: the copies, and GPUGain's CUDA render if it was built
 ///   with CUDA (OFX_SUPPORTS_CUDARENDER), compared with the expected pixels. Without a device or
 ///   that build, skipped, unless OFXH_REQUIRE_CUDA=1.
+/// GPURenderScope itself (another instance, nested scopes of every API) is checked by
+/// suiteHandleChecks (checkGPURenderScope()). All these checks are functional (#388, part 4 of
+/// #361).
 /// Exits with 1 if a check fails.
 
 #include <cstdint>
@@ -464,8 +469,7 @@ namespace {
   /// what the actions with kOfxImageEffectPropCudaEnabled 1 do
   enum class Actions {
     Plugin,      ///< the plug-in's (a real device)
-    FakeKernel,  ///< the checks' "kernel" on the fake device memory, as a CUDA plug-in would
-    RecordOnly   ///< nothing, whatever the inArgs (kOfxStatOK): the plug-in isn't called
+    FakeKernel   ///< the checks' "kernel" on the fake device memory, as a CUDA plug-in would
   };
 
   /// hostDemo's instance: records the CUDA inArgs of Begin/Render/EndSequenceRender
@@ -496,9 +500,6 @@ namespace {
         a.stream = a.hasStream ? inArgs->getPointerProperty(kOfxImageEffectPropCudaStream) : nullptr;
         a.context = Fake::current();
         args.push_back(a);
-        if (cudaActions == Actions::RecordOnly) {
-          return kOfxStatOK;
-        }
         if (a.enabled == 1 && cudaActions == Actions::FakeKernel) {
           return std::strcmp(action, kOfxImageEffectActionRender) == 0 ? fakeKernel(*inArgs, a.stream) : kOfxStatOK;
         }
@@ -607,6 +608,7 @@ namespace {
   // the checks
 
   /// the loader and the device list, on the fake driver
+  /// #388 (part 4 of #361).
   void checkLoader()
   {
     {
@@ -680,6 +682,7 @@ namespace {
   }
 
   /// the context and the streams, on the fake driver
+  /// #388.
   void checkStreams(CU::Device &device)
   {
     check("no context current outside a ContextScope", Fake::current() == nullptr);
@@ -748,98 +751,46 @@ namespace {
     check("the driver calls had the context they need", Fake::g.badCalls == 0 && Fake::tCurrent.empty());
   }
 
-  /// setOutput() copies image to device memory, readOutput() copies it back over garbage
+  /// a stream of device and a CUDA session on it (GPUChecks::checkCopies())
+  struct CUDASession {
+    CU::Stream stream;
+    CU::RenderSession session;
+    CUDASession(CU::Device &device, ImageEffect::Instance &instance) : stream(device), session(instance, stream) {}
+  };
+
+  /// the copies to device memory and back (GPUChecks::checkCopies()), on the fake driver (fake) or
+  /// on a CUDA device: packed rowBytes; on the fake driver, whose device memory is the CPU's, the
+  /// device rows are bottom up and packed, and cuMemAlloc out of memory fails the session
+  /// #388.
   void checkCopies(CU::Device &device, ImageEffect::Instance &instance, ImageEffect::ClipInstance &clip, bool fake)
   {
-    const char *depths[] = { kOfxBitDepthByte, kOfxBitDepthShort, kOfxBitDepthHalf, kOfxBitDepthFloat };
-    const char *components[] = { kOfxImageComponentRGBA, kOfxImageComponentRGB, kOfxImageComponentAlpha };
-    const OfxRectI bounds = { -3, 5, 14, 12 };
-    const std::string on = fake ? " (fake driver)" : " (CUDA device)";
-    for (const char *d : depths) {
-      for (const char *c : components) {
-        for (int rows : { 0, 1, -1 }) {
-          const std::string what = std::string(d) + " " + c + (rows == 0 ? " packed" : rows > 0 ? " padded" : " negative rowBytes") + on;
-          CU::Stream stream(device);
-          TestImage image(clip, d, c, bounds, rows);
-          const std::vector<char> before = image.pixels();
-          CU::RenderSession session(instance, stream);
-          ImageEffect::Image *out = session.setOutput(clip, image, bounds);
-          check(what + ": copied, with packed rowBytes and the CPU image's depth, components and bounds",
-                out && !session.failed() && out->getPointerProperty(kOfxImagePropData) != nullptr &&
-                out->getIntProperty(kOfxImagePropRowBytes) == image.packed &&
-                out->getStringProperty(kOfxImageEffectPropPixelDepth) == d &&
-                out->getStringProperty(kOfxImageEffectPropComponents) == c &&
-                out->getBounds().x1 == bounds.x1 && out->getBounds().y2 == bounds.y2);
-          if (fake && out) {
-            // the device memory is the CPU's here: its rows are bottom up and packed
-            const char *mem = static_cast<const char *>(out->getPointerProperty(kOfxImagePropData));
-            check(what + ": the device rows are bottom up and packed",
-                  std::vector<char>(mem, mem + before.size()) == before);
-          }
-          for (char &b : image.storage) {
-            b = 0x55;
-          }
-          check(what + ": read back", session.readOutput() && image.pixels() == before);
-          if (out) {
-            ImageEffect::Image *again = session.getImage(clip, nullptr);
-            check(what + ": getImage() of the output clip is the output, another reference",
-                  again == out && session.liveImages() == 1);
-            if (again) {
-              again->releaseReference();
-            }
-          }
-        }
-      }
+    GPUChecks::CopyChecks<CUDASession> c;
+    c.suffix = fake ? " (fake driver)" : " (CUDA device)";
+    c.make = [&] { return std::make_unique<CUDASession>(device, instance); };
+    c.copiedWhat = "with packed rowBytes and the CPU image's depth, components and bounds";
+    c.copied = [](ImageEffect::Image &out, const TestImage &image) { return out.getIntProperty(kOfxImagePropRowBytes) == image.packed; };
+    if (fake) {
+      c.afterCopy = [](ImageEffect::Image &out, const std::vector<char> &before, const std::string &what) {
+        const char *mem = static_cast<const char *>(out.getPointerProperty(kOfxImagePropData));
+        check(what + ": the device rows are bottom up and packed", std::vector<char>(mem, mem + before.size()) == before);
+      };
     }
-    for (int rows : { 0, 1, -1 }) {
-      // a render window inside the bounds: only its pixels go to the device and come back; a host
-      // pixel outside it, changed after setOutput(), keeps its new value
-      const std::string what = std::string(rows == 0 ? "packed" : rows > 0 ? "padded" : "negative rowBytes") + on;
-      CU::Stream stream(device);
-      TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, bounds, rows);
-      const OfxRectI inner = { 0, 7, 9, 11 };
-      CU::RenderSession session(instance, stream);
-      const std::vector<char> before = image.pixels();
-      const bool set = session.setOutput(clip, image, inner) != nullptr;
-      for (char &b : image.storage) {
-        b = 0x55;
-      }
-      bool ok = set && session.readOutput();
-      const int px = 4 * 4; // float RGBA
-      for (int y = bounds.y1; ok && y < bounds.y2; ++y) {
-        for (int x = bounds.x1; ok && x < bounds.x2; ++x) {
-          const bool in = x >= inner.x1 && x < inner.x2 && y >= inner.y1 && y < inner.y2;
-          const char *p = image.row(y - bounds.y1) + (x - bounds.x1) * px;
-          const char *b = &before[(static_cast<size_t>(y - bounds.y1) * (bounds.x2 - bounds.x1) + (x - bounds.x1)) * px];
-          for (int i = 0; ok && i < px; ++i) {
-            ok = in ? p[i] == b[i] : p[i] == 0x55;
-          }
-        }
-      }
-      check(what + ": readOutput() copies the render window back only; a pixel outside it keeps the host's value", ok);
-    }
-    {
-      // an empty image: no allocation of size 0
-      CU::Stream stream(device);
-      TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, { 0, 0, 0, 4 }, 0);
-      CU::RenderSession session(instance, stream);
-      check("an empty image: not copied, failed()" + on, !session.getImage(clip, &image) && session.failed());
-    }
+    GPUChecks::checkCopies(c, clip);
     if (fake) {
       // cuMemAlloc out of memory: the session failed, the CPU retry is allowed
-      CU::Stream stream(device);
-      TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, bounds, 0);
-      CU::RenderSession session(instance, stream);
+      TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, { -3, 5, 14, 12 }, 0);
+      CUDASession f(device, instance);
       Fake::g.failAlloc = true;
-      const bool none = !session.setOutput(clip, image, bounds);
+      const bool none = !f.session.setOutput(clip, image, { -3, 5, 14, 12 });
       Fake::g.failAlloc = false;
       check("cuMemAlloc out of memory: no output, failed(), status() kOfxStatGPUOutOfMemory, the CPU retry allowed",
-            none && session.failed() && session.status() == kOfxStatGPUOutOfMemory && CU::cudaFailed(session, kOfxStatOK) &&
-            CU::cpuRetryAllowed(instance, session, kOfxStatOK));
+            none && f.session.failed() && f.session.status() == kOfxStatGPUOutOfMemory && CU::cudaFailed(f.session, kOfxStatOK) &&
+            CU::cpuRetryAllowed(instance, f.session, kOfxStatOK));
     }
   }
 
   /// the renders of GPUGain on the fake driver (the checks' "kernel" for its CUDA one)
+  /// #388.
   void checkFakeRenders(MyHost::Host &host, CUDATestInstance &instance, CU::Device &device)
   {
     Property::Set &props = instance.getProps();
@@ -850,14 +801,17 @@ namespace {
     props.setStringProperty(kOfxImageEffectPropCudaStreamSupported, "true");
     props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "true");
 
-    check("chooseRenderMode(CUDA) = CUDA", CU::chooseRenderMode(instance, true) == CU::RenderMode::CUDA);
-    check("chooseRenderMode(no CUDA) = CPU", CU::chooseRenderMode(instance, false) == CU::RenderMode::CPU);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "false");
-    check("chooseRenderMode(no CUDA, plug-in CPU \"false\") = None", CU::chooseRenderMode(instance, false) == CU::RenderMode::None);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "true");
-    props.setStringProperty(kOfxImageEffectPropCudaRenderSupported, "false");
-    check("chooseRenderMode(CUDA, plug-in \"false\") = CPU", CU::chooseRenderMode(instance, true) == CU::RenderMode::CPU);
-    props.setStringProperty(kOfxImageEffectPropCudaRenderSupported, "true");
+    // chooseRenderMode(): CUDA if the plug-in and the host have it, else the CPU, or None if the
+    // plug-in can't render on the CPU either
+    const char *const cuda = kOfxImageEffectPropCudaRenderSupported, *const cpu = kOfxImageEffectPropCPURenderSupported;
+    GPUChecks::checkRules({
+      { "chooseRenderMode(CUDA) = CUDA", {}, [&] { return CU::chooseRenderMode(instance, true) == CU::RenderMode::CUDA; } },
+      { "chooseRenderMode(no CUDA) = CPU", {}, [&] { return CU::chooseRenderMode(instance, false) == CU::RenderMode::CPU; } },
+      { "chooseRenderMode(no CUDA, plug-in CPU \"false\") = None", { { &props, cpu, "false" } },
+        [&] { return CU::chooseRenderMode(instance, false) == CU::RenderMode::None; } },
+      { "chooseRenderMode(CUDA, plug-in \"false\") = CPU", { { &props, cuda, "false" } },
+        [&] { return CU::chooseRenderMode(instance, true) == CU::RenderMode::CPU; } },
+    });
     check("cudaStreamsSupported(): the plug-in and the host say \"true\"", ImageEffect::cudaStreamsSupported(instance));
 
     checkCopies(device, instance, *instance.getClip(kOfxImageEffectOutputClipName), true);
@@ -868,6 +822,10 @@ namespace {
           r.status == kOfxStatOK && r.maxError <= 1e-6f);
     check("CPU render: kOfxImageEffectPropCudaEnabled 0 and no kOfxImageEffectPropCudaStream in the inArgs",
           instance.args == expectedArgs(0, false, nullptr, nullptr));
+    // the comparison of every GPU component's checks (GPUChecks::renderGPUGain()) catches the pixels
+    // a render leaves unwritten (hostDemo's NaN sentinel), on the CPU here, with CUDA below
+    r = render(instance, device, false, "ramp", /*halfWindow=*/true);
+    check("a CPU render that leaves half the output unwritten (NaN): an infinite error", r.status == kOfxStatOK && r.maxError == INFINITY);
 
     // with a stream: the "kernel" runs when the host synchronizes the stream, after the plug-in
     // released its images
@@ -909,37 +867,41 @@ namespace {
           r.status == kOfxStatOK && r.maxError <= 1e-6f && instance.args.size() == 3 && instance.args[0].hasStream);
     props.setStringProperty(kOfxImageEffectPropCudaStreamSupported, "true");
 
-    // the precondition: "If a plug-in and host have both set kOfxImageEffectPropCudaRenderSupported="true""
-    props.setStringProperty(kOfxImageEffectPropCudaRenderSupported, "false");
-    r = render(instance, device, true, "ramp");
-    check("a session for a plug-in without CUDA: not CUDA (0 and no stream in the inArgs), nothing copied",
-          instance.args == expectedArgs(0, false, nullptr, ctx) && r.failed);
-    props.setStringProperty(kOfxImageEffectPropCudaRenderSupported, "true");
-    hostProps.setStringProperty(kOfxImageEffectPropCudaRenderSupported, "false");
-    r = render(instance, device, true, "ramp");
-    check("a session while the host's kOfxImageEffectPropCudaRenderSupported is \"false\": not CUDA",
-          instance.args == expectedArgs(0, false, nullptr, ctx));
-    hostProps.setStringProperty(kOfxImageEffectPropCudaRenderSupported, "true");
-    // "needed" (upstream main's @propdef of kOfxImageEffectPropCudaRenderSupported): CUDA, and
-    // nothing inferred about the CPU
-    props.setStringProperty(kOfxImageEffectPropCudaRenderSupported, "needed");
-    check("chooseRenderMode(plug-in \"needed\") = CUDA", CU::chooseRenderMode(instance, true) == CU::RenderMode::CUDA);
-    check("chooseRenderMode(plug-in \"needed\", no CUDA) = CPU (kOfxImageEffectPropCPURenderSupported decides)",
-          CU::chooseRenderMode(instance, false) == CU::RenderMode::CPU);
-    r = render(instance, device, true, "ramp");
-    check("a CUDA render of a plug-in that says \"needed\": CUDA, the expected pixels",
-          r.status == kOfxStatOK && r.readBack && instance.args.size() == 3 && instance.args[0].enabled == 1 &&
-          r.maxError <= 1e-6f);
-    props.setStringProperty(kOfxImageEffectPropCudaRenderSupported, "true");
-
-    // the CPU retry: kOfxStatGPURenderFailed (no source), a failed stream, an allocation failure
-    r = render(instance, device, true, "none");
-    check("CUDA render without a source: kOfxStatGPURenderFailed, the CPU retry allowed",
-          r.status == kOfxStatGPURenderFailed && r.failed && r.cpuRetry);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "false");
-    r = render(instance, device, true, "none");
-    check("the same, with kOfxImageEffectPropCPURenderSupported \"false\": no CPU retry", r.failed && !r.cpuRetry);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "true");
+    // the session's precondition: "If a plug-in and host have both set
+    // kOfxImageEffectPropCudaRenderSupported="true"" (else 0 and no stream in the inArgs); "needed"
+    // (upstream main's @propdef of kOfxImageEffectPropCudaRenderSupported): CUDA, and nothing
+    // inferred about the CPU; and the CPU retry: kOfxStatGPURenderFailed (GPUGain without a
+    // source), unless the plug-in can't render on the CPU
+    GPUChecks::checkRules({
+      { "a session for a plug-in without CUDA: not CUDA (0 and no stream in the inArgs), nothing copied", { { &props, cuda, "false" } },
+        [&] {
+          const RenderResult n = render(instance, device, true, "ramp");
+          return instance.args == expectedArgs(0, false, nullptr, ctx) && n.failed;
+        } },
+      { "a session while the host's kOfxImageEffectPropCudaRenderSupported is \"false\": not CUDA", { { &hostProps, cuda, "false" } },
+        [&] { render(instance, device, true, "ramp"); return instance.args == expectedArgs(0, false, nullptr, ctx); } },
+      { "chooseRenderMode(plug-in \"needed\") = CUDA", { { &props, cuda, "needed" } },
+        [&] { return CU::chooseRenderMode(instance, true) == CU::RenderMode::CUDA; } },
+      { "chooseRenderMode(plug-in \"needed\", no CUDA) = CPU (kOfxImageEffectPropCPURenderSupported decides)",
+        { { &props, cuda, "needed" } }, [&] { return CU::chooseRenderMode(instance, false) == CU::RenderMode::CPU; } },
+      { "a CUDA render of a plug-in that says \"needed\": CUDA, the expected pixels", { { &props, cuda, "needed" } },
+        [&] {
+          const RenderResult n = render(instance, device, true, "ramp");
+          return n.status == kOfxStatOK && n.readBack && instance.args.size() == 3 && instance.args[0].enabled == 1 &&
+            n.maxError <= 1e-6f;
+        } },
+      { "CUDA render without a source: kOfxStatGPURenderFailed, the CPU retry allowed", {},
+        [&] {
+          const RenderResult n = render(instance, device, true, "none");
+          return n.status == kOfxStatGPURenderFailed && n.failed && n.cpuRetry;
+        } },
+      { "the same, with kOfxImageEffectPropCPURenderSupported \"false\": no CPU retry", { { &props, cpu, "false" } },
+        [&] {
+          const RenderResult n = render(instance, device, true, "none");
+          return n.failed && !n.cpuRetry;
+        } },
+    });
+    // the CPU retry after a failed stream or an allocation failure
     {
       // the plug-in's kernel fails: the next cuStreamSynchronize reports it (a non-sticky error, once)
       const int frees = Fake::g.frees, allocs = Fake::g.allocs;
@@ -958,41 +920,6 @@ namespace {
       Fake::g.failAlloc = false;
       check("cuMemAlloc out of memory: failed, the CPU retry allowed", r.failed && r.cpuRetry && !r.readBack);
     }
-
-    // GPURenderScope itself: kOfxImageEffectPropCudaStream only with a stream, nothing for another
-    // instance or in a nested scope of API CPU
-    instance.cudaActions = Actions::RecordOnly;
-    int tag = 0;
-    {
-      ImageEffect::GPURenderScope scope(instance, ImageEffect::GPURenderScope::API::CUDA, nullptr);
-      render(instance, device, false, "ramp");
-      check("a GPURenderScope of API CUDA without a stream: kOfxImageEffectPropCudaEnabled 1, no kOfxImageEffectPropCudaStream",
-            instance.args == expectedArgs(1, false, nullptr, nullptr));
-    }
-    {
-      ImageEffect::GPURenderScope scope(instance, ImageEffect::GPURenderScope::API::CUDA, &tag);
-      render(instance, device, false, "ramp");
-      check("a GPURenderScope of API CUDA with a stream: kOfxImageEffectPropCudaStream is it",
-            instance.args == expectedArgs(1, true, &tag, nullptr));
-      instance.getProps().setStringProperty(kOfxImageEffectPropCudaStreamSupported, "false");
-      render(instance, device, false, "ramp");
-      check("... but not if the plug-in's kOfxImageEffectPropCudaStreamSupported is \"false\" (HostSupport checks it too)",
-            instance.args == expectedArgs(1, false, nullptr, nullptr));
-      instance.getProps().setStringProperty(kOfxImageEffectPropCudaStreamSupported, "true");
-      {
-        ImageEffect::GPURenderScope inner(instance, ImageEffect::GPURenderScope::API::CPU, &tag);
-        render(instance, device, false, "ramp");
-        check("a nested GPURenderScope of API CPU: no CUDA in the inArgs", instance.args == expectedArgs(0, false, nullptr, nullptr));
-      }
-    }
-    {
-      ImageEffect::GPURenderScope metal(instance, ImageEffect::GPURenderScope::API::Metal, &tag);
-      render(instance, device, false, "ramp");
-      check("a GPURenderScope of another API: kOfxImageEffectPropCudaEnabled 0, no kOfxImageEffectPropCudaStream",
-            instance.args == expectedArgs(0, false, nullptr, nullptr));
-    }
-    instance.cudaActions = Actions::Plugin;
-    check("no scope left", ImageEffect::GPURenderScope::find(instance) == nullptr);
 
     {
       // a session that ends with the plug-in's work still pending on its stream (no readOutput():
@@ -1099,6 +1026,7 @@ namespace {
   }
 
   /// the renders of GPUGain built with CUDA on a real device (never run in CI)
+  /// #388.
   void checkDeviceRenders(CUDATestInstance &instance, CU::Device &device)
   {
     checkCopies(device, instance, *instance.getClip(kOfxImageEffectOutputClipName), false);

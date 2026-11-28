@@ -6,9 +6,9 @@ tests run everywhere.
 
 With a device and GPUGain built with its CUDA kernel (OFX_SUPPORTS_CUDARENDER): the tests marked cuda, which
 CI deselects (-m "not cuda"): it has no CUDA device; without a device they skip, and fail with
-OFXH_REQUIRE_CUDA=1. The library's logic on a fake CUDA driver is in cudaRenderChecks (HostSupport/examples),
-which CI runs. The tests that CUDA shares with OpenCL and Metal (a CPU plug-in, the CPU retry, the session's own
-check) are in test_gpu_apis.py.
+OFXH_REQUIRE_CUDA=1. The library's logic on a fake CUDA driver is in cudaRenderChecks
+(HostSupport/tests/functional), which CI runs. The tests that CUDA shares with OpenCL and Metal (a CPU
+plug-in, the CPU retry, the session's own check) are in test_gpu_apis.py.
 """
 
 import numpy as np

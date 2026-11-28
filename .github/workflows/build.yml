@@ -178,15 +178,15 @@ jobs:
           cmake --build build-ci-natron --parallel 4
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test && Support/support-library-test)
           # openfx::HostSupportCUDA with the extensions, on its fake CUDA driver
-          OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/examples/cudaRenderChecks
+          OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/tests/cudaRenderChecks
           # openfx::HostSupportOpenGL with the Natron context data (EGL, Mesa llvmpipe; OFXH_REQUIRE=1)
-          OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/examples/openglRenderChecks
+          OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/tests/openglRenderChecks
           # the GLX backend, on an X server of its own (Xvfb, Mesa llvmpipe)
           OFXH_OPENGL_BACKENDS=glx OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
-            xvfb-run -a build-ci-natron/HostSupport/examples/openglRenderChecks
+            xvfb-run -a build-ci-natron/HostSupport/tests/openglRenderChecks
           # the HostSupport checks with the extensions (e.g. kFnOfxImageEffectPropComponentsPresent)
-          SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
-            build-ci-natron/HostSupport/examples/suiteHandleChecks > suitehandlechecks-natron.log 2>&1 \
+          OFXH_REQUIRE=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
+            build-ci-natron/HostSupport/tests/suiteHandleChecks > suitehandlechecks-natron.log 2>&1 \
             || { cat suitehandlechecks-natron.log; exit 1; }
           PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" python -m pytest -m "not opencl and not metal and not cuda" HostSupport/python/tests
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
@@ -213,7 +213,7 @@ jobs:
             -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
           cmake --build build-ci-opencl --parallel 4 --target example-GPUGain-support example-Invert-support \
             openclRenderChecks hostDemo ofxh
-          OFX_PLUGIN_PATH="$PWD/build-ci-opencl/Plugins" build-ci-opencl/HostSupport/examples/openclRenderChecks
+          OFX_PLUGIN_PATH="$PWD/build-ci-opencl/Plugins" build-ci-opencl/HostSupport/tests/openclRenderChecks
           # the Python host on PoCL (the tests marked opencl, which the other runs deselect): the ofxh
           # module's OpenCL renders, and hostDemo --gpu=opencl against the in-process backend
           PYTHONPATH="$PWD/build-ci-opencl/HostSupport/python" python -m pytest -m opencl HostSupport/python/tests
@@ -282,14 +282,14 @@ jobs:
           # (OBJC_DEBUG_MISSING_POOLS: an object autoreleased on a thread without a pool, as a host's
           # render thread may be, is a leak; the component must leave none)
           OBJC_DEBUG_MISSING_POOLS=YES OFX_PLUGIN_PATH="$PWD/build-ci/Plugins" \
-            build-ci/HostSupport/examples/metalRenderChecks 2> metalrenderchecks.err || { cat metalrenderchecks.err; exit 1; }
+            build-ci/HostSupport/tests/metalRenderChecks 2> metalrenderchecks.err || { cat metalrenderchecks.err; exit 1; }
           cat metalrenderchecks.err
           if grep -q "autoreleased with no pool" metalrenderchecks.err; then
             echo "::error::metalRenderChecks: objects autoreleased with no pool in place"
             # where: their backtraces (lldb on objc_autoreleaseNoPool)
             OBJC_DEBUG_MISSING_POOLS=YES OFX_PLUGIN_PATH="$PWD/build-ci/Plugins" lldb --batch \
               -o "breakpoint set -n objc_autoreleaseNoPool" -o "breakpoint command add -o 'bt 16' -o continue 1" \
-              -o run -- build-ci/HostSupport/examples/metalRenderChecks > metalrenderchecks-nopool.log 2>&1 || true
+              -o run -- build-ci/HostSupport/tests/metalRenderChecks > metalrenderchecks-nopool.log 2>&1 || true
             grep -A17 "stop reason = breakpoint" metalrenderchecks-nopool.log || tail -50 metalrenderchecks-nopool.log
             exit 1
           fi
@@ -406,9 +406,9 @@ jobs:
           # getStdOFXPluginPath() and setPluginHostPath() (#324)
           shc=$(find build -name suiteHandleChecks.exe -type f | head -1)
           test -n "$shc" || { echo "suiteHandleChecks was not built"; exit 1; }
-          SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$(cygpath -w "$PWD/build/Plugins")" \
+          OFXH_REQUIRE=1 OFX_PLUGIN_PATH="$(cygpath -w "$PWD/build/Plugins")" \
             "$shc" > suitehandlechecks.log 2>&1 || { cat suitehandlechecks.log; exit 1; }
-          tail -1 suitehandlechecks.log
+          tail -3 suitehandlechecks.log
       - name: Install
         run: |
           set -eo pipefail

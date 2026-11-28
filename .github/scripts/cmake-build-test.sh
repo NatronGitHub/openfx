@@ -30,12 +30,14 @@ cmake --build "$build" --parallel
 dst=$(find "$build" -name drawsuite-opengl-test -type f -perm -u+x | head -1)
 test -n "$dst" || { echo "drawsuite-opengl-test was not built"; exit 1; }
 "$dst"
-# the Support library self-test that needs no host (Support/tests/SupportLibraryTest.cpp)
+# the Support library self-test that needs no host: the functional tests (Support/tests/SupportLibraryTest.cpp)
+# and the regression tests (Support/tests/regression/; their failures print "FAILED regression:")
 slt=$(find "$build" -name support-library-test -type f -perm -u+x | head -1)
 test -n "$slt" || { echo "support-library-test was not built"; exit 1; }
 "$slt"
+# regression test of #385 (Support/tests/regression/PluginUnloadTest.cpp; "FAILED regression:"):
 # every example plug-in binary is really unloaded by dlclose(), and on macOS has no thread-local
-# variables, which dyld never unloads (Support/tests/PluginUnloadTest.cpp, #385)
+# variables, which dyld never unloads
 put=$(find "$build" -name plugin-unload-test -type f -perm -u+x | head -1)
 test -n "$put" || { echo "plugin-unload-test was not built"; exit 1; }
 plugins=()
@@ -53,14 +55,14 @@ test -n "$tsd" || { echo "thread-scope-test-default.ofx was not built"; exit 1; 
 dct=$(find "$build" -name drawcontext-opengl-test -type f -perm -u+x | head -1)
 test -n "$dct" || { echo "drawcontext-opengl-test was not built"; exit 1; }
 (cd "$build" && "$dct")  # (writes ofxPluginLog.txt)
-# openfx::HostSupportOpenGL (HostSupport/examples/openglRenderChecks.cpp): Linux with EGL
+# openfx::HostSupportOpenGL (HostSupport/tests/functional/openglRenderChecks.cpp): Linux with EGL
 # (Mesa llvmpipe in CI), macOS with CGL. It skips its OpenGL checks without a context, unless
 # OFXH_REQUIRE=1, which build.yml sets for all jobs: the macOS job (not required for merging)
 # then needs a CGL context too (the runners have Apple's software renderer)
 grc=$(find "$build" -name openglRenderChecks -type f -perm -u+x | head -1)
 test -n "$grc" || { echo "openglRenderChecks was not built"; exit 1; }
 (cd "$build" && OFX_PLUGIN_PATH="$build/Plugins" "$grc")
-# openfx::HostSupportCUDA (HostSupport/examples/cudaRenderChecks.cpp): on a fake CUDA driver, with
+# openfx::HostSupportCUDA (HostSupport/tests/functional/cudaRenderChecks.cpp): on a fake CUDA driver, with
 # GPUGain (OFXH_REQUIRE=1: the plug-in is required); the checks on a real device are skipped (CI has
 # no CUDA device; OFXH_REQUIRE_CUDA=1 would require one)
 crc=$(find "$build" -name cudaRenderChecks -type f -perm -u+x | head -1)
@@ -86,6 +88,6 @@ test "$bundles" = "example-Basic.ofx.bundle " || { echo "install --component exa
 bin=$(dirname "$(find "$build" -name hostDemo -type f -perm -u+x | head -1)")
 mkdir -p "$build/checks"
 cd "$build/checks"
-"$root/.github/scripts/hostdemo-checks.sh" "$bin" "$build/Plugins"
+"$root/.github/scripts/hostdemo-checks.sh" "$bin" "$build/Plugins" "$build/HostSupport/tests"
 "$root/.github/scripts/cmake-plugin-project.sh" "$build/install" "$build/plugin project"  # a space: osxDeploy.sh and the helpers quote paths
 "$root/.github/scripts/cmake-host-project.sh" "$build/host project"

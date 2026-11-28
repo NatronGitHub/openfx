@@ -39,66 +39,9 @@ add_executable(propsetDump
 	hostDemoParamInstance.cpp)
 target_link_libraries(propsetDump PRIVATE OfxHost)
 
-# unit checks of HostSupport on hostDemo's host classes (run by .github/scripts/hostdemo-checks.sh)
-add_executable(suiteHandleChecks
-	suiteHandleChecks.cpp
-	hostDemoClipInstance.cpp
-	hostDemoEffectInstance.cpp
-	hostDemoHostDescriptor.cpp
-	hostDemoParamInstance.cpp)
-target_link_libraries(suiteHandleChecks PRIVATE OfxHost)
-
-# checks of openfx::HostSupportOpenGL, with Examples/OpenGL (skipped without an OpenGL context,
-# unless OFXH_REQUIRE=1)
-if(OFX_HOSTSUPPORT_OPENGL)
-	add_executable(openglRenderChecks
-		openglRenderChecks.cpp
-		hostDemoClipInstance.cpp
-		hostDemoEffectInstance.cpp
-		hostDemoHostDescriptor.cpp
-		hostDemoParamInstance.cpp)
-	target_link_libraries(openglRenderChecks PRIVATE OfxHostOpenGL)
-endif()
-
-# checks of openfx::HostSupportOpenCL, with Support/Plugins/GPUGain built with
-# OFX_SUPPORTS_OPENCLRENDER (skipped without an OpenCL device or the plug-in, unless OFXH_REQUIRE=1)
-if(OFX_HOSTSUPPORT_OPENCL)
-	add_executable(openclRenderChecks
-		openclRenderChecks.cpp
-		hostDemoClipInstance.cpp
-		hostDemoEffectInstance.cpp
-		hostDemoHostDescriptor.cpp
-		hostDemoParamInstance.cpp)
-	target_link_libraries(openclRenderChecks PRIVATE OfxHostOpenCL)
-endif()
-
-# checks of openfx::HostSupportMetal, with Support/Plugins/GPUGain built with Metal
-# (OFX_EXAMPLE_GPUGAIN_METAL; skipped without a Metal device or the plug-in, unless OFXH_REQUIRE=1)
-if(OFX_HOSTSUPPORT_METAL)
-	add_executable(metalRenderChecks
-		metalRenderChecks.cpp
-		metalRenderChecksKernel.mm
-		hostDemoClipInstance.cpp
-		hostDemoEffectInstance.cpp
-		hostDemoHostDescriptor.cpp
-		hostDemoParamInstance.cpp)
-	target_link_libraries(metalRenderChecks PRIVATE OfxHostMetal)
-	set_source_files_properties(metalRenderChecksKernel.mm PROPERTIES COMPILE_OPTIONS -fobjc-arc)
-endif()
-
-# checks of openfx::HostSupportCUDA: on a fake CUDA driver (always), with Support/Plugins/GPUGain
-# from OFX_PLUGIN_PATH; and on a real CUDA device, if any (skipped without one, unless
-# OFXH_REQUIRE_CUDA=1)
-if(OFX_HOSTSUPPORT_CUDA)
-	add_executable(cudaRenderChecks
-		cudaRenderChecks.cpp
-		hostDemoClipInstance.cpp
-		hostDemoEffectInstance.cpp
-		hostDemoHostDescriptor.cpp
-		hostDemoParamInstance.cpp)
-	target_link_libraries(cudaRenderChecks PRIVATE OfxHostCUDA)
-endif()
+# (the check programs that reuse these host classes, suiteHandleChecks and the GPU components'
+# checks, are in HostSupport/tests)
 
 if(OFX_INSTALL) # (OFF under add_subdirectory(openfx))
-	install(TARGETS hostDemo cacheDemo propsetDump suiteHandleChecks RUNTIME DESTINATION bin)
+	install(TARGETS hostDemo cacheDemo propsetDump RUNTIME DESTINATION bin)
 endif()

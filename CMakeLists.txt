@@ -93,7 +93,7 @@ set(OFX_EXTRA_DEFINITIONS "" CACHE STRING
 
 
 option(BUILD_EXAMPLE_PLUGINS "Build the example plug-ins (Examples/, Support/Plugins/, Support/PropTester/)" OFF)
-option(BUILD_EXAMPLE_HOSTS "Build the example hosts (HostSupport/examples: hostDemo, cacheDemo, propsetDump, suiteHandleChecks)" OFF)
+option(BUILD_EXAMPLE_HOSTS "Build the example hosts (HostSupport/examples: hostDemo, cacheDemo, propsetDump) and the check programs of HostSupport/tests" OFF)
 option(OFX_PYTHON_BINDINGS "HostSupport Python bindings (nanobind)" OFF)
 # openfx::HostSupportOpenGL (HostSupport/include/ofxhOpenGL*.h): offscreen OpenGL contexts, textures
 # and renders for hosts that implement the OpenGL render suite. Needs OFX_SUPPORTS_OPENGLRENDER.

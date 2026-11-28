@@ -487,7 +487,7 @@ OpenGL render (a plug-in fetching a CPU image in OpenGL mode) does the
 same: ``suspend()`` the session's ``CurrentContext`` before rendering, and
 ``resume()`` it after. The header
 of ``ofxhOpenGLRender.h`` shows the sequence, and
-``HostSupport/examples/openglRenderChecks.cpp`` runs it.
+``HostSupport/tests/functional/openglRenderChecks.cpp`` runs it.
 
 OpenCL Rendering
 ----------------
@@ -535,7 +535,7 @@ re-attempt using CPU buffers instead"): ``cpuRetryAllowed()`` says when the
 plug-in can. The rule is the OpenGL one, ``ImageEffect::gpuRenderFailed()``
 and ``ImageEffect::canRenderOnCPU()`` in ``ofxhImageEffect.h``; OpenGL adds
 that a plug-in whose :c:macro:`kOfxImageEffectPropOpenGLRenderSupported` is
-``"needed"`` has no CPU render. ``HostSupport/examples/openclRenderChecks.cpp`` runs a render
+``"needed"`` has no CPU render. ``HostSupport/tests/functional/openclRenderChecks.cpp`` runs a render
 with the GPUGain sample.
 
 ``Device::compileProgram()`` implements the OpenCL program suite
@@ -602,7 +602,7 @@ are given as ``void *``.
    no queue-wide error).
 
 The CPU retry is the OpenCL one (``cpuRetryAllowed()``).
-``HostSupport/examples/metalRenderChecks.cpp`` runs a render with the
+``HostSupport/tests/functional/metalRenderChecks.cpp`` runs a render with the
 GPUGain sample (buffers), and checks the textures with its own kernels
 (GPUGain has no texture path).
 
@@ -651,7 +651,7 @@ time, unless the host gives its own loader.
 
 The CPU retry is the OpenCL one (``cpuRetryAllowed()``), also after a stream
 or a copy failed; ``RenderSession::status()`` gives the failure as
-:c:macro:`kOfxStatGPUOutOfMemory` or :c:macro:`kOfxStatGPURenderFailed`. ``HostSupport/examples/cudaRenderChecks.cpp`` checks the
+:c:macro:`kOfxStatGPUOutOfMemory` or :c:macro:`kOfxStatGPURenderFailed`. ``HostSupport/tests/functional/cudaRenderChecks.cpp`` checks the
 library on a fake CUDA driver, on any machine, and on a CUDA device with the
 GPUGain sample built with CUDA, if there is one.
 
