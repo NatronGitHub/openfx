@@ -130,6 +130,11 @@ Support/Plugins/tests/conftest.py).
 the HostSupport Python bindings (the `ofxh` module, built with `-DOFX_PYTHON_BINDINGS=ON`). It renders one frame of a plug-in on one input, and is a template:
 which classes to subclass, and what each override does
 (`PYTHONPATH=<build>/HostSupport/python python minimal_host.py <plugin dir> <plugin id> in.npy out.npy`).
+`list_gpus.py` lists, for each GPU API, whether `ofxh` was built with it and its renderers or devices,
+with the `ofxh.init()` arguments that choose each (`python list_gpus.py [--json]`); Metal on macOS only, CUDA
+everywhere but macOS (`--json` has no key for the other). An empty list says why: `ofxh.opencl_devices()`,
+`metal_devices()` and `cuda_devices()` take `with_error=True` and then return `(list, why)` (`why` is `""` if
+the list isn't empty); `opengl_renderers()` has no reason to give.
 The module can also be installed alone, with `pip install ./HostSupport/python`
 (`HostSupport/python/pyproject.toml`, scikit-build-core). Its tests are in `HostSupport/python/tests`.
 
@@ -228,6 +233,13 @@ The module can also be installed alone, with `pip install ./HostSupport/python`
   that renderer, e.g. `--gpu-renderer=egl-device:1`. If that context can't be made, it is an error
   (status 1, no report), not a fallback to the CPU. In Python: `ofxh.opengl_renderers(backends)`,
   and `ofxh.init(opengl=True, opengl_backends=[...], opengl_renderer=id)`.
+- `--gpu-devices` lists, under a heading per GPU API of the build ("OpenGL renderers:", "OpenCL devices:",
+  "Metal devices:" on macOS, "CUDA devices:" elsewhere: macOS has no CUDA driver), the OpenGL renderers as
+  `--gpu-renderers` does, then the OpenCL (`PLATFORM:DEVICE`), Metal and CUDA (index) devices, one per line,
+  with their facts ("  (none)" under an empty heading, and why on stderr, but for OpenGL), and exits. The ids of
+  OpenCL, Metal and CUDA are those of `ofxh.init()`: no hostDemo option takes them. Each entry is
+  `ID<TAB>description`: programs should read only the id, as the description is for people and may change;
+  scripts that need the details should use `list_gpus.py --json`.
 - `--gpu=opencl` renders with OpenCL the plug-ins that can, on an OpenCL device of
   openfx::HostSupportOpenCL (the first GPU, else the first device; builds with `OFX_HOSTSUPPORT_OPENCL`):
   the host then sets kOfxImageEffectPropOpenCLRenderSupported (Buffers) to "true", and

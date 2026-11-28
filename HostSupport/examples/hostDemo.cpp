@@ -805,6 +805,11 @@ static void usage(const char* prog)
     "  --gpu-renderer=BACKEND:ID  with --gpu=opengl: the renderer of the context, one of --gpu-renderers\n"
     "                     (e.g. egl-device:0, glx:-1, cgl:<renderer ID>); no context on it is an error\n"
     "  --gpu-renderers    list the OpenGL renderers as BACKEND:ID and their names, and exit\n"
+    "  --gpu-devices      list the GPU renderers and devices of the APIs of this build, under a heading\n"
+    "                     per API, and exit: the OpenGL renderers (as --gpu-renderers), the OpenCL\n"
+    "                     devices as PLATFORM:DEVICE, the Metal (macOS) and CUDA (not macOS) devices as\n"
+    "                     their index (the ids of the ofxh module's init(): --gpu=opencl, metal and cuda\n"
+    "                     take the default device); \"(none)\" under an empty heading, and why on stderr\n"
     "  --multiplane       be a multi-plane host (kFnOfxImageEffectPropMultiPlanar, the plane suites,\n"
     "                     the GetClipComponents action; Nuke-extension builds only)\n"
     "  --no-normalised-defaults  be a host without normalised parameter defaults: double params\n"
@@ -1689,6 +1694,7 @@ static int run(int argc, char **argv)
   bool gpuOpenGL = false;      ///< --gpu=opengl
   std::string gpuRenderer;     ///< --gpu-renderer=BACKEND:ID
   bool gpuRenderers = false;   ///< --gpu-renderers
+  bool gpuDevices = false;     ///< --gpu-devices
   bool gpuOpenCL = false;      ///< --gpu=opencl
   bool gpuMetal = false;       ///< --gpu=metal
   bool gpuCUDA = false;        ///< --gpu=cuda
@@ -1740,6 +1746,8 @@ static int run(int argc, char **argv)
       gpuRenderer = arg.substr(15);
     } else if (arg == "--gpu-renderers") {
       gpuRenderers = true;
+    } else if (arg == "--gpu-devices") {
+      gpuDevices = true;
     } else if (arg == "--multiplane") {
 #ifdef OFX_EXTENSIONS_NUKE
       multiPlane = true;
@@ -1970,17 +1978,79 @@ static int run(int argc, char **argv)
     gpuBackends.assign(1, backend);
     gpuRendererId = static_cast<int>(id);
   }
-  if (gpuRenderers) {
-    for (const GL::RendererInfo &r : GL::listRenderers(GL::Hooks())) {
+  if (gpuRenderers || gpuDevices) {
+    if (gpuDevices) {
+      std::cout << "OpenGL renderers:\n";
+    }
+    const std::vector<GL::RendererInfo> renderers = GL::listRenderers(GL::Hooks());
+    if (gpuDevices && renderers.empty()) {
+      std::cout << "  (none)\n";
+    }
+    for (const GL::RendererInfo &r : renderers) {
       std::cout << GL::backendName(r.backend) << ":" << r.id << "\t" << r.renderer << " (" << r.vendor << ", "
                 << r.version << ", GLSL " << (r.shadingLanguageVersion.empty() ? "-" : r.shadingLanguageVersion)
                 << ", " << (r.videoMemoryBytes > 0 ? std::to_string(r.videoMemoryBytes >> 20) + " MiB" : "Unknown")
                 << (r.software ? ", software" : "") << ")\n";
     }
+    if (!gpuDevices) {
+      std::cout.flush();
+      return 0;
+    }
+  }
+#endif
+  if (gpuDevices) {
+    // (the rest of --gpu-devices: the ids are those of the ofxh module's init(), see its README)
+    // an empty list: why, on stderr (stdout is the same as the Python host's)
+    std::string why;
+    auto noDevice = [&why](const char *api) {
+      if (!why.empty()) {
+        std::cout.flush();
+        std::cerr << "Warning: --gpu-devices: no " << api << " device (" << why << ")" << std::endl;
+      }
+    };
+    (void)noDevice;  // (unused in builds without OpenCL, Metal and CUDA)
+#ifdef HOSTDEMO_OPENCL
+    std::cout << "OpenCL devices:\n";
+    const std::vector<CL::DeviceInfo> clDevices = CL::listDevices(CL::Hooks(), &why);
+    if (clDevices.empty()) {
+      std::cout << "  (none)\n";
+      noDevice("OpenCL");
+    }
+    for (const CL::DeviceInfo &d : clDevices) {
+      std::cout << d.platform << ":" << d.device << "\t" << d.name << " (" << d.vendor << ", " << d.platformName
+                << ", " << d.version << ", driver " << d.driverVersion << ", " << (d.globalMemSize >> 20) << " MiB"
+                << (d.gpu ? ", GPU" : "") << (d.imageSupport ? ", images" : "") << ")\n";
+    }
+#endif
+#ifdef HOSTDEMO_METAL
+    std::cout << "Metal devices:\n";
+    const std::vector<MT::DeviceInfo> mtDevices = MT::listDevices(MT::Hooks(), &why);
+    if (mtDevices.empty()) {
+      std::cout << "  (none)\n";
+      noDevice("Metal");
+    }
+    for (const MT::DeviceInfo &d : mtDevices) {
+      std::cout << d.index << "\t" << d.name << " (" << (d.recommendedMaxWorkingSetSize >> 20) << " MiB working set"
+                << (d.unifiedMemory ? ", unified memory" : "") << (d.systemDefault ? ", system default" : "") << ")\n";
+    }
+#endif
+#if defined(HOSTDEMO_CUDA) && !defined(__APPLE__)
+    // (macOS has no CUDA driver: HostSupportCUDA builds there only for its checks on a fake driver)
+    std::cout << "CUDA devices:\n";
+    const std::vector<CU::DeviceInfo> cuDevices = CU::listDevices(CU::Hooks(), &why);
+    if (cuDevices.empty()) {
+      std::cout << "  (none)\n";
+      noDevice("CUDA");
+    }
+    for (const CU::DeviceInfo &d : cuDevices) {
+      std::cout << d.index << "\t" << d.name << " (" << d.uuid << ", compute " << d.computeMajor << "." << d.computeMinor
+                << ", PCI " << d.pciBusId << ", " << (d.totalMem >> 20) << " MiB, driver " << d.driverVersion / 1000
+                << "." << d.driverVersion % 1000 / 10 << ")\n";
+    }
+#endif
     std::cout.flush();
     return 0;
   }
-#endif
 #ifndef OFX_SUPPORTS_OPENGLRENDER
   if (openglDescribe) {
     std::cerr << "Error: --opengl-describe: hostDemo was built without OFX_SUPPORTS_OPENGLRENDER (no OpenGL render suite)" << std::endl;

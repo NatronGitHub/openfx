@@ -561,6 +561,39 @@ def test_gpu_renderers(tmp_path, hosts, sample_plugins):
         assert not (sd / "r.json").exists() and not (idir / "r.json").exists(), (bad, gpu)
 
 
+def test_gpu_devices(tmp_path, hosts, sample_plugins):
+    """--gpu-devices prints the same lists in both, under a heading per API of the build and the platform
+    (no Metal off macOS, no CUDA on macOS), "(none)" under an empty one (and the same reason on stderr),
+    the OpenGL renderers as --gpu-renderers prints them, and exits 0."""
+    import ofxh
+    s, i, _, _ = _compare(tmp_path / "devices", hosts, sample_plugins, ["--gpu-devices"], report=False)
+    assert s.returncode == 0, s.stderr
+    # (why a list is empty, on stderr: the same in both)
+    warnings = [[x for x in p.stderr.splitlines() if x.startswith("Warning: --gpu-devices: ")] for p in (s, i)]
+    assert warnings[0] == warnings[1]
+    sections: dict = {}  # heading: its lines (KeyError None if a line comes before the first heading)
+    heading = None
+    for line in s.stdout.splitlines():
+        if line.startswith(" ") or "\t" in line:
+            sections[heading].append(line)
+        else:
+            heading = line
+            sections[heading] = []
+    apis = [("OpenGL", "renderers"), ("OpenCL", "devices"),
+            ("Metal" if sys.platform == "darwin" else "CUDA", "devices")]
+    assert list(sections) == [f"{api} {kind}:" for api, kind in apis
+                              if ofxh.build_config[f"OFX_HOSTSUPPORT_{api.upper()}"]]
+    for heading, lines in sections.items():
+        assert lines == ["  (none)"] or (lines and all("\t" in x for x in lines)), (heading, lines)
+    # (a warning for each empty list but OpenGL's: the others always give a reason)
+    assert len(warnings[0]) == sum(lines == ["  (none)"] for heading, lines in sections.items()
+                                   if heading != "OpenGL renderers:"), (warnings[0], sections)
+    if ofxh.build_config["OFX_HOSTSUPPORT_OPENGL"]:
+        r, _, _, _ = _compare(tmp_path / "renderers", hosts, sample_plugins, ["--gpu-renderers"], report=False)
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.splitlines() == [x for x in sections["OpenGL renderers:"] if x != "  (none)"]
+
+
 # --- --gpu=opencl ------------------------------------------------------------------------------
 
 def _need_opencl(tmp_path, hosts, sample_plugins):
