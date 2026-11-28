@@ -476,6 +476,12 @@ run with pytest. The ``ofxh`` bindings have their own tests, in
        python3 -m pytest -q -rs HostSupport/examples/python/tests Support/Plugins/tests
    PYTHONPATH=build/HostSupport/python python3 -m pytest -q -rs HostSupport/python/tests
 
+Each of the three test directories has a ``functional/`` subdirectory,
+for the contracts (the OFX specification, the APIs, hostDemo's command
+line and report), and a ``regression/`` one, for the past bugs, each
+test naming its issue or pull request; the shared fixtures and helpers
+are at the top of the directory.
+
 The README's
 `Tests <https://github.com/NatronGitHub/openfx/blob/master/HostSupport/examples/python/README.md#tests>`__
 section says what each test file covers.

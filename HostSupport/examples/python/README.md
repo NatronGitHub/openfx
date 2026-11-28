@@ -592,12 +592,12 @@ same output files (`<prefix>.<t>[l|r].ppm`, or `.pfm` and `.alpha.pfm`) and the 
 and `--describe` JSON, prints the plug-ins' messages on stdout as hostDemo (`<type> <id> <text>`,
 also with `--quiet`), and has the same exit status (0, or 1 on failure). Like hostDemo, it runs in
 the current directory, one run per process (so a harness keeps its crash isolation, timeouts and
-parallel jobs; the batch mode below runs many in one Python), and unloads the plug-ins at the end, after writing the report. `tests/test_hostdemo_cli.py`
+parallel jobs; the batch mode below runs many in one Python), and unloads the plug-ins at the end, after writing the report. `tests/functional/test_hostdemo_cli.py`
 runs the consumers' command lines with both and compares the files byte for byte, the reports and
 the error messages. The `ofxh` module is that of `PYTHONPATH`, else of the build tree that holds
 the `$OFX_PLUGIN_PATH` directories.
 
-What differs from hostDemo (the complete list; `tests/test_hostdemo_cli.py` checks the rest):
+What differs from hostDemo (the complete list; `tests/functional/test_hostdemo_cli.py` checks the rest):
 - the report's `host.name` is ofxh's (`net.sf.openfx.ofxh`);
 - the report's `plugin.filePath` is absolute (ofxh's plug-in paths are; hostDemo's is the path as
   found in `$OFX_PLUGIN_PATH`);
@@ -756,15 +756,18 @@ OFX_TEST_PLUGIN_PATH=build/Plugins PYTHONPATH=build/HostSupport/python OFXHOST_H
 
 Support/Plugins/tests has tests of the sample plug-ins, meant as templates for plug-in repos (see
 its README.md). Both directories run on the two backends (without the ofxh module, the in-process
-tests are skipped; `OFXH_REQUIRE=1` makes them fail instead, as in CI), and `tests/test_backends.py`
-checks that the backends give the same pixels and reports. `tests/test_hostdemo_cli.py` runs
-hostDemo and `ofxhost.hostdemo` on the same command lines (those of the plug-in repositories) and
-compares their files, reports and errors; `tests/test_beyond_hostdemo.py` covers per-input
-components, the files of `extra_args`, a worker thread that fetches the output image first, and the
-sample host's planning; `tests/test_graph.py` and `tests/test_graphhost.py` the graphs and the
-sample host; `tests/test_hostdemo_batch.py` the batch mode (its parser, the same files, reports and
-output as separate runs, the host's lifetime, and workers that crash or hang). CI runs them in the
-Linux job, on both backends.
+tests are skipped; `OFXH_REQUIRE=1` makes them fail instead, as in CI). `tests/functional/` has the
+tests of the contracts: `test_backends.py` checks that the backends give the same pixels and
+reports; `test_hostdemo_cli.py` runs hostDemo and `ofxhost.hostdemo` on the same command lines
+(those of the plug-in repositories) and compares their files, reports and errors;
+`test_beyond_hostdemo.py` covers per-input components, the files of `extra_args` and the sample
+host's planning; `test_graph.py` and `test_graphhost.py` the graphs and the sample host;
+`test_hostdemo_batch.py` the batch mode (its parser, the same files, reports and output as separate
+runs, the host's lifetime, and workers that crash or hang). `tests/regression/` has the tests of past
+bugs, each naming its issue or PR (a worker thread that fetches the output image first, non-finite
+bounds, frames and statistics, huge images, the batch's workers). `tests/conftest.py` and
+`tests/ofxhost_helpers.py` are their shared fixtures and helpers. CI runs them in the Linux job, on
+both backends.
 
 ## Developer notes
 

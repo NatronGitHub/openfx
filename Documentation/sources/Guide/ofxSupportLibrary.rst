@@ -234,7 +234,7 @@ Invert keeps to the minimum. Real plug-ins also get these right:
   instance properties, the parameters' type, default and range) still
   throw when they are missing: such a host is broken. ``hostDemo
   --ofx11`` is an OFX 1.1 host modelled on VEGAS Pro, to check a plug-in
-  there (``Support/Plugins/tests/test_ofx11.py``).
+  there (``Support/Plugins/tests/functional/test_ofx11.py``).
 - **Host quirks the library handles.** The numeric parameter descriptors
   get the specification's default range and display range (the smallest
   and largest values of their type) and, for doubles, the canonical

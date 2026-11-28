@@ -195,10 +195,10 @@ jobs:
           # the GPU tests of ofxh and of the command lines with GLX too (Xvfb, Mesa llvmpipe): ofxh's
           # renderers of OFXH_OPENGL_BACKENDS, and --gpu-renderers (which lists GLX after EGL there)
           OFXH_OPENGL_BACKENDS=glx PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
-            xvfb-run -a python -m pytest -m "not opencl and not metal and not cuda" HostSupport/python/tests/test_opengl.py
+            xvfb-run -a python -m pytest -m "not opencl and not metal and not cuda" HostSupport/python/tests/functional/test_opengl.py
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" \
-            xvfb-run -a python -m pytest -m "not opencl and not metal and not cuda" HostSupport/examples/python/tests/test_hostdemo_cli.py -k gpu
+            xvfb-run -a python -m pytest -m "not opencl and not metal and not cuda" HostSupport/examples/python/tests/functional/test_hostdemo_cli.py -k gpu
       - name: openfx::HostSupportOpenCL on PoCL (openclRenderChecks and the opencl Python tests, OFXH_REQUIRE=1)
         run: |
           # GPUGain with its OpenCL kernels (OFX_SUPPORTS_OPENCLRENDER, linked to libOpenCL: a
@@ -219,7 +219,7 @@ jobs:
           PYTHONPATH="$PWD/build-ci-opencl/HostSupport/python" python -m pytest -m opencl HostSupport/python/tests
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-opencl/Plugins" PYTHONPATH="$PWD/build-ci-opencl/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci-opencl/HostSupport/examples/hostDemo" \
-            python -m pytest -m opencl HostSupport/examples/python/tests/test_hostdemo_cli.py
+            python -m pytest -m opencl HostSupport/examples/python/tests/functional/test_hostdemo_cli.py
       - name: Python wrapper and sample plug-in tests (ofxhost, on both backends)
         if: success() || failure()
         run: |
@@ -296,7 +296,7 @@ jobs:
           PYTHONPATH="$PWD/build-ci/HostSupport/python" python3.11 -m pytest -m metal HostSupport/python/tests
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
-            python3.11 -m pytest -m metal HostSupport/examples/python/tests/test_hostdemo_cli.py
+            python3.11 -m pytest -m metal HostSupport/examples/python/tests/functional/test_hostdemo_cli.py
       - name: Python wrapper and sample plug-in tests (ofxhost, on both backends)
         if: success() || failure()
         run: |

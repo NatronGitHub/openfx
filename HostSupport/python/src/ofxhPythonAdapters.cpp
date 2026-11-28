@@ -614,7 +614,7 @@ PyHost::PyHost(nb::object py, RefPtr ref)
 }
 
 // The OFX 1.4 host profile: the same lists as hostDemo --ofx14 (hostDemoHostDescriptor.cpp, which
-// is frozen: keep them in sync; HostSupport/python/tests/test_profile.py checks it).
+// is frozen: keep them in sync; HostSupport/python/tests/functional/test_profile.py checks it).
 // The host descriptor properties of OFX 1.4: those whose documentation says "Property Set - host
 // descriptor" in the OFX 1.4 headers (tag OFX_Release_1_4_TAG), and the list of properties on the
 // image effect host of the OFX 1.4 reference (Documentation/ofxPropertiesByObject.xml). Everything

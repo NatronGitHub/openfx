@@ -40,7 +40,7 @@
     kNatronOfxPropNativeOverlays strings (ofxNatron.h) into ImageEffectHostDescription::nativeInteracts.
 
   The null action through an image effect's entry point (OfxPlugin::mainEntry) is tested on a
-  plug-in bundle, in Support/Plugins/tests/test_entry_point.py.
+  plug-in bundle, in Support/Plugins/tests/regression/test_entry_point.py.
 
   Prints one line per failed check, and exits with 0 if all passed.
 */
