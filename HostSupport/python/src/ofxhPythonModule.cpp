@@ -264,13 +264,39 @@ static const char *modeName(MT::RenderMode m)
 static bool gpuFailed(const MT::RenderSession &session, OfxStatus st) { return MT::metalFailed(session, st); }
 #endif
 
-#if defined(OFXH_OPENCL) || defined(OFXH_METAL)
-/// An action of the instance on a Queue of device, in a Session (CL:: or MT::RenderSession, made with
-/// sessionArgs: the OpenCL mode): act(false, nullptr), with output's image (the render action) as the
-/// session's output over window, read back after. slot, result and error are the instance's for the
-/// API (_clSession, _clResult, _clError, or the _mt ones). Sets result: "not_sent" (the session
-/// refused it: the action wasn't called); "retry" (the API's cpuRetryAllowed()); "failed" (its
-/// openCLFailed() or metalFailed(), or it threw); else "ok". Without the GIL.
+#ifdef OFXH_CUDA
+namespace CU = OFX::Host::CUDA;
+
+/// the CUDA render mode of the instance (CU::chooseRenderMode()) with the host's device; without a
+/// device, or after a sticky CUDA error (Device::usable()), as without CUDA
+static CU::RenderMode renderModeCU(PyEffectInstance *p)
+{
+  PyHost *h = state().host.get();
+  return CU::chooseRenderMode(*p, h && h->_cuDevice && h->_cuDevice->usable());
+}
+
+static const char *modeName(CU::RenderMode m)
+{
+  switch (m) {
+  case CU::RenderMode::CUDA: return "cuda";
+  case CU::RenderMode::CPU: return "cpu";
+  case CU::RenderMode::None: break;
+  }
+  return "none";
+}
+
+/// (withGPU())
+static bool gpuFailed(const CU::RenderSession &session, OfxStatus st) { return CU::cudaFailed(session, st); }
+#endif
+
+#if defined(OFXH_OPENCL) || defined(OFXH_METAL) || defined(OFXH_CUDA)
+/// An action of the instance on a Queue of device (a CL:: or MT::Queue, a CU::Stream), in a Session
+/// (CL::, MT:: or CU::RenderSession, made with sessionArgs: the OpenCL mode): act(false, nullptr), with
+/// output's image (the render action) as the session's output over window, read back after. slot,
+/// result and error are the instance's for the API (_clSession, _clResult, _clError, or the _mt or _cu
+/// ones). Sets result: "not_sent" (the session refused it: the action wasn't called); "retry" (the
+/// API's cpuRetryAllowed()); "failed" (its openCLFailed(), metalFailed() or cudaFailed(), or it threw);
+/// else "ok". Without the GIL.
 template <class Queue, class Session, class Device, class... SessionArgs>
 static OfxStatus withGPU(PyEffectInstance *p, Device &device, std::atomic<Session *> &slot, std::string &result,
                          std::string &error, OHIE::ClipInstance *output, OfxTime t, const OfxRectI &window,
@@ -393,6 +419,31 @@ static void checkMetal(PyEffectInstance *p, bool opengl, const std::string &open
 #endif
 }
 
+/// cuda=True needs a CUDA device and an instance that renders with CUDA: else ValueError (called
+/// before the action's scopes)
+static void checkCUDA(PyEffectInstance *p, bool opengl, const std::string &opencl, const std::string &metal, bool cuda,
+                      const std::string &what)
+{
+  if (!cuda) {
+    return;
+  }
+  if (opengl || !opencl.empty() || !metal.empty()) {
+    raiseError(PyExc_ValueError, what + ": cuda=True can't be used with opengl, opencl or metal");
+  }
+#ifdef OFXH_CUDA
+  PyHost *h = state().host.get();
+  const CU::RenderMode mode = renderModeCU(p);
+  requireGPU(what, "cuda=True", "a CUDA device", "ofxh.init(cuda=True), ofxh.cuda_device()", h && h->_cuDevice,
+             mode == CU::RenderMode::CUDA, [&] {
+               return std::string("cuda=True: the instance doesn't render with CUDA (render_mode(cuda=True) is \"") +
+                 modeName(mode) + "\")";
+             });
+#else
+  (void)p;
+  raiseError(PyExc_ValueError, what + ": cuda=True: ofxh was built without OFX_HOSTSUPPORT_CUDA");
+#endif
+}
+
 /// opengl=True needs an OpenGL context and an instance that renders with OpenGL: else ValueError
 /// (called before the action's scopes; runAction() checks again)
 static void checkOpenGL(PyEffectInstance *p, bool opengl, const std::string &what)
@@ -422,8 +473,8 @@ static void checkOpenGL(PyEffectInstance *p, bool opengl, const std::string &wha
 /// plug-in and host have established they can both use OpenGL renders" (ofxGPURender.h): opengl=True
 /// raises ValueError unless the instance renders with OpenGL (render_mode()). Takes the GIL off.
 /// With opencl ("buffers" or "images"), the same with OpenCL (withGPU(); checkOpenCL()); with metal,
-/// with Metal (withGPU(); checkMetal()).
-static OfxStatus runAction(PyEffectInstance *p, bool opengl, const std::string &opencl, const std::string &metal,
+/// with Metal (withGPU(); checkMetal()); with cuda, with CUDA (withGPU(); checkCUDA()).
+static OfxStatus runAction(PyEffectInstance *p, bool opengl, const std::string &opencl, const std::string &metal, bool cuda,
                            const std::string &what,
                            OHIE::ClipInstance *output, OfxTime t, const OfxRectI &window, int view,
                            const std::function<OfxStatus(bool, void *)> &act)
@@ -432,6 +483,23 @@ static OfxStatus runAction(PyEffectInstance *p, bool opengl, const std::string &
   (void)t;
   (void)window;
   (void)view;
+  if (cuda) {
+    checkCUDA(p, opengl, opencl, metal, cuda, what);
+#ifdef OFXH_CUDA
+#if defined(OFX_EXTENSIONS_VEGAS) || defined(OFX_EXTENSIONS_NUKE)
+    if (output) {
+      output->setView(view); // (as for OpenGL below)
+    }
+#endif
+    PyHost *h = state().host.get();
+    return withoutGil([&] {
+      return withGPU<CU::Stream, CU::RenderSession>(p, *h->_cuDevice, p->_cuSession, p->_cuResult, p->_cuError, output, t,
+                                                    window, act);
+    });
+#else
+    return kOfxStatFailed;
+#endif
+  }
   if (!metal.empty()) {
     checkMetal(p, opengl, opencl, metal, what);
 #ifdef OFXH_METAL
@@ -893,7 +961,8 @@ static nb::dict rendererDict(const GL::RendererInfo &info)
 
 static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnvPath, const std::string &profile,
                  bool keepLoaded, bool normalisedDefaults, bool opengl, nb::object openglBackends, int openglRenderer,
-                 bool opencl, nb::object openclDevice, bool metal, int metalDevice)
+                 bool opencl, nb::object openclDevice, bool metal, int metalDevice, bool cuda, int cudaDevice,
+                 const std::string &cudaUUID)
 {
   State &st = state();
   if (st.initialized) {
@@ -928,6 +997,17 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
 #endif
   if (metalDevice < -1) {
     raiseError(PyExc_ValueError, "ofxh.init(): metal_device must be -1 (the default device) or an index of metal_devices()");
+  }
+#ifndef OFXH_CUDA
+  if (cuda) {
+    raiseError(PyExc_ValueError, "ofxh.init(): cuda=True: ofxh was built without OFX_HOSTSUPPORT_CUDA");
+  }
+#endif
+  if (cudaDevice < -1) {
+    raiseError(PyExc_ValueError, "ofxh.init(): cuda_device must be -1 (the first device) or an index of cuda_devices()");
+  }
+  if (!cudaUUID.empty() && (!cuda || cudaDevice != -1)) {
+    raiseError(PyExc_ValueError, "ofxh.init(): cuda_uuid needs cuda=True, and not cuda_device");
   }
   // opencl_device: (platform, device), indices of opencl_devices(); None: the default device
   int clPlatform = -1, clDevice = -1;
@@ -1015,6 +1095,20 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
 #else
   (void)metalDevice;
 #endif
+#ifdef OFXH_CUDA
+  if (cuda) {
+    // before the scan: without a device, the host doesn't say it supports CUDA
+    PyHost *h = st.host.get();
+    withoutGil([&] {
+      h->_cuDevice = cudaUUID.empty() ? CU::createDevice(CU::Hooks(), cudaDevice, &h->_cuError)
+                                      : CU::createDeviceWithUUID(CU::Hooks(), cudaUUID, &h->_cuError);
+      return 0;
+    });
+  }
+#else
+  (void)cudaDevice;
+  (void)cudaUUID;
+#endif
   st.initialized = true;
   st.profile = profile;
   try {
@@ -1049,6 +1143,16 @@ static void init(nb::object host, nb::object dirs, bool useStdPaths, bool useEnv
       st.host->getProperties().setStringProperty(kOfxImageEffectPropMetalRenderSupported, "true");
       // "The host sets it on the host descriptor" (kOfxImageEffectPropMetalTextureSupported, upstream main)
       st.host->getProperties().setStringProperty(kOfxImageEffectPropMetalTextureSupported, "true");
+    }
+#endif
+#ifdef OFXH_CUDA
+    if (st.host->_cuDevice) {
+      // kOfxImageEffectPropCudaRenderSupported and kOfxImageEffectPropCudaStreamSupported, "Indicates
+      // whether a host or plug-in can support CUDA render" and "CUDA streams" (ofxGPURender.h, host
+      // descriptor; OFX 1.5 properties, which the ofx14 profile removes): CUDA memory, and a stream for
+      // the plug-ins that support streams too
+      st.host->getProperties().setStringProperty(kOfxImageEffectPropCudaRenderSupported, "true");
+      st.host->getProperties().setStringProperty(kOfxImageEffectPropCudaStreamSupported, "true");
     }
 #endif
     if (profile == "ofx14") {
@@ -1162,6 +1266,11 @@ static void bindBuildConfig(nb::module_ &m)
   OFXH_DEF(OFX_HOSTSUPPORT_METAL, true)
 #else
   OFXH_DEF(OFX_HOSTSUPPORT_METAL, false)
+#endif
+#ifdef OFXH_CUDA
+  OFXH_DEF(OFX_HOSTSUPPORT_CUDA, true)
+#else
+  OFXH_DEF(OFX_HOSTSUPPORT_CUDA, false)
 #endif
 #undef OFXH_DEF
   m.attr("build_config") = d;
@@ -1717,11 +1826,12 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
     }, "time"_a, "Returns (Stat, {clip: [(t1, t2), ...]}).")
     .def("begin_sequence_render_action", [](InstanceBase &s, double first, double last, double step, bool interactive,
                                             const Point &renderScale, bool sequential, bool interactiveRender, bool draft,
-                                            int view, bool opengl, const std::string &opencl, const std::string &metal) {
+                                            int view, bool opengl, const std::string &opencl, const std::string &metal, bool cuda) {
       PyEffectInstance *p = s.get();
       checkView(view, false);
       requireNotRendering(p, "begin_sequence_render_action()");
-      checkOpenGL(p, opengl && opencl.empty() && metal.empty(), "begin_sequence_render_action()");
+      checkOpenGL(p, opengl && opencl.empty() && metal.empty() && !cuda, "begin_sequence_render_action()");
+      checkCUDA(p, opengl, opencl, metal, cuda, "begin_sequence_render_action()");
       checkOpenCL(p, opengl, opencl, "begin_sequence_render_action()");
       checkMetal(p, opengl, opencl, metal, "begin_sequence_render_action()");
       ActionScope scope;
@@ -1745,21 +1855,22 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
                                   );
         };
         const OfxRectI none = { 0, 0, 0, 0 };
-        st = runAction(p, opengl, opencl, metal, "begin_sequence_render_action()", nullptr, first, none, view, act);
+        st = runAction(p, opengl, opencl, metal, cuda, "begin_sequence_render_action()", nullptr, first, none, view, act);
       }
       scope.check("beginSequenceRender", &st);
       return stat(st);
     }, "first"_a, "last"_a, "step"_a = 1., "interactive"_a = false, "render_scale"_a = Point(1., 1.),
        "sequential"_a = true, "interactive_render"_a = false, "draft"_a = false, "view"_a = 0, "opengl"_a = false,
-       "opencl"_a = "", "metal"_a = "")
+       "opencl"_a = "", "metal"_a = "", "cuda"_a = false)
     .def("render_action", [](InstanceBase &s, double time, const RectI &window, const Point &renderScale,
                              const std::string &field, bool sequential, bool interactiveRender, bool draft, int view,
                              int nViews, const std::vector<std::string> &planes, bool opengl,
-                             const std::string &opencl, const std::string &metal) {
+                             const std::string &opencl, const std::string &metal, bool cuda) {
       PyEffectInstance *p = s.get();
       checkView(view, true, nViews);
       requireNotRendering(p, "render_action()");
-      checkOpenGL(p, opengl && opencl.empty() && metal.empty(), "render_action()");
+      checkOpenGL(p, opengl && opencl.empty() && metal.empty() && !cuda, "render_action()");
+      checkCUDA(p, opengl, opencl, metal, cuda, "render_action()");
       checkOpenCL(p, opengl, opencl, "render_action()");
       checkMetal(p, opengl, opencl, metal, "render_action()");
       if (planes.size() != 1) {
@@ -1821,7 +1932,7 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
 #endif
                              );
         };
-        st = runAction(p, opengl, opencl, metal, "render_action()", p->getClip(kOfxImageEffectOutputClipName), time, toRectI(window),
+        st = runAction(p, opengl, opencl, metal, cuda, "render_action()", p->getClip(kOfxImageEffectOutputClipName), time, toRectI(window),
                        view, act);
       }
       // the output image of this render (the clip keeps the array, not the C++ image)
@@ -1841,6 +1952,7 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
     }, "time"_a, "render_window"_a, "render_scale"_a = Point(1., 1.), "field"_a = "none", "sequential"_a = true,
        "interactive_render"_a = false, "draft"_a = false, "view"_a = 0, "n_views"_a = 1,
        "planes"_a = std::vector<std::string>(1, "Colour"), "opengl"_a = false, "opencl"_a = "", "metal"_a = "",
+       "cuda"_a = false,
        "kOfxImageEffectActionRender. render_window: pixels at the render scale. Returns (Stat, {plane:\n"
        "the output ImageData the plug-in fetched}) (empty if it fetched none). ofxh renders one plane,\n"
        "the colour plane; view and n_views need the Nuke or Vegas extensions (see build_config).\n"
@@ -1862,12 +1974,23 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
        "kOfxImageEffectPropMetalEnabled 1, or kOfxImageEffectPropMetalTextureEnabled 1, and\n"
        "kOfxImageEffectPropMetalCommandQueue) in a RenderSession, likewise; refused (ValueError) unless\n"
        "render_mode(metal=True, prefer_textures=...) is that mode; metal_result says how it went. Not with\n"
-       "opengl or opencl.")
+       "opengl or opencl.\n"
+       "cuda: render with CUDA device memory (ofxh.init(cuda=True); kOfxImageEffectPropCudaEnabled 1, and\n"
+       "kOfxImageEffectPropCudaStream if the plug-in supports CUDA streams) in a RenderSession, likewise;\n"
+       "refused (ValueError) unless render_mode(cuda=True) is \"cuda\"; cuda_result says how it went. Not\n"
+       "with opengl, opencl or metal.")
     .def("render_mode", [](InstanceBase &s, bool opengl, bool opencl, bool preferImages, bool metal,
-                           bool preferTextures) -> std::string {
+                           bool preferTextures, bool cuda) -> std::string {
       PyEffectInstance *p = s.get();
       (void)preferImages;
       (void)preferTextures;
+      if (cuda) {
+#ifdef OFXH_CUDA
+        return modeName(renderModeCU(p));
+#else
+        raiseError(PyExc_ValueError, "render_mode(cuda=True): ofxh was built without OFX_HOSTSUPPORT_CUDA");
+#endif
+      }
       if (metal) {
 #ifdef OFXH_METAL
         return modeName(renderModeMT(p, preferTextures));
@@ -1890,7 +2013,10 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
       return OHIE::canRenderOnCPU(*p) ? "cpu" : "none";
 #endif
     }, "opengl"_a = true, "opencl"_a = false, "prefer_images"_a = false, "metal"_a = false, "prefer_textures"_a = false,
-       "How the instance renders. With metal (MT::chooseRenderMode(), from\n"
+       "cuda"_a = false,
+       "How the instance renders. With cuda (CU::chooseRenderMode(), from\n"
+       "kOfxImageEffectPropCudaRenderSupported and kOfxImageEffectPropCPURenderSupported, with the device of\n"
+       "ofxh.init(cuda=True)): \"cuda\", \"cpu\" or \"none\". With metal (MT::chooseRenderMode(), from\n"
        "kOfxImageEffectPropMetalRenderSupported, kOfxImageEffectPropMetalTextureSupported and\n"
        "kOfxImageEffectPropCPURenderSupported, with the device of ofxh.init(metal=True)): \"metal-buffers\",\n"
        "\"metal-textures\" (if both, textures only if prefer_textures; RGBA and Alpha clips only), \"cpu\" or\n"
@@ -1905,6 +2031,13 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
        "Whether the plug-in can render on the CPU (HostSupport's ImageEffect::canRenderOnCPU(): its\n"
        "kOfxImageEffectPropCPURenderSupported isn't \"false\"), the rule of the CPU retry after a GPU\n"
        "render that wasn't sent or failed.")
+#ifdef OFXH_CUDA
+    .def_prop_ro("cuda_error", [](InstanceBase &s) { return s.get()->_cuError; },
+       "The error that stopped the last action with cuda (an exception, as hostDemo's \"Error: CUDA\n"
+       "render: ...\"), or \"\".")
+    .def_prop_ro("cuda_result", [](InstanceBase &s) { return s.get()->_cuResult; },
+       "The last action with cuda, as opencl_result: \"ok\", \"not_sent\", \"retry\", \"failed\", or \"\" if none.")
+#endif
 #ifdef OFXH_METAL
     .def_prop_ro("metal_error", [](InstanceBase &s) { return s.get()->_mtError; },
        "The error that stopped the last action with metal (an exception, as hostDemo's \"Error: Metal\n"
@@ -1935,11 +2068,12 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
 #endif
     .def("end_sequence_render_action", [](InstanceBase &s, double first, double last, double step, bool interactive,
                                           const Point &renderScale, bool sequential, bool interactiveRender, bool draft,
-                                          int view, bool opengl, const std::string &opencl, const std::string &metal) {
+                                          int view, bool opengl, const std::string &opencl, const std::string &metal, bool cuda) {
       PyEffectInstance *p = s.get();
       checkView(view, false);
       requireNotRendering(p, "end_sequence_render_action()");
-      checkOpenGL(p, opengl && opencl.empty() && metal.empty(), "end_sequence_render_action()");
+      checkOpenGL(p, opengl && opencl.empty() && metal.empty() && !cuda, "end_sequence_render_action()");
+      checkCUDA(p, opengl, opencl, metal, cuda, "end_sequence_render_action()");
       checkOpenCL(p, opengl, opencl, "end_sequence_render_action()");
       checkMetal(p, opengl, opencl, metal, "end_sequence_render_action()");
       ActionScope scope;
@@ -1963,13 +2097,13 @@ static void bindInstanceActions(nb::class_<InstanceBase> &inst)
                                   );
         };
         const OfxRectI none = { 0, 0, 0, 0 };
-        st = runAction(p, opengl, opencl, metal, "end_sequence_render_action()", nullptr, first, none, view, act);
+        st = runAction(p, opengl, opencl, metal, cuda, "end_sequence_render_action()", nullptr, first, none, view, act);
       }
       scope.check("endSequenceRender", &st);
       return stat(st);
     }, "first"_a, "last"_a, "step"_a = 1., "interactive"_a = false, "render_scale"_a = Point(1., 1.),
        "sequential"_a = true, "interactive_render"_a = false, "draft"_a = false, "view"_a = 0, "opengl"_a = false,
-       "opencl"_a = "", "metal"_a = "")
+       "opencl"_a = "", "metal"_a = "", "cuda"_a = false)
     .def("get_time_domain_action", [](InstanceBase &s) {
       PyEffectInstance *p = s.get();
       OfxRangeD r;
@@ -2253,6 +2387,22 @@ static nb::dict deviceDict(const MT::DeviceInfo &info)
 }
 #endif
 
+#ifdef OFXH_CUDA
+/// a DeviceInfo for cuda_devices() and cuda_device()
+static nb::dict deviceDict(const CU::DeviceInfo &info)
+{
+  nb::dict d;
+  d["index"] = info.index;
+  d["name"] = info.name;
+  d["compute_capability"] = nb::make_tuple(info.computeMajor, info.computeMinor);
+  d["pci_bus_id"] = info.pciBusId;
+  d["uuid"] = info.uuid;
+  d["total_mem"] = info.totalMem;
+  d["driver_version"] = info.driverVersion;
+  return d;
+}
+#endif
+
 #ifdef OFXH_OPENCL
 /// a DeviceInfo for opencl_devices() and opencl_device()
 static nb::dict deviceDict(const CL::DeviceInfo &info)
@@ -2279,6 +2429,7 @@ static void bindFunctions(nb::module_ &m)
         "use_env_path"_a = true, "profile"_a = "default", "keep_loaded"_a = false, "normalised_defaults"_a = true,
         "opengl"_a = false, "opengl_backends"_a.none() = nb::none(), "opengl_renderer"_a = -1,
         "opencl"_a = false, "opencl_device"_a.none() = nb::none(), "metal"_a = false, "metal_device"_a = -1,
+        "cuda"_a = false, "cuda_device"_a = -1, "cuda_uuid"_a = "",
         "Initialize HostSupport with this host (an ofxh.Host), and scan the plug-ins of plugin_dirs, of\n"
         "OFX_PLUGIN_PATH if use_env_path, and of the standard locations if use_std_paths. One host per\n"
         "process: RuntimeError if one is initialized; call shutdown() before another init(). If it raises,\n"
@@ -2315,7 +2466,13 @@ static void bindFunctions(nb::module_ &m)
         "metal_device, an index of metal_devices(), or by default (-1) the system default device; if it is made,\n"
         "the host's kOfxImageEffectPropMetalRenderSupported (buffers) and kOfxImageEffectPropMetalTextureSupported\n"
         "(textures) are \"true\", and the actions may take metal=\"buffers\" or \"textures\".\n"
-        "See metal_device().");
+        "See metal_device().\n"
+        "cuda: likewise with a CUDA device (openfx::HostSupportCUDA, builds with OFX_HOSTSUPPORT_CUDA; the CUDA\n"
+        "driver is loaded at run time), cuda_device, an index of cuda_devices(), or cuda_uuid, the \"uuid\" of\n"
+        "one (the identity to save: the indices change with CUDA_VISIBLE_DEVICES), or by default the first\n"
+        "device; if it is made, the host's kOfxImageEffectPropCudaRenderSupported and\n"
+        "kOfxImageEffectPropCudaStreamSupported are \"true\", and the actions may take cuda=True. See\n"
+        "cuda_device().");
 
   m.def("opengl_renderers", [](nb::object backends) {
     nb::list r;
@@ -2424,6 +2581,40 @@ static void bindFunctions(nb::module_ &m)
 #endif
   }, "The Metal device of ofxh.init(metal=True), as metal_devices() gives it, or {\"error\": why} if none\n"
      "could be made; None without metal=True (or OFX_HOSTSUPPORT_METAL).");
+  m.def("cuda_devices", []() {
+    nb::list l;
+#ifdef OFXH_CUDA
+    std::vector<CU::DeviceInfo> devices;
+    withoutGil([&] {
+      devices = CU::listDevices(CU::Hooks());
+      return 0;
+    });
+    for (const CU::DeviceInfo &info : devices) {
+      l.append(deviceDict(info));
+    }
+#endif
+    return l;
+  }, "The CUDA devices (openfx::HostSupportCUDA's listDevices()), as dicts {\"index\" (for\n"
+     "init(cuda_device=...)), \"name\", \"uuid\" (for init(cuda_uuid=...)), \"compute_capability\" (major, minor),\n"
+     "\"pci_bus_id\", \"total_mem\",\n"
+     "\"driver_version\"}; [] without a CUDA driver (or OFX_HOSTSUPPORT_CUDA). Needs no init().");
+  m.def("cuda_device", []() -> nb::object {
+#ifdef OFXH_CUDA
+    const PyHost *h = state().host.get();
+    if (!h || (!h->_cuDevice && h->_cuError.empty())) {
+      return nb::none();
+    }
+    if (!h->_cuDevice) {
+      nb::dict d;
+      d["error"] = h->_cuError;
+      return d;
+    }
+    return deviceDict(h->_cuDevice->info());
+#else
+    return nb::none();
+#endif
+  }, "The CUDA device of ofxh.init(cuda=True), as cuda_devices() gives it, or {\"error\": why} if none\n"
+     "could be made; None without cuda=True (or OFX_HOSTSUPPORT_CUDA).");
   m.def("shutdown", &shutdown,
         "Close the open instances, unload the plug-ins and delete the plug-in cache and the host. Also\n"
         "called at exit. Not in an action or a callback.");

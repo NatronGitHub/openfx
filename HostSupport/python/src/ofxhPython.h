@@ -56,6 +56,10 @@
 #include "ofxhMetalDevice.h"
 #include "ofxhMetalRender.h"
 #endif
+#ifdef OFXH_CUDA
+#include "ofxhCUDADevice.h"
+#include "ofxhCUDARender.h"
+#endif
 
 #include "ofxCore.h"
 #include "ofxImageEffect.h"
@@ -338,6 +342,12 @@ public:
   std::unique_ptr<OFX::Host::Metal::Device> _mtDevice;
   std::string _mtError;
 #endif
+#ifdef OFXH_CUDA
+  /// ofxh.init(cuda=True): the CUDA device (and the streams lent to renders), or the reason there is
+  /// none
+  std::unique_ptr<OFX::Host::CUDA::Device> _cuDevice;
+  std::string _cuError;
+#endif
 
   PyHost(nb::object py, RefPtr ref);
   ~PyHost() override;
@@ -408,7 +418,7 @@ public:
   OHIE::Image *fetchImage(OfxTime time, int view, const OfxRectD *optionalBounds,
                           const std::string &plane = std::string());
   OHIE::Image *fetchFromPython(OfxTime time, int view, const OfxRectD *optionalBounds, const std::string &plane);
-  /// in an OpenCL or Metal render action of the instance, its OpenCL or Metal copy
+  /// in an OpenCL, Metal or CUDA render action of the instance, its copy in that API's memory
   /// (RenderSession::getImage(), which gives the output for the output clip); else image. Takes
   /// image's reference.
   OHIE::Image *forGPU(OHIE::Image *image);
@@ -540,6 +550,12 @@ public:
   std::atomic<OFX::Host::Metal::RenderSession *> _mtSession{ nullptr };
   std::string _mtResult;
   std::string _mtError;
+#endif
+#ifdef OFXH_CUDA
+  /// the same for CUDA (withGPU())
+  std::atomic<OFX::Host::CUDA::RenderSession *> _cuSession{ nullptr };
+  std::string _cuResult;
+  std::string _cuError;
 #endif
 
   const std::map<std::string, OHIE::ClipInstance *> &clips() const { return _clips; }

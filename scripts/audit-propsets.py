@@ -99,6 +99,10 @@ KNOWN = [
      'OfxImageEffectPropOpenCLSupported|OfxImageEffectPropOpenCLImage',
      'upstream metadata artifact: descriptor capabilities and an image property listed in the '
      'render inArgs by the generated property sets; not render arguments in the spec text'),
+    (r'action:OfxImageEffectAction(Render|BeginSequenceRender|EndSequenceRender):inArgs',
+     'OfxImageEffectPropCudaStream',
+     'absent on purpose outside a CUDA render with a stream: "This property will only be set if '
+     'the host and plug-in both support CUDA streams" (ofxGPURender.h, OFX 1.5.1)'),
     (r'action:.*', 'OfxImageEffectPropNoSpatialAwareness',
      'tracked in NatronGitHub/openfx#78'),
     (r'EffectDescriptor', 'OfxImageEffectPropNoSpatialAwareness',

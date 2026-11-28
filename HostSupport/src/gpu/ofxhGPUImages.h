@@ -118,6 +118,46 @@ namespace OFX {
         }
       }
 
+      /// the rows of r (within l's bounds) packed bottom up, for a copy between l's CPU pixels and
+      /// device memory (rowBytes may be negative or padded there): toDevice, filled from l; else
+      /// filled by the copy from the device, then given back to l with unstage()
+      struct StagedRect {
+        OfxRectI r;
+        size_t rowSize;  ///< the bytes of a row of r
+        std::vector<char> rows;
+
+        StagedRect(const PixelLayout &l, const OfxRectI &rect, bool toDevice)
+          : r(intersect(rect, l.bounds))
+          , rowSize(static_cast<size_t>(r.x2 - r.x1) * static_cast<size_t>(l.pixelBytes))
+          , rows(rowSize * static_cast<size_t>(r.y2 - r.y1))
+        {
+          if (toDevice && !empty()) {
+            copyRect(l, r, rows.data(), rowSize, r.x1, r.y1, /*toRows=*/true);
+          }
+        }
+        bool empty() const { return r.x2 <= r.x1 || r.y2 <= r.y1; }
+        int width() const { return r.x2 - r.x1; }
+        int height() const { return r.y2 - r.y1; }
+        /// the rows, read back from the device, to l's CPU pixels
+        void unstage(const PixelLayout &l)
+        {
+          if (!empty()) {
+            copyRect(l, r, rows.data(), rowSize, r.x1, r.y1, /*toRows=*/false);
+          }
+        }
+      };
+
+      /// the properties a GPU copy of image keeps from it: its depth, components,
+      /// premultiplication and pixel aspect ratio (the Image constructor sets the others)
+      inline void copyImageProperties(ImageEffect::Image &copy, const ImageEffect::Image &image)
+      {
+        copy.setStringProperty(kOfxImageEffectPropPixelDepth, image.getStringProperty(kOfxImageEffectPropPixelDepth));
+        copy.setStringProperty(kOfxImageEffectPropComponents, image.getStringProperty(kOfxImageEffectPropComponents));
+        copy.setStringProperty(kOfxImageEffectPropPreMultiplication,
+                               image.getStringProperty(kOfxImageEffectPropPreMultiplication));
+        copy.setDoubleProperty(kOfxImagePropPixelAspectRatio, image.getDoubleProperty(kOfxImagePropPixelAspectRatio));
+      }
+
       /// The image bookkeeping of a GPU RenderSession: the images it gave out and the plug-in hasn't
       /// released yet (the API's Image subclass registers itself), the output, and whether a copy
       /// failed. Thread-safe, except setOutput().

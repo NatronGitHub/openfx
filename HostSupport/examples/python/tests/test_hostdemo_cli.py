@@ -717,3 +717,93 @@ def test_gpu_metal_usage(tmp_path, hosts, sample_plugins):
     first = [x for x in s.stderr.splitlines() if x.startswith("Error")][:1]
     assert first == ["Error: --gpu=metal can't be used with --ofx14 or --ofx11 (Metal render is OFX 1.5)"]
     assert first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]
+
+
+# --- --gpu=cuda --------------------------------------------------------------------------------
+
+def _cuda_built():
+    import ofxh
+    return bool(ofxh.build_config.get("OFX_HOSTSUPPORT_CUDA"))
+
+
+def _cu_flags(d):
+    """The (cuda, cpuRetry, ok) of the renders (one per view: two in Nuke or Vegas builds)."""
+    return {(r["cuda"], r["cpuRetry"], r["ok"]) for r in _renders(d)}
+
+
+def test_gpu_cuda_no_device(tmp_path, hosts, sample_plugins):
+    """--gpu=cuda on a machine without a CUDA device (CI has none): both backends warn with the same reason and
+    render on the CPU, the CPU render's files, with "cuda": false in the report; the host doesn't say it
+    supports CUDA, so GPUGain describes itself as on a host without it."""
+    import ofxh
+    if not _cuda_built():
+        pytest.skip("ofxh was built without OFX_HOSTSUPPORT_CUDA")
+    if ofxh.cuda_devices():
+        pytest.skip("this machine has a CUDA device: the tests marked cuda cover it")
+    args = ["-p", GPUGAIN, "-d", "float", "-i", "Source=checker:5", "scale=0.5", "--frames", "0",
+            "--format", "pfm", "-o", "out", "--report", "r.json"]
+    s, i, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=cuda", *args])
+    warning = [x for x in s.stderr.splitlines() if x.startswith("Warning: --gpu=cuda")]
+    assert len(warning) == 1 and warning[0].startswith("Warning: --gpu=cuda: no CUDA device (")
+    assert warning == [x for x in i.stderr.splitlines() if x.startswith("Warning: --gpu=cuda")]
+    assert _cu_flags(sd) == {(False, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert _files(sd) == _files(cd)
+
+
+def _need_cuda(tmp_path, hosts, sample_plugins):
+    """--gpu=cuda renders with CUDA here: ofxh has OFX_HOSTSUPPORT_CUDA, GPUGain was built with its CUDA kernel,
+    and hostDemo gets a CUDA device; else fail (OFXH_REQUIRE_CUDA=1) or skip (the tests are marked cuda: CI,
+    which has no CUDA device, deselects them)."""
+    why = None
+    if not _cuda_built():
+        why = "ofxh was built without OFX_HOSTSUPPORT_CUDA"
+    else:
+        probe = tmp_path / "probe"
+        probe.mkdir()
+        p = _run([str(hosts[0]), *Q, "-p", GPUGAIN, "--describe", "d.json", "--gpu=cuda"], probe,
+                 _env(sample_plugins, hosts[1]))
+        flags = _strict((probe / "d.json").read_text())["contexts"]["OfxImageEffectContextFilter"]["flags"] \
+            if p.returncode == 0 else {}
+        if p.returncode != 0 or "no CUDA device" in p.stderr:
+            why = (p.stderr.strip().splitlines() or ["hostDemo --gpu=cuda failed"])[0]
+        elif flags.get("cudaRenderSupported") != "true":
+            why = "GPUGain was built without CUDA (OFX_SUPPORTS_CUDARENDER)"
+    if why:
+        if os.environ.get("OFXH_REQUIRE_CUDA") == "1":
+            pytest.fail(f"{why} (OFXH_REQUIRE_CUDA=1)")
+        pytest.skip(why)
+
+
+@pytest.mark.cuda
+def test_gpu_cuda_gpugain(tmp_path, hosts, sample_plugins):
+    """--gpu=cuda with GPUGain (CUDA, with a stream, and a CPU path): CUDA gives the CPU render's pixels, and both
+    backends give the same report and files."""
+    _need_cuda(tmp_path, hosts, sample_plugins)
+    args = ["-p", GPUGAIN, "-d", "float", "-i", "Source=checker:5", "scale=0.5", "--frames", "0",
+            "--format", "pfm", "-o", "out", "--report", "r.json"]
+    _, _, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=cuda", *args])
+    assert _cu_flags(sd) == {(True, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert "cuda" not in _renders(cd)[0]
+    assert _files(sd) == _files(cd)
+
+
+@pytest.mark.cuda
+def test_gpu_cuda_cpu_plugin(tmp_path, hosts, sample_plugins):
+    """--gpu=cuda with Invert, which has no CUDA render: it renders on the CPU, as without --gpu=cuda."""
+    _need_cuda(tmp_path, hosts, sample_plugins)
+    args = ["-p", INVERT, "-i", "Source=ramp", "--frames", "0", "-o", "out", "--report", "r.json"]
+    _, _, sd, _ = _compare(tmp_path / "gpu", hosts, sample_plugins, [*Q, "--gpu=cuda", *args])
+    assert _cu_flags(sd) == {(False, False, True)}
+    _, _, cd, _ = _compare(tmp_path / "cpu", hosts, sample_plugins, [*Q, *args])
+    assert _files(sd) == _files(cd)
+
+
+def test_gpu_cuda_usage(tmp_path, hosts, sample_plugins):
+    """--gpu=cuda with --ofx14 is refused by both, with hostDemo's message (CUDA render is OFX 1.5)."""
+    (s, _), (i, _) = both(tmp_path, hosts, sample_plugins, [*Q, "--gpu=cuda", "--ofx14", "-p", INVERT])
+    assert s.returncode == i.returncode == 1
+    first = [x for x in s.stderr.splitlines() if x.startswith("Error")][:1]
+    assert first == ["Error: --gpu=cuda can't be used with --ofx14 or --ofx11 (CUDA render is OFX 1.5)"]
+    assert first == [x for x in i.stderr.splitlines() if x.startswith("Error")][:1]

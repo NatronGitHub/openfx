@@ -402,6 +402,10 @@ def _rect_g(r) -> str:
 
 # --- the session: ofxh's one host -----------------------------------------------------------
 
+# the GPU APIs of --gpu that render through ofxh's sessions (hostDemo's withGPU()), with their names
+_GPU_NAMES = {"opencl": "OpenCL", "metal": "Metal", "cuda": "CUDA"}
+
+
 class HostOptions(NamedTuple):
     """The options of the backend's ofxh host besides its directories and profile (see ensure_host())."""
     keep_loaded: bool = False
@@ -410,7 +414,7 @@ class HostOptions(NamedTuple):
     normalised_defaults: bool = True
     multiplane: bool = False
     components: tuple = HOST_COMPONENTS
-    gpu: str = ""  # "", "opengl", "opencl" or "metal"
+    gpu: str = ""  # "", "opengl", "opencl", "metal" or "cuda"
     gpu_renderer: str = ""
 
 
@@ -478,7 +482,8 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
         gpu: "opengl", an OpenGL context (hostDemo's --gpu=opengl, ofxh.init(opengl=True)): if it is
             made, the host says it supports OpenGL render, and renders with it the plug-ins that can.
             "opencl", the same with an OpenCL device (--gpu=opencl, ofxh.init(opencl=True)); "metal", with a
-            Metal device (--gpu=metal, ofxh.init(metal=True)). "": none.
+            Metal device (--gpu=metal, ofxh.init(metal=True)); "cuda", with a CUDA device (--gpu=cuda,
+            ofxh.init(cuda=True)). "": none.
         gpu_renderer: with gpu "opengl", the renderer of the context, "BACKEND:ID" (a renderer of
             ofxh.opengl_renderers(), see specs.parse_gpu_renderer()); "" for the default.
 
@@ -514,7 +519,7 @@ def ensure_host(dirs: tuple, profile: str, keep_loaded: bool = False, use_std_pa
     try:
         ofxh.init(host, list(dirs), use_std_paths=use_std_paths, use_env_path=False, profile=profile,
                   keep_loaded=keep_loaded, normalised_defaults=normalised_defaults, opengl=gpu == "opengl",
-                  opencl=gpu == "opencl", metal=gpu == "metal", **gl_choice)
+                  opencl=gpu == "opencl", metal=gpu == "metal", cuda=gpu == "cuda", **gl_choice)
     except ValueError as e:
         if gl_choice and hasattr(e, "opengl_error"):
             raise OpenGLRendererError(gpu_renderer, e.opengl_error) from e
@@ -655,7 +660,7 @@ class Job:
     multiplane: bool = False
     planes: list[tuple[str, str, Spec]] = dataclasses.field(default_factory=list)
     components: tuple = HOST_COMPONENTS
-    gpu: str = ""  # hostDemo's --gpu=opengl, opencl or metal: "opengl", "opencl" or "metal"
+    gpu: str = ""  # hostDemo's --gpu=opengl, opencl, metal or cuda: "opengl", "opencl", "metal" or "cuda"
     gpu_renderer: str = ""  # with gpu "opengl": BACKEND:ID (not in hostDemo)
 
 
@@ -962,49 +967,47 @@ def _frame_render(run: _Run, inst, t: float, view: int, av: int, render_window, 
     run.render_rod = (t, av, tuple(rod))  # (the output's RoD during the render: see _Clip)
     errors = run.image_errors
 
-    def render(opengl: bool, opencl: str = "", metal: str = ""):
+    def render(opengl: bool, opencl: str = "", metal: str = "", cuda: bool = False):
         return run.call2("render", inst.render_action, t, render_window, run.job.scale, "none",
                          sequential=sequential, interactive_render=False, draft=False,
                          view=view if (_NUKE or _VEGAS) else 0, n_views=run.n_views if _VEGAS else 1,
-                         opengl=opengl, opencl=opencl, metal=metal)
+                         opengl=opengl, opencl=opencl, metal=metal, cuda=cuda)
 
-    used_gl = used_cl = used_mt = cpu_retry = False
+    def gpu_render(api: str, **option):
+        """A render with OpenCL, Metal or CUDA (api: "opencl", "metal" or "cuda"; option: its render_action()
+        option), as hostDemo's withGPU(), and the CPU render again after it if ofxh's cpuRetryAllowed() says
+        "retry", or if the session refused it and the plug-in can render on the CPU. Returns (st, planes,
+        used, cpu_retry)."""
+        st, planes = render(False, **option)
+        error, result = getattr(inst, f"{api}_error"), getattr(inst, f"{api}_result")
+        if error:
+            run.err(f"Error: {_GPU_NAMES[api]} render: {error}")
+        used = result == "ok"
+        if result == "retry" or (result == "not_sent" and inst.can_render_on_cpu()):
+            st, planes = render(False)
+            return st, planes, used, True
+        if not used and int(st) == ofxh.Stat.OK:
+            st = ofxh.Stat.Failed
+        return st, planes, used, False
+
+    used_gl = used_gpu = cpu_retry = False
     try:
         # hostDemo's renderFrame() with --gpu=opengl: OpenGL if the plug-in and the host can, the CPU if
         # OpenGL failed and the plug-in can render on the CPU (see hostDemo's withOpenGL()); the same
-        # with --gpu=opencl (withOpenCL()) and --gpu=metal (withMetal())
-        if run.job.gpu == "opencl":
-            mode = inst.render_mode(opencl=True)
-        elif run.job.gpu == "metal":
-            mode = inst.render_mode(metal=True)
+        # with --gpu=opencl, metal and cuda (withGPU())
+        if run.job.gpu in _GPU_NAMES:
+            mode = inst.render_mode(**{run.job.gpu: True})
         else:
             mode = inst.render_mode() if run.job.gpu else "cpu"
         if mode in ("opencl-buffers", "opencl-images"):
-            st, planes = render(False, mode[len("opencl-"):])
-            if inst.opencl_error:
-                run.err(f"Error: OpenCL render: {inst.opencl_error}")
-            used_cl = inst.opencl_result == "ok"
-            # (ofxh's cpuRetryAllowed(): "retry"; refused by the session: if the plug-in can render on the CPU)
-            if inst.opencl_result == "retry" or (inst.opencl_result == "not_sent" and inst.can_render_on_cpu()):
-                cpu_retry = True
-                st, planes = render(False)
-            elif not used_cl and int(st) == ofxh.Stat.OK:
-                st = ofxh.Stat.Failed
+            st, planes, used_gpu, cpu_retry = gpu_render("opencl", opencl=mode[len("opencl-"):])
         elif mode in ("metal-buffers", "metal-textures"):
-            st, planes = render(False, metal=mode[len("metal-"):])
-            if inst.metal_error:
-                run.err(f"Error: Metal render: {inst.metal_error}")
-            used_mt = inst.metal_result == "ok"
-            # (as with OpenCL above)
-            if inst.metal_result == "retry" or (inst.metal_result == "not_sent" and inst.can_render_on_cpu()):
-                cpu_retry = True
-                st, planes = render(False)
-            elif not used_mt and int(st) == ofxh.Stat.OK:
-                st = ofxh.Stat.Failed
-        elif mode == "none" and run.job.gpu in ("opencl", "metal"):
-            api = "OpenCL" if run.job.gpu == "opencl" else "Metal"
+            st, planes, used_gpu, cpu_retry = gpu_render("metal", metal=mode[len("metal-"):])
+        elif mode == "cuda":
+            st, planes, used_gpu, cpu_retry = gpu_render("cuda", cuda=True)
+        elif mode == "none" and run.job.gpu in _GPU_NAMES:
             run.err('Error: the plug-in can\'t render on the CPU (kOfxImageEffectPropCPURenderSupported "false"), '
-                    f"and hostDemo has no {api} device it can use")
+                    f"and hostDemo has no {_GPU_NAMES[run.job.gpu]} device it can use")
             st, planes = ofxh.Stat.Failed, {}
         elif mode == "opengl":
             st, planes = render(True)
@@ -1033,11 +1036,8 @@ def _frame_render(run: _Run, inst, t: float, view: int, av: int, render_window, 
     if run.job.gpu == "opengl":
         render_j["openGL"] = used_gl
         render_j["cpuRetry"] = cpu_retry
-    elif run.job.gpu == "opencl":
-        render_j["openCL"] = used_cl
-        render_j["cpuRetry"] = cpu_retry
-    elif run.job.gpu == "metal":
-        render_j["metal"] = used_mt
+    elif run.job.gpu in _GPU_NAMES:
+        render_j["openCL" if run.job.gpu == "opencl" else run.job.gpu] = used_gpu  # ("metal", "cuda")
         render_j["cpuRetry"] = cpu_retry
     r["output"] = None
     image = planes.get("Colour")
@@ -1149,6 +1149,9 @@ def run_job(dirs: tuple, job: Job) -> tuple[int, dict, dict]:
     mt_error = (ofxh.metal_device() or {}).get("error") if job.gpu == "metal" else None
     if mt_error:
         run.err(f"Warning: --gpu=metal: no Metal device ({mt_error}): rendering on the CPU")
+    cu_error = (ofxh.cuda_device() or {}).get("error") if job.gpu == "cuda" else None
+    if cu_error:
+        run.err(f"Warning: --gpu=cuda: no CUDA device ({cu_error}): rendering on the CPU")
     plugin = ofxh.get_plugin(job.plugin_id, job.major)
     report: dict = {"schema": "hostDemo.report", "schemaVersion": 1, "ok": False, "plugin": {"id": job.plugin_id},
                     "context": job.context, "host": {"name": ofxh.host().props[kOfxPropName][0], "profile": profile},
@@ -1339,19 +1342,26 @@ def _render_sequence(run: _Run, inst, report: dict) -> None:
     seq_gl = False  # BeginSequenceRender ran with OpenGL: EndSequenceRender does the same (hostDemo)
     seq_cl = ""  # likewise with OpenCL, in this mode ("buffers" or "images")
     seq_mt = ""  # likewise with Metal, in this mode ("buffers" or "textures")
+    seq_cu = False  # likewise with CUDA
 
     def sequence(name: str, action, begin: bool):
         # with OpenGL if the instance renders with it, else (or if it couldn't be attached) without.
         # (If render_mode() changed between Begin and End, ofxh would refuse End with opengl=True, where
         # hostDemo would send it: the plug-in's OpenGL support doesn't change during a sequence here.)
-        # The same with OpenCL and Metal (refused by the session: without them).
-        nonlocal seq_gl, seq_cl, seq_mt
+        # The same with OpenCL, Metal and CUDA (refused by the session: without them).
+        nonlocal seq_gl, seq_cl, seq_mt, seq_cu
         if begin:
             seq_gl = job.gpu == "opengl" and inst.render_mode() == "opengl"
             mode = inst.render_mode(opencl=True) if job.gpu == "opencl" else ""
             seq_cl = mode[len("opencl-"):] if mode.startswith("opencl-") else ""
             mode = inst.render_mode(metal=True) if job.gpu == "metal" else ""
             seq_mt = mode[len("metal-"):] if mode.startswith("metal-") else ""
+            seq_cu = job.gpu == "cuda" and inst.render_mode(cuda=True) == "cuda"
+        if seq_cu:
+            st = run.call(name, action, first, last, cuda=True, **seq)
+            if inst.cuda_result != "not_sent":
+                return st
+            seq_cu = False
         if seq_mt:
             st = run.call(name, action, first, last, metal=seq_mt, **seq)
             if inst.metal_result != "not_sent":

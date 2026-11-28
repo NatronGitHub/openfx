@@ -572,6 +572,55 @@ The CPU retry is the OpenCL one (``cpuRetryAllowed()``).
 GPUGain sample (buffers), and checks the textures with its own kernels
 (GPUGain has no texture path).
 
+CUDA Rendering
+--------------
+
+With CUDA ("CUDA Rendering", ``ofxGPURender.h``), the host passes the images
+of a render in CUDA device memory
+(:c:macro:`kOfxImageEffectPropCudaRenderSupported`, a CUDA device pointer in
+:c:macro:`kOfxImagePropData`), and sets
+:c:macro:`kOfxImageEffectPropCudaEnabled` in the arguments of the
+BeginSequenceRender, Render and EndSequenceRender actions, while an
+``ImageEffect::GPURenderScope`` of API ``CUDA`` is alive.
+:c:macro:`kOfxImageEffectPropCudaStream` "will only be set if the host and
+plug-in both support CUDA streams": HostSupport adds it to those arguments
+only in a scope of API ``CUDA`` with a stream, when the host descriptor and
+the plug-in both support streams (``ImageEffect::cudaStreamsSupported()``);
+otherwise the arguments don't have it.
+
+The optional library ``openfx::HostSupportCUDA`` (CMake option
+``OFX_HOSTSUPPORT_CUDA``, off by default) is the CUDA counterpart of
+``openfx::HostSupportOpenCL``. It needs no CUDA toolkit: the CUDA driver API
+(``libcuda.so.1``, ``nvcuda.dll``; there is none on macOS) is loaded at run
+time, unless the host gives its own loader.
+
+-  ``ofxhCUDADevice.h``: the CUDA devices (with their UUID, the identity a
+   host saves: the indices change with ``CUDA_VISIBLE_DEVICES``), one of
+   them (``createDevice()``, by default the first, or
+   ``createDeviceWithUUID()``), its primary context (the CUDA runtime API's,
+   so that a plug-in built with the runtime API works on the host's
+   memory), ``ContextScope``, which makes it current on a thread, and
+   ``Stream``, which lends a render one of the device's non-blocking
+   streams (a host may keep one for a whole frame, for the sessions of all
+   its nodes). After a sticky CUDA error the device is no longer
+   ``usable()``, and the host renders on the CPU;
+-  ``ofxhCUDARender.h``: ``chooseRenderMode()`` (CUDA, the CPU, or neither)
+   and ``RenderSession``, which opens the ``GPURenderScope`` only if both
+   the plug-in and the host descriptor support CUDA, makes the primary
+   context current during the actions, passes a stream if both support
+   streams, and copies the images of a render to packed device memory, and
+   the render window of the output back. With a stream, the plug-in "SHOULD
+   NOT wait for final asynchronous operations to complete before returning
+   from the render action", so the session waits for the stream before it
+   reads the output back and before it frees the memory, which it keeps
+   until it ends (the plug-in releases its images before its work is done).
+
+The CPU retry is the OpenCL one (``cpuRetryAllowed()``), also after a stream
+or a copy failed; ``RenderSession::status()`` gives the failure as
+:c:macro:`kOfxStatGPUOutOfMemory` or :c:macro:`kOfxStatGPURenderFailed`. ``HostSupport/examples/cudaRenderChecks.cpp`` checks the
+library on a fake CUDA driver, on any machine, and on a CUDA device with the
+GPUGain sample built with CUDA, if there is one.
+
 Building a Host with HostSupport
 ================================
 

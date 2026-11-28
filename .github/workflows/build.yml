@@ -137,6 +137,23 @@ jobs:
               done
             done
           done
+          # hostDemo's and the ofxh module's sources with each GPU component alone (the builds have them
+          # together, so a guard that misses one only shows alone): syntax only, C++17
+          nb=$(python -c "import nanobind; print(nanobind.include_dir())")
+          py=$(python -c "import sysconfig; print(sysconfig.get_paths()['include'])")
+          for gpu in "" CUDA OPENCL OPENGL; do
+            D=${gpu:+-DHOSTDEMO_$gpu}
+            for f in hostDemo.cpp hostDemoClipInstance.cpp hostDemoEffectInstance.cpp; do
+              g++ -std=c++17 -fsyntax-only -DOFX_SUPPORTS_OPENGLRENDER $D -Iinclude -IHostSupport/include HostSupport/examples/$f \
+                || { echo "::error::HostSupport/examples/$f does not compile with ${gpu:-no GPU component} alone"; exit 1; }
+            done
+            D=${gpu:+-DOFXH_$gpu}
+            for f in ofxhPythonModule.cpp ofxhPythonAdapters.cpp; do
+              g++ -std=c++17 -fsyntax-only -DOFX_SUPPORTS_OPENGLRENDER $D -Iinclude -IHostSupport/include -I"$nb" -I"$py" \
+                HostSupport/python/src/$f \
+                || { echo "::error::HostSupport/python/src/$f does not compile with ${gpu:-no GPU component} alone"; exit 1; }
+            done
+          done
       - name: Build and test
         # (with the HostSupport Python bindings, the ofxh module: nanobind from pip)
         env:
@@ -152,10 +169,13 @@ jobs:
           # Vegas), so that the code for the extensions compiles and runs
           set -eo pipefail
           cmake -S . -B build-ci-natron -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLE_PLUGINS=ON \
-            -DBUILD_EXAMPLE_HOSTS=ON -DOFX_HOSTSUPPORT_OPENGL=ON -DOFX_HOSTSUPPORT_OPENCL=ON $OFX_EXT_CMAKE \
+            -DBUILD_EXAMPLE_HOSTS=ON -DOFX_HOSTSUPPORT_OPENGL=ON -DOFX_HOSTSUPPORT_OPENCL=ON -DOFX_HOSTSUPPORT_CUDA=ON \
+            $OFX_EXT_CMAKE \
             -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$pythonLocation/bin/python" > /dev/null
           cmake --build build-ci-natron --parallel 4
           (cd build-ci-natron && Support/drawsuite-opengl-test && Support/drawcontext-opengl-test && Support/support-library-test)
+          # openfx::HostSupportCUDA with the extensions, on its fake CUDA driver
+          OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/examples/cudaRenderChecks
           # openfx::HostSupportOpenGL with the Natron context data (EGL, Mesa llvmpipe; OFXH_REQUIRE=1)
           OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" build-ci-natron/HostSupport/examples/openglRenderChecks
           # the GLX backend, on an X server of its own (Xvfb, Mesa llvmpipe)
@@ -165,17 +185,17 @@ jobs:
           SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" \
             build-ci-natron/HostSupport/examples/suiteHandleChecks > suitehandlechecks-natron.log 2>&1 \
             || { cat suitehandlechecks-natron.log; exit 1; }
-          PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" python -m pytest -m "not opencl and not metal" HostSupport/python/tests
+          PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" python -m pytest -m "not opencl and not metal and not cuda" HostSupport/python/tests
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" \
-            python -m pytest -m "not opencl and not metal" HostSupport/examples/python/tests Support/Plugins/tests
+            python -m pytest -m "not opencl and not metal and not cuda" HostSupport/examples/python/tests Support/Plugins/tests
           # the GPU tests of ofxh and of the command lines with GLX too (Xvfb, Mesa llvmpipe): ofxh's
           # renderers of OFXH_OPENGL_BACKENDS, and --gpu-renderers (which lists GLX after EGL there)
           OFXH_OPENGL_BACKENDS=glx PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
-            xvfb-run -a python -m pytest -m "not opencl and not metal" HostSupport/python/tests/test_opengl.py
+            xvfb-run -a python -m pytest -m "not opencl and not metal and not cuda" HostSupport/python/tests/test_opengl.py
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci-natron/Plugins" PYTHONPATH="$PWD/build-ci-natron/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci-natron/HostSupport/examples/hostDemo" \
-            xvfb-run -a python -m pytest -m "not opencl and not metal" HostSupport/examples/python/tests/test_hostdemo_cli.py -k gpu
+            xvfb-run -a python -m pytest -m "not opencl and not metal and not cuda" HostSupport/examples/python/tests/test_hostdemo_cli.py -k gpu
       - name: openfx::HostSupportOpenCL on PoCL (openclRenderChecks and the opencl Python tests, OFXH_REQUIRE=1)
         run: |
           # GPUGain with its OpenCL kernels (OFX_SUPPORTS_OPENCLRENDER, linked to libOpenCL: a
@@ -203,13 +223,13 @@ jobs:
           # each render test runs with hostDemo and in-process on the ofxh module
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
-            python -m pytest -m "not opencl and not metal" HostSupport/examples/python/tests Support/Plugins/tests
+            python -m pytest -m "not opencl and not metal and not cuda" HostSupport/examples/python/tests Support/Plugins/tests
       - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
         if: success() || failure()
         run: |
           export PYTHONPATH="$PWD/build-ci/HostSupport/python"
           python -c "import ofxh; print(ofxh.__file__)"
-          python -m pytest -m "not opencl and not metal" HostSupport/python/tests
+          python -m pytest -m "not opencl and not metal and not cuda" HostSupport/python/tests
 
   macos:
     name: macOS 15 arm64 (CMake, Xcode clang, MacPorts)
@@ -279,13 +299,13 @@ jobs:
         run: |
           OFX_TEST_PLUGIN_PATH="$PWD/build-ci/Plugins" PYTHONPATH="$PWD/build-ci/HostSupport/python" \
             OFXHOST_HOSTDEMO="$PWD/build-ci/HostSupport/examples/hostDemo" \
-            python3.11 -m pytest -m "not opencl and not metal" HostSupport/examples/python/tests Support/Plugins/tests
+            python3.11 -m pytest -m "not opencl and not metal and not cuda" HostSupport/examples/python/tests Support/Plugins/tests
       - name: HostSupport Python bindings tests (ofxh, HostSupport/python/tests)
         if: success() || failure()
         run: |
           export PYTHONPATH="$PWD/build-ci/HostSupport/python"
           python3.11 -c "import ofxh; print(ofxh.__file__)"
-          python3.11 -m pytest -m "not opencl and not metal" HostSupport/python/tests
+          python3.11 -m pytest -m "not opencl and not metal and not cuda" HostSupport/python/tests
 
   windows:
     name: Windows (MSYS2 UCRT64, CMake)
@@ -327,7 +347,7 @@ jobs:
           set -eo pipefail
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_EXAMPLE_PLUGINS=ON -DBUILD_EXAMPLE_HOSTS=ON -DOFX_HOSTSUPPORT_OPENGL=ON $OFX_EXT_CMAKE \
-            -DOFX_HOSTSUPPORT_OPENCL=ON -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins" \
+            -DOFX_HOSTSUPPORT_OPENCL=ON -DOFX_HOSTSUPPORT_CUDA=ON -DPLUGIN_INSTALLDIR="$PWD/install/OFX/Plugins" \
             -DOFX_PYTHON_BINDINGS=ON -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
             -DCMAKE_CXX_STANDARD=17 -DCMAKE_CXX_STANDARD_REQUIRED=ON -DCMAKE_CXX_EXTENSIONS=OFF
           # strict -std=c++17 (C++ standard policy): no GNU dialect, so the compiler defines _WIN32 but not
@@ -368,6 +388,14 @@ jobs:
           mesa="$(cygpath -u "$RUNNER_TEMP")/mesa"
           cp "$grc" "$mesa/"
           GALLIUM_DRIVER=llvmpipe OFX_PLUGIN_PATH="$(cygpath -w "$PWD/build/Plugins")" "$mesa/openglRenderChecks.exe"
+      - name: openfx::HostSupportCUDA on its fake CUDA driver (cudaRenderChecks; nvcuda.dll, __stdcall)
+        run: |
+          set -eo pipefail
+          # the loader, the devices and streams, the copies, and GPUGain's renders with the checks'
+          # "kernel", on a fake driver (the runner has no CUDA device: the checks on one are skipped)
+          crc=$(find build -name cudaRenderChecks.exe -type f | head -1)
+          test -n "$crc" || { echo "cudaRenderChecks was not built"; exit 1; }
+          OFX_PLUGIN_PATH="$(cygpath -w "$PWD/build/Plugins")" "$crc"
       - name: HostSupport checks (suiteHandleChecks), with the Windows plug-in search path
         run: |
           set -eo pipefail

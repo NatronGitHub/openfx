@@ -74,6 +74,11 @@ if(TARGET OfxHostMetal)
   target_link_libraries(ofxh PRIVATE OfxHostMetal)
   target_compile_definitions(ofxh PRIVATE OFXH_METAL)
 endif()
+if(TARGET OfxHostCUDA)
+  # CUDA renders (ofxh.init(cuda=True)): openfx::HostSupportCUDA (OFX_HOSTSUPPORT_CUDA)
+  target_link_libraries(ofxh PRIVATE OfxHostCUDA)
+  target_compile_definitions(ofxh PRIVATE OFXH_CUDA)
+endif()
 target_compile_features(ofxh PRIVATE cxx_std_17)
 set_target_properties(ofxh PROPERTIES
   CXX_VISIBILITY_PRESET hidden

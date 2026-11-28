@@ -5,20 +5,9 @@
 
 #include "ofxhOpenCLDevice.h"
 #include "ofxhOpenCLFunctions.h"
+#include "../gpu/ofxhGPULibrary.h"
 
 #include <utility>
-
-#if defined(_WIN32)
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
 
 namespace OFX {
   namespace Host {
@@ -51,35 +40,13 @@ namespace OFX {
         static std::shared_ptr<void> openLibrary(std::string &error)
         {
 #if defined(_WIN32)
-          HMODULE h = LoadLibraryA("OpenCL.dll");
-          if (!h) {
-            error = "OpenCL.dll not found";
-            return nullptr;
-          }
-          return std::shared_ptr<void>(h, [](void *) {});
+          static const char *const names[] = { "OpenCL.dll", nullptr };
+#elif defined(__APPLE__)
+          static const char *const names[] = { "/System/Library/Frameworks/OpenCL.framework/OpenCL", nullptr };
 #else
-#if defined(__APPLE__)
-          const char *names[] = { "/System/Library/Frameworks/OpenCL.framework/OpenCL", nullptr };
-#else
-          const char *names[] = { "libOpenCL.so.1", "libOpenCL.so", nullptr };
+          static const char *const names[] = { "libOpenCL.so.1", "libOpenCL.so", nullptr };
 #endif
-          for (const char **n = names; *n; ++n) {
-            if (void *h = dlopen(*n, RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE)) {
-              return std::shared_ptr<void>(h, [](void *p) { dlclose(p); });
-            }
-          }
-          error = std::string(names[0]) + " not found";
-          return nullptr;
-#endif
-        }
-
-        static void *librarySymbol(void *library, const char *name)
-        {
-#if defined(_WIN32)
-          return reinterpret_cast<void *>(GetProcAddress(static_cast<HMODULE>(library), name));
-#else
-          return dlsym(library, name);
-#endif
+          return GPU::openLibrary(names, error);
         }
 
         std::shared_ptr<const CLFunctions> loadCLFunctions(const Hooks &hooks, std::string &error)
@@ -92,7 +59,7 @@ namespace OFX {
               return nullptr;
             }
             void *library = cl->library.get();
-            get = [library](const char *name) { return librarySymbol(library, name); };
+            get = [library](const char *name) { return GPU::librarySymbol(library, name); };
           }
 #define OFXH_CL(f) \
           cl->f = reinterpret_cast<decltype(cl->f)>(get("cl" #f)); \

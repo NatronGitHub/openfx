@@ -566,8 +566,8 @@ namespace OFX {
       /// this property to indicate that it is passing images as Metal buffers", and likewise with
       /// kOfxImageEffectPropMetalTextureSupported for Metal textures (ofxGPURender.h): open it only
       /// then, and return those images from ClipInstance::getImage() meanwhile (the RenderSession of
-      /// openfx::HostSupportOpenCL, ofxhOpenCLRender.h, and of openfx::HostSupportMetal,
-      /// ofxhMetalRender.h, do both). As with
+      /// openfx::HostSupportOpenCL, ofxhOpenCLRender.h, of openfx::HostSupportMetal,
+      /// ofxhMetalRender.h, and of openfx::HostSupportCUDA, ofxhCUDARender.h, do both). As with
       /// ThumbnailRenderScope, keep it alive from beginRenderAction() to endRenderAction() on each
       /// thread that sends them.
       ///
@@ -593,8 +593,8 @@ namespace OFX {
         std::thread::id _thread;
       };
 
-      /// The CPU retry after a failed GPU render (OpenGL, OpenCL, Metal...), shared by the GPU
-      /// components (ofxhOpenGLRender.h, ofxhOpenCLRender.h, ofxhMetalRender.h):
+      /// The CPU retry after a failed GPU render (OpenGL, OpenCL, Metal, CUDA), shared by the GPU
+      /// components (ofxhOpenGLRender.h, ofxhOpenCLRender.h, ofxhMetalRender.h, ofxhCUDARender.h):
       /// st is a GPU failure after which the host may render on the CPU: kOfxStatGPURenderFailed
       /// ("GPU render failed in a non-memory-related way"), kOfxStatGPUOutOfMemory ("GPU render ran
       /// out of memory") or kOfxStatErrMemory (ofxGPURender.h)

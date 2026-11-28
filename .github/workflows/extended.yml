@@ -177,9 +177,9 @@ jobs:
         run: |
           export OFX_TEST_PLUGIN_PATH="$PWD/build/Plugins" \
             OFXHOST_HOSTDEMO="$(find "$PWD/build/HostSupport/examples" -name hostDemo -type f -perm -u+x | head -1)"
-          venv/bin/python -m pytest -m "not opencl and not metal" HostSupport/python/tests
+          venv/bin/python -m pytest -m "not opencl and not metal and not cuda" HostSupport/python/tests
       - name: ofxhost tests on both backends (hostDemo, and in-process on the installed module)
         run: |
           export OFX_TEST_PLUGIN_PATH="$PWD/build/Plugins" \
             OFXHOST_HOSTDEMO="$(find "$PWD/build/HostSupport/examples" -name hostDemo -type f -perm -u+x | head -1)"
-          venv/bin/python -m pytest -m "not opencl and not metal" HostSupport/examples/python/tests Support/Plugins/tests
+          venv/bin/python -m pytest -m "not opencl and not metal and not cuda" HostSupport/examples/python/tests Support/Plugins/tests
