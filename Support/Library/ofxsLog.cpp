@@ -7,6 +7,7 @@ The log file is written to using printf style functions, rather than via c++ ios
 
 */
 
+#include <atomic>
 #include <cassert>
 #include <cstdio>
 #include <cstdarg>
@@ -47,9 +48,10 @@ namespace OFX {
       return *name;
     }
 
-    /** @brief indent level. Per thread, since plug-ins log from render threads too and the indent
-        follows each thread's nesting of actions. */
-    static thread_local int gIndent = 0;
+    /** @brief indent level, the nesting of actions. One for all threads, atomic since plug-ins
+        log from render threads too: lines from concurrent actions may get each other's indent.
+        Not thread_local: macOS never unloads a binary that has thread-local variables (#385). */
+    static std::atomic<int> gIndent(0);
 
 #ifdef DEBUG
     /** @brief serializes opening the log file (on the first log from any thread), writing each log
@@ -105,13 +107,13 @@ namespace OFX {
       gLogFP = 0;
     }
 
-    /** @brief Indent the log of the calling thread */
+    /** @brief Indent the log */
     void indent(void)
     {
       ++gIndent;
     }
 
-    /** @brief Outdent the log of the calling thread */
+    /** @brief Outdent the log */
     void outdent(void)
     {
       --gIndent;
@@ -121,7 +123,7 @@ namespace OFX {
     static void doIndent(void)
     {
       if(open()) {
-        for(int i = 0; i < gIndent; i++) {
+        for(int i = 0, n = gIndent.load(); i < n; i++) {
           fputs("    ", gLogFP);
         }
       }

@@ -32,6 +32,10 @@
     made before or after, or canonical, over a host's reset (Nuke: normalised);
   - ClipPreferencesSetter::setPixelAspectRatio(): the host's PAR isn't written again, and a refused
     or unknown PAR is a warning, not an exception;
+  - OFX::MultiThread::ThreadScope: nullptr outside any scope, nesting, restored when an exception
+    leaves a scope, two independent kinds, and per-thread values on several threads at once;
+  - on macOS, this binary (which links the Support library) has no thread-local variables
+    (MH_HAS_TLV_DESCRIPTORS): dyld never unloads a plug-in that has them (#385);
   - with OFX_EXTENSIONS_NATRON, OFX::Private::decodeNativeOverlayHandle(), which decodes the host's
     kNatronOfxPropNativeOverlays strings (ofxNatron.h) into ImageEffectHostDescription::nativeInteracts.
 
@@ -49,11 +53,17 @@
 #include <thread>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "ofxsSupportPrivate.h"
 #include "ofxsImageEffect.h"
 #include "ofxsInteract.h"
 #include "ofxsMultiThread.h"
+
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+#endif
 
 static std::atomic<int> gFailures(0); // CHECK runs on worker threads too
 
@@ -742,6 +752,108 @@ namespace {
     OFX::Private::gThreadSuite = saved;
   }
 
+  // two kinds of scope, as in openfx-io's GenericReader (render time, decoded window)
+  struct TimeScope {
+    explicit TimeScope(double t) : time(t), scope(this) {}
+    double time;
+    OFX::MultiThread::ThreadScope<TimeScope> scope;
+  };
+  struct WindowScope {
+    explicit WindowScope(int w) : window(w), scope(this) {}
+    int window;
+    OFX::MultiThread::ThreadScope<WindowScope> scope;
+  };
+
+  double currentTime()
+  {
+    const TimeScope* s = OFX::MultiThread::ThreadScope<TimeScope>::current();
+    return s ? s->time : -1.;
+  }
+
+  int currentWindow()
+  {
+    const WindowScope* s = OFX::MultiThread::ThreadScope<WindowScope>::current();
+    return s ? s->window : -1;
+  }
+
+  void testThreadScope()
+  {
+    // before the first scope, the key doesn't exist yet
+    CHECK(OFX::MultiThread::ThreadScope<TimeScope>::current() == nullptr);
+    {
+      TimeScope a(1.);
+      CHECK(OFX::MultiThread::ThreadScope<TimeScope>::current() == &a);
+      CHECK(currentWindow() == -1); // another kind
+      {
+        TimeScope b(2.); // nested
+        WindowScope w(10);
+        CHECK(currentTime() == 2. && currentWindow() == 10);
+        try {
+          TimeScope c(3.);
+          WindowScope x(20);
+          CHECK(currentTime() == 3. && currentWindow() == 20);
+          throw std::runtime_error("leave the scopes");
+        } catch (const std::runtime_error&) {
+        }
+        CHECK(currentTime() == 2. && currentWindow() == 10); // restored by the unwinding
+      }
+      CHECK(currentTime() == 1. && currentWindow() == -1);
+      // another thread doesn't see this thread's scopes
+      std::thread t([] { CHECK(currentTime() == -1. && currentWindow() == -1); });
+      t.join();
+    }
+    CHECK(OFX::MultiThread::ThreadScope<TimeScope>::current() == nullptr);
+    CHECK(OFX::MultiThread::ThreadScope<WindowScope>::current() == nullptr);
+
+    // several threads in nested scopes at once, each sees its own values
+    const int nThreads = 8;
+    std::atomic<int> inside(0);
+    std::vector<std::thread> threads;
+    for (int i = 0; i < nThreads; ++i) {
+      threads.emplace_back([i, &inside] {
+        CHECK(currentTime() == -1.);
+        TimeScope a(i);
+        for (int j = 0; j < 1000; ++j) {
+          WindowScope w(i * 1000 + j);
+          if (j == 0) {
+            // wait (at most 10 s) until all threads are in a scope
+            ++inside;
+            const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (inside.load() < nThreads && std::chrono::steady_clock::now() < end) { std::this_thread::yield(); }
+            CHECK(inside.load() == nThreads);
+          }
+          TimeScope b(i + 0.5);
+          CHECK(currentTime() == i + 0.5 && currentWindow() == i * 1000 + j);
+        }
+        CHECK(currentTime() == i && currentWindow() == -1);
+      });
+    }
+    for (std::thread& t : threads) {
+      t.join();
+    }
+    CHECK(currentTime() == -1. && currentWindow() == -1);
+  }
+
+#ifdef __APPLE__
+  // dyld never unloads an image that has thread-local variables (MachOAnalyzer::neverUnload()):
+  // the Support library must have none, so that plug-ins built with it can be unloaded
+  void testNoThreadLocalVariables()
+  {
+    for (uint32_t i = 0; i < _dyld_image_count(); ++i) {
+      const struct mach_header* h = _dyld_get_image_header(i);
+      if (h && h->filetype == MH_EXECUTE) {
+        if (h->flags & MH_HAS_TLV_DESCRIPTORS) {
+          std::printf("FAILED: %s has thread-local variables (MH_HAS_TLV_DESCRIPTORS)\n", _dyld_get_image_name(i));
+          ++gFailures;
+        }
+        return;
+      }
+    }
+    std::printf("FAILED: no executable image found\n");
+    ++gFailures;
+  }
+#endif
+
 #ifdef OFX_EXTENSIONS_NATRON
   typedef OFX::ImageEffectHostDescription::NativeOverlayHandle Handle;
 
@@ -821,6 +933,10 @@ int main()
   testSetPixelAspectRatio();
   testThreadSuiteWithoutFunctions();
   testMutexWithoutMutexFunctions();
+  testThreadScope();
+#ifdef __APPLE__
+  testNoThreadLocalVariables();
+#endif
 #ifdef OFX_EXTENSIONS_NATRON
   testDecodeNativeOverlayHandle();
 #else
