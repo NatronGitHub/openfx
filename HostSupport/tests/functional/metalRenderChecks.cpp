@@ -12,9 +12,13 @@
 ///   with Metal compared with the expected pixels, with kOfxImageEffectPropMetalEnabled 1 and the
 ///   queue in the inArgs of BeginSequenceRender, Render and EndSequenceRender, and
 ///   kOfxImageEffectPropOpenCLEnabled and kOfxImageEffectPropMetalTextureEnabled 0 (and all 0 and NULL
-///   on the CPU, for another instance, in a nested scope of API CPU, and when the plug-in or the host
-///   descriptor doesn't support Metal); "needed"; the images the plug-in released; and the CPU retry
-///   after kOfxStatGPURenderFailed (GPUGain without a source).
+///   on the CPU, and when the plug-in or the host descriptor doesn't support Metal); "needed"; the
+///   images the plug-in released; and the CPU retry after kOfxStatGPURenderFailed (GPUGain without
+///   a source).
+/// GPURenderScope itself (another instance, nested scopes) is checked for every API by
+/// suiteHandleChecks (checkGPURenderScope()), and the comparison's catch of unwritten (NaN)
+/// output pixels by cudaRenderChecks (in CI on Linux and Windows). All these checks are functional
+/// (#379, part 3 of #361).
 /// Without a Metal device or the plug-in, those checks are skipped, unless OFXH_REQUIRE=1.
 /// Exits with 1 if a check fails.
 
@@ -68,6 +72,7 @@ unsigned long usageWrite();
 bool commandBufferCompleted(void *commandBuffer);
 void releaseCommandBuffer(void *commandBuffer);
 void *makeWeakBuffer(void *buffer);
+void *makeAutoreleasedObject();
 bool weakBufferAlive(void *weak);
 void deleteWeakBuffer(void *weak);
 
@@ -158,86 +163,33 @@ namespace {
   // copies
 
 
-  /// setOutput() copies image to a Metal buffer, readOutput() copies it back over garbage
+  /// a queue of device and a Metal session on it (GPUChecks::checkCopies())
+  struct MetalSession {
+    MTL::Queue queue;
+    MTL::RenderSession session;
+    MetalSession(MTL::Device &device, ImageEffect::Instance &instance) : queue(device), session(instance, queue) {}
+  };
+
+  /// the copies to Metal buffers and back (GPUChecks::checkCopies()): an id<MTLBuffer> of its
+  /// own, with packed rowBytes; an image of an unknown depth isn't copied
+  /// #379 (part 3 of #361).
   void checkCopies(MTL::Device &device, ImageEffect::Instance &instance, ImageEffect::ClipInstance &clip)
   {
-    const char *depths[] = { kOfxBitDepthByte, kOfxBitDepthShort, kOfxBitDepthHalf, kOfxBitDepthFloat };
-    const char *components[] = { kOfxImageComponentRGBA, kOfxImageComponentRGB, kOfxImageComponentAlpha };
-    const OfxRectI bounds = { -3, 5, 14, 12 };
-    for (const char *d : depths) {
-      for (const char *c : components) {
-        for (int rows : { 0, 1, -1 }) {
-          const std::string what = std::string("Metal buffer ") + d + " " + c +
-            (rows == 0 ? " packed" : rows > 0 ? " padded" : " negative rowBytes");
-          MTL::Queue queue(device);
-          TestImage image(clip, d, c, bounds, rows);
-          const std::vector<char> before = image.pixels();
-          MTL::RenderSession session(instance, queue);
-          ImageEffect::Image *out = session.setOutput(clip, image, bounds);
-          check(what + ": copied, an id<MTLBuffer> with rowBytes packed",
-                out && !session.failed() && out->getPointerProperty(kOfxImagePropData) != nullptr &&
-                out->getPointerProperty(kOfxImagePropData) != image.getPointerProperty(kOfxImagePropData) &&
-                out->getIntProperty(kOfxImagePropRowBytes) == image.packed &&
-                out->getStringProperty(kOfxImageEffectPropPixelDepth) == d &&
-                out->getStringProperty(kOfxImageEffectPropComponents) == c &&
-                out->getBounds().x1 == bounds.x1 && out->getBounds().y2 == bounds.y2);
-          for (char &b : image.storage) {
-            b = 0x55;
-          }
-          check(what + ": read back", session.readOutput() && image.pixels() == before);
-          if (out) {
-            ImageEffect::Image *again = session.getImage(clip, nullptr);
-            check(what + ": getImage() of the output clip is the output, another reference",
-                  again == out && session.liveImages() == 1);
-            if (again) {
-              again->releaseReference();
-            }
-          }
-        }
-      }
-    }
-    for (int rows : { 0, 1, -1 }) {
-      // a render window inside the bounds: only its pixels go to Metal and come back; a host pixel
-      // outside it, changed after setOutput(), keeps its new value
-      const std::string what = std::string("Metal buffer") + (rows == 0 ? " packed" : rows > 0 ? " padded" : " negative rowBytes");
-      MTL::Queue queue(device);
-      TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, bounds, rows);
-      const OfxRectI inner = { 0, 7, 9, 11 };
-      MTL::RenderSession session(instance, queue);
-      const std::vector<char> before = image.pixels();
-      const bool set = session.setOutput(clip, image, inner) != nullptr;
-      for (char &b : image.storage) {
-        b = 0x55;
-      }
-      const bool read = set && session.readOutput();
-      bool ok = read;
-      const int px = 4 * 4; // float RGBA
-      for (int y = bounds.y1; ok && y < bounds.y2; ++y) {
-        for (int x = bounds.x1; ok && x < bounds.x2; ++x) {
-          const bool in = x >= inner.x1 && x < inner.x2 && y >= inner.y1 && y < inner.y2;
-          const char *p = image.row(y - bounds.y1) + (x - bounds.x1) * px;
-          const char *b = &before[(static_cast<size_t>(y - bounds.y1) * (bounds.x2 - bounds.x1) + (x - bounds.x1)) * px];
-          for (int i = 0; ok && i < px; ++i) {
-            ok = in ? p[i] == b[i] : p[i] == 0x55;
-          }
-        }
-      }
-      check(what + ": readOutput() copies the render window back only; a pixel outside it keeps the host's value", ok);
-    }
-    {
-      // an empty image: no Metal buffer of size 0
-      MTL::Queue queue(device);
-      TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, { 0, 0, 0, 4 }, 0);
-      MTL::RenderSession session(instance, queue);
-      check("an empty image: not copied, failed()", !session.getImage(clip, &image) && session.failed());
-    }
+    GPUChecks::CopyChecks<MetalSession> c;
+    c.prefix = "Metal buffer ";
+    c.make = [&] { return std::make_unique<MetalSession>(device, instance); };
+    c.copiedWhat = "an id<MTLBuffer> with rowBytes packed";
+    c.copied = [](ImageEffect::Image &out, const TestImage &image) {
+      return out.getPointerProperty(kOfxImagePropData) != image.getPointerProperty(kOfxImagePropData) &&
+        out.getIntProperty(kOfxImagePropRowBytes) == image.packed;
+    };
+    GPUChecks::checkCopies(c, clip);
     {
       // an unknown depth: not copied
-      MTL::Queue queue(device);
-      TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, bounds, 0);
+      TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, { -3, 5, 14, 12 }, 0);
       image.setStringProperty(kOfxImageEffectPropPixelDepth, "OfxBitDepthUnknown");
-      MTL::RenderSession session(instance, queue);
-      check("an image of an unknown depth: not copied, failed()", !session.getImage(clip, &image) && session.failed());
+      MetalSession f(device, instance);
+      check("an image of an unknown depth: not copied, failed()", !f.session.getImage(clip, &image) && f.session.failed());
     }
   }
 
@@ -246,6 +198,7 @@ namespace {
   /// input image at once, while the kernel still runs: the session still keeps the input buffer
   /// (a weak reference to it isn't nil), readOutput() reads the kernel's results (it waited for
   /// the writes to the output buffer), and once the session ended the command buffer is complete.
+  /// #379.
   void checkWaits(MTL::Device &device, ImageEffect::Instance &instance)
   {
     ImageEffect::ClipInstance &output = *instance.getClip(kOfxImageEffectOutputClipName);
@@ -320,6 +273,7 @@ namespace {
   /// - the render window only is read back;
   /// - lifetime: "The host MUST keep them alive until the work the plug-in enqueued on the command
   ///   queue has completed", with a released input texture, a slow kernel and unretained references.
+  /// #379.
   void checkTextures(MTL::Device &device, ImageEffect::Instance &instance)
   {
     ImageEffect::ClipInstance &output = *instance.getClip(kOfxImageEffectOutputClipName);
@@ -516,6 +470,7 @@ namespace {
     return v;
   }
 
+  /// #379.
   void checkRenders(MyHost::Host &host, MTL::Device &device)
   {
     const char *path = std::getenv("OFX_PLUGIN_PATH");
@@ -546,27 +501,34 @@ namespace {
       return;
     }
 
-    // GPUGain: Metal "true", the CPU "true"
-    check("chooseRenderMode(Metal) = Buffers", MTL::chooseRenderMode(*instance, true) == MTL::RenderMode::Buffers);
-    check("chooseRenderMode(no Metal) = CPU", MTL::chooseRenderMode(*instance, false) == MTL::RenderMode::CPU);
-    props.setStringProperty(kOfxImageEffectPropMetalRenderSupported, "false");
-    check("chooseRenderMode(Metal, plug-in \"false\") = CPU", MTL::chooseRenderMode(*instance, true) == MTL::RenderMode::CPU);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "false");
-    check("chooseRenderMode(Metal, plug-in without Metal or CPU) = None", MTL::chooseRenderMode(*instance, true) == MTL::RenderMode::None);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "true");
-    props.setStringProperty(kOfxImageEffectPropMetalRenderSupported, "true");
+    // chooseRenderMode() (GPUGain: Metal "true", the CPU "true"): Metal buffers if the plug-in and
+    // the host have them, else the CPU, or None if the plug-in can't render on the CPU either
+    const char *const metal = kOfxImageEffectPropMetalRenderSupported, *const textures = kOfxImageEffectPropMetalTextureSupported;
+    const char *const cpu = kOfxImageEffectPropCPURenderSupported;
+    MetalTestInstance &in = *instance;
+    GPUChecks::checkRules({
+      { "chooseRenderMode(Metal) = Buffers", {}, [&] { return MTL::chooseRenderMode(in, true) == MTL::RenderMode::Buffers; } },
+      { "chooseRenderMode(no Metal) = CPU", {}, [&] { return MTL::chooseRenderMode(in, false) == MTL::RenderMode::CPU; } },
+      { "chooseRenderMode(Metal, plug-in \"false\") = CPU", { { &props, metal, "false" } },
+        [&] { return MTL::chooseRenderMode(in, true) == MTL::RenderMode::CPU; } },
+      { "chooseRenderMode(Metal, plug-in without Metal or CPU) = None", { { &props, metal, "false" }, { &props, cpu, "false" } },
+        [&] { return MTL::chooseRenderMode(in, true) == MTL::RenderMode::None; } },
+    });
 
     checkCopies(device, *instance, *instance->getClip(kOfxImageEffectOutputClipName));
     checkWaits(device, *instance);
 
     // Metal textures: GPUGain has none, so its instance declares them here for the session checks
     // (no texture render is sent to GPUGain: it would read the textures as CPU memory)
-    props.setStringProperty(kOfxImageEffectPropMetalTextureSupported, "true");
-    check("chooseRenderMode(buffers and textures) = Buffers (the host's default)",
-          MTL::chooseRenderMode(*instance, true, true) == MTL::RenderMode::Buffers);
-    check("chooseRenderMode(buffers and textures, preferTextures) = Textures",
-          MTL::chooseRenderMode(*instance, true, true, true) == MTL::RenderMode::Textures);
-    check("chooseRenderMode(textures only) = Textures", MTL::chooseRenderMode(*instance, false, true) == MTL::RenderMode::Textures);
+    props.setStringProperty(textures, "true");
+    GPUChecks::checkRules({
+      { "chooseRenderMode(buffers and textures) = Buffers (the host's default)", {},
+        [&] { return MTL::chooseRenderMode(in, true, true) == MTL::RenderMode::Buffers; } },
+      { "chooseRenderMode(buffers and textures, preferTextures) = Textures", {},
+        [&] { return MTL::chooseRenderMode(in, true, true, true) == MTL::RenderMode::Textures; } },
+      { "chooseRenderMode(textures only) = Textures", {},
+        [&] { return MTL::chooseRenderMode(in, false, true) == MTL::RenderMode::Textures; } },
+    });
     {
       // "a host MUST NOT pass ::kOfxImageComponentRGB images as textures": an RGB input or output
       // gets buffers, or the CPU without them; Alpha is a texture
@@ -590,10 +552,10 @@ namespace {
       }
       instance->getClipPreferences();
     }
-    props.setStringProperty(kOfxImageEffectPropMetalTextureSupported, "needed");
-    check("chooseRenderMode(plug-in textures \"needed\", not one of its values) = CPU",
-          MTL::chooseRenderMode(*instance, false, true) == MTL::RenderMode::CPU);
-    props.setStringProperty(kOfxImageEffectPropMetalTextureSupported, "true");
+    GPUChecks::checkRules({
+      { "chooseRenderMode(plug-in textures \"needed\", not one of its values) = CPU", { { &props, textures, "needed" } },
+        [&] { return MTL::chooseRenderMode(in, false, true) == MTL::RenderMode::CPU; } },
+    });
     Property::Set &hostProperties = host.getProperties();
     checkTextures(device, *instance);
     {
@@ -606,17 +568,15 @@ namespace {
     }
     // "only for a path that both host and plug-in declared as supported": a texture session isn't
     // ok() when the plug-in or the host descriptor says "false" (the actions get all 0 and no queue)
-    props.setStringProperty(kOfxImageEffectPropMetalTextureSupported, "false");
-    render(*instance, device, MTL::RenderMode::Textures, "ramp");
-    check("a texture session for a plug-in without textures: not Metal (0 and no queue in the inArgs)",
-          instance->args == expectedArgs(0, nullptr));
-    props.setStringProperty(kOfxImageEffectPropMetalTextureSupported, "true");
-    hostProperties.setStringProperty(kOfxImageEffectPropMetalTextureSupported, "false");
-    render(*instance, device, MTL::RenderMode::Textures, "ramp");
-    check("a texture session while the host's kOfxImageEffectPropMetalTextureSupported is \"false\": not Metal",
-          instance->args == expectedArgs(0, nullptr));
-    hostProperties.setStringProperty(kOfxImageEffectPropMetalTextureSupported, "true");
-    props.setStringProperty(kOfxImageEffectPropMetalTextureSupported, "false");
+    GPUChecks::checkRules({
+      { "a texture session for a plug-in without textures: not Metal (0 and no queue in the inArgs)",
+        { { &props, textures, "false" } },
+        [&] { render(in, device, MTL::RenderMode::Textures, "ramp"); return in.args == expectedArgs(0, nullptr); } },
+      { "a texture session while the host's kOfxImageEffectPropMetalTextureSupported is \"false\": not Metal",
+        { { &hostProperties, textures, "false" } },
+        [&] { render(in, device, MTL::RenderMode::Textures, "ramp"); return in.args == expectedArgs(0, nullptr); } },
+    });
+    props.setStringProperty(textures, "false");
 
     if (Param::DoubleInstance *scale = dynamic_cast<Param::DoubleInstance *>(instance->getParam("scale"))) {
       scale->set(0.5);
@@ -627,8 +587,6 @@ namespace {
     check("CPU render: kOfxStatOK, the source's r, g and b times 0.5 (max error " + std::to_string(r.maxError) + ")",
           r.status == kOfxStatOK && r.maxError <= 1e-6f);
     check("CPU render: kOfxImageEffectPropMetalEnabled 0 and no queue in the inArgs", instance->args == expectedArgs(0, nullptr));
-    r = render(*instance, device, MTL::RenderMode::CPU, "ramp", /*halfWindow=*/true);
-    check("a render that leaves half the output unwritten (NaN): an infinite error", r.status == kOfxStatOK && r.maxError == INFINITY);
 
     r = render(*instance, device, MTL::RenderMode::Buffers, "ramp");
     check("Metal render: kOfxStatOK, read back, the source's r, g and b times 0.5 (max error " + std::to_string(r.maxError) + ")",
@@ -638,59 +596,41 @@ namespace {
           instance->args == expectedArgs(1, instance->args[0].queue));
     check("Metal render: the plug-in released its images (the output is left)", r.liveImages == 1);
 
-    // kOfxImageEffectPropMetalEnabled only "If a plug-in and host have both set
-    // kOfxImageEffectPropMetalRenderSupported="true"": a session that one of them doesn't support
-    // isn't ok(), and the actions get 0 and no queue
-    props.setStringProperty(kOfxImageEffectPropMetalRenderSupported, "false");
-    r = render(*instance, device, MTL::RenderMode::Buffers, "ramp");
-    check("a session for a plug-in without Metal: not Metal (0 and no queue in the inArgs)",
-          instance->args == expectedArgs(0, nullptr));
-    props.setStringProperty(kOfxImageEffectPropMetalRenderSupported, "true");
+    // the session's precondition, kOfxImageEffectPropMetalEnabled only "If a plug-in and host have
+    // both set kOfxImageEffectPropMetalRenderSupported="true"": a session that one of them doesn't
+    // support isn't ok(), and the actions get 0 and no queue; "needed" (upstream main's @propdef of
+    // kOfxImageEffectPropMetalRenderSupported): Metal, and nothing inferred about the CPU; and
+    // GPUGain without a source: kOfxStatGPURenderFailed with Metal ("the GPU kernels need a source
+    // image: let the host render on the CPU"), then the CPU retry, unless the plug-in can't render
+    // on the CPU
     Property::Set &hostProps = host.getProperties();
-    hostProps.setStringProperty(kOfxImageEffectPropMetalRenderSupported, "false");
-    r = render(*instance, device, MTL::RenderMode::Buffers, "ramp");
-    check("a session while the host's kOfxImageEffectPropMetalRenderSupported is \"false\": not Metal",
-          instance->args == expectedArgs(0, nullptr));
-    hostProps.setStringProperty(kOfxImageEffectPropMetalRenderSupported, "true");
-    // "needed" (upstream main's @propdef of kOfxImageEffectPropMetalRenderSupported): Metal, and
-    // nothing inferred about the CPU
-    props.setStringProperty(kOfxImageEffectPropMetalRenderSupported, "needed");
-    check("chooseRenderMode(plug-in \"needed\") = Buffers", MTL::chooseRenderMode(*instance, true) == MTL::RenderMode::Buffers);
-    check("chooseRenderMode(plug-in \"needed\", no Metal) = CPU (kOfxImageEffectPropCPURenderSupported decides)",
-          MTL::chooseRenderMode(*instance, false) == MTL::RenderMode::CPU);
-    r = render(*instance, device, MTL::RenderMode::Buffers, "ramp");
-    check("a Metal render of a plug-in that says \"needed\": Metal, the expected pixels",
-          r.status == kOfxStatOK && r.readBack && instance->args.size() == 3 && instance->args[0].enabled == 1 &&
-          r.maxError <= 1e-6f);
-    props.setStringProperty(kOfxImageEffectPropMetalRenderSupported, "true");
-
-    // GPUGain without a source: kOfxStatGPURenderFailed with Metal ("the GPU kernels need a
-    // source image: let the host render on the CPU"), then the CPU retry
-    r = render(*instance, device, MTL::RenderMode::Buffers, "none");
-    check("Metal render without a source: kOfxStatGPURenderFailed, the CPU retry allowed",
-          r.status == kOfxStatGPURenderFailed && r.failed && r.cpuRetry);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "false");
-    r = render(*instance, device, MTL::RenderMode::Buffers, "none");
-    check("the same, with kOfxImageEffectPropCPURenderSupported \"false\": no CPU retry", r.failed && !r.cpuRetry);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "true");
-
-    {
-      // the scope applies to its instance only, and a nested scope of API CPU to none
-      std::unique_ptr<ImageEffect::Instance> other(plugin->createInstance(kOfxImageEffectContextFilter, NULL));
-      int queueTag = 0;
-      ImageEffect::GPURenderScope scope(*other, ImageEffect::GPURenderScope::API::Metal, &queueTag);
-      r = render(*instance, device, MTL::RenderMode::CPU, "ramp");
-      check("a GPURenderScope of another instance: no Metal in the inArgs", instance->args == expectedArgs(0, nullptr));
-      ImageEffect::GPURenderScope outer(*instance, ImageEffect::GPURenderScope::API::Metal, &queueTag);
-      {
-        ImageEffect::GPURenderScope inner(*instance, ImageEffect::GPURenderScope::API::CPU, &queueTag);
-        r = render(*instance, device, MTL::RenderMode::CPU, "ramp");
-        check("a nested GPURenderScope of API CPU: no Metal in the inArgs", instance->args == expectedArgs(0, nullptr));
-      }
-      check("the outer scope again", ImageEffect::GPURenderScope::find(*instance) == &outer &&
-            outer.api() == ImageEffect::GPURenderScope::API::Metal && outer.queue() == &queueTag);
-    }
-    check("no scope left", ImageEffect::GPURenderScope::find(*instance) == nullptr);
+    GPUChecks::checkRules({
+      { "a session for a plug-in without Metal: not Metal (0 and no queue in the inArgs)", { { &props, metal, "false" } },
+        [&] { render(in, device, MTL::RenderMode::Buffers, "ramp"); return in.args == expectedArgs(0, nullptr); } },
+      { "a session while the host's kOfxImageEffectPropMetalRenderSupported is \"false\": not Metal",
+        { { &hostProps, metal, "false" } },
+        [&] { render(in, device, MTL::RenderMode::Buffers, "ramp"); return in.args == expectedArgs(0, nullptr); } },
+      { "chooseRenderMode(plug-in \"needed\") = Buffers", { { &props, metal, "needed" } },
+        [&] { return MTL::chooseRenderMode(in, true) == MTL::RenderMode::Buffers; } },
+      { "chooseRenderMode(plug-in \"needed\", no Metal) = CPU (kOfxImageEffectPropCPURenderSupported decides)",
+        { { &props, metal, "needed" } },
+        [&] { return MTL::chooseRenderMode(in, false) == MTL::RenderMode::CPU; } },
+      { "a Metal render of a plug-in that says \"needed\": Metal, the expected pixels", { { &props, metal, "needed" } },
+        [&] {
+          const RenderResult n = render(in, device, MTL::RenderMode::Buffers, "ramp");
+          return n.status == kOfxStatOK && n.readBack && in.args.size() == 3 && in.args[0].enabled == 1 && n.maxError <= 1e-6f;
+        } },
+      { "Metal render without a source: kOfxStatGPURenderFailed, the CPU retry allowed", {},
+        [&] {
+          const RenderResult n = render(in, device, MTL::RenderMode::Buffers, "none");
+          return n.status == kOfxStatGPURenderFailed && n.failed && n.cpuRetry;
+        } },
+      { "the same, with kOfxImageEffectPropCPURenderSupported \"false\": no CPU retry", { { &props, cpu, "false" } },
+        [&] {
+          const RenderResult n = render(in, device, MTL::RenderMode::Buffers, "none");
+          return n.failed && !n.cpuRetry;
+        } },
+    });
     instance->destroyInstanceAction();
   }
 
@@ -726,9 +666,24 @@ int main()
             return !MTL::createDeviceWithRegistryID(hooks, 0, &why) && !why.empty();
           }());
     {
-      MTL::AutoreleasePool outer;
-      MTL::AutoreleasePool inner;
-      check("AutoreleasePool: nested pools", true);
+      // MTL::AutoreleasePool (ofxhMetalDevice.h, for threads without a pool): an object autoreleased
+      // in the inner of two nested pools lives until that pool ends, and is released then, before
+      // the outer one ends. (The macOS CI step also fails if the checks autorelease with no pool
+      // in place: Objective-C's OBJC_DEBUG_MISSING_POOLS message.)
+      void *weak = nullptr;
+      bool aliveInInner = false, aliveAfterInner = true;
+      {
+        MTL::AutoreleasePool outer;
+        {
+          MTL::AutoreleasePool inner;
+          weak = makeAutoreleasedObject();
+          aliveInInner = weakBufferAlive(weak);
+        }
+        aliveAfterInner = weakBufferAlive(weak);
+      }
+      deleteWeakBuffer(weak);
+      check("AutoreleasePool: nested pools; an object autoreleased in the inner one lives until it ends, and is released then",
+            aliveInInner && !aliveAfterInner);
     }
     check("createDevice() of a device that doesn't exist: nullptr, with the reason", [&] {
             std::string why;

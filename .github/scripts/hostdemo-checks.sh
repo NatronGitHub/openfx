@@ -1,10 +1,12 @@
 #!/bin/bash
 # The hostDemo and cacheDemo checks, for a Make or a CMake build (make-build-test.sh,
 # cmake-build-test.sh). Outputs are written in the current directory.
-# usage: hostdemo-checks.sh <directory of hostDemo and cacheDemo> <OFX_PLUGIN_PATH>
+# usage: hostdemo-checks.sh <directory of hostDemo and cacheDemo> <OFX_PLUGIN_PATH> [<directory of suiteHandleChecks>]
+# (the CMake build has suiteHandleChecks in HostSupport/tests; the Makefile build next to hostDemo, the default)
 set -eo pipefail
 bindir=$(cd "$1" && pwd)
 dirs=$2
+testdir=$(cd "${3:-$1}" && pwd)
 hostDemo="$bindir/hostDemo"
 cacheDemo="$bindir/cacheDemo"
 OFX_PLUGIN_PATH="$dirs" "$cacheDemo" > cachedemo.log 2>&1 || { cat cachedemo.log; exit 1; }
@@ -15,8 +17,10 @@ test "$n" -ge 5
 # The param, progress, timeline, interact and draw suites reject NULL and descriptor handles, NULL
 # names and NULL return pointers (suiteHandleChecks, built with hostDemo; not a hostDemo feature).
 # The checks on an effect instance use the Invert plug-in of OFX_PLUGIN_PATH, which must be there.
-SUITE_HANDLE_CHECKS_REQUIRE_PLUGIN=1 OFX_PLUGIN_PATH="$dirs" "$bindir/suiteHandleChecks" > suitehandlechecks.log 2>&1 || { cat suitehandlechecks.log; exit 1; }
-tail -1 suitehandlechecks.log
+# Its functional and regression checks (HostSupport/tests/functional/, regression/) are counted apart, and a
+# failed regression check prints "suiteHandleChecks: regression: ...".
+OFXH_REQUIRE=1 OFX_PLUGIN_PATH="$dirs" "$testdir/suiteHandleChecks" > suitehandlechecks.log 2>&1 || { cat suitehandlechecks.log; exit 1; }
+tail -3 suitehandlechecks.log
 
 # hostDemo runs are deterministic: only the plug-ins in OFX_PLUGIN_PATH, no plug-in
 # cache, nothing on stdout but the plug-in messages.

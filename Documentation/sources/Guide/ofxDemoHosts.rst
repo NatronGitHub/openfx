@@ -46,8 +46,10 @@ With CMake, two options of the top-level ``CMakeLists.txt`` build them
 (both turn on ``OFX_BUILD_HOSTSUPPORT``):
 
 - ``BUILD_EXAMPLE_HOSTS`` builds hostDemo and the other example programs
-  of ``HostSupport/examples``: ``cacheDemo``, ``propsetDump`` and
-  ``suiteHandleChecks``. They are skipped when ``OFX_SUPPORTS_MULTITHREAD``
+  of ``HostSupport/examples``, ``cacheDemo`` and ``propsetDump``, and the
+  check programs of ``HostSupport/tests`` (``suiteHandleChecks`` and the
+  GPU components' checks: functional checks in ``functional/``,
+  regression checks in ``regression/``). They are skipped when ``OFX_SUPPORTS_MULTITHREAD``
   is on, because they don't implement the multi-thread suite functions
   that option makes pure virtual.
 - ``OFX_PYTHON_BINDINGS`` builds the ``ofxh`` module. It needs Python 3.10
@@ -335,7 +337,7 @@ each:
 
 The test programs ``propsetDump`` and ``suiteHandleChecks`` reuse these
 classes, compiled from the same files (see
-``HostSupport/examples/CMakeLists.txt``): a C++ test host that needs a
+``HostSupport/examples/CMakeLists.txt`` and ``HostSupport/tests/CMakeLists.txt``): a C++ test host that needs a
 working host and effect instance can do the same, and only add its
 checks.
 

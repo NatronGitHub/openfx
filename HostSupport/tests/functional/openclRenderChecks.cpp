@@ -12,10 +12,13 @@
 ///   depths and components, packed, padded and negative rowBytes; OpenCL Images: RGBA only);
 ///   GPUGain renders with OpenCL Buffers and Images compared with the expected pixels, with
 ///   kOfxImageEffectPropOpenCLEnabled 1 and the queue in the inArgs of BeginSequenceRender, Render
-///   and EndSequenceRender (and 0 and NULL on the CPU, for another instance, in a nested scope of
-///   API CPU, and when the plug-in or the host descriptor doesn't support the session's mode);
-///   "needed" for Buffers; the images the plug-in released; unwritten (NaN) output pixels caught
-///   by the comparison; and the CPU retry after kOfxStatGPURenderFailed (GPUGain without a source).
+///   and EndSequenceRender (and 0 and NULL on the CPU, and when the plug-in or the host descriptor
+///   doesn't support the session's mode); "needed" for Buffers; the images the plug-in released;
+///   and the CPU retry after kOfxStatGPURenderFailed (GPUGain without a source).
+/// GPURenderScope itself (another instance, nested scopes) is checked for every API by
+/// suiteHandleChecks (checkGPURenderScope()), and the comparison's catch of unwritten (NaN)
+/// output pixels by cudaRenderChecks (in CI on Linux and Windows). All these checks are functional
+/// (#370, part 2 of #361).
 /// Without an OpenCL device or the plug-in, those checks are skipped, unless OFXH_REQUIRE=1 (CI).
 /// Exits with 1 if a check fails.
 
@@ -169,100 +172,45 @@ namespace {
   // copies
 
 
-  /// setOutput() copies image to OpenCL, readOutput() copies it back over garbage
+  /// a queue of device and an OpenCL session on it, in mode (GPUChecks::checkCopies())
+  struct CLSession {
+    CL::Queue queue;
+    CL::RenderSession session;
+    CLSession(CL::Device &device, ImageEffect::Instance &instance, CL::RenderMode mode)
+      : queue(device), session(instance, queue, mode) {}
+  };
+
+  /// the copies to OpenCL buffers and images and back (GPUChecks::checkCopies()): OpenCL Images
+  /// are RGBA only (CL_RGBA), with kOfxImageEffectPropOpenCLImage set and rowBytes 0; buffers
+  /// have it NULL, and packed rowBytes; a session in RenderMode::CPU copies nothing
+  /// #370 (part 2 of #361).
   void checkCopies(CL::Device &device, ImageEffect::Instance &instance, ImageEffect::ClipInstance &clip)
   {
-    const char *depths[] = { kOfxBitDepthByte, kOfxBitDepthShort, kOfxBitDepthHalf, kOfxBitDepthFloat };
-    const char *components[] = { kOfxImageComponentRGBA, kOfxImageComponentRGB, kOfxImageComponentAlpha };
-    const OfxRectI bounds = { -3, 5, 14, 12 };
     for (CL::RenderMode mode : { CL::RenderMode::Buffers, CL::RenderMode::Images }) {
       if (mode == CL::RenderMode::Images && !device.info().imageSupport) {
         skip("OpenCL Images: the device has no image support (CL_DEVICE_IMAGE_SUPPORT)");
         continue;
       }
-      for (const char *d : depths) {
-        for (const char *c : components) {
-          for (int rows : { 0, 1, -1 }) {
-            const std::string what = std::string(modeName(mode)) + " " + d + " " + c +
-              (rows == 0 ? " packed" : rows > 0 ? " padded" : " negative rowBytes");
-            CL::Queue queue(device);
-            TestImage image(clip, d, c, bounds, rows);
-            const std::vector<char> before = image.pixels();
-            CL::RenderSession session(instance, queue, mode);
-            ImageEffect::Image *out = session.setOutput(clip, image, bounds);
-            if (mode == CL::RenderMode::Images && std::strcmp(c, kOfxImageComponentRGBA) != 0) {
-              check(what + ": not an OpenCL Image, failed()", !out && session.failed());
-              continue;
-            }
-            const bool images = mode == CL::RenderMode::Images;
-            check(what + ": copied, with kOfxImageEffectPropOpenCLImage " + (images ? "set" : "NULL") + " and rowBytes " +
-                  (images ? "0" : "packed"),
-                  out && !session.failed() && out->getPointerProperty(kOfxImagePropData) != nullptr &&
-                  (out->getPointerProperty(kOfxImageEffectPropOpenCLImage) != nullptr) == images &&
-                  out->getIntProperty(kOfxImagePropRowBytes) == (images ? 0 : image.packed) &&
-                  out->getStringProperty(kOfxImageEffectPropPixelDepth) == d &&
-                  out->getStringProperty(kOfxImageEffectPropComponents) == c &&
-                  out->getBounds().x1 == bounds.x1 && out->getBounds().y2 == bounds.y2);
-            for (char &b : image.storage) {
-              b = 0x55;
-            }
-            check(what + ": read back", session.readOutput() && image.pixels() == before);
-            if (out) {
-              ImageEffect::Image *again = session.getImage(clip, nullptr);
-              check(what + ": getImage() of the output clip is the output, another reference",
-                    again == out && session.liveImages() == 1);
-              if (again) {
-                again->releaseReference();
-              }
-            }
-          }
-        }
+      const bool images = mode == CL::RenderMode::Images;
+      GPUChecks::CopyChecks<CLSession> c;
+      c.prefix = std::string(modeName(mode)) + " ";
+      c.make = [&] { return std::make_unique<CLSession>(device, instance, mode); };
+      c.copiedWhat = std::string("with kOfxImageEffectPropOpenCLImage ") + (images ? "set" : "NULL") + " and rowBytes " +
+        (images ? "0" : "packed");
+      c.copied = [images](ImageEffect::Image &out, const TestImage &image) {
+        return (out.getPointerProperty(kOfxImageEffectPropOpenCLImage) != nullptr) == images &&
+          out.getIntProperty(kOfxImagePropRowBytes) == (images ? 0 : image.packed);
+      };
+      if (images) {
+        c.refuses = [](const char *components) { return std::strcmp(components, kOfxImageComponentRGBA) != 0; };
+        c.refusedWhat = "not an OpenCL Image, failed()";
       }
-    }
-    for (CL::RenderMode mode : { CL::RenderMode::Buffers, CL::RenderMode::Images }) {
-      if (mode == CL::RenderMode::Images && !device.info().imageSupport) {
-        continue;
-      }
-      for (int rows : { 0, 1, -1 }) {
-        // a render window inside the bounds: only its pixels go to OpenCL and come back; a host pixel
-        // outside it, changed after setOutput(), keeps its new value
-        const std::string what = std::string(modeName(mode)) + (rows == 0 ? " packed" : rows > 0 ? " padded" : " negative rowBytes");
-        CL::Queue queue(device);
-        TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, bounds, rows);
-        const OfxRectI inner = { 0, 7, 9, 11 };
-        CL::RenderSession session(instance, queue, mode);
-        const std::vector<char> before = image.pixels();
-        const bool set = session.setOutput(clip, image, inner) != nullptr;
-        for (char &b : image.storage) {
-          b = 0x55;
-        }
-        const bool read = set && session.readOutput();
-        bool ok = read;
-        const int px = 4 * 4; // float RGBA
-        for (int y = bounds.y1; ok && y < bounds.y2; ++y) {
-          for (int x = bounds.x1; ok && x < bounds.x2; ++x) {
-            const bool in = x >= inner.x1 && x < inner.x2 && y >= inner.y1 && y < inner.y2;
-            const char *p = image.row(y - bounds.y1) + (x - bounds.x1) * px;
-            const char *b = &before[(static_cast<size_t>(y - bounds.y1) * (bounds.x2 - bounds.x1) + (x - bounds.x1)) * px];
-            for (int i = 0; ok && i < px; ++i) {
-              ok = in ? p[i] == b[i] : p[i] == 0x55;
-            }
-          }
-        }
-        check(what + ": readOutput() copies the render window back only; a pixel outside it keeps the host's value", ok);
-      }
-    }
-    {
-      // an empty image: no OpenCL buffer of size 0
-      CL::Queue queue(device);
-      TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, { 0, 0, 0, 4 }, 0);
-      CL::RenderSession session(instance, queue, CL::RenderMode::Buffers);
-      check("an empty image: not copied, failed()", !session.getImage(clip, &image) && session.failed());
+      GPUChecks::checkCopies(c, clip);
     }
     {
       CL::Queue queue(device);
       CL::RenderSession session(instance, queue, CL::RenderMode::CPU);
-      TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, bounds, 0);
+      TestImage image(clip, kOfxBitDepthFloat, kOfxImageComponentRGBA, { -3, 5, 14, 12 }, 0);
       check("a session in RenderMode::CPU: not ok(), copies nothing", !session.ok() && !session.getImage(clip, &image));
     }
   }
@@ -359,6 +307,7 @@ namespace {
   /// Device::compileProgram(): the context of the render's queue, the host's build options, the
   /// binary cache (in memory, in a directory, keyed on the source, options and environment), and
   /// fOptional
+  /// #387.
   void checkPrograms(CLTestHost &host, ImageEffect::Instance &instance, const CL::Hooks &baseHooks)
   {
     typedef ImageEffect::GPURenderScope Scope;
@@ -613,6 +562,7 @@ namespace {
     std::filesystem::remove_all(dir, ec);
   }
 
+  /// #370.
   void checkRenders(CLTestHost &host, CL::Device &device, const CL::Hooks &hooks)
   {
     const char *path = std::getenv("OFX_PLUGIN_PATH");
@@ -646,18 +596,29 @@ namespace {
       return;
     }
 
-    // GPUGain: Buffers and Images "true", the CPU "true"
-    check("chooseRenderMode(Buffers and Images) = Buffers", CL::chooseRenderMode(*instance, true, true) == CL::RenderMode::Buffers);
-    check("chooseRenderMode(Buffers and Images, preferImages) = Images", CL::chooseRenderMode(*instance, true, true, true) == CL::RenderMode::Images);
-    check("chooseRenderMode(Images only) = Images", CL::chooseRenderMode(*instance, false, true) == CL::RenderMode::Images);
-    check("chooseRenderMode(no OpenCL) = CPU", CL::chooseRenderMode(*instance, false, false) == CL::RenderMode::CPU);
-    props.setStringProperty(kOfxImageEffectPropOpenCLSupported, "false");
-    check("chooseRenderMode(plug-in Buffers only, preferImages) = Buffers", CL::chooseRenderMode(*instance, true, true, true) == CL::RenderMode::Buffers);
-    check("chooseRenderMode(plug-in Buffers only, host Images only) = CPU", CL::chooseRenderMode(*instance, false, true) == CL::RenderMode::CPU);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "false");
-    check("chooseRenderMode(plug-in Buffers only and no CPU, host Images only) = None", CL::chooseRenderMode(*instance, false, true) == CL::RenderMode::None);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "true");
-    props.setStringProperty(kOfxImageEffectPropOpenCLSupported, "true");
+    // chooseRenderMode() (GPUGain: Buffers and Images "true", the CPU "true"): Buffers by default,
+    // Images if preferred, what the plug-in and the host both have, else the CPU, or None if the
+    // plug-in can't render on the CPU either
+    const char *const buffers = kOfxImageEffectPropOpenCLRenderSupported, *const clImages = kOfxImageEffectPropOpenCLSupported;
+    const char *const cpu = kOfxImageEffectPropCPURenderSupported;
+    CLTestInstance &in = *instance;
+    GPUChecks::checkRules({
+      { "chooseRenderMode(Buffers and Images) = Buffers", {},
+        [&] { return CL::chooseRenderMode(in, true, true) == CL::RenderMode::Buffers; } },
+      { "chooseRenderMode(Buffers and Images, preferImages) = Images", {},
+        [&] { return CL::chooseRenderMode(in, true, true, true) == CL::RenderMode::Images; } },
+      { "chooseRenderMode(Images only) = Images", {},
+        [&] { return CL::chooseRenderMode(in, false, true) == CL::RenderMode::Images; } },
+      { "chooseRenderMode(no OpenCL) = CPU", {},
+        [&] { return CL::chooseRenderMode(in, false, false) == CL::RenderMode::CPU; } },
+      { "chooseRenderMode(plug-in Buffers only, preferImages) = Buffers", { { &props, clImages, "false" } },
+        [&] { return CL::chooseRenderMode(in, true, true, true) == CL::RenderMode::Buffers; } },
+      { "chooseRenderMode(plug-in Buffers only, host Images only) = CPU", { { &props, clImages, "false" } },
+        [&] { return CL::chooseRenderMode(in, false, true) == CL::RenderMode::CPU; } },
+      { "chooseRenderMode(plug-in Buffers only and no CPU, host Images only) = None",
+        { { &props, clImages, "false" }, { &props, cpu, "false" } },
+        [&] { return CL::chooseRenderMode(in, false, true) == CL::RenderMode::None; } },
+    });
     {
       // OpenCL Images only for RGBA clips (the session's are CL_RGBA): a connected Alpha or RGB
       // input, or output, gets Buffers, or the CPU without them
@@ -694,8 +655,6 @@ namespace {
     check("CPU render: kOfxStatOK, the source's r, g and b times 0.5 (max error " + std::to_string(r.maxError) + ")",
           r.status == kOfxStatOK && r.maxError <= 1e-6f);
     check("CPU render: kOfxImageEffectPropOpenCLEnabled 0 and no queue in the inArgs", instance->args == expectedArgs(0, nullptr));
-    r = render(*instance, device, CL::RenderMode::CPU, "ramp", /*halfWindow=*/true);
-    check("a render that leaves half the output unwritten (NaN): an infinite error", r.status == kOfxStatOK && r.maxError == INFINITY);
 
     for (CL::RenderMode mode : { CL::RenderMode::Buffers, CL::RenderMode::Images }) {
       const std::string name = modeName(mode);
@@ -712,60 +671,43 @@ namespace {
       check(name + " render: the plug-in released its images (the output is left)", r.liveImages == 1);
     }
 
-    // kOfxImageEffectPropOpenCLEnabled only "If a plug-in and host have both set
-    // kOfxImageEffectPropOpenCLRenderSupported="true" or have both set
+    // the session's precondition, kOfxImageEffectPropOpenCLEnabled only "If a plug-in and host
+    // have both set kOfxImageEffectPropOpenCLRenderSupported="true" or have both set
     // kOfxImageEffectPropOpenCLSupported="true"": a session for a mode one of them doesn't support
-    // isn't ok(), and the actions get 0 and no queue
-    props.setStringProperty(kOfxImageEffectPropOpenCLSupported, "false");
-    r = render(*instance, device, CL::RenderMode::Images, "ramp");
-    check("an Images session for a plug-in without Images: not OpenCL (0 and no queue in the inArgs)",
-          instance->args == expectedArgs(0, nullptr));
-    props.setStringProperty(kOfxImageEffectPropOpenCLSupported, "true");
-    Property::Set &hostProps = host.getProperties();
-    hostProps.setStringProperty(kOfxImageEffectPropOpenCLRenderSupported, "false");
-    r = render(*instance, device, CL::RenderMode::Buffers, "ramp");
-    check("a Buffers session while the host's kOfxImageEffectPropOpenCLRenderSupported is \"false\": not OpenCL",
-          instance->args == expectedArgs(0, nullptr));
-    hostProps.setStringProperty(kOfxImageEffectPropOpenCLRenderSupported, "true");
-    // "needed" (upstream main's @propdef of kOfxImageEffectPropOpenCLRenderSupported): Buffers,
-    // and nothing inferred about the CPU
-    props.setStringProperty(kOfxImageEffectPropOpenCLRenderSupported, "needed");
-    check("chooseRenderMode(plug-in Buffers \"needed\") = Buffers", CL::chooseRenderMode(*instance, true, false) == CL::RenderMode::Buffers);
-    check("chooseRenderMode(plug-in Buffers \"needed\", no OpenCL) = CPU (kOfxImageEffectPropCPURenderSupported decides)",
-          CL::chooseRenderMode(*instance, false, false) == CL::RenderMode::CPU);
-    r = render(*instance, device, CL::RenderMode::Buffers, "ramp");
-    check("a Buffers render of a plug-in that says \"needed\": OpenCL, the expected pixels",
-          r.status == kOfxStatOK && r.readBack && instance->args.size() == 3 && instance->args[0].enabled == 1 &&
-          r.maxError <= 1e-6f);
-    props.setStringProperty(kOfxImageEffectPropOpenCLRenderSupported, "true");
-
+    // isn't ok(), and the actions get 0 and no queue; "needed" (upstream main's @propdef of
+    // kOfxImageEffectPropOpenCLRenderSupported): Buffers, and nothing inferred about the CPU; and
     // GPUGain without a source: kOfxStatGPURenderFailed with OpenCL ("the GPU kernels need a
-    // source image: let the host render on the CPU"), then the CPU retry
-    r = render(*instance, device, CL::RenderMode::Buffers, "none");
-    check("Buffers render without a source: kOfxStatGPURenderFailed, the CPU retry allowed",
-          r.status == kOfxStatGPURenderFailed && r.failed && r.cpuRetry);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "false");
-    r = render(*instance, device, CL::RenderMode::Buffers, "none");
-    check("the same, with kOfxImageEffectPropCPURenderSupported \"false\": no CPU retry", r.failed && !r.cpuRetry);
-    props.setStringProperty(kOfxImageEffectPropCPURenderSupported, "true");
-
-    {
-      // the scope applies to its instance only, and a nested scope of API None to none
-      std::unique_ptr<ImageEffect::Instance> other(plugin->createInstance(kOfxImageEffectContextFilter, NULL));
-      int queueTag = 0;
-      ImageEffect::GPURenderScope scope(*other, ImageEffect::GPURenderScope::API::OpenCL, &queueTag);
-      r = render(*instance, device, CL::RenderMode::CPU, "ramp");
-      check("a GPURenderScope of another instance: no OpenCL in the inArgs", instance->args == expectedArgs(0, nullptr));
-      ImageEffect::GPURenderScope outer(*instance, ImageEffect::GPURenderScope::API::OpenCL, &queueTag);
-      {
-        ImageEffect::GPURenderScope inner(*instance, ImageEffect::GPURenderScope::API::CPU, &queueTag);
-        r = render(*instance, device, CL::RenderMode::CPU, "ramp");
-        check("a nested GPURenderScope of API CPU: no OpenCL in the inArgs", instance->args == expectedArgs(0, nullptr));
-      }
-      check("the outer scope again", ImageEffect::GPURenderScope::find(*instance) == &outer &&
-            outer.api() == ImageEffect::GPURenderScope::API::OpenCL && outer.queue() == &queueTag);
-    }
-    check("no scope left", ImageEffect::GPURenderScope::find(*instance) == nullptr);
+    // source image: let the host render on the CPU"), then the CPU retry, unless the plug-in
+    // can't render on the CPU
+    Property::Set &hostProps = host.getProperties();
+    GPUChecks::checkRules({
+      { "an Images session for a plug-in without Images: not OpenCL (0 and no queue in the inArgs)",
+        { { &props, clImages, "false" } },
+        [&] { render(in, device, CL::RenderMode::Images, "ramp"); return in.args == expectedArgs(0, nullptr); } },
+      { "a Buffers session while the host's kOfxImageEffectPropOpenCLRenderSupported is \"false\": not OpenCL",
+        { { &hostProps, buffers, "false" } },
+        [&] { render(in, device, CL::RenderMode::Buffers, "ramp"); return in.args == expectedArgs(0, nullptr); } },
+      { "chooseRenderMode(plug-in Buffers \"needed\") = Buffers", { { &props, buffers, "needed" } },
+        [&] { return CL::chooseRenderMode(in, true, false) == CL::RenderMode::Buffers; } },
+      { "chooseRenderMode(plug-in Buffers \"needed\", no OpenCL) = CPU (kOfxImageEffectPropCPURenderSupported decides)",
+        { { &props, buffers, "needed" } },
+        [&] { return CL::chooseRenderMode(in, false, false) == CL::RenderMode::CPU; } },
+      { "a Buffers render of a plug-in that says \"needed\": OpenCL, the expected pixels", { { &props, buffers, "needed" } },
+        [&] {
+          const RenderResult n = render(in, device, CL::RenderMode::Buffers, "ramp");
+          return n.status == kOfxStatOK && n.readBack && in.args.size() == 3 && in.args[0].enabled == 1 && n.maxError <= 1e-6f;
+        } },
+      { "Buffers render without a source: kOfxStatGPURenderFailed, the CPU retry allowed", {},
+        [&] {
+          const RenderResult n = render(in, device, CL::RenderMode::Buffers, "none");
+          return n.status == kOfxStatGPURenderFailed && n.failed && n.cpuRetry;
+        } },
+      { "the same, with kOfxImageEffectPropCPURenderSupported \"false\": no CPU retry", { { &props, cpu, "false" } },
+        [&] {
+          const RenderResult n = render(in, device, CL::RenderMode::Buffers, "none");
+          return n.failed && !n.cpuRetry;
+        } },
+    });
     instance->destroyInstanceAction();
   }
 
@@ -799,6 +741,7 @@ namespace {
   }
 
   /// ~Queue releases a queue whose clFinish failed instead of lending it again
+  /// #370.
   void checkFailedQueue()
   {
     CL::Hooks hooks;

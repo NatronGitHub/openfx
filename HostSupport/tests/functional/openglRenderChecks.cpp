@@ -26,6 +26,8 @@
 /// Without an OpenGL context or the plug-in, those checks are skipped, unless OFXH_REQUIRE=1 (CI).
 /// OFXH_OPENGL_BACKENDS: the backends to try, by name, comma-separated (default: defaultBackends()),
 /// e.g. "glx" under an X server.
+/// All these checks are functional (#362, part 1 of #361; #365, #368, #369, #370, #378). The
+/// checks and the pixel comparison are those of gpuRenderChecks.h.
 /// Exits with 1 if a check fails.
 
 #include <algorithm>
@@ -63,6 +65,7 @@
 #include "hostDemoEffectInstance.h"
 #include "hostDemoClipInstance.h"
 #include "hostDemoHostDescriptor.h"
+#include "gpuRenderChecks.h"
 #ifdef OFX_EXTENSIONS_NUKE
 #include "nuke/fnOfxExtensions.h"
 #endif
@@ -83,50 +86,10 @@
 using namespace OFX::Host;
 namespace GL = OFX::Host::OpenGL;
 
+using GPUChecks::check;
+using GPUChecks::skip;
+
 namespace {
-
-  int gFailures = 0;
-
-  void check(const std::string &what, bool ok)
-  {
-    std::printf("%s: %s\n", ok ? "ok" : "FAILED", what.c_str());
-    gFailures += ok ? 0 : 1;
-  }
-
-  /// adds the error of a pixel component to maxError: a NaN (a pixel the plug-in didn't write,
-  /// which keeps hostDemo's sentinel) makes it infinite (std::max would drop it)
-  void addError(float &maxError, float value, float expected)
-  {
-    const float e = std::fabs(value - expected);
-    if (OFX::IsNaN(e) || e > maxError) {
-      maxError = OFX::IsNaN(e) ? INFINITY : e;
-    }
-  }
-
-  /// addError() counts an unwritten (NaN) pixel as an error
-  void checkAddError()
-  {
-    float m = 0.f;
-    addError(m, 0.25f, 0.5f);
-    addError(m, NAN, 0.5f);
-    addError(m, 0.5f, 0.5f);
-    check("an unwritten (NaN) pixel counts as an infinite error", m == INFINITY);
-  }
-
-  bool required()
-  {
-    const char *r = std::getenv("OFXH_REQUIRE");
-    return r && std::string(r) == "1";
-  }
-
-  void skip(const std::string &what)
-  {
-    if (required()) {
-      check(what + " (OFXH_REQUIRE=1)", false);
-    } else {
-      std::printf("skipped: %s\n", what.c_str());
-    }
-  }
 
   ////////////////////////////////////////////////////////////////////////////////
   // without OpenGL
@@ -152,6 +115,8 @@ namespace {
     GL::ProcAddress backendProcAddress(const char *) const override { return nullptr; }
   };
 
+  /// backendName() and backendFromName() (#362): every backend's name reads back, an unknown name
+  /// is refused
   void checkBackendNames()
   {
     for (GL::Backend b : { GL::Backend::EGLSurfaceless, GL::Backend::EGLDevice, GL::Backend::CGL, GL::Backend::WGL,
@@ -189,6 +154,9 @@ namespace {
     return true;
   }
 
+  /// GL::ContextPool (#362, #368), on fake contexts: one context per render key, at most the
+  /// maximum (a third key waits), abort and wake(), the context a key held last, a failing
+  /// factory, one key on two threads during the creation, a transient factory failure
   void checkPool()
   {
     std::atomic<int> created(0);
@@ -245,7 +213,13 @@ namespace {
       }, 1);
       GL::Context *first = nullptr, *second = nullptr;
       std::thread t1([&] { first = slow.acquire(&a); });
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      // (t1 is in the factory: t2 comes during the creation; at most 5 s, if acquire() doesn't
+      // call the factory, which the next check reports)
+      const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+      while (n.load() == 0 && std::chrono::steady_clock::now() < until) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      }
+      check("one key on two threads during creation: the factory runs (within 5 s)", n.load() > 0);
       std::thread t2([&] { second = slow.acquire(&a); });
       t1.join();
       t2.join();
@@ -270,6 +244,9 @@ namespace {
     }
   }
 
+  /// GL::CurrentContext (#362), on fake contexts: nesting on a thread, another thread waits until
+  /// the context is released, release() and reacquire() of a nested scope, heldContext(), and a
+  /// scope on a second context while the thread holds one is refused
   void checkCurrentContext()
   {
     FakeContext context;
@@ -330,6 +307,7 @@ namespace {
   /// suspend(): the context is current nowhere but reserved to the render; a render nested on
   /// the thread uses it; another thread waits until the render ends; a scope of this thread on
   /// another context doesn't wait for it
+  /// #362 (part 1 of #361).
   void checkSuspend()
   {
     FakeContext context, busyElsewhere;
@@ -487,6 +465,7 @@ namespace {
 
   /// A reacquire() that fails (e.g. a lost context) loses the thread's hold: the enclosing scope
   /// isn't ok() any more, and its end must leave alone the context another thread holds then.
+  /// #362.
   void checkLostHold()
   {
     FakeContext context;
@@ -566,6 +545,7 @@ namespace {
 
   /// listRenderers(): each renderer is selectable by its id, createContext(backends, id); an
   /// unknown id gives no context
+  /// #369.
   void checkRendererSelection(const GL::Hooks &hooks, const std::vector<GL::RendererInfo> &renderers)
   {
     for (const GL::RendererInfo &r : renderers) {
@@ -581,11 +561,26 @@ namespace {
     }
   }
 
-  /// The thread that created a context ends while another thread has the context current: that
-  /// thread still renders with it (WGL: on its own window, not on the creator's, which Windows
-  /// destroys), and the context is then made current again on a third thread.
+  /// The thread that created a context ends (#365; WGL: Windows destroys the creator's window,
+  /// and the context gets a window on the thread that makes it current), in two cases:
+  /// - before any other thread made the context current: it is then current on this thread;
+  /// - while another thread has the context current: that thread still renders with it, and the
+  ///   context is then made current again on a third thread.
+  /// #365.
   void checkCreatorThreadEnds(const GL::Hooks &hooks)
   {
+    {
+      std::unique_ptr<GL::Context> orphan;
+      std::thread([&] { orphan = GL::createContext(hooks, gBackends); }).join();
+      check("a context created on a thread that ended", orphan != nullptr);
+      if (orphan) {
+        typedef const unsigned char *(OFXH_GLAPIENTRY *GetStringFn)(unsigned int);
+        GL::CurrentContext current(*orphan);
+        const GetStringFn getString = reinterpret_cast<GetStringFn>(orphan->getProcAddress("glGetString"));
+        check("that context: current on another thread", current.ok() && currentNativeContext() == orphan->nativeContext() &&
+              getString && getString(0x1F02 /* GL_VERSION */) != nullptr);
+      }
+    }
     typedef unsigned int (OFXH_GLAPIENTRY *GetErrorFn)();
     typedef void (OFXH_GLAPIENTRY *ClearColorFn)(float, float, float, float);
     // renders with the context current on this thread: a clear of a texture as the render
@@ -713,6 +708,9 @@ namespace {
 
   const char *depthName(GL::PixelDepth d) { return GL::pixelDepthToOfx(d); }
 
+  /// GL::Texture (#362): upload and readback at every depth and components,
+  /// padded and negative rowBytes, partial rectangles; Alpha sampled as (0, 0, 0, a); the render
+  /// target; ~Texture deletes it
   void checkTextures(GL::Context &context)
   {
     const IsTextureFn isTexture = reinterpret_cast<IsTextureFn>(context.getProcAddress("glIsTexture"));
@@ -1180,7 +1178,7 @@ namespace {
             for (int c = 0; c < n; ++c) {
               const float expected = red ? (n == 1 || c == 0 || c == 3 ? 1.f : 0.f) : in->getComponentFloat(x, y, c);
               const float got = out->getComponentFloat(x, y, c);
-              addError(result.maxError, got, expected);
+              GPUChecks::addError(result.maxError, got, expected);
               if (result.mismatch.empty() && !(std::fabs(got - expected) <= 1e-3f)) {
                 result.mismatch = "first at (" + std::to_string(x) + ", " + std::to_string(y) + ") component " +
                                   std::to_string(c) + ": expected " + std::to_string(expected) + ", got " +
@@ -1205,6 +1203,7 @@ namespace {
   /// readOutput() copies the render window back, and leaves the host's other pixels: a pixel outside the
   /// window, changed after setOutput(), keeps its new value (the output image is the clip's, over window;
   /// the session's render window is smaller)
+  /// #370.
   void checkReadbackWindow(GLTestInstance &instance, GL::Attachment &attachment, GL::Context &context)
   {
     const OfxPointD scale = { 1., 1. };
@@ -1253,6 +1252,7 @@ namespace {
   /// the other's instance is attached to), and an instance switches context in a scope nested in
   /// another scope of the thread (a host rendering an input in getImage()). Detached and Attached
   /// must run with the right context really current, without deadlock.
+  /// #362.
   void checkCrosswiseAndNested(ImageEffect::ImageEffectPlugin *plugin, GLTestInstance &x, GL::Context &c1, GL::Context &c2)
   {
     GLTestInstance *y = dynamic_cast<GLTestInstance *>(plugin->createInstance(kOfxImageEffectContextFilter, NULL));
@@ -1305,6 +1305,7 @@ namespace {
   /// (without holding c2), then Detached on c1 and Attached on c2: "A host cannot call
   /// kOfxActionOpenGLContextAttached on the same instance without an intervening
   /// kOfxActionOpenGLContextDetached"
+  /// #369.
   void checkSwitchWaits(GLTestInstance &instance, GL::Context &c1, GL::Context &c2)
   {
     instance.actions.clear();
@@ -1347,6 +1348,7 @@ namespace {
   /// between, each session gets its context's data, and detach() sends Detached on each context
   /// with it current and its data. (Natron builds; without the extension, OFX 1.5.1's one context
   /// at a time is checked by checkCrosswiseAndNested().)
+  /// #368 (a Natron extension).
   void checkConcurrentAttachment(GLTestInstance &instance, GL::Context &c1, GL::Context &c2)
   {
 #ifdef OFX_EXTENSIONS_NATRON
@@ -1510,6 +1512,7 @@ namespace {
   /// thread gets another context (tryAcquire(), up to the maximum) or none (then the CPU), never
   /// the reserved one, and never waits; a render with the same key waits for the end of the
   /// render action.
+  /// #362.
   void checkExclusiveContext(GLTestInstance &instance)
   {
     GL::Hooks hooks;
@@ -1564,6 +1567,7 @@ namespace {
   /// contexts stay allocated, those lent stay with their renders, and no other is lent until
   /// fewer than the maximum are in use (tryAcquire() gives none, acquire() waits); raising it
   /// wakes a waiting acquire()
+  /// #368.
   void checkPoolLowered()
   {
     GL::Hooks hooks;
@@ -1616,6 +1620,7 @@ namespace {
   /// flushResources: ContextPool::releaseIdle() destroys the idle contexts that no instance is
   /// attached to; the suite's flushResources returns kOfxStatOK if the host released something,
   /// else kOfxStatReplyDefault (also without a host, and when the host throws)
+  /// #387.
   void checkFlushResources(GLTestHost &host, GLTestInstance &instance)
   {
     const OfxImageEffectOpenGLRenderSuiteV1 *suite =
@@ -1680,12 +1685,14 @@ namespace {
   /// the OpenGL statuses a plug-in may return: kOfxStatGLOutOfMemory from the render, and
   /// clipLoadTexture's kOfxStatErrMemory; an explicit clipLoadTexture format and a region; and the
   /// plug-in's switch of kOfxImageEffectPropOpenGLRenderSupported in kOfxActionInstanceChanged
+  /// #387.
   void checkStatusesAndFormats(MyHost::Host &host, GLTestInstance &instance, GL::Attachment &attachment, GL::Context &context)
   {
     const OfxRectI window = { 0, 0, 64, 48 };
     Property::Set &props = instance.getProps();
-    // "If a plug-in returns kOfxStatGLOutOfMemory, the host may choose to free resources on the
-    // GPU and retry the OpenGL render, rather than immediately falling back to CPU rendering"
+    // the CPU retry (#387): "If a plug-in returns kOfxStatGLOutOfMemory, the host may choose to
+    // free resources on the GPU and retry the OpenGL render, rather than immediately falling back
+    // to CPU rendering"
     instance.forceRenderStatus = kOfxStatGLOutOfMemory;
     RenderResult r = glRender(instance, attachment, context, window, "checker:5");
     check("a render that returns kOfxStatGLOutOfMemory: OpenGL failed, the CPU retry allowed (\"true\")",
@@ -1773,6 +1780,8 @@ namespace {
     check("an OpenGL render after the switch back (" + describeError(r) + ")", r.status == kOfxStatOK && r.maxError <= 1e-3f);
   }
 
+  /// #362, #368, #369, #387; #378, which fixed #373 in Examples/OpenGL (its rectangle stays in
+  /// the render window): the host was right, so the output comparison stays functional.
   void checkRenders(GLTestHost &host, GL::Context &c1, GL::Context &c2)
   {
     const char *path = std::getenv("OFX_PLUGIN_PATH");
@@ -1799,19 +1808,28 @@ namespace {
     check("createInstanceAction", created == kOfxStatOK || created == kOfxStatReplyDefault);
     check("getClipPreferences", instance->getClipPreferences());
 
-    // Examples/OpenGL says "needed"; with "true": OpenGL if the host has it, else the CPU
-    check("chooseRenderMode(\"needed\", OpenGL) = OpenGL", GL::chooseRenderMode(*instance, true) == GL::RenderMode::OpenGL);
-    instance->getProps().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "true");
-    check("chooseRenderMode(\"true\", OpenGL) = OpenGL", GL::chooseRenderMode(*instance, true) == GL::RenderMode::OpenGL);
-    check("chooseRenderMode(\"true\", no OpenGL) = CPU", GL::chooseRenderMode(*instance, false) == GL::RenderMode::CPU);
-    instance->getProps().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "needed");
-    check("chooseRenderMode(\"needed\", no OpenGL) = None", GL::chooseRenderMode(*instance, false) == GL::RenderMode::None);
-    instance->getProps().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "false");
-    check("chooseRenderMode(\"false\", OpenGL) = CPU", GL::chooseRenderMode(*instance, true) == GL::RenderMode::CPU);
-    instance->getProps().setStringProperty(kOfxImageEffectPropCPURenderSupported, "false");
-    check("chooseRenderMode(\"false\", CPU \"false\") = None", GL::chooseRenderMode(*instance, true) == GL::RenderMode::None);
-    instance->getProps().setStringProperty(kOfxImageEffectPropOpenGLRenderSupported, "true");
-    instance->getProps().setStringProperty(kOfxImageEffectPropCPURenderSupported, "true");
+    // chooseRenderMode() (#362): Examples/OpenGL says "needed"; with "true": OpenGL if the host
+    // has it, else the CPU; "needed" without OpenGL: None; "false": the CPU, or None if the
+    // plug-in can't render on the CPU either
+    Property::Set &props = instance->getProps();
+    const char *const gl = kOfxImageEffectPropOpenGLRenderSupported, *const cpu = kOfxImageEffectPropCPURenderSupported;
+    check("chooseRenderMode(\"needed\", OpenGL) = OpenGL (Examples/OpenGL's own \"needed\")",
+          props.getStringProperty(gl) == "needed" && GL::chooseRenderMode(*instance, true) == GL::RenderMode::OpenGL);
+    GPUChecks::checkRules({
+      { "chooseRenderMode(\"true\", OpenGL) = OpenGL", { { &props, gl, "true" } },
+        [&] { return GL::chooseRenderMode(*instance, true) == GL::RenderMode::OpenGL; } },
+      { "chooseRenderMode(\"true\", no OpenGL) = CPU", { { &props, gl, "true" } },
+        [&] { return GL::chooseRenderMode(*instance, false) == GL::RenderMode::CPU; } },
+      { "chooseRenderMode(\"needed\", no OpenGL) = None", { { &props, gl, "needed" } },
+        [&] { return GL::chooseRenderMode(*instance, false) == GL::RenderMode::None; } },
+      { "chooseRenderMode(\"false\", OpenGL) = CPU", { { &props, gl, "false" } },
+        [&] { return GL::chooseRenderMode(*instance, true) == GL::RenderMode::CPU; } },
+      { "chooseRenderMode(\"false\", CPU \"false\") = None", { { &props, gl, "false" }, { &props, cpu, "false" } },
+        [&] { return GL::chooseRenderMode(*instance, true) == GL::RenderMode::None; } },
+    });
+    // (the renders below: "true", the CPU "true")
+    props.setStringProperty(gl, "true");
+    props.setStringProperty(cpu, "true");
 
     gContexts[0] = &c1;
     gContexts[1] = &c2;
@@ -1896,7 +1914,6 @@ namespace {
 
 int main()
 {
-  checkAddError();
   checkBackendNames();
   if (!parseBackends()) {
     return 1;
@@ -1943,19 +1960,6 @@ int main()
         checkTextures(*c1);
       }
     }
-    {
-      // WGL: the context's window was destroyed with its thread; it gets a new one on this thread
-      std::unique_ptr<GL::Context> orphan;
-      std::thread([&] { orphan = GL::createContext(hooks, gBackends); }).join();
-      check("a context created on a thread that ended", orphan != nullptr);
-      if (orphan) {
-        typedef const unsigned char *(OFXH_GLAPIENTRY *GetStringFn)(unsigned int);
-        GL::CurrentContext current(*orphan);
-        const GetStringFn getString = reinterpret_cast<GetStringFn>(orphan->getProcAddress("glGetString"));
-        check("that context: current on another thread", current.ok() && currentNativeContext() == orphan->nativeContext() &&
-              getString && getString(0x1F02 /* GL_VERSION */) != nullptr);
-      }
-    }
     checkCreatorThreadEnds(hooks);
     std::unique_ptr<GL::Context> c2 = GL::createContext(hooks, gBackends, -1, &error);
     check("a second context", c2 != nullptr);
@@ -1968,6 +1972,6 @@ int main()
       checkRenders(host, *c1, *c2);
     }
   }
-  std::printf("openglRenderChecks: %d failure(s)\n", gFailures);
-  return gFailures ? 1 : 0;
+  std::printf("openglRenderChecks: %d failure(s)\n", GPUChecks::gFailures);
+  return GPUChecks::gFailures ? 1 : 0;
 }

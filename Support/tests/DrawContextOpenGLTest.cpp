@@ -299,6 +299,7 @@ static OfxPointD pt(double x, double y) { OfxPointD p = { x, y }; return p; }
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// #165, #182.
 static void testBackendSelection()
 {
   using namespace OFX;
@@ -454,6 +455,7 @@ static void *pointerProp(OfxPropertySetHandle h, const char *property)
 }
 
 // setOverlayInteractDescriptorV2(): which entries are registered
+// #182.
 static void testSetOverlayInteractDescriptorV2()
 {
   using namespace OFX;
@@ -587,6 +589,7 @@ static DrawRecord drawThrough(OfxPluginEntryPoint *entry, bool withDrawContext)
 }
 
 // the dispatcher: the backend follows the entry point the host called
+// #182.
 static void testDispatchPerEntry()
 {
   using namespace OFX;
@@ -703,6 +706,7 @@ static void testDispatchPerEntry()
 
 #ifdef OFXS_TEST_GL_CONTEXT
 // getDrawContext() without a current OpenGL context: no OpenGL call (they usually crash)
+// #165.
 static void testNoCurrentContext()
 {
   using namespace OFX;
@@ -751,6 +755,8 @@ static void testNoCurrentContext()
 
 // the run-time loading: the OpenGL functions, and the functions that tell whether a context is
 // current (on all systems: the Linux CI has libGL but no context)
+// #165. (c24ef9db, in its review: on glibc RTLD_DEFAULT is NULL. These checks are the run-time
+// loading contract, functional: they reproduce no glibc-only input.)
 static void testLoader()
 {
   using namespace OFX::Private;
@@ -775,6 +781,7 @@ static OfxStatus fakeEntry2(const char *, const void *, OfxPropertySetHandle, Of
 
 // the registry that setOverlayInteractDescriptor() and setOverlayInteractDescriptorV2() fill,
 // and that the interact dispatcher reads to set the DrawArgs registration
+// #165, #182.
 static void testRegistry()
 {
   using namespace OFX::Private;
@@ -802,6 +809,7 @@ static void testRegistry()
 }
 
 #ifdef OFXS_TEST_GL_CONTEXT
+/// #165.
 static void testOpenGL()
 {
   using namespace OFX;
@@ -1043,6 +1051,7 @@ static void testOpenGL()
 
 // kNatronOfxInteractPropDrawSuiteShadows: read by DrawArgs (OFX_EXTENSIONS_NATRON) for the
 // OpenGL backend; absent is 0
+// #186 (a Natron extension).
 static void testDrawSuiteShadows()
 {
   using namespace OFX;

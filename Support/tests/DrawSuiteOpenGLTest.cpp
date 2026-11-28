@@ -233,6 +233,7 @@ static State makeState(double psx = 1., double psy = 1., double ratio = 1., bool
 ////////////////////////////////////////////////////////////////////////////////
 // The tests
 
+/// #185.
 static void testLoad()
 {
   GLFunctions gl;
@@ -249,6 +250,7 @@ static void testLoad()
   CHECK(isComplete(fakeGL()));
 }
 
+/// #185.
 static void testResetState()
 {
   State s;
@@ -273,6 +275,7 @@ static void testResetState()
   CHECK(s.screenPixelRatio == 0.25);
 }
 
+/// #185.
 static void testStateSetters()
 {
   OfxRGBAColourF c;
@@ -308,6 +311,7 @@ static void testStateSetters()
   CHECK(stipplePattern(kOfxDrawLineStipplePatternDotDash) == 0x1FE3);
 }
 
+/// #185.
 static void testStatuses()
 {
   const GLFunctions gl = fakeGL();
@@ -361,6 +365,7 @@ static void testStatuses()
   CHECK(gCalls.empty());
 }
 
+/// #185.
 static void testPrimitives()
 {
   const GLFunctions gl = fakeGL();
@@ -433,6 +438,7 @@ static void testPrimitives()
   }
 }
 
+/// #185.
 static void testEllipseSegmentCount()
 {
   const double nan = std::sqrt(-1.), inf = 1e308 * 10.;
@@ -463,6 +469,7 @@ static void testEllipseSegmentCount()
   CHECK(ok);
 }
 
+/// #185.
 static void testLineState()
 {
   const GLFunctions gl = fakeGL();
@@ -513,6 +520,7 @@ static void testLineState()
   }
 }
 
+/// #185.
 static void testAlignText()
 {
   TextMetrics m;
@@ -548,6 +556,7 @@ static void testAlignText()
   CHECK(kOfxDrawTextAlignmentCenterH == 3 && kOfxDrawTextAlignmentCenterV == (kOfxDrawTextAlignmentTop | kOfxDrawTextAlignmentBaseline));
 }
 
+/// #185.
 static void testText()
 {
   TextMetrics m = builtinTextMetrics("A");
@@ -606,6 +615,7 @@ static void testText()
   CHECK(gCalls.empty());
 }
 
+/// #186 (kNatronOfxInteractPropDrawSuiteShadows, a Natron extension).
 static void testShadows()
 {
   const GLFunctions gl = fakeGL();
@@ -794,6 +804,7 @@ protected:
   }
 };
 
+/// #186.
 static void testHostHelper()
 {
   using OFX::Host::Interact::OpenGLDrawSuite;

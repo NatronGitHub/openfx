@@ -3,7 +3,7 @@
 
 /*
   thread-scope-test.ofx: a binary with no plug-in that uses OFX::MultiThread::ThreadScope, for
-  plugin-unload-test (Support/tests/PluginUnloadTest.cpp, #385). It is built twice: as a plug-in
+  plugin-unload-test (Support/tests/regression/PluginUnloadTest.cpp, a regression test of #385). It is built twice: as a plug-in
   is (thread-scope-test.ofx: hidden visibility, the OFX entry points only), and with default
   visibility and no export list (thread-scope-test-default.ofx). The test checks that a binary
   that uses ThreadScope (its keys created, then deleted at dlclose()) unloads, and works again

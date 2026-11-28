@@ -82,17 +82,25 @@ $(DST_DIR)/propsetDump : $(PROPSET_DUMP_FILES) $(OFXSLIB)
 	mkdir -p $(DST_DIR)
 	$(CXX) $(CXXFLAGS) $(PROPSET_DUMP_FILES) -o $(DST_DIR)/propsetDump -L../$(DST_DIR) -lofxHost $(EXPAT_LIBS) -ldl
 
-# suiteHandleChecks: the param, progress and timeline suites reject NULL and descriptor handles
-# (run by .github/scripts/hostdemo-checks.sh)
+# suiteHandleChecks: the unit checks of HostSupport (run by .github/scripts/hostdemo-checks.sh),
+# from HostSupport/tests: the functional checks of functional/, and the regression checks of
+# regression/, on these host classes (built here, next to hostDemo, as the CMake build has them
+# in HostSupport/tests)
+TESTS_DIR = ../tests
 SUITE_HANDLE_CHECKS_FILES = $(DST_DIR)/suiteHandleChecks.o \
+	$(DST_DIR)/suiteHandleRegressions.o \
 	$(DST_DIR)/hostDemoClipInstance.o     \
 	$(DST_DIR)/hostDemoEffectInstance.o   \
 	$(DST_DIR)/hostDemoHostDescriptor.o   \
 	$(DST_DIR)/hostDemoParamInstance.o
 
-$(DST_DIR)/suiteHandleChecks.o : suiteHandleChecks.cpp $(HOST_DEMO_HEADERS)
+$(DST_DIR)/suiteHandleChecks.o : $(TESTS_DIR)/functional/suiteHandleChecks.cpp $(TESTS_DIR)/suiteHandleChecks.h $(HOST_DEMO_HEADERS)
 	mkdir -p $(DST_DIR)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -I. -c -o $@ $<
+
+$(DST_DIR)/suiteHandleRegressions.o : $(TESTS_DIR)/regression/suiteHandleRegressions.cpp $(TESTS_DIR)/suiteHandleChecks.h $(HOST_DEMO_HEADERS)
+	mkdir -p $(DST_DIR)
+	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -I. -c -o $@ $<
 
 $(DST_DIR)/suiteHandleChecks : $(SUITE_HANDLE_CHECKS_FILES) $(OFXSLIB)
 	mkdir -p $(DST_DIR)

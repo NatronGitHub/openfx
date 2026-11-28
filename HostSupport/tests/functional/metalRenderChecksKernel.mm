@@ -208,6 +208,17 @@ void *makeWeakBuffer(void *object)
   return w;
 }
 
+/// a new object, autoreleased into the innermost autorelease pool of the thread (which then has
+/// its only reference): a weak reference to it, for weakBufferAlive() and deleteWeakBuffer()
+void *makeAutoreleasedObject()
+{
+  WeakObject *w = new WeakObject;
+  NSObject *object = [[NSObject alloc] init];
+  w->object = object;
+  CFAutorelease(CFBridgingRetain(object));
+  return w;
+}
+
 bool weakBufferAlive(void *weak)
 {
   // (in a pool: reading a weak reference may autorelease what it loads, which would keep it alive)

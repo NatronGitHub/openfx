@@ -3,20 +3,15 @@
 
 /*
   Self-test of Support library code that needs no host (target support-library-test, built with
-  -DBUILD_EXAMPLE_PLUGINS=ON):
+  -DBUILD_EXAMPLE_PLUGINS=ON). This file has the functional tests (each one's comment gives its
+  PR); the regression tests, each for a fixed bug, are in regression/SupportLibraryRegressions.cpp,
+  linked into the same program and run after these:
 
-  - a null action passed to the interact entry point returns kOfxStatFailed (std::string(NULL) is
-    undefined behaviour);
-  - OFX::MultiThread::AutoMutexT's destructor doesn't throw (std::terminate()) when the mutex's
-    unlock() throws;
-  - OFX::ParamSet::EditBlock's destructor doesn't throw (std::terminate()) when the host's
-    paramEditEnd() fails, and its options (eBeginOnChange, eHostErrorsIgnore) begin and end the
-    edit block when they should;
+  - OFX::ParamSet::EditBlock's options (eBeginOnChange, eHostErrorsIgnore) begin and end the edit
+    block when they should;
   - lazy registration (a static OFX::PluginFactories(f) object): the function set from a static
     initializer is called once, at the first OfxGetNumberOfPlugins(), and its factories are the
     plug-ins of the binary;
-  - define*Param() throws OFX::Exception::TypeRequest when a param of the same name but another
-    type was already defined;
   - the accessors of a property the host may not have (OFX::Private::propGetIntOr() and the
     others, ofxsProperty.cpp): a property the host doesn't have gives the default, or writes
     nothing; other failures throw; propSetStringIfSupported() returns whether the host took it;
@@ -30,19 +25,21 @@
   - the double param descriptors' default coordinate system: no write while Plain or non-spatial;
     setDoubleType() to a spatial type writes the plug-in's setDefaultCoordinateSystem() choice,
     made before or after, or canonical, over a host's reset (Nuke: normalised);
-  - ClipPreferencesSetter::setPixelAspectRatio(): the host's PAR isn't written again, and a refused
-    or unknown PAR is a warning, not an exception;
   - OFX::MultiThread::ThreadScope: nullptr outside any scope, nesting, restored when an exception
     leaves a scope, two independent kinds, and per-thread values on several threads at once;
-  - on macOS, this binary (which links the Support library) has no thread-local variables
-    (MH_HAS_TLV_DESCRIPTORS): dyld never unloads a plug-in that has them (#385);
   - with OFX_EXTENSIONS_NATRON, OFX::Private::decodeNativeOverlayHandle(), which decodes the host's
     kNatronOfxPropNativeOverlays strings (ofxNatron.h) into ImageEffectHostDescription::nativeInteracts.
+
+  The regression tests: a null action passed to the interact entry point; AutoMutexT's and
+  EditBlock's destructors don't throw; define*Param() of an existing name with another type
+  throws; setPixelAspectRatio() doesn't write the host's PAR again; on macOS, this binary has no
+  thread-local variables (#385).
 
   The null action through an image effect's entry point (OfxPlugin::mainEntry) is tested on a
   plug-in bundle, in Support/Plugins/tests/regression/test_entry_point.py.
 
-  Prints one line per failed check, and exits with 0 if all passed.
+  Prints one line per failed check, the number of checks of each kind, and exits with 0 if all
+  passed.
 */
 
 #include <atomic>
@@ -55,99 +52,15 @@
 #include <string>
 #include <vector>
 
-#include "ofxsSupportPrivate.h"
-#include "ofxsImageEffect.h"
+#include "SupportLibraryTest.h"
 #include "ofxsInteract.h"
 #include "ofxsMultiThread.h"
 
-#ifdef __APPLE__
-#include <mach-o/dyld.h>
-#include <mach-o/loader.h>
-#endif
-
-static std::atomic<int> gFailures(0); // CHECK runs on worker threads too
-
-#define CHECK(cond) \
-  do { \
-    if (!(cond)) { \
-      std::printf("FAILED %s:%d: %s\n", __FILE__, __LINE__, #cond); \
-      ++gFailures; \
-    } \
-  } while (0)
+using namespace SupportLibraryTest;
 
 namespace {
 
-  class TestInteract : public OFX::OverlayInteract {
-  public:
-    TestInteract(OfxInteractHandle handle, OFX::ImageEffect* effect) : OFX::OverlayInteract(handle) { (void)effect; }
-  };
-
-  class TestInteractDescriptor : public OFX::DefaultEffectOverlayDescriptor<TestInteractDescriptor, TestInteract> {};
-
-  void testNullInteractAction()
-  {
-    TestInteractDescriptor desc;
-    CHECK(OFX::Private::interactMainEntry(NULL, NULL, NULL, NULL, desc) == kOfxStatFailed);
-  }
-
-  struct ThrowingMutex {
-    int locks;
-    int unlocks;
-    ThrowingMutex() : locks(0), unlocks(0) {}
-    void lock() { ++locks; }
-    void unlock() { ++unlocks; throw std::runtime_error("unlock failed"); }
-  };
-
-  void testAutoMutexDestructorDoesNotThrow()
-  {
-    ThrowingMutex m;
-    bool caught = false;
-    try {
-      // would call std::terminate() if the exception left ~AutoMutexT()
-      OFX::MultiThread::AutoMutexT<ThrowingMutex> lock(m);
-    } catch (...) {
-      caught = true;
-    }
-    CHECK(!caught);
-    CHECK(m.locks == 1);
-    CHECK(m.unlocks == 1);
-
-    // an explicit unlock() still throws, and the destructor doesn't unlock again
-    caught = false;
-    ThrowingMutex m2;
-    {
-      OFX::MultiThread::AutoMutexT<ThrowingMutex> lock2(m2);
-      try {
-        lock2.unlock();
-      } catch (const std::runtime_error&) {
-        caught = true;
-      }
-    }
-    CHECK(caught);
-    CHECK(m2.unlocks == 1);
-  }
-
-  // a param suite with only the edit block functions, which count their calls and return the
-  // given statuses
-  int gEditBegins = 0;
-  int gEditEnds = 0;
-  OfxStatus gEditBeginStatus = kOfxStatOK;
-  OfxStatus gEditEndStatus = kOfxStatOK;
-  OfxStatus editBegin(OfxParamSetHandle, const char*) { ++gEditBegins; return gEditBeginStatus; }
-  OfxStatus editEnd(OfxParamSetHandle) { ++gEditEnds; return gEditEndStatus; }
-
-  class TestEditParamSet : public OFX::ParamSet {};
-
-  typedef OFX::ParamSet::EditBlock EditBlock;
-
-  void resetEditSuite(OfxStatus beginStatus, OfxStatus endStatus)
-  {
-    gEditBegins = 0;
-    gEditEnds = 0;
-    gEditBeginStatus = beginStatus;
-    gEditEndStatus = endStatus;
-  }
-
+  // #304 (45578b69): EditBlock's options (the no-throw destructor is a regression test)
   void testEditBlock()
   {
     OfxParameterSuiteV1 suite = OfxParameterSuiteV1();
@@ -156,31 +69,10 @@ namespace {
     OfxParameterSuiteV1* saved = OFX::Private::gParamSuite;
     OFX::Private::gParamSuite = &suite;
     TestEditParamSet set;
-
-    // the destructor doesn't throw when paramEditEnd() fails
-    resetEditSuite(kOfxStatOK, kOfxStatFailed);
     bool caught = false;
-    try {
-      // would call std::terminate() if the exception left ~EditBlock()
-      EditBlock eb(set, "test");
-    } catch (...) {
-      caught = true;
-    }
-    CHECK(!caught);
-    CHECK(gEditBegins == 1 && gEditEnds == 1);
-
-    // ParamSet::endEditBlock() still reports the failure
-    caught = false;
-    try {
-      set.endEditBlock();
-    } catch (const OFX::Exception::Suite& e) {
-      caught = e.status() == kOfxStatFailed;
-    }
-    CHECK(caught);
 
     // by default, a failed begin throws from the constructor, and there is no end
     resetEditSuite(kOfxStatFailed, kOfxStatOK);
-    caught = false;
     try {
       EditBlock eb(set, "test");
     } catch (const OFX::Exception::Suite&) {
@@ -273,7 +165,7 @@ namespace {
     OFX::Private::gParamSuite = saved;
   }
 
-  // lazy registration: one plug-in, registered at the first OfxGetNumberOfPlugins()
+  // lazy registration (#306): one plug-in, registered at the first OfxGetNumberOfPlugins()
   mDeclarePluginFactory(LazyTestFactory, {}, {});
   void LazyTestFactory::describe(OFX::ImageEffectDescriptor&) {}
   void LazyTestFactory::describeInContext(OFX::ImageEffectDescriptor&, OFX::ContextEnum) {}
@@ -288,6 +180,7 @@ namespace {
   }
   OFX::PluginFactories gLazyRegistration(&registerLazyTestPlugins);
 
+  /// #306.
   void testLazyRegistration()
   {
     CHECK(OFX::PluginFactories::lazyRegistration() == &registerLazyTestPlugins);
@@ -302,25 +195,8 @@ namespace {
     CHECK(gLazyRegistrations == 1);
   }
 
-  // a param set with a param "p" already defined, without a host (no param suite is called)
-  class TestParamSet : public OFX::ParamSetDescriptor {
-  public:
-    TestParamSet() { _definedParams["p"] = new OFX::DummyParamDescriptor("p"); }
-  };
-
-  void testDefineParamTypeMismatchThrows()
-  {
-    TestParamSet set;
-    bool thrown = false;
-    try {
-      set.defineIntParam("p");
-    } catch (const OFX::Exception::TypeRequest&) {
-      thrown = true;
-    }
-    CHECK(thrown);
-  }
-
-  // a property suite whose functions return gPropStatus (and 7, 0.5, "set" on success)
+  // the accessors of a property an OFX 1.1 host may not have (#351): a property suite whose
+  // functions return gPropStatus (and 7, 0.5, "set" on success)
   OfxStatus gPropStatus = kOfxStatOK;
   int gPropSets = 0;
   OfxStatus propSetInt(OfxPropertySetHandle, const char*, int, int) { ++gPropSets; return gPropStatus; }
@@ -331,6 +207,7 @@ namespace {
   OfxStatus propGetDouble(OfxPropertySetHandle, const char*, int, double* v) { *v = 0.5; return gPropStatus; }
   OfxStatus propGetString(OfxPropertySetHandle, const char*, int, const char** v) { *v = "set"; return gPropStatus; }
 
+  /// #351 (OFX 1.1 hosts).
   void testPropertyDefaults()
   {
     OfxPropertySuiteV1 suite = OfxPropertySuiteV1();
@@ -408,7 +285,7 @@ namespace {
     OFX::Private::gPropSuite = saved;
   }
 
-  // Param::getUseHostNativeOverlayHandle() on an instance: the host has
+  // Param::getUseHostNativeOverlayHandle() (#364) on an instance: the host has
   // kOfxParamPropUseHostOverlayHandle (gOverlayValue), or not (kOfxStatErrUnknown)
   OfxStatus gOverlayStatus = kOfxStatOK;
   int gOverlayValue = 0;
@@ -432,6 +309,7 @@ namespace {
     TestParam() : OFX::Param(NULL, "p", OFX::eDummyParam, reinterpret_cast<OfxParamHandle>(&gOverlayPropSet)) {}
   };
 
+  /// #364.
   void testUseHostNativeOverlayHandle()
   {
     OfxPropertySuiteV1 propSuite = OfxPropertySuiteV1();
@@ -532,6 +410,7 @@ namespace {
     gCoordWrites = gDoubleWrites = 0;
   }
 
+  // the double params' default coordinate system written by setDoubleType() (#354)
   void testDefaultCoordinateSystem()
   {
     OfxPropertySuiteV1 suite = OfxPropertySuiteV1();
@@ -596,68 +475,7 @@ namespace {
     void multiThreadFunction(unsigned int /*threadID*/, unsigned int nThreads) override { ++calls; lastThreads = nThreads; }
   };
 
-  // ClipPreferencesSetter::setPixelAspectRatio(): outArgs holds the host's PAR (1); the host
-  // answers a write with gParSetStatus
-  OfxStatus gParSetStatus = kOfxStatOK;
-  int gParSets = 0;
-  OfxStatus parGetDouble(OfxPropertySetHandle, const char*, int, double* v) { *v = 1.; return kOfxStatOK; }
-  OfxStatus parSetDouble(OfxPropertySetHandle, const char*, int, double) { ++gParSets; return gParSetStatus; }
-  OfxStatus parGetDimension(OfxPropertySetHandle, const char*, int*) { return kOfxStatErrUnknown; }
-
-  // the constructor is protected
-  struct TestClip : public OFX::Clip {
-    explicit TestClip(OfxPropertySetHandle h) : OFX::Clip(NULL, kOfxImageEffectOutputClipName, NULL, h) {}
-  };
-
-  void testSetPixelAspectRatio()
-  {
-    OfxPropertySuiteV1 suite = OfxPropertySuiteV1();
-    suite.propGetDouble = parGetDouble;
-    suite.propSetDouble = parSetDouble;
-    suite.propGetInt = propGetInt; // (for the clip property validation of debug builds)
-    suite.propGetString = propGetString;
-    suite.propGetDimension = parGetDimension;
-    OfxPropertySuiteV1* saved = OFX::Private::gPropSuite;
-    OFX::Private::gPropSuite = &suite;
-    int dummy = 0;
-    OfxPropertySetHandle h = reinterpret_cast<OfxPropertySetHandle>(&dummy);
-    TestClip clip(h);
-    std::map<std::string, std::string> none, pars;
-    pars[kOfxImageEffectOutputClipName] = "OfxImageClipPropPAR_Output";
-    OFX::ClipPreferencesSetter setter(OFX::PropertySet(h), none, none, pars);
-
-    // the host's PAR (openfx-io GenericReader's 1 in a host without multiple clip PARs): no write
-    gParSets = 0;
-    setter.setPixelAspectRatio(clip, 1.);
-    CHECK(gParSets == 0 && setter.didSomething());
-
-    // another PAR: written; refused (read-only) or unknown to the host, a warning, not an exception
-    for (OfxStatus st : {kOfxStatOK, kOfxStatErrValue, kOfxStatErrUnknown, kOfxStatErrUnsupported}) {
-      gParSetStatus = st;
-      gParSets = 0;
-      bool caught = false;
-      try {
-        setter.setPixelAspectRatio(clip, 2.);
-      } catch (...) {
-        caught = true;
-      }
-      CHECK(gParSets == 1 && !caught);
-    }
-
-    // other failures throw
-    gParSetStatus = kOfxStatErrBadHandle;
-    bool caught = false;
-    try {
-      setter.setPixelAspectRatio(clip, 2.);
-    } catch (const OFX::Exception::Suite&) {
-      caught = true;
-    }
-    CHECK(caught);
-
-    gParSetStatus = kOfxStatOK;
-    OFX::Private::gPropSuite = saved;
-  }
-
+  // a thread suite without some of its functions, as an OFX 1.1 host's (#351)
   void testThreadSuiteWithoutFunctions()
   {
     // the thread suite of a host that has only some of its functions (Sony Catalyst Edit has no
@@ -691,6 +509,7 @@ namespace {
     return got;
   }
 
+  // OFX::MultiThread::Mutex without the host's mutex functions (#351)
   void testMutexWithoutMutexFunctions()
   {
     // a thread suite without the mutex functions (Sony Catalyst Edit)
@@ -776,6 +595,8 @@ namespace {
     return s ? s->window : -1;
   }
 
+  // OFX::MultiThread::ThreadScope (#386): nullptr outside, nesting, restored on an exception, two
+  // kinds, per thread (PluginUnloadTest's thread-scope-test.ofx tests it in a plug-in-like binary)
   void testThreadScope()
   {
     // before the first scope, the key doesn't exist yet
@@ -834,29 +655,11 @@ namespace {
     CHECK(currentTime() == -1. && currentWindow() == -1);
   }
 
-#ifdef __APPLE__
-  // dyld never unloads an image that has thread-local variables (MachOAnalyzer::neverUnload()):
-  // the Support library must have none, so that plug-ins built with it can be unloaded
-  void testNoThreadLocalVariables()
-  {
-    for (uint32_t i = 0; i < _dyld_image_count(); ++i) {
-      const struct mach_header* h = _dyld_get_image_header(i);
-      if (h && h->filetype == MH_EXECUTE) {
-        if (h->flags & MH_HAS_TLV_DESCRIPTORS) {
-          std::printf("FAILED: %s has thread-local variables (MH_HAS_TLV_DESCRIPTORS)\n", _dyld_get_image_name(i));
-          ++gFailures;
-        }
-        return;
-      }
-    }
-    std::printf("FAILED: no executable image found\n");
-    ++gFailures;
-  }
-#endif
-
 #ifdef OFX_EXTENSIONS_NATRON
   typedef OFX::ImageEffectHostDescription::NativeOverlayHandle Handle;
 
+  // decodeNativeOverlayHandle() (#219): ofxNatron.h's examples, '_' in names, bad strings refused
+  // and the handle left unchanged
   void testDecodeNativeOverlayHandle()
   {
     // the examples of ofxNatron.h
@@ -909,10 +712,8 @@ namespace {
     };
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i) {
       Handle b = h;
-      if (OFX::Private::decodeNativeOverlayHandle(bad[i], b)) {
-        std::printf("FAILED: decoded the bad string '%s'\n", bad[i]);
-        ++gFailures;
-      }
+      report(!OFX::Private::decodeNativeOverlayHandle(bad[i], b), __FILE__, __LINE__,
+             std::string("the bad string '") + bad[i] + "' is refused");
       CHECK(b.identifier == h.identifier && b.parameters == h.parameters);
     }
   }
@@ -922,28 +723,27 @@ namespace {
 
 int main()
 {
-  testNullInteractAction();
-  testAutoMutexDestructorDoesNotThrow();
   testEditBlock();
-  testDefineParamTypeMismatchThrows();
   testLazyRegistration();
   testPropertyDefaults();
   testUseHostNativeOverlayHandle();
   testDefaultCoordinateSystem();
-  testSetPixelAspectRatio();
   testThreadSuiteWithoutFunctions();
   testMutexWithoutMutexFunctions();
   testThreadScope();
-#ifdef __APPLE__
-  testNoThreadLocalVariables();
-#endif
 #ifdef OFX_EXTENSIONS_NATRON
   testDecodeNativeOverlayHandle();
 #else
   std::printf("support-library-test: OFX_EXTENSIONS_NATRON is off, decodeNativeOverlayHandle() not tested\n");
 #endif
-  if (gFailures) {
-    std::printf("support-library-test: %d failed check(s)\n", gFailures.load());
+  runRegressions();
+  const char* kinds[2] = { "functional", "regression" };
+  for (int k = 0; k < 2; ++k) {
+    std::printf("support-library-test: %s: %d of %d checks passed\n", kinds[k], gChecks[k] - gFailures[k], gChecks[k].load());
+  }
+  const int failures = gFailures[0] + gFailures[1];
+  if (failures) {
+    std::printf("support-library-test: %d failed check(s)\n", failures);
     return 1;
   }
   std::printf("support-library-test: all checks passed\n");
